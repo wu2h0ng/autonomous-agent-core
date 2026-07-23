@@ -1,0 +1,13 @@
+{
+  "baseline_assignment_id": "baseline:selfdev-mt-20260723-t4",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+  "operator_intervention_count": 1,
+  "hcw_minutes": 1.5,
+  "outcome_status": "VERIFIED",
+  "evidence_refs": [
+    "agent-run:selfdev-mt-20260723:t4:founder-model-tools-source-fix",
+    "verifier:e927adcdaea5eecf5c14981fffb9dac61dfe06a8b844adbe638b78de34be0adb"
+  ],
+  "record_digest": "d5dc12f75c819f88f3f5baff159a343834616294acb3be0c43b20116add2ccf6"
+}

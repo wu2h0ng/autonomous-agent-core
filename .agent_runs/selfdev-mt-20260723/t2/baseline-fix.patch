@@ -1,0 +1,26 @@
+diff --git a/packages/os_core/src/agent_os_core/self_development.py b/packages/os_core/src/agent_os_core/self_development.py
+index c3ceeb8..1775759 100644
+--- a/packages/os_core/src/agent_os_core/self_development.py
++++ b/packages/os_core/src/agent_os_core/self_development.py
+@@ -616,13 +616,18 @@ def _validate_evidence_refs(
+     field: str,
+     evidence_refs: tuple[str, ...],
+ ) -> tuple[str, ...]:
+-    normalized = tuple(sorted(str(ref) for ref in evidence_refs if str(ref).strip()))
+-    if not normalized:
++    cleaned = tuple(str(ref) for ref in evidence_refs if str(ref).strip())
++    if not cleaned:
+         raise SelfDevelopmentValidationError(
+             INVALID_SELFDEV_TARGET,
+             f"{field} are required",
+         )
+-    return normalized
++    if len(cleaned) != len(set(cleaned)):
++        raise SelfDevelopmentValidationError(
++            INVALID_SELFDEV_TARGET,
++            f"{field} contain EVIDENCE_REF_DUPLICATE",
++        )
++    return tuple(sorted(cleaned))
+ 
+ 
+ def _selfdev_workflow(created_at: datetime) -> WorkflowGraph:

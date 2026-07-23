@@ -1,0 +1,3108 @@
+{
+  "mode": "REAL_PROVIDER_RUN_COMPLETED",
+  "provider": {
+    "base_url_configured": true,
+    "model_configured": true,
+    "credential_env": "KIMI_API_KEY",
+    "credential_available": true
+  },
+  "runtime_provider": {
+    "configured": true,
+    "profile_id": "provider-profile:default",
+    "provider_id": "openai-compatible",
+    "model_id": "kimi-k2-0711-preview",
+    "model_revision_digest": null,
+    "endpoint_class": "openai-compatible"
+  },
+  "readiness": {
+    "admission_receipt": {
+      "mandate_id": "META-SHADOW-MANDATE-0",
+      "repository_id": "autonomous-agent-core",
+      "repository_head": "4c40ff6",
+      "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-mt-20260723/t3/provider",
+      "isolated_branch": "codex/selfdev-mt-20260723-t3",
+      "target_path": "apps/cli/__main__.py",
+      "verifier_commands": [
+        "python -m pytest"
+      ],
+      "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+      "rollback_strategy": "compensate_task",
+      "operator_intervention_count": 0,
+      "hcw_minutes": 0.0,
+      "baseline_assignment_id": "baseline:selfdev-mt-20260723-t3",
+      "receipt_digest": "77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832"
+    },
+    "ready": true,
+    "blockers": [],
+    "next_required_actions": []
+  },
+  "baseline_record": {
+    "baseline_assignment_id": "baseline:selfdev-mt-20260723-t3",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "apps/cli/__main__.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 2.0,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-mt-20260723:t3:founder-model-tools-source-fix",
+      "verifier:d8ec0bf0b5f2399271e88d04ec4db3cbc8d12ebf545c04833e7b0741c80d37a7"
+    ],
+    "record_digest": "abcb611e2ab39b13836954c978bdbb628092b854d2db4888d103b3d21d71d142"
+  },
+  "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+  "approval_required": false,
+  "task": {
+    "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+    "sequence": 44,
+    "status": "FAILED",
+    "goal": {
+      "schema_version": "1.0",
+      "goal_id": "goal:selfdev:77cb8ae23fbc",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "created_by": "user:local",
+      "created_at": "2026-07-23T00:49:50.963201Z",
+      "statement": "In apps/cli/__main__.py, make selfdev-run-provider report provider run failures structurally. Acceptance contract: when run_task raises agent_os_core RunExecutionError, the command must print a JSON object to stdout containing mode REAL_PROVIDER_RUN_FAILED and the task payload, and must not crash with a traceback; success-path output must remain unchanged.",
+      "constraints": []
+    },
+    "commitment": {
+      "schema_version": "1.0",
+      "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+      "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+      "goal_id": "goal:selfdev:77cb8ae23fbc",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "accepted_by": "user:local",
+      "accepted_at": "2026-07-23T00:49:50.963201Z",
+      "deliverables": [
+        "Agent OS repository patch",
+        "SELFDEV admission receipt 77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832"
+      ],
+      "acceptance_criteria": [
+        "admission receipt validates SELFDEV target",
+        "exact-digest approval is recorded before patch effect",
+        "allowlisted verifier evidence is content-bound",
+        "compensation restores pre-change bytes"
+      ],
+      "authority_scopes": [
+        "task.configuration.snapshot",
+        "workspace:read",
+        "workspace:write"
+      ],
+      "budget": {
+        "schema_version": "1.0",
+        "max_cost_usd": "1",
+        "max_duration_seconds": 3600,
+        "max_provider_tokens": 1000,
+        "max_tool_calls": 10
+      },
+      "risk_tier": 1,
+      "assumptions": [],
+      "exit_conditions": [
+        "verified",
+        "compensated on failure"
+      ],
+      "expires_at": "2026-07-23T01:49:50.963201Z"
+    },
+    "workflow": {
+      "schema_version": "1.0",
+      "workflow_id": "workflow:selfdev-s2",
+      "version": 1,
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "created_by": "user:local",
+      "created_at": "2026-07-23T00:49:50.963201Z",
+      "policy_version": "policy-1",
+      "evaluator_refs": [
+        "evaluator:pytest:1"
+      ],
+      "nodes": [
+        {
+          "schema_version": "1.0",
+          "node_id": "read",
+          "kind": "tool",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "workspace.read",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "idempotent",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "provider",
+          "kind": "provider",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "provider.chat",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "approve",
+          "kind": "approval",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": null,
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "apply",
+          "kind": "tool",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "workspace.apply_patch",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "compensatable",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "tests",
+          "kind": "tool",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "workspace.run_tests",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "compensatable",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "evaluate",
+          "kind": "evaluation",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": null,
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "done",
+          "kind": "terminal",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": null,
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        }
+      ],
+      "edges": [
+        {
+          "schema_version": "1.0",
+          "source": "read",
+          "target": "provider",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "provider",
+          "target": "approve",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "approve",
+          "target": "apply",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "apply",
+          "target": "tests",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "tests",
+          "target": "evaluate",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "evaluate",
+          "target": "done",
+          "condition": null
+        }
+      ],
+      "max_replans": 1
+    },
+    "run": {
+      "schema_version": "1.0",
+      "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+      "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+      "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+      "workflow_id": "workflow:selfdev-s2",
+      "workflow_version": 1,
+      "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+      "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "status": "FAILED",
+      "created_at": "2026-07-23T00:49:50.973043Z",
+      "provider_profile_id": "provider-profile:default",
+      "policy_version": "policy-1",
+      "lease_fence": 2,
+      "active_node_id": null,
+      "attempt": 1,
+      "wait_condition": null,
+      "replan_count": 0,
+      "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+      "configuration_snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82"
+    },
+    "expected_outcome": {
+      "schema_version": "1.0",
+      "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+      "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "evaluator_type": "pytest",
+      "evaluator_version": "1",
+      "evidence_requirements": [
+        "test-report"
+      ],
+      "failure_semantics": [
+        "non-zero exit"
+      ],
+      "threshold": 1.0,
+      "observation_window_seconds": 3600,
+      "frozen_at": "2026-07-23T00:49:50.963201Z"
+    },
+    "configuration_snapshot": {
+      "schema_version": "1.0",
+      "snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+      "snapshot_version": 1,
+      "snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+      "seal_request_digest": "876c0582d7358e6429e31aa09e69a7d2c688f024582cffd0f503e7005d19ddef",
+      "consumer_task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+      "reserved_run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+      "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "principal_id": "user:local",
+      "workflow": {
+        "schema_version": "1.0",
+        "workflow_id": "workflow:selfdev-s2",
+        "version": 1,
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "created_by": "user:local",
+        "created_at": "2026-07-23T00:49:50.963201Z",
+        "policy_version": "policy-1",
+        "evaluator_refs": [
+          "evaluator:pytest:1"
+        ],
+        "nodes": [
+          {
+            "schema_version": "1.0",
+            "node_id": "read",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.read",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "idempotent",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "provider",
+            "kind": "provider",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "provider.chat",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "approve",
+            "kind": "approval",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "apply",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.apply_patch",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "compensatable",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "tests",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.run_tests",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "compensatable",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "evaluate",
+            "kind": "evaluation",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "done",
+            "kind": "terminal",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          }
+        ],
+        "edges": [
+          {
+            "schema_version": "1.0",
+            "source": "read",
+            "target": "provider",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "provider",
+            "target": "approve",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "approve",
+            "target": "apply",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "apply",
+            "target": "tests",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "tests",
+            "target": "evaluate",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "evaluate",
+            "target": "done",
+            "condition": null
+          }
+        ],
+        "max_replans": 1
+      },
+      "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+      "policy_version": "policy-1",
+      "policy_digest": "96919d59893d7310515e41132b30f5175933f2b201eb6ec3fa70a54228a28f5b",
+      "provider_profile": {
+        "schema_version": "1.0",
+        "profile_id": "provider-profile:default",
+        "provider_id": "openai-compatible",
+        "model_id": "kimi-k2-0711-preview",
+        "model_revision_digest": null,
+        "endpoint_class": "openai-compatible",
+        "credential_ref_id": "credential:default",
+        "capabilities": [
+          "chat"
+        ],
+        "max_context_tokens": 16000,
+        "request_timeout_seconds": 180,
+        "created_at": "1970-01-01T00:00:00Z"
+      },
+      "provider_profile_digest": "d81c01c21198543967d0b14192f48426f1830df4b8538d630ffa9320b5b54a46",
+      "execution_grants": [
+        {
+          "schema_version": "1.0",
+          "grant_id": "grant:workspace.apply_patch",
+          "principal_id": "user:local",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local",
+          "capability_id": "workspace.apply_patch",
+          "capability_version": "1",
+          "max_risk_tier": 1,
+          "budget_limit": {
+            "schema_version": "1.0",
+            "max_cost_usd": "10",
+            "max_duration_seconds": 3600,
+            "max_provider_tokens": 100000,
+            "max_tool_calls": 100
+          },
+          "status": "ACTIVE",
+          "granted_by": "system",
+          "granted_at": "2026-07-23T00:49:50.957649Z",
+          "expires_at": "2026-08-22T00:49:50.957649Z"
+        },
+        {
+          "schema_version": "1.0",
+          "grant_id": "grant:workspace.read",
+          "principal_id": "user:local",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local",
+          "capability_id": "workspace.read",
+          "capability_version": "1",
+          "max_risk_tier": 1,
+          "budget_limit": {
+            "schema_version": "1.0",
+            "max_cost_usd": "10",
+            "max_duration_seconds": 3600,
+            "max_provider_tokens": 100000,
+            "max_tool_calls": 100
+          },
+          "status": "ACTIVE",
+          "granted_by": "system",
+          "granted_at": "2026-07-23T00:49:50.957649Z",
+          "expires_at": "2026-08-22T00:49:50.957649Z"
+        },
+        {
+          "schema_version": "1.0",
+          "grant_id": "grant:workspace.run_tests",
+          "principal_id": "user:local",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local",
+          "capability_id": "workspace.run_tests",
+          "capability_version": "1",
+          "max_risk_tier": 1,
+          "budget_limit": {
+            "schema_version": "1.0",
+            "max_cost_usd": "10",
+            "max_duration_seconds": 3600,
+            "max_provider_tokens": 100000,
+            "max_tool_calls": 100
+          },
+          "status": "ACTIVE",
+          "granted_by": "system",
+          "granted_at": "2026-07-23T00:49:50.957649Z",
+          "expires_at": "2026-08-22T00:49:50.957649Z"
+        }
+      ],
+      "execution_grants_digest": "38a124d92de03dabbaf5ab2351bd629768481cd8f212707705f6b8dcf14e7480",
+      "expected_outcome": {
+        "schema_version": "1.0",
+        "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "evaluator_type": "pytest",
+        "evaluator_version": "1",
+        "evidence_requirements": [
+          "test-report"
+        ],
+        "failure_semantics": [
+          "non-zero exit"
+        ],
+        "threshold": 1.0,
+        "observation_window_seconds": 3600,
+        "frozen_at": "2026-07-23T00:49:50.963201Z"
+      },
+      "expected_outcome_digest": "64914d8d9a2217384ba141d10946acd6ea790f3cdd09a566dedeaaa344db5f94",
+      "observed_correction_epochs": {
+        "schema_version": "1.0",
+        "task_epoch": 0,
+        "run_epoch": 0,
+        "capability_epoch": 0
+      },
+      "optional_prior": null,
+      "sealed_by": "system:task-configuration-sealer:v1",
+      "sealed_at": "2026-07-23T00:49:50.965360Z",
+      "state": "SEALED",
+      "prior_consumption_mode": "REFERENCE_ONLY"
+    },
+    "observed_outcome": {
+      "schema_version": "1.0",
+      "observed_outcome_id": "observed-5073ea2d-9905-4819-b271-b49aad5db39e",
+      "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+      "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+      "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "evaluator_type": "pytest",
+      "evaluator_version": "1",
+      "status": "NOT_MET",
+      "score": 0.0,
+      "confidence": 1.0,
+      "evidence_refs": [
+        "artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776"
+      ],
+      "unresolved_gaps": [
+        "non-zero exit"
+      ],
+      "observed_at": "2026-07-23T00:52:47.155293Z"
+    },
+    "historical_observed_outcome": null,
+    "outcome_evidence_valid": null,
+    "approval": {
+      "schema_version": "1.0",
+      "approval_id": "approval:739785a7-3383-498f-a17c-f1a92e5a8846",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+      "actor_id": "user:local",
+      "actor_role": "PRINCIPAL",
+      "disposition": "APPROVE",
+      "reason": "Approved exact-digest SELFDEV provider patch proposal via CLI --approve",
+      "decided_at": "2026-07-23T00:52:46.414112Z",
+      "expires_at": "2026-07-23T01:02:46.414112Z"
+    },
+    "proposed_action": {
+      "schema_version": "1.0",
+      "action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+      "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+      "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+      "node_id": "apply",
+      "principal_id": "user:local",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "capability_id": "workspace.compensate_patch",
+      "capability_version": "1",
+      "arguments_json": "{\"compensation_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"manifest_sha256\":\"e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b\",\"original_action_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply\",\"path\":\"apps/cli/__main__.py\"}",
+      "risk_tier": 1,
+      "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:compensate:apply",
+      "estimated_budget": {
+        "schema_version": "1.0",
+        "max_cost_usd": "0",
+        "max_duration_seconds": 120,
+        "max_provider_tokens": 0,
+        "max_tool_calls": 1
+      },
+      "policy_version": "policy-1",
+      "observed_correction_epochs": {
+        "schema_version": "1.0",
+        "task_epoch": 0,
+        "run_epoch": 0,
+        "capability_epoch": 0
+      },
+      "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+      "candidate_envelope_id": "envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1",
+      "created_at": "2026-07-23T00:52:47.208814Z",
+      "arguments": {
+        "compensation_ref": "compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985",
+        "manifest_sha256": "e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b",
+        "original_action_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply",
+        "path": "apps/cli/__main__.py"
+      },
+      "action_digest": "d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d"
+    },
+    "provider": {
+      "configured": true,
+      "provider_id": "openai-compatible",
+      "model_id": "kimi-k2-0711-preview",
+      "model_revision_digest": null,
+      "endpoint_class": "openai-compatible",
+      "credential_ref_id": "credential:default",
+      "usage": {
+        "estimated_cost_usd": "0",
+        "input_tokens": 4387,
+        "output_tokens": 18736,
+        "schema_version": "1.0",
+        "total_tokens": 23123
+      }
+    },
+    "workspace": {
+      "attached": true,
+      "root": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-mt-20260723/t3/provider",
+      "is_git_repository": true,
+      "entries": [
+        ".agent_runs",
+        ".env.example",
+        ".git",
+        ".github",
+        ".gitignore",
+        ".pytest_cache",
+        ".superpowers",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "ENGINEERING.md",
+        "README.md",
+        "ROADMAP.md",
+        "adapters",
+        "apps",
+        "codebase_index.md",
+        "docs",
+        "domain_packs",
+        "experiments",
+        "implementation-log.md",
+        "packages",
+        "product_evals",
+        "prompts",
+        "pyproject.toml",
+        "pytest.ini",
+        "src",
+        "tests",
+        "uv.lock",
+        "verification.md"
+      ]
+    },
+    "artifacts": [
+      "artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776"
+    ],
+    "events": [
+      {
+        "schema_version": "1.0",
+        "event_id": "event-15835aef-0369-4e15-91cd-5ca1aa6b9153",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "TASK_CREATED",
+        "payload_json": "{\"goal\":{\"constraints\":[],\"created_at\":\"2026-07-23T00:49:50.963201Z\",\"created_by\":\"user:local\",\"goal_id\":\"goal:selfdev:77cb8ae23fbc\",\"schema_version\":\"1.0\",\"statement\":\"In apps/cli/__main__.py, make selfdev-run-provider report provider run failures structurally. Acceptance contract: when run_task raises agent_os_core RunExecutionError, the command must print a JSON object to stdout containing mode REAL_PROVIDER_RUN_FAILED and the task payload, and must not crash with a traceback; success-path output must remain unchanged.\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.963258Z",
+        "correlation_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "causation_id": null,
+        "sequence": 1,
+        "payload": {
+          "goal": {
+            "constraints": [],
+            "created_at": "2026-07-23T00:49:50.963201Z",
+            "created_by": "user:local",
+            "goal_id": "goal:selfdev:77cb8ae23fbc",
+            "schema_version": "1.0",
+            "statement": "In apps/cli/__main__.py, make selfdev-run-provider report provider run failures structurally. Acceptance contract: when run_task raises agent_os_core RunExecutionError, the command must print a JSON object to stdout containing mode REAL_PROVIDER_RUN_FAILED and the task payload, and must not crash with a traceback; success-path output must remain unchanged.",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-32743dc3-e820-4ea9-9298-9541dc3cd7ad",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "TASK_COMMITTED",
+        "payload_json": "<redacted payload_json 5229 chars; see parsed payload>",
+        "occurred_at": "2026-07-23T00:49:50.963988Z",
+        "correlation_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "causation_id": "event-15835aef-0369-4e15-91cd-5ca1aa6b9153",
+        "sequence": 2,
+        "payload": {
+          "commitment": {
+            "acceptance_criteria": [
+              "admission receipt validates SELFDEV target",
+              "exact-digest approval is recorded before patch effect",
+              "allowlisted verifier evidence is content-bound",
+              "compensation restores pre-change bytes"
+            ],
+            "accepted_at": "2026-07-23T00:49:50.963201Z",
+            "accepted_by": "user:local",
+            "assumptions": [],
+            "authority_scopes": [
+              "task.configuration.snapshot",
+              "workspace:read",
+              "workspace:write"
+            ],
+            "budget": {
+              "max_cost_usd": "1",
+              "max_duration_seconds": 3600,
+              "max_provider_tokens": 1000,
+              "max_tool_calls": 10,
+              "schema_version": "1.0"
+            },
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "deliverables": [
+              "Agent OS repository patch",
+              "SELFDEV admission receipt 77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832"
+            ],
+            "exit_conditions": [
+              "verified",
+              "compensated on failure"
+            ],
+            "expires_at": "2026-07-23T01:49:50.963201Z",
+            "goal_id": "goal:selfdev:77cb8ae23fbc",
+            "risk_tier": 1,
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "expected_outcome": {
+            "evaluator_type": "pytest",
+            "evaluator_version": "1",
+            "evidence_requirements": [
+              "test-report"
+            ],
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "failure_semantics": [
+              "non-zero exit"
+            ],
+            "frozen_at": "2026-07-23T00:49:50.963201Z",
+            "observation_window_seconds": 3600,
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "threshold": 1.0,
+            "workspace_id": "workspace:local"
+          },
+          "workflow": {
+            "created_at": "2026-07-23T00:49:50.963201Z",
+            "created_by": "user:local",
+            "edges": [
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "read",
+                "target": "provider"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "provider",
+                "target": "approve"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "approve",
+                "target": "apply"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "apply",
+                "target": "tests"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "tests",
+                "target": "evaluate"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "evaluate",
+                "target": "done"
+              }
+            ],
+            "evaluator_refs": [
+              "evaluator:pytest:1"
+            ],
+            "max_replans": 1,
+            "nodes": [
+              {
+                "capability": "workspace.read",
+                "failure_edge": null,
+                "idempotency": "idempotent",
+                "input_contract": "contract:any:1",
+                "kind": "tool",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "read",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": "provider.chat",
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "provider",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "provider",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "approval",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "approve",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": "workspace.apply_patch",
+                "failure_edge": null,
+                "idempotency": "compensatable",
+                "input_contract": "contract:any:1",
+                "kind": "tool",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "apply",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": "workspace.run_tests",
+                "failure_edge": null,
+                "idempotency": "compensatable",
+                "input_contract": "contract:any:1",
+                "kind": "tool",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "tests",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "evaluation",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "evaluate",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "terminal",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "done",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              }
+            ],
+            "policy_version": "policy-1",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "version": 1,
+            "workflow_id": "workflow:selfdev-s2",
+            "workspace_id": "workspace:local"
+          },
+          "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e229cefd-4be8-4e2f-bad7-8f3c8d22dd29",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "TASK_CONFIGURATION_SNAPSHOT_SEALED",
+        "payload_json": "<redacted payload_json 7349 chars; see parsed payload>",
+        "occurred_at": "2026-07-23T00:49:50.966608Z",
+        "correlation_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "causation_id": "event-32743dc3-e820-4ea9-9298-9541dc3cd7ad",
+        "sequence": 3,
+        "payload": {
+          "configuration_snapshot": {
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "consumer_task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "execution_grants": [
+              {
+                "budget_limit": {
+                  "max_cost_usd": "10",
+                  "max_duration_seconds": 3600,
+                  "max_provider_tokens": 100000,
+                  "max_tool_calls": 100,
+                  "schema_version": "1.0"
+                },
+                "capability_id": "workspace.apply_patch",
+                "capability_version": "1",
+                "expires_at": "2026-08-22T00:49:50.957649Z",
+                "grant_id": "grant:workspace.apply_patch",
+                "granted_at": "2026-07-23T00:49:50.957649Z",
+                "granted_by": "system",
+                "max_risk_tier": 1,
+                "principal_id": "user:local",
+                "schema_version": "1.0",
+                "status": "ACTIVE",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local"
+              },
+              {
+                "budget_limit": {
+                  "max_cost_usd": "10",
+                  "max_duration_seconds": 3600,
+                  "max_provider_tokens": 100000,
+                  "max_tool_calls": 100,
+                  "schema_version": "1.0"
+                },
+                "capability_id": "workspace.read",
+                "capability_version": "1",
+                "expires_at": "2026-08-22T00:49:50.957649Z",
+                "grant_id": "grant:workspace.read",
+                "granted_at": "2026-07-23T00:49:50.957649Z",
+                "granted_by": "system",
+                "max_risk_tier": 1,
+                "principal_id": "user:local",
+                "schema_version": "1.0",
+                "status": "ACTIVE",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local"
+              },
+              {
+                "budget_limit": {
+                  "max_cost_usd": "10",
+                  "max_duration_seconds": 3600,
+                  "max_provider_tokens": 100000,
+                  "max_tool_calls": 100,
+                  "schema_version": "1.0"
+                },
+                "capability_id": "workspace.run_tests",
+                "capability_version": "1",
+                "expires_at": "2026-08-22T00:49:50.957649Z",
+                "grant_id": "grant:workspace.run_tests",
+                "granted_at": "2026-07-23T00:49:50.957649Z",
+                "granted_by": "system",
+                "max_risk_tier": 1,
+                "principal_id": "user:local",
+                "schema_version": "1.0",
+                "status": "ACTIVE",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local"
+              }
+            ],
+            "execution_grants_digest": "38a124d92de03dabbaf5ab2351bd629768481cd8f212707705f6b8dcf14e7480",
+            "expected_outcome": {
+              "evaluator_type": "pytest",
+              "evaluator_version": "1",
+              "evidence_requirements": [
+                "test-report"
+              ],
+              "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+              "failure_semantics": [
+                "non-zero exit"
+              ],
+              "frozen_at": "2026-07-23T00:49:50.963201Z",
+              "observation_window_seconds": 3600,
+              "schema_version": "1.0",
+              "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+              "tenant_id": "tenant:local",
+              "threshold": 1.0,
+              "workspace_id": "workspace:local"
+            },
+            "expected_outcome_digest": "64914d8d9a2217384ba141d10946acd6ea790f3cdd09a566dedeaaa344db5f94",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "optional_prior": null,
+            "policy_digest": "96919d59893d7310515e41132b30f5175933f2b201eb6ec3fa70a54228a28f5b",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "prior_consumption_mode": "REFERENCE_ONLY",
+            "provider_profile": {
+              "capabilities": [
+                "chat"
+              ],
+              "created_at": "1970-01-01T00:00:00Z",
+              "credential_ref_id": "credential:default",
+              "endpoint_class": "openai-compatible",
+              "max_context_tokens": 16000,
+              "model_id": "kimi-k2-0711-preview",
+              "model_revision_digest": null,
+              "profile_id": "provider-profile:default",
+              "provider_id": "openai-compatible",
+              "request_timeout_seconds": 180,
+              "schema_version": "1.0"
+            },
+            "provider_profile_digest": "d81c01c21198543967d0b14192f48426f1830df4b8538d630ffa9320b5b54a46",
+            "reserved_run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "seal_request_digest": "876c0582d7358e6429e31aa09e69a7d2c688f024582cffd0f503e7005d19ddef",
+            "sealed_at": "2026-07-23T00:49:50.965360Z",
+            "sealed_by": "system:task-configuration-sealer:v1",
+            "snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+            "snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+            "snapshot_version": 1,
+            "state": "SEALED",
+            "tenant_id": "tenant:local",
+            "workflow": {
+              "created_at": "2026-07-23T00:49:50.963201Z",
+              "created_by": "user:local",
+              "edges": [
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "read",
+                  "target": "provider"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "provider",
+                  "target": "approve"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "approve",
+                  "target": "apply"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "apply",
+                  "target": "tests"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "tests",
+                  "target": "evaluate"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "evaluate",
+                  "target": "done"
+                }
+              ],
+              "evaluator_refs": [
+                "evaluator:pytest:1"
+              ],
+              "max_replans": 1,
+              "nodes": [
+                {
+                  "capability": "workspace.read",
+                  "failure_edge": null,
+                  "idempotency": "idempotent",
+                  "input_contract": "contract:any:1",
+                  "kind": "tool",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "read",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": "provider.chat",
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "provider",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "provider",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": null,
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "approval",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "approve",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": "workspace.apply_patch",
+                  "failure_edge": null,
+                  "idempotency": "compensatable",
+                  "input_contract": "contract:any:1",
+                  "kind": "tool",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "apply",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": "workspace.run_tests",
+                  "failure_edge": null,
+                  "idempotency": "compensatable",
+                  "input_contract": "contract:any:1",
+                  "kind": "tool",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "tests",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": null,
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "evaluation",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "evaluate",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": null,
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "terminal",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "done",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                }
+              ],
+              "policy_version": "policy-1",
+              "schema_version": "1.0",
+              "tenant_id": "tenant:local",
+              "version": 1,
+              "workflow_id": "workflow:selfdev-s2",
+              "workspace_id": "workspace:local"
+            },
+            "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-f0de765e-321c-4819-bd9d-8ac4e3adde61",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "RUN_STARTED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:selfdev:77cb8ae23fbc\",\"configuration_snapshot_digest\":\"8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82\",\"configuration_snapshot_id\":\"task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b\",\"created_at\":\"2026-07-23T00:49:50.973043Z\",\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"lease_fence\":0,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"QUEUED\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98\",\"workflow_id\":\"workflow:selfdev-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.973089Z",
+        "correlation_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "causation_id": "event-e229cefd-4be8-4e2f-bad7-8f3c8d22dd29",
+        "sequence": 4,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "configuration_snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+            "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+            "created_at": "2026-07-23T00:49:50.973043Z",
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "lease_fence": 0,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "QUEUED",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+            "workflow_id": "workflow:selfdev-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-a9100a9c-5109-47d7-aa26-c09443defca4",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "RUN_QUEUED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:selfdev:77cb8ae23fbc\",\"configuration_snapshot_digest\":\"8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82\",\"configuration_snapshot_id\":\"task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b\",\"created_at\":\"2026-07-23T00:49:50.973043Z\",\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"lease_fence\":1,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"RUNNING\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98\",\"workflow_id\":\"workflow:selfdev-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.977881Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-f0de765e-321c-4819-bd9d-8ac4e3adde61",
+        "sequence": 5,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "configuration_snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+            "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+            "created_at": "2026-07-23T00:49:50.973043Z",
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "lease_fence": 1,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "RUNNING",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+            "workflow_id": "workflow:selfdev-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-14db191c-17c8-4777-9f71-97a605601c99",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "CANDIDATES_GENERATED",
+        "payload_json": "{\"envelope\":{\"allowed_capability_ids\":[\"artifact.write\",\"workspace.apply_patch\",\"workspace.read\",\"workspace.run_tests\"],\"candidate_ids\":[\"apply\",\"approve\",\"done\",\"evaluate\",\"provider\",\"read\",\"tests\"],\"coverage_evidence_refs\":[],\"created_at\":\"2026-07-23T00:49:50.979558Z\",\"envelope_id\":\"envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1\",\"exclusions\":[],\"generator_id\":\"developer-golden-path\",\"generator_version\":\"1\",\"has_abstain\":true,\"has_ask\":true,\"has_no_action\":true,\"resource_budget\":{\"max_cost_usd\":\"1\",\"max_duration_seconds\":3600,\"max_provider_tokens\":1000,\"max_tool_calls\":10,\"schema_version\":\"1.0\"},\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.980551Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-a9100a9c-5109-47d7-aa26-c09443defca4",
+        "sequence": 6,
+        "payload": {
+          "envelope": {
+            "allowed_capability_ids": [
+              "artifact.write",
+              "workspace.apply_patch",
+              "workspace.read",
+              "workspace.run_tests"
+            ],
+            "candidate_ids": [
+              "apply",
+              "approve",
+              "done",
+              "evaluate",
+              "provider",
+              "read",
+              "tests"
+            ],
+            "coverage_evidence_refs": [],
+            "created_at": "2026-07-23T00:49:50.979558Z",
+            "envelope_id": "envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1",
+            "exclusions": [],
+            "generator_id": "developer-golden-path",
+            "generator_version": "1",
+            "has_abstain": true,
+            "has_ask": true,
+            "has_no_action": true,
+            "resource_budget": {
+              "max_cost_usd": "1",
+              "max_duration_seconds": 3600,
+              "max_provider_tokens": 1000,
+              "max_tool_calls": 10,
+              "schema_version": "1.0"
+            },
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-3b48c207-d46c-4d16-8fac-f94365bfd276",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"read\"}",
+        "occurred_at": "2026-07-23T00:49:50.982876Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-14db191c-17c8-4777-9f71-97a605601c99",
+        "sequence": 7,
+        "payload": {
+          "node_id": "read"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-c522bc62-3a79-46a8-aaf0-178d50ab2809",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901\",\"arguments_json\":\"{\\\"path\\\":\\\"apps/cli/__main__.py\\\"}\",\"candidate_envelope_id\":\"envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1\",\"capability_id\":\"workspace.read\",\"capability_version\":\"1\",\"created_at\":\"2026-07-23T00:49:50.984146Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:read\",\"node_id\":\"read\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.985210Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-3b48c207-d46c-4d16-8fac-f94365bfd276",
+        "sequence": 8,
+        "payload": {
+          "action": {
+            "action_id": "action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901",
+            "arguments_json": "{\"path\":\"apps/cli/__main__.py\"}",
+            "candidate_envelope_id": "envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1",
+            "capability_id": "workspace.read",
+            "capability_version": "1",
+            "created_at": "2026-07-23T00:49:50.984146Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:read",
+            "node_id": "read",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-d769c530-3ead-43ac-94b4-b42d48e7fa61",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594\",\"action_id\":\"action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-65b6be1c-ae11-4664-a91c-ea06c00968de\",\"evaluated_at\":\"2026-07-23T00:49:50.986602Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.987783Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-c522bc62-3a79-46a8-aaf0-178d50ab2809",
+        "sequence": 9,
+        "payload": {
+          "decision": {
+            "action_digest": "67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594",
+            "action_id": "action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-65b6be1c-ae11-4664-a91c-ea06c00968de",
+            "evaluated_at": "2026-07-23T00:49:50.986602Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-89fa3426-17a0-407c-8f09-3bf91a459bba",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594\",\"action_id\":\"action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-65b6be1c-ae11-4664-a91c-ea06c00968de\",\"evaluated_at\":\"2026-07-23T00:49:50.986602Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594\",\"action_id\":\"action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-23T00:54:50.990339Z\",\"grant_id\":\"grant:workspace.read\",\"issued_at\":\"2026-07-23T00:49:50.990339Z\",\"lease_fence\":1,\"permit_id\":\"permit-9651e998-4a9f-4ebf-8b21-6472325e04a2\",\"policy_decision_id\":\"decision-65b6be1c-ae11-4664-a91c-ea06c00968de\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594\",\"action_id\":\"action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901\",\"attempt\":1,\"connector_id\":\"workspace.read\",\"detail_ref\":\"detail:none\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:read\",\"occurred_at\":\"2026-07-23T00:49:50.991469Z\",\"output_artifact_ids\":[],\"permit_id\":\"permit-9651e998-4a9f-4ebf-8b21-6472325e04a2\",\"receipt_id\":\"receipt-16bbf00d-01a1-49a1-8ab1-54c2589f42e4\",\"schema_version\":\"1.0\",\"status\":\"SUCCEEDED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:49:50.994400Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-d769c530-3ead-43ac-94b4-b42d48e7fa61",
+        "sequence": 10,
+        "payload": {
+          "decision": {
+            "action_digest": "67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594",
+            "action_id": "action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-65b6be1c-ae11-4664-a91c-ea06c00968de",
+            "evaluated_at": "2026-07-23T00:49:50.986602Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594",
+            "action_id": "action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-23T00:54:50.990339Z",
+            "grant_id": "grant:workspace.read",
+            "issued_at": "2026-07-23T00:49:50.990339Z",
+            "lease_fence": 1,
+            "permit_id": "permit-9651e998-4a9f-4ebf-8b21-6472325e04a2",
+            "policy_decision_id": "decision-65b6be1c-ae11-4664-a91c-ea06c00968de",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "67b54a5c99fd280e3c85e62e3998dfd31f5daccb9715d3ea3d759014bfb35594",
+            "action_id": "action-c4bd8cc8-619b-4f66-8722-b8a0eee4d901",
+            "attempt": 1,
+            "connector_id": "workspace.read",
+            "detail_ref": "detail:none",
+            "error_code": "error:none",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:read",
+            "occurred_at": "2026-07-23T00:49:50.991469Z",
+            "output_artifact_ids": [],
+            "permit_id": "permit-9651e998-4a9f-4ebf-8b21-6472325e04a2",
+            "receipt_id": "receipt-16bbf00d-01a1-49a1-8ab1-54c2589f42e4",
+            "schema_version": "1.0",
+            "status": "SUCCEEDED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-0a09a117-7808-4983-afa9-019df7416ce0",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "<redacted payload_json 26482 chars; see parsed payload>",
+        "occurred_at": "2026-07-23T00:49:50.997315Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-89fa3426-17a0-407c-8f09-3bf91a459bba",
+        "sequence": 11,
+        "payload": {
+          "node_id": "read",
+          "output": {
+            "content": "from __future__ import annotations\n\nimport argparse\nfrom dataclasses import asdict\nfrom datetime import datetime\nimport hashlib\nimport json\nimport os\nfrom pathlib import Path\nimport shlex\nimport subprocess\n\nfrom agent_os_contracts import ProviderToolProposal, RunStatus\nfrom apps.api_server.app import AgentOSApplication\nfrom agent_os_core import (\n    DeterministicProvider,\n    RUN_DENIED,\n    SelfDevelopmentTaskSpec,\n    SelfDevelopmentValidationError,\n    build_self_development_baseline_record,\n    build_self_development_comparison_receipt,\n    build_self_development_run_record,\n    evaluate_self_development_readiness,\n    prepare_self_development_task_package,\n    validate_self_development_task,\n)\n\n\ndef main() -> None:\n    parser = argparse.ArgumentParser(prog=\"agent-os\")\n    parser.add_argument(\"--database\", default=\"agent-os.sqlite3\")\n    parser.add_argument(\"--workspace\", default=\".\")\n    sub = parser.add_subparsers(dest=\"command\", required=True)\n    create = sub.add_parser(\"task-create\")\n    create.add_argument(\"statement\")\n    show = sub.add_parser(\"task-show\")\n    show.add_argument(\"task_id\")\n    run = sub.add_parser(\"task-run\")\n    run.add_argument(\"task_id\")\n    run.add_argument(\"--prompt\", default=\"Complete the repository task.\")\n    validate = sub.add_parser(\"workflow-validate\")\n    validate.add_argument(\"workflow_json\", type=Path)\n    commit = sub.add_parser(\"task-commit\")\n    commit.add_argument(\"task_id\")\n    commit.add_argument(\"commitment_json\", type=Path)\n    signal = sub.add_parser(\"task-signal\")\n    signal.add_argument(\"task_id\")\n    signal.add_argument(\"signal_json\", type=Path)\n    replan = sub.add_parser(\"task-replan\")\n    replan.add_argument(\"task_id\")\n    replan.add_argument(\"workflow_json\", type=Path)\n    replan.add_argument(\"--reason\", required=True)\n    correction_resume = sub.add_parser(\"correction-resume\")\n    correction_resume.add_argument(\"task_id\")\n    correction_resume.add_argument(\"--reason\", required=True)\n    compensate = sub.add_parser(\"task-compensate\")\n    compensate.add_argument(\"task_id\")\n    recovery = sub.add_parser(\"task-recovery\")\n    recovery.add_argument(\"task_id\")\n    selfdev_validate = sub.add_parser(\"selfdev-validate\")\n    selfdev_validate.add_argument(\"spec_json\", type=Path)\n    selfdev_prepare = sub.add_parser(\"selfdev-prepare\")\n    selfdev_prepare.add_argument(\"spec_json\", type=Path)\n    selfdev_prepare.add_argument(\"--task-id\", required=True)\n    selfdev_prepare.add_argument(\"--created-at\")\n    selfdev_create = sub.add_parser(\"selfdev-create\")\n    selfdev_create.add_argument(\"spec_json\", type=Path)\n    selfdev_create.add_argument(\"--created-at\")\n    selfdev_create.add_argument(\"--run-until-approval\", action=\"store_true\")\n    selfdev_run_local = sub.add_parser(\"selfdev-run-local\")\n    selfdev_run_local.add_argument(\"spec_json\", type=Path)\n    selfdev_run_local.add_argument(\"--patch-content-file\", type=Path, required=True)\n    selfdev_run_local.add_argument(\"--created-at\")\n    selfdev_run_local.add_argument(\"--approve\", action=\"store_true\")\n    selfdev_readiness = sub.add_parser(\"selfdev-readiness\")\n    selfdev_readiness.add_argument(\"spec_json\", type=Path)\n    selfdev_readiness.add_argument(\"--baseline-record\", type=Path)\n    selfdev_baseline_record = sub.add_parser(\"selfdev-baseline-record\")\n    selfdev_baseline_record.add_argument(\"baseline_json\", type=Path)\n    selfdev_baseline_capture = sub.add_parser(\"selfdev-baseline-capture\")\n    selfdev_baseline_capture.add_argument(\"spec_json\", type=Path)\n    selfdev_baseline_capture.add_argument(\n        \"--operator-intervention-count\",\n        type=int,\n        required=True,\n    )\n    selfdev_baseline_capture.add_argument(\"--hcw-minutes\", type=float, required=True)\n    selfdev_baseline_capture.add_argument(\"--evidence-ref\", action=\"append\", default=[])\n    selfdev_run_provider = sub.add_parser(\"selfdev-run-provider\")\n    selfdev_run_provider.add_argument(\"spec_json\", type=Path)\n    selfdev_run_provider.add_argument(\"--baseline-record\", type=Path, required=True)\n    selfdev_run_provider.add_argument(\"--created-at\")\n    selfdev_run_provider.add_argument(\"--approve\", action=\"store_true\")\n    selfdev_run_provider.add_argument(\"--duration-seconds\", type=int, default=300)\n    selfdev_run_provider.add_argument(\"--statement\")\n    selfdev_run_record = sub.add_parser(\"selfdev-run-record\")\n    selfdev_run_record.add_argument(\"spec_json\", type=Path)\n    selfdev_run_record.add_argument(\n        \"--operator-intervention-count\",\n        type=int,\n        required=True,\n    )\n    selfdev_run_record.add_argument(\"--hcw-minutes\", type=float, required=True)\n    selfdev_run_record.add_argument(\"--outcome-status\", required=True)\n    selfdev_run_record.add_argument(\"--evidence-ref\", action=\"append\", default=[])\n    selfdev_compare = sub.add_parser(\"selfdev-compare\")\n    selfdev_compare.add_argument(\"spec_json\", type=Path)\n    selfdev_compare.add_argument(\"baseline_record_json\", type=Path)\n    selfdev_compare.add_argument(\"selfdev_run_record_json\", type=Path)\n    args = parser.parse_args()\n    if args.command == \"selfdev-validate\":\n        receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))\n        print(json.dumps(asdict(receipt), indent=2, default=str))\n        return\n    if args.command == \"selfdev-prepare\":\n        created_at = (\n            datetime.fromisoformat(args.created_at.replace(\"Z\", \"+00:00\"))\n            if args.created_at\n            else None\n        )\n        package = prepare_self_development_task_package(\n            _selfdev_spec_from_file(args.spec_json),\n            task_id=args.task_id,\n            created_at=created_at,\n        )\n        print(json.dumps(asdict(package), indent=2, default=str))\n        return\n    if args.command == \"selfdev-readiness\":\n        report, provider = _evaluate_selfdev_readiness_from_env(\n            _selfdev_spec_from_file(args.spec_json),\n            baseline_record=(\n                _selfdev_baseline_record_from_file(args.baseline_record)\n                if args.baseline_record\n                else None\n            ),\n        )\n        output = asdict(report)\n        output[\"provider\"] = provider\n        print(json.dumps(output, indent=2, default=str))\n        return\n    if args.command == \"selfdev-baseline-record\":\n        record = _selfdev_baseline_record_from_file(args.baseline_json)\n        print(json.dumps(asdict(record), indent=2, default=str))\n        return\n    if args.command == \"selfdev-baseline-capture\":\n        output = _capture_selfdev_baseline(\n            _selfdev_spec_from_file(args.spec_json),\n            operator_intervention_count=args.operator_intervention_count,\n            hcw_minutes=args.hcw_minutes,\n            extra_evidence_refs=tuple(args.evidence_ref),\n        )\n        print(json.dumps(output, indent=2, default=str))\n        return\n    if args.command == \"selfdev-run-record\":\n        record = build_self_development_run_record(\n            _selfdev_spec_from_file(args.spec_json),\n            operator_intervention_count=args.operator_intervention_count,\n            hcw_minutes=args.hcw_minutes,\n            outcome_status=args.outcome_status,\n            evidence_refs=tuple(args.evidence_ref),\n        )\n        print(json.dumps(asdict(record), indent=2, default=str))\n        return\n    if args.command == \"selfdev-compare\":\n        spec = _selfdev_spec_from_file(args.spec_json)\n        comparison = build_self_development_comparison_receipt(\n            spec,\n            baseline_record=_selfdev_baseline_record_from_file(\n                args.baseline_record_json,\n            ),\n            selfdev_run_record=_selfdev_run_record_from_file(\n                args.selfdev_run_record_json,\n                spec=spec,\n            ),\n        )\n        print(json.dumps(asdict(comparison), indent=2, default=str))\n        return\n\n    app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))\n    if args.command == \"selfdev-create\":\n        spec = _selfdev_spec_from_file(args.spec_json)\n        receipt = validate_self_development_task(spec)\n        created_at = (\n            datetime.fromisoformat(args.created_at.replace(\"Z\", \"+00:00\"))\n            if args.created_at\n            else datetime.now().astimezone()\n        )\n        created = app.create_task(\n            {\n                \"goal_id\": f\"goal:selfdev:{receipt.receipt_digest[:12]}\",\n                \"tenant_id\": \"tenant:local\",\n                \"workspace_id\": \"workspace:local\",\n                \"created_by\": \"user:local\",\n                \"created_at\": created_at.isoformat(),\n                \"statement\": (\n                    \"Agent OS self-development repository task for \"\n                    f\"{receipt.target_path}\"\n                ),\n            }\n        )\n        package = prepare_self_development_task_package(\n            spec,\n            task_id=created.task_id,\n            created_at=created_at,\n        )\n        committed = app.commit_task(created.task_id, package.task_commit_payload)\n        output: dict[str, object] = {\n            \"task\": app.task_json(committed.task_id),\n            \"package\": asdict(package),\n        }\n        if args.run_until_approval:\n            proposed = app.run_task(committed.task_id, package.run_inputs)\n            output[\"task\"] = app.task_json(proposed.task_id)\n        print(json.dumps(output, indent=2, default=str))\n    elif args.command == \"selfdev-run-provider\":\n        spec = _selfdev_spec_from_file(args.spec_json)\n        baseline_record = _selfdev_baseline_record_from_file(args.baseline_record)\n        readiness, provider = _evaluate_selfdev_readiness_from_env(\n            spec,\n            baseline_record=baseline_record,\n        )\n        if not readiness.ready:\n            raise SelfDevelopmentValidationError(\n                RUN_DENIED,\n                \"selfdev-run-provider readiness failed: \"\n                + \",\".join(readiness.blockers),\n            )\n        runtime_provider = _selfdev_provider_runtime_binding(app, provider)\n        receipt = validate_self_development_task(spec)\n        created_at = (\n            datetime.fromisoformat(args.created_at.replace(\"Z\", \"+00:00\"))\n            if args.created_at\n            else datetime.now().astimezone()\n        )\n        statement = args.statement or (\n            \"Real provider Agent OS self-development run for \"\n            f\"{receipt.target_path}\"\n        )\n        created = app.create_task(\n            {\n                \"goal_id\": f\"goal:selfdev:{receipt.receipt_digest[:12]}\",\n                \"tenant_id\": \"tenant:local\",\n                \"workspace_id\": \"workspace:local\",\n                \"created_by\": \"user:local\",\n                \"created_at\": created_at.isoformat(),\n                \"statement\": statement,\n            }\n        )\n        package = prepare_self_development_task_package(\n            spec,\n            task_id=created.task_id,\n            created_at=created_at,\n            statement=statement,\n            duration_seconds=args.duration_seconds,\n        )\n        committed = app.commit_task(created.task_id, package.task_commit_payload)\n        snapshot = app.seal_task_configuration(committed.task_id, {})\n        proposed = app.run_task(\n            committed.task_id,\n            package.run_inputs,\n            configuration_snapshot_id=snapshot.snapshot_id,\n        )\n        waiting_approval = (\n            proposed.run is not None\n            and proposed.run.status is RunStatus.WAITING_APPROVAL\n        )\n        mode = (\n            \"REAL_PROVIDER_READY_UNTIL_APPROVAL\"\n            if waiting_approval\n            else \"REAL_PROVIDER_RUN_FINISHED\"\n        )\n        task = proposed\n        if waiting_approval and args.approve:\n            app.record_approval(\n                committed.task_id,\n                {\n                    \"disposition\": \"APPROVE\",\n                    \"reason\": (\n                        \"Approved exact-digest SELFDEV provider patch proposal \"\n                        \"via CLI --approve\"\n                    ),\n                },\n            )\n            task = app.run_task(\n                committed.task_id,\n                package.run_inputs,\n                configuration_snapshot_id=snapshot.snapshot_id,\n            )\n            mode = \"REAL_PROVIDER_RUN_COMPLETED\"\n        print(\n            json.dumps(\n                {\n                    \"mode\": mode,\n                    \"provider\": provider,\n                    \"runtime_provider\": runtime_provider,\n                    \"readiness\": asdict(readiness),\n                    \"baseline_record\": asdict(baseline_record),\n                    \"configuration_snapshot_id\": snapshot.snapshot_id,\n                    \"approval_required\": waiting_approval and not args.approve,\n                    \"task\": app.task_json(task.task_id),\n                    \"package\": asdict(package),\n                },\n                indent=2,\n                default=str,\n            )\n        )\n    elif args.command == \"selfdev-run-local\":\n        spec = _selfdev_spec_from_file(args.spec_json)\n        receipt = validate_self_development_task(spec)\n        patch_content = args.patch_content_file.read_text(encoding=\"utf-8\")\n        created_at = (\n            datetime.fromisoformat(args.created_at.replace(\"Z\", \"+00:00\"))\n            if args.created_at\n            else datetime.now().astimezone()\n        )\n        created = app.create_task(\n            {\n                \"goal_id\": f\"goal:selfdev:{receipt.receipt_digest[:12]}\",\n                \"tenant_id\": \"tenant:local\",\n                \"workspace_id\": \"workspace:local\",\n                \"created_by\": \"user:local\",\n                \"created_at\": created_at.isoformat(),\n                \"statement\": (\n                    \"Local controlled Agent OS self-development run for \"\n                    f\"{receipt.target_path}\"\n                ),\n            }\n        )\n        package = prepare_self_development_task_package(\n            spec,\n            task_id=created.task_id,\n            created_at=created_at,\n            statement=(\n                \"Local controlled Agent OS self-development run for \"\n                f\"{receipt.target_path}\"\n            ),\n        )\n        committed = app.commit_task(created.task_id, package.task_commit_payload)\n        app.provider = DeterministicProvider(\n            text=\"\",\n            tool_proposals=(\n                ProviderToolProposal(\n                    proposal_id=f\"proposal:selfdev:{receipt.receipt_digest[:12]}\",\n                    capability_id=\"workspace.apply_patch\",\n                    arguments_json=json.dumps(\n                        {\"path\": receipt.target_path, \"content\": patch_content}\n                    ),\n                ),\n            ),\n        )\n        app.provider_configured = True\n        waiting = app.run_task(committed.task_id, package.run_inputs)\n        output = {\n            \"mode\": \"LOCAL_CONTROLLED_DETERMINISTIC_PROVIDER\",\n            \"task\": app.task_json(waiting.task_id),\n            \"package\": asdict(package),\n        }\n        if args.approve:\n            app.record_approval(\n                committed.task_id,\n                {\n                    \"disposition\": \"APPROVE\",\n                    \"reason\": \"Approved explicit local SELFDEV patch content\",\n                },\n            )\n            result = app.run_task(committed.task_id, package.run_inputs)\n            output[\"task\"] = app.task_json(result.task_id)\n        print(json.dumps(output, indent=2, default=str))\n    elif args.command == \"task-create\":\n        task = app.create_task({\n            \"goal_id\": f\"goal:{args.statement[:24]}\", \"tenant_id\": \"tenant:local\",\n            \"workspace_id\": \"workspace:local\", \"created_by\": \"user:local\",\n            \"created_at\": \"2026-07-10T00:00:00Z\", \"statement\": args.statement,\n        })\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n    elif args.command == \"task-show\":\n        print(json.dumps(app.task_json(args.task_id), indent=2, default=str))\n    elif args.command == \"workflow-validate\":\n        from agent_os_contracts import WorkflowGraph\n        workflow = WorkflowGraph.model_validate_json(args.workflow_json.read_text(encoding=\"utf-8\"))\n        print(json.dumps({\"valid\": True, \"digest\": workflow.canonical_digest()}, indent=2))\n    elif args.command == \"task-commit\":\n        payload = json.loads(args.commitment_json.read_text(encoding=\"utf-8\"))\n        task = app.commit_task(args.task_id, payload)\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n    elif args.command == \"task-signal\":\n        payload = json.loads(args.signal_json.read_text(encoding=\"utf-8\"))\n        if not isinstance(payload, dict):\n            raise ValueError(\"signal JSON must be an object\")\n        task = app.signal_task(args.task_id, payload)\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n    elif args.command == \"task-replan\":\n        workflow = json.loads(args.workflow_json.read_text(encoding=\"utf-8\"))\n        if not isinstance(workflow, dict):\n            raise ValueError(\"workflow JSON must be an object\")\n        task = app.replan_task(\n            args.task_id,\n            {\"workflow\": workflow, \"reason\": args.reason},\n        )\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n    elif args.command == \"correction-resume\":\n        task = app.resume_correction(args.task_id, args.reason)\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n    elif args.command == \"task-compensate\":\n        task = app.compensate_task(args.task_id)\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n    elif args.command == \"task-recovery\":\n        print(json.dumps(app.recovery_json(args.task_id), indent=2, default=str))\n    elif args.command == \"task-run\":\n        task = app.run_task(args.task_id, {\"prompt\": args.prompt})\n        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))\n\n\ndef _selfdev_spec_from_file(path: Path) -> SelfDevelopmentTaskSpec:\n    payload = json.loads(path.read_text(encoding=\"utf-8\"))\n    if not isinstance(payload, dict):\n        raise ValueError(\"SELFDEV spec JSON must be an object\")\n    verifiers = payload.get(\"verifier_commands\", ())\n    if not isinstance(verifiers, list | tuple):\n        raise ValueError(\"SELFDEV verifier_commands must be an array\")\n    return SelfDevelopmentTaskSpec(\n        mandate_id=str(payload.get(\"mandate_id\", \"\")),\n        repository_id=str(payload.get(\"repository_id\", \"\")),\n        repository_head=str(payload.get(\"repository_head\", \"\")),\n        isolated_workspace=str(payload.get(\"isolated_workspace\", \"\")),\n        isolated_branch=str(payload.get(\"isolated_branch\", \"\")),\n        target_path=str(payload.get(\"target_path\", \"\")),\n        verifier_commands=tuple(str(command) for command in verifiers),\n        expected_outcome_id=str(payload.get(\"expected_outcome_id\", \"\")),\n        rollback_strategy=str(payload.get(\"rollback_strategy\", \"\")),\n        operator_intervention_count=int(payload.get(\"operator_intervention_count\", -1)),\n        hcw_minutes=float(payload.get(\"hcw_minutes\", -1)),\n        baseline_assignment_id=str(payload.get(\"baseline_assignment_id\", \"\")),\n    )\n\n\ndef _selfdev_baseline_record_from_file(path: Path):\n    payload = json.loads(path.read_text(encoding=\"utf-8\"))\n    if not isinstance(payload, dict):\n        raise ValueError(\"SELFDEV baseline record JSON must be an object\")\n    evidence_refs = payload.get(\"evidence_refs\", ())\n    if not isinstance(evidence_refs, list | tuple):\n        raise ValueError(\"SELFDEV baseline evidence_refs must be an array\")\n    return build_self_development_baseline_record(\n        baseline_assignment_id=str(payload.get(\"baseline_assignment_id\", \"\")),\n        repository_id=str(payload.get(\"repository_id\", \"\")),\n        target_path=str(payload.get(\"target_path\", \"\")),\n        operator_intervention_count=int(\n            payload.get(\"operator_intervention_count\", -1)\n        ),\n        hcw_minutes=float(payload.get(\"hcw_minutes\", -1)),\n        outcome_status=str(payload.get(\"outcome_status\", \"\")),\n        evidence_refs=tuple(str(ref) for ref in evidence_refs),\n    )\n\n\ndef _selfdev_run_record_from_file(path: Path, *, spec: SelfDevelopmentTaskSpec):\n    payload = json.loads(path.read_text(encoding=\"utf-8\"))\n    if not isinstance(payload, dict):\n        raise ValueError(\"SELFDEV run record JSON must be an object\")\n    evidence_refs = payload.get(\"evidence_refs\", ())\n    if not isinstance(evidence_refs, list | tuple):\n        raise ValueError(\"SELFDEV run evidence_refs must be an array\")\n    return build_self_development_run_record(\n        spec,\n        operator_intervention_count=int(\n            payload.get(\"operator_intervention_count\", -1)\n        ),\n        hcw_minutes=float(payload.get(\"hcw_minutes\", -1)),\n        outcome_status=str(payload.get(\"outcome_status\", \"\")),\n        evidence_refs=tuple(str(ref) for ref in evidence_refs),\n    )\n\n\ndef _evaluate_selfdev_readiness_from_env(\n    spec: SelfDevelopmentTaskSpec,\n    *,\n    baseline_record,\n):\n    credential_env = os.environ.get(\"AGENT_OS_PROVIDER_API_KEY_ENV\", \"OPENAI_API_KEY\")\n    provider = {\n        \"base_url_configured\": bool(os.environ.get(\"AGENT_OS_PROVIDER_BASE_URL\")),\n        \"model_configured\": bool(os.environ.get(\"AGENT_OS_PROVIDER_MODEL\")),\n        \"credential_env\": credential_env,\n        \"credential_available\": bool(os.environ.get(credential_env)),\n    }\n    return (\n        evaluate_self_development_readiness(\n            spec,\n            provider_configured=provider[\"base_url_configured\"],\n            provider_model=os.environ.get(\"AGENT_OS_PROVIDER_MODEL\"),\n            credential_available=provider[\"credential_available\"],\n            baseline_record=baseline_record,\n        ),\n        provider,\n    )\n\n\ndef _selfdev_provider_runtime_binding(\n    app: AgentOSApplication,\n    provider: dict[str, object],\n) -> dict[str, object]:\n    if not getattr(app, \"provider_configured\", False):\n        raise SelfDevelopmentValidationError(\n            RUN_DENIED,\n            \"selfdev-run-provider runtime provider is not configured\",\n        )\n    profile = getattr(app, \"provider_profile\", None)\n    model_id = getattr(profile, \"model_id\", None)\n    endpoint_class = getattr(profile, \"endpoint_class\", None)\n    configured_model = os.environ.get(\"AGENT_OS_PROVIDER_MODEL\")\n    if configured_model and model_id != configured_model:\n        raise SelfDevelopmentValidationError(\n            RUN_DENIED,\n            \"selfdev-run-provider runtime provider model does not match readiness\",\n        )\n    if provider[\"base_url_configured\"] and endpoint_class != \"openai-compatible\":\n        raise SelfDevelopmentValidationError(\n            RUN_DENIED,\n            \"selfdev-run-provider runtime provider endpoint is not live-compatible\",\n        )\n    return {\n        \"configured\": True,\n        \"profile_id\": getattr(profile, \"profile_id\", \"UNKNOWN\"),\n        \"provider_id\": getattr(profile, \"provider_id\", \"UNKNOWN\"),\n        \"model_id\": model_id or \"UNKNOWN\",\n        \"model_revision_digest\": getattr(\n            profile,\n            \"model_revision_digest\",\n            None,\n        ),\n        \"endpoint_class\": endpoint_class or \"UNKNOWN\",\n    }\n\n\ndef _capture_selfdev_baseline(\n    spec: SelfDevelopmentTaskSpec,\n    *,\n    operator_intervention_count: int,\n    hcw_minutes: float,\n    extra_evidence_refs: tuple[str, ...],\n) -> dict[str, object]:\n    receipt = validate_self_development_task(spec)\n    verifier_command = receipt.verifier_commands[0]\n    completed = subprocess.run(\n        shlex.split(verifier_command),\n        cwd=receipt.isolated_workspace,\n        check=False,\n        capture_output=True,\n        timeout=300,\n    )\n    stdout_digest = hashlib.sha256(completed.stdout).hexdigest()\n    stderr_digest = hashlib.sha256(completed.stderr).hexdigest()\n    verifier_payload = {\n        \"command\": verifier_command,\n        \"exit_code\": completed.returncode,\n        \"stdout_sha256\": stdout_digest,\n        \"stderr_sha256\": stderr_digest,\n        \"target_path\": receipt.target_path,\n        \"receipt_digest\": receipt.receipt_digest,\n    }\n    verifier_digest = hashlib.sha256(\n        json.dumps(\n            verifier_payload,\n            sort_keys=True,\n            separators=(\",\", \":\"),\n            ensure_ascii=False,\n        ).encode(\"utf-8\")\n    ).hexdigest()\n    record = build_self_development_baseline_record(\n        baseline_assignment_id=receipt.baseline_assignment_id,\n        repository_id=receipt.repository_id,\n        target_path=receipt.target_path,\n        operator_intervention_count=operator_intervention_count,\n        hcw_minutes=hcw_minutes,\n        outcome_status=\"VERIFIED\" if completed.returncode == 0 else \"NOT_MET\",\n        evidence_refs=tuple(sorted((*extra_evidence_refs, f\"verifier:{verifier_digest}\"))),\n    )\n    return {\n        \"admission_receipt\": asdict(receipt),\n        \"baseline_record\": asdict(record),\n        \"verifier\": {**verifier_payload, \"evidence_ref\": f\"verifier:{verifier_digest}\"},\n    }\n\n\nif __name__ == \"__main__\":\n    main()\n",
+            "path": "apps/cli/__main__.py",
+            "sha256": "526aa2b24470e4e99c7ad96881d71ccf80fb7d232bb00fcecbee231c53cbd25d"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-3d7633b0-a86a-4261-95dd-bf0f82bbcea7",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"provider\"}",
+        "occurred_at": "2026-07-23T00:49:51.001471Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-0a09a117-7808-4983-afa9-019df7416ce0",
+        "sequence": 12,
+        "payload": {
+          "node_id": "provider"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event:provider-response:aa38baa5-75cf-4a3f-9883-2e6239cbd158",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "PROVIDER_RESPONDED",
+        "payload_json": "<redacted payload_json 4779 chars; see parsed payload>",
+        "occurred_at": "2026-07-23T00:52:46.382770Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-3d7633b0-a86a-4261-95dd-bf0f82bbcea7",
+        "sequence": 13,
+        "payload": {
+          "node_id": "provider",
+          "provider_execution_receipt": {
+            "correction_epoch": 0,
+            "invocation_binding_digest": "b43911ce9f0e9ba1ed86ad24e48a0cde8136597904b96dacc8c210d0edcc5c83",
+            "missing_fields": [
+              "model_revision_digest",
+              "working_set_digest"
+            ],
+            "model_id": "kimi-k2-0711-preview",
+            "model_revision_digest": null,
+            "node_id": "provider",
+            "post_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "pre_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "provider_id": "openai-compatible",
+            "provider_profile_digest": "d81c01c21198543967d0b14192f48426f1830df4b8538d630ffa9320b5b54a46",
+            "provider_profile_id": "provider-profile:default",
+            "receipt_digest": "0531ea685f39b69bb463ad723ce307ec51948e55cd7c35e9e9417d773d34e847",
+            "request_digest": "ee47c5828ec2c6113b44085aaf7d3ce8e11f0c990978bb1810ef2b6ab7934e5b",
+            "request_id": "request-042bed44-2392-4e00-b7c7-3a208639c59f",
+            "response_digest": "ab11cde7674259fc2abbda926f53756cb23d8400d6a8ffb2eb752a4950074367",
+            "response_id": "chatcmpl-jrrBr17fuVTvzZGdgPodErVG",
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "source_event_id": "event:provider-response:aa38baa5-75cf-4a3f-9883-2e6239cbd158",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "working_set_ref": {
+              "digest": null,
+              "gap_reason": "developer provider path has no TrustedWorkingSet binding",
+              "schema_version": "1.0",
+              "status": "MISSING",
+              "working_set_id": null
+            },
+            "workspace_id": "workspace:local"
+          },
+          "provider_output": {
+            "finish_reason": "tool_calls",
+            "text": "",
+            "tool_proposals": [
+              {
+                "arguments_json": "{\"content\": \"<redacted 2601 chars sha256:f0516ad5bc5a86d9>\", \"expected_sha256\": \"526aa2b24470e4e99c7ad96881d71ccf80fb7d232bb00fcecbee231c53cbd25d\", \"path\": \"apps/cli/__main__.py\"}",
+                "capability_id": "workspace.apply_patch",
+                "proposal_id": "tool_SNOOtZ5FSC00xxhokQNv25VG",
+                "schema_version": "1.0"
+              }
+            ],
+            "usage": {
+              "estimated_cost_usd": "0",
+              "input_tokens": 4387,
+              "output_tokens": 18736,
+              "schema_version": "1.0",
+              "total_tokens": 23123
+            }
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-366eb050-48f3-47c6-ae8d-fff131708f12",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "<redacted payload_json 3861 chars; see parsed payload>",
+        "occurred_at": "2026-07-23T00:52:46.388645Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event:provider-response:aa38baa5-75cf-4a3f-9883-2e6239cbd158",
+        "sequence": 14,
+        "payload": {
+          "action": {
+            "action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "arguments_json": "{\"content\": \"<redacted 2601 chars sha256:f0516ad5bc5a86d9>\", \"expected_sha256\": \"526aa2b24470e4e99c7ad96881d71ccf80fb7d232bb00fcecbee231c53cbd25d\", \"path\": \"apps/cli/__main__.py\"}",
+            "candidate_envelope_id": "envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1",
+            "capability_id": "workspace.apply_patch",
+            "capability_version": "1",
+            "created_at": "2026-07-23T00:52:46.386770Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply",
+            "node_id": "apply",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-5a951773-9d15-4af5-abf2-422b8accea27",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "<redacted payload_json 3297 chars; see parsed payload>",
+        "occurred_at": "2026-07-23T00:52:46.392871Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-366eb050-48f3-47c6-ae8d-fff131708f12",
+        "sequence": 15,
+        "payload": {
+          "node_id": "provider",
+          "output": {
+            "finish_reason": "tool_calls",
+            "text": "",
+            "tool_proposals": [
+              {
+                "arguments_json": "{\"content\": \"<redacted 2601 chars sha256:f0516ad5bc5a86d9>\", \"expected_sha256\": \"526aa2b24470e4e99c7ad96881d71ccf80fb7d232bb00fcecbee231c53cbd25d\", \"path\": \"apps/cli/__main__.py\"}",
+                "capability_id": "workspace.apply_patch",
+                "proposal_id": "tool_SNOOtZ5FSC00xxhokQNv25VG",
+                "schema_version": "1.0"
+              }
+            ],
+            "usage": {
+              "estimated_cost_usd": "0",
+              "input_tokens": 4387,
+              "output_tokens": 18736,
+              "schema_version": "1.0",
+              "total_tokens": 23123
+            }
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e8527603-9ef7-40f8-8c77-e8dc60f04189",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-23T00:52:46.397338Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-5a951773-9d15-4af5-abf2-422b8accea27",
+        "sequence": 16,
+        "payload": {
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-39eea1ab-a94c-416c-89e2-9071bd28acff",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "APPROVAL_REQUESTED",
+        "payload_json": "{\"action_digest\":\"4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f\",\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-23T00:52:46.402042Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-e8527603-9ef7-40f8-8c77-e8dc60f04189",
+        "sequence": 17,
+        "payload": {
+          "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-a4261947-9963-4524-9de7-a6b08efb724e",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "APPROVAL_REQUESTED",
+        "payload_json": "{\"run\":{\"active_node_id\":\"approve\",\"attempt\":1,\"commitment_id\":\"commitment:selfdev:77cb8ae23fbc\",\"configuration_snapshot_digest\":\"8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82\",\"configuration_snapshot_id\":\"task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b\",\"created_at\":\"2026-07-23T00:49:50.973043Z\",\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"lease_fence\":1,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"WAITING_APPROVAL\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98\",\"workflow_id\":\"workflow:selfdev-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.406442Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-39eea1ab-a94c-416c-89e2-9071bd28acff",
+        "sequence": 18,
+        "payload": {
+          "run": {
+            "active_node_id": "approve",
+            "attempt": 1,
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "configuration_snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+            "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+            "created_at": "2026-07-23T00:49:50.973043Z",
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "lease_fence": 1,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "WAITING_APPROVAL",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+            "workflow_id": "workflow:selfdev-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-9dd16773-7ff4-44b7-be72-e844804b590f",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "APPROVAL_RECORDED",
+        "payload_json": "{\"approval\":{\"action_digest\":\"4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f\",\"actor_id\":\"user:local\",\"actor_role\":\"PRINCIPAL\",\"approval_id\":\"approval:739785a7-3383-498f-a17c-f1a92e5a8846\",\"decided_at\":\"2026-07-23T00:52:46.414112Z\",\"disposition\":\"APPROVE\",\"expires_at\":\"2026-07-23T01:02:46.414112Z\",\"reason\":\"Approved exact-digest SELFDEV provider patch proposal via CLI --approve\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.416529Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-a4261947-9963-4524-9de7-a6b08efb724e",
+        "sequence": 19,
+        "payload": {
+          "approval": {
+            "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+            "actor_id": "user:local",
+            "actor_role": "PRINCIPAL",
+            "approval_id": "approval:739785a7-3383-498f-a17c-f1a92e5a8846",
+            "decided_at": "2026-07-23T00:52:46.414112Z",
+            "disposition": "APPROVE",
+            "expires_at": "2026-07-23T01:02:46.414112Z",
+            "reason": "Approved exact-digest SELFDEV provider patch proposal via CLI --approve",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-94a3632b-c651-4038-9dc9-ac47ecdb5244",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "RUN_RESUMED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:selfdev:77cb8ae23fbc\",\"configuration_snapshot_digest\":\"8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82\",\"configuration_snapshot_id\":\"task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b\",\"created_at\":\"2026-07-23T00:49:50.973043Z\",\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"lease_fence\":2,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"RUNNING\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98\",\"workflow_id\":\"workflow:selfdev-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.431064Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-9dd16773-7ff4-44b7-be72-e844804b590f",
+        "sequence": 20,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "configuration_snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+            "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+            "created_at": "2026-07-23T00:49:50.973043Z",
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "lease_fence": 2,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "RUNNING",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+            "workflow_id": "workflow:selfdev-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-67611454-ff3e-434d-9a0a-0c227ed62412",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "CANDIDATES_GENERATED",
+        "payload_json": "{\"envelope\":{\"allowed_capability_ids\":[\"artifact.write\",\"workspace.apply_patch\",\"workspace.read\",\"workspace.run_tests\"],\"candidate_ids\":[\"apply\",\"approve\",\"done\",\"evaluate\",\"provider\",\"read\",\"tests\"],\"coverage_evidence_refs\":[],\"created_at\":\"2026-07-23T00:52:46.435644Z\",\"envelope_id\":\"envelope-c18a390e-80eb-4710-be6c-f93ec2fa4c84\",\"exclusions\":[],\"generator_id\":\"developer-golden-path\",\"generator_version\":\"1\",\"has_abstain\":true,\"has_ask\":true,\"has_no_action\":true,\"resource_budget\":{\"max_cost_usd\":\"1\",\"max_duration_seconds\":3600,\"max_provider_tokens\":1000,\"max_tool_calls\":10,\"schema_version\":\"1.0\"},\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.437905Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-94a3632b-c651-4038-9dc9-ac47ecdb5244",
+        "sequence": 21,
+        "payload": {
+          "envelope": {
+            "allowed_capability_ids": [
+              "artifact.write",
+              "workspace.apply_patch",
+              "workspace.read",
+              "workspace.run_tests"
+            ],
+            "candidate_ids": [
+              "apply",
+              "approve",
+              "done",
+              "evaluate",
+              "provider",
+              "read",
+              "tests"
+            ],
+            "coverage_evidence_refs": [],
+            "created_at": "2026-07-23T00:52:46.435644Z",
+            "envelope_id": "envelope-c18a390e-80eb-4710-be6c-f93ec2fa4c84",
+            "exclusions": [],
+            "generator_id": "developer-golden-path",
+            "generator_version": "1",
+            "has_abstain": true,
+            "has_ask": true,
+            "has_no_action": true,
+            "resource_budget": {
+              "max_cost_usd": "1",
+              "max_duration_seconds": 3600,
+              "max_provider_tokens": 1000,
+              "max_tool_calls": 10,
+              "schema_version": "1.0"
+            },
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-9af5c3c8-07ad-4dfd-b7e6-fa46ad0639a1",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-23T00:52:46.442860Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-67611454-ff3e-434d-9a0a-0c227ed62412",
+        "sequence": 22,
+        "payload": {
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-4851e080-0d0b-43bb-bbaf-7dac465bff52",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-23T00:52:46.447960Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-9af5c3c8-07ad-4dfd-b7e6-fa46ad0639a1",
+        "sequence": 23,
+        "payload": {
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-49c0b953-db36-4a38-8514-74fa3db54268",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"apply\"}",
+        "occurred_at": "2026-07-23T00:52:46.453492Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-4851e080-0d0b-43bb-bbaf-7dac465bff52",
+        "sequence": 24,
+        "payload": {
+          "node_id": "apply"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-a71f6098-79db-4c9d-975b-7ae83b82e0d3",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f\",\"action_id\":\"action-87f775b9-2a9f-41bc-a979-1b0db1603c19\",\"approval_id\":\"approval:739785a7-3383-498f-a17c-f1a92e5a8846\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-fb4f8774-c25e-447d-b450-2deaed4a0fb8\",\"evaluated_at\":\"2026-07-23T00:52:46.456383Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.459068Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-49c0b953-db36-4a38-8514-74fa3db54268",
+        "sequence": 25,
+        "payload": {
+          "decision": {
+            "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+            "action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "approval_id": "approval:739785a7-3383-498f-a17c-f1a92e5a8846",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-fb4f8774-c25e-447d-b450-2deaed4a0fb8",
+            "evaluated_at": "2026-07-23T00:52:46.456383Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-97fbb7a5-25a5-48bc-9276-78e5de07a40d",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f\",\"action_id\":\"action-87f775b9-2a9f-41bc-a979-1b0db1603c19\",\"approval_id\":\"approval:739785a7-3383-498f-a17c-f1a92e5a8846\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-fb4f8774-c25e-447d-b450-2deaed4a0fb8\",\"evaluated_at\":\"2026-07-23T00:52:46.456383Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f\",\"action_id\":\"action-87f775b9-2a9f-41bc-a979-1b0db1603c19\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-23T00:57:46.464503Z\",\"grant_id\":\"grant:workspace.apply_patch\",\"issued_at\":\"2026-07-23T00:52:46.464503Z\",\"lease_fence\":2,\"permit_id\":\"permit-63ff71ec-be09-48a1-b1e4-0725e2efc4f9\",\"policy_decision_id\":\"decision-fb4f8774-c25e-447d-b450-2deaed4a0fb8\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f\",\"action_id\":\"action-87f775b9-2a9f-41bc-a979-1b0db1603c19\",\"attempt\":1,\"connector_id\":\"workspace.apply_patch\",\"detail_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply\",\"occurred_at\":\"2026-07-23T00:52:46.468377Z\",\"output_artifact_ids\":[],\"permit_id\":\"permit-63ff71ec-be09-48a1-b1e4-0725e2efc4f9\",\"receipt_id\":\"receipt-5b07388a-7c66-420f-ad18-2909a9440f6a\",\"schema_version\":\"1.0\",\"status\":\"SUCCEEDED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.475021Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-a71f6098-79db-4c9d-975b-7ae83b82e0d3",
+        "sequence": 26,
+        "payload": {
+          "decision": {
+            "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+            "action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "approval_id": "approval:739785a7-3383-498f-a17c-f1a92e5a8846",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-fb4f8774-c25e-447d-b450-2deaed4a0fb8",
+            "evaluated_at": "2026-07-23T00:52:46.456383Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+            "action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-23T00:57:46.464503Z",
+            "grant_id": "grant:workspace.apply_patch",
+            "issued_at": "2026-07-23T00:52:46.464503Z",
+            "lease_fence": 2,
+            "permit_id": "permit-63ff71ec-be09-48a1-b1e4-0725e2efc4f9",
+            "policy_decision_id": "decision-fb4f8774-c25e-447d-b450-2deaed4a0fb8",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "4fed89d328b996cb7f96fddd13075e77f4deb3c8748667c7441be96c492a493f",
+            "action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "attempt": 1,
+            "connector_id": "workspace.apply_patch",
+            "detail_ref": "compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985",
+            "error_code": "error:none",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply",
+            "occurred_at": "2026-07-23T00:52:46.468377Z",
+            "output_artifact_ids": [],
+            "permit_id": "permit-63ff71ec-be09-48a1-b1e4-0725e2efc4f9",
+            "receipt_id": "receipt-5b07388a-7c66-420f-ad18-2909a9440f6a",
+            "schema_version": "1.0",
+            "status": "SUCCEEDED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e9617807-01be-434b-9399-cdb9929ec0ab",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"apply\",\"output\":{\"applied_sha256\":\"f0516ad5bc5a86d9fdd3b91927c6f7ee99ea88c3d0361da31a7e900f90d57a16\",\"before_sha256\":\"526aa2b24470e4e99c7ad96881d71ccf80fb7d232bb00fcecbee231c53cbd25d\",\"compensation_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"manifest_sha256\":\"e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b\",\"path\":\"apps/cli/__main__.py\",\"replayed\":false,\"sha256\":\"f0516ad5bc5a86d9fdd3b91927c6f7ee99ea88c3d0361da31a7e900f90d57a16\"}}",
+        "occurred_at": "2026-07-23T00:52:46.480848Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-97fbb7a5-25a5-48bc-9276-78e5de07a40d",
+        "sequence": 27,
+        "payload": {
+          "node_id": "apply",
+          "output": {
+            "applied_sha256": "f0516ad5bc5a86d9fdd3b91927c6f7ee99ea88c3d0361da31a7e900f90d57a16",
+            "before_sha256": "526aa2b24470e4e99c7ad96881d71ccf80fb7d232bb00fcecbee231c53cbd25d",
+            "compensation_ref": "compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985",
+            "manifest_sha256": "e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b",
+            "path": "apps/cli/__main__.py",
+            "replayed": false,
+            "sha256": "f0516ad5bc5a86d9fdd3b91927c6f7ee99ea88c3d0361da31a7e900f90d57a16"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-d08496b9-e9cc-4f55-a2e5-f0d49b029827",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"tests\"}",
+        "occurred_at": "2026-07-23T00:52:46.486874Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-e9617807-01be-434b-9399-cdb9929ec0ab",
+        "sequence": 28,
+        "payload": {
+          "node_id": "tests"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e717be29-4f00-4626-9764-b84c6d2060da",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-c0ec7580-0ea4-4337-be32-6c3935cc97f0\",\"arguments_json\":\"{\\\"command\\\":\\\"python -m pytest\\\"}\",\"candidate_envelope_id\":\"envelope-c18a390e-80eb-4710-be6c-f93ec2fa4c84\",\"capability_id\":\"workspace.run_tests\",\"capability_version\":\"1\",\"created_at\":\"2026-07-23T00:52:46.489882Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:tests\",\"node_id\":\"tests\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.492785Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-d08496b9-e9cc-4f55-a2e5-f0d49b029827",
+        "sequence": 29,
+        "payload": {
+          "action": {
+            "action_id": "action-c0ec7580-0ea4-4337-be32-6c3935cc97f0",
+            "arguments_json": "{\"command\":\"python -m pytest\"}",
+            "candidate_envelope_id": "envelope-c18a390e-80eb-4710-be6c-f93ec2fa4c84",
+            "capability_id": "workspace.run_tests",
+            "capability_version": "1",
+            "created_at": "2026-07-23T00:52:46.489882Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:tests",
+            "node_id": "tests",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-0f54db53-71fb-443e-be4e-c7cbac4cc39a",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648\",\"action_id\":\"action-c0ec7580-0ea4-4337-be32-6c3935cc97f0\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-e8a464f2-3677-46ff-a5b5-87df72f47fa7\",\"evaluated_at\":\"2026-07-23T00:52:46.496073Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:46.499209Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-e717be29-4f00-4626-9764-b84c6d2060da",
+        "sequence": 30,
+        "payload": {
+          "decision": {
+            "action_digest": "b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648",
+            "action_id": "action-c0ec7580-0ea4-4337-be32-6c3935cc97f0",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-e8a464f2-3677-46ff-a5b5-87df72f47fa7",
+            "evaluated_at": "2026-07-23T00:52:46.496073Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-aeee02a4-efbe-447f-aa00-21d770649cb7",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648\",\"action_id\":\"action-c0ec7580-0ea4-4337-be32-6c3935cc97f0\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-e8a464f2-3677-46ff-a5b5-87df72f47fa7\",\"evaluated_at\":\"2026-07-23T00:52:46.496073Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648\",\"action_id\":\"action-c0ec7580-0ea4-4337-be32-6c3935cc97f0\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-23T00:57:46.505392Z\",\"grant_id\":\"grant:workspace.run_tests\",\"issued_at\":\"2026-07-23T00:52:46.505392Z\",\"lease_fence\":2,\"permit_id\":\"permit-358f9048-c88f-493e-b39f-4f79e509e6a0\",\"policy_decision_id\":\"decision-e8a464f2-3677-46ff-a5b5-87df72f47fa7\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648\",\"action_id\":\"action-c0ec7580-0ea4-4337-be32-6c3935cc97f0\",\"attempt\":1,\"connector_id\":\"workspace.run_tests\",\"detail_ref\":\"detail:none\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:tests\",\"occurred_at\":\"2026-07-23T00:52:47.118597Z\",\"output_artifact_ids\":[\"artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776\"],\"permit_id\":\"permit-358f9048-c88f-493e-b39f-4f79e509e6a0\",\"receipt_id\":\"receipt-fc34daa9-3c26-4c00-a3e2-3b67d5dd89ce\",\"schema_version\":\"1.0\",\"status\":\"SUCCEEDED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:47.127267Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-0f54db53-71fb-443e-be4e-c7cbac4cc39a",
+        "sequence": 31,
+        "payload": {
+          "decision": {
+            "action_digest": "b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648",
+            "action_id": "action-c0ec7580-0ea4-4337-be32-6c3935cc97f0",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-e8a464f2-3677-46ff-a5b5-87df72f47fa7",
+            "evaluated_at": "2026-07-23T00:52:46.496073Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648",
+            "action_id": "action-c0ec7580-0ea4-4337-be32-6c3935cc97f0",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-23T00:57:46.505392Z",
+            "grant_id": "grant:workspace.run_tests",
+            "issued_at": "2026-07-23T00:52:46.505392Z",
+            "lease_fence": 2,
+            "permit_id": "permit-358f9048-c88f-493e-b39f-4f79e509e6a0",
+            "policy_decision_id": "decision-e8a464f2-3677-46ff-a5b5-87df72f47fa7",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "b4a3ab37d95576b95df737e99a0a357b0b33e4fa71172a62dfe81077566ef648",
+            "action_id": "action-c0ec7580-0ea4-4337-be32-6c3935cc97f0",
+            "attempt": 1,
+            "connector_id": "workspace.run_tests",
+            "detail_ref": "detail:none",
+            "error_code": "error:none",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:tests",
+            "occurred_at": "2026-07-23T00:52:47.118597Z",
+            "output_artifact_ids": [
+              "artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776"
+            ],
+            "permit_id": "permit-358f9048-c88f-493e-b39f-4f79e509e6a0",
+            "receipt_id": "receipt-fc34daa9-3c26-4c00-a3e2-3b67d5dd89ce",
+            "schema_version": "1.0",
+            "status": "SUCCEEDED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-babcbeda-b579-4099-a508-6108fc67d0aa",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ARTIFACT_RECORDED",
+        "payload_json": "{\"action_id\":\"action-c0ec7580-0ea4-4337-be32-6c3935cc97f0\",\"artifact_id\":\"artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776\",\"node_id\":\"tests\"}",
+        "occurred_at": "2026-07-23T00:52:47.138482Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-aeee02a4-efbe-447f-aa00-21d770649cb7",
+        "sequence": 32,
+        "payload": {
+          "action_id": "action-c0ec7580-0ea4-4337-be32-6c3935cc97f0",
+          "artifact_id": "artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776",
+          "node_id": "tests"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-ef145e1a-5392-445a-a261-e394c52d9919",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"tests\",\"output\":{\"artifact_ids\":[\"artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776\"],\"digest\":\"5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776\",\"exit_code\":2}}",
+        "occurred_at": "2026-07-23T00:52:47.144916Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-babcbeda-b579-4099-a508-6108fc67d0aa",
+        "sequence": 33,
+        "payload": {
+          "node_id": "tests",
+          "output": {
+            "artifact_ids": [
+              "artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776"
+            ],
+            "digest": "5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776",
+            "exit_code": 2
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-baf1bf81-f265-4144-9bc9-0b23a1815d36",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"evaluate\"}",
+        "occurred_at": "2026-07-23T00:52:47.151571Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-ef145e1a-5392-445a-a261-e394c52d9919",
+        "sequence": 34,
+        "payload": {
+          "node_id": "evaluate"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-d8b11d61-2656-43ba-a74d-080588017d07",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "OUTCOME_OBSERVED",
+        "payload_json": "{\"outcome\":{\"confidence\":1.0,\"evaluator_type\":\"pytest\",\"evaluator_version\":\"1\",\"evidence_refs\":[\"artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776\"],\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"observed_at\":\"2026-07-23T00:52:47.155293Z\",\"observed_outcome_id\":\"observed-5073ea2d-9905-4819-b271-b49aad5db39e\",\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"score\":0.0,\"status\":\"NOT_MET\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"unresolved_gaps\":[\"non-zero exit\"],\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:47.164561Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-baf1bf81-f265-4144-9bc9-0b23a1815d36",
+        "sequence": 35,
+        "payload": {
+          "outcome": {
+            "confidence": 1.0,
+            "evaluator_type": "pytest",
+            "evaluator_version": "1",
+            "evidence_refs": [
+              "artifact:5ccd0b435f9dcb49c987f71b649e3e9ef777e55aa369b8bd58128b3c84dd2776"
+            ],
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "observed_at": "2026-07-23T00:52:47.155293Z",
+            "observed_outcome_id": "observed-5073ea2d-9905-4819-b271-b49aad5db39e",
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "score": 0.0,
+            "status": "NOT_MET",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "unresolved_gaps": [
+              "non-zero exit"
+            ],
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-33034f17-6576-4cb0-aa7d-a6ee5ec402e8",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"evaluate\",\"output\":{\"score\":0.0,\"status\":\"NOT_MET\"}}",
+        "occurred_at": "2026-07-23T00:52:47.171565Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-d8b11d61-2656-43ba-a74d-080588017d07",
+        "sequence": 36,
+        "payload": {
+          "node_id": "evaluate",
+          "output": {
+            "score": 0.0,
+            "status": "NOT_MET"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-d3bccf35-8ec9-4e5d-858c-75bfdf481884",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"done\"}",
+        "occurred_at": "2026-07-23T00:52:47.178365Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-33034f17-6576-4cb0-aa7d-a6ee5ec402e8",
+        "sequence": 37,
+        "payload": {
+          "node_id": "done"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-566d2dc2-66d3-4534-b657-504828bcdb2f",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"done\",\"output\":{\"status\":\"complete\"}}",
+        "occurred_at": "2026-07-23T00:52:47.185768Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-d3bccf35-8ec9-4e5d-858c-75bfdf481884",
+        "sequence": 38,
+        "payload": {
+          "node_id": "done",
+          "output": {
+            "status": "complete"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-023377e0-5d45-4499-88b9-1b077d25e213",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "RUN_FAILED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:selfdev:77cb8ae23fbc\",\"configuration_snapshot_digest\":\"8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82\",\"configuration_snapshot_id\":\"task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b\",\"created_at\":\"2026-07-23T00:49:50.973043Z\",\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"lease_fence\":2,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"FAILED\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98\",\"workflow_id\":\"workflow:selfdev-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:47.192904Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-566d2dc2-66d3-4534-b657-504828bcdb2f",
+        "sequence": 39,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+            "configuration_snapshot_digest": "8d6736cc854c1748d0d9dfb202bf1bb69d1353831187490a0bdd7bdb0ae6cd82",
+            "configuration_snapshot_id": "task-configuration:17e65a2c-dc58-4e7b-a793-68887668d38b",
+            "created_at": "2026-07-23T00:49:50.973043Z",
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "lease_fence": 2,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "FAILED",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "1ef3230b631822aba3a102756e0b9740fe455e0558bd12e359bc680577f97d98",
+            "workflow_id": "workflow:selfdev-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-b8728e97-ee95-465b-a7e0-adb5bcf4b293",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "COMPENSATION_STARTED",
+        "payload_json": "{\"compensation\":{\"compensation_action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"compensation_id\":\"compensation-b718da59-f1ad-4a50-b793-1757603d83b4\",\"compensation_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"created_at\":\"2026-07-23T00:52:47.208859Z\",\"manifest_sha256\":\"e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b\",\"manual_intervention_required\":false,\"mode\":\"AUTOMATIC\",\"node_id\":\"apply\",\"original_action_id\":\"action-87f775b9-2a9f-41bc-a979-1b0db1603c19\",\"reason\":\"governed patch compensation started\",\"receipt_id\":null,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"STARTED\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\"}}",
+        "occurred_at": "2026-07-23T00:52:47.213281Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-023377e0-5d45-4499-88b9-1b077d25e213",
+        "sequence": 40,
+        "payload": {
+          "compensation": {
+            "compensation_action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "compensation_id": "compensation-b718da59-f1ad-4a50-b793-1757603d83b4",
+            "compensation_ref": "compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985",
+            "created_at": "2026-07-23T00:52:47.208859Z",
+            "manifest_sha256": "e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b",
+            "manual_intervention_required": false,
+            "mode": "AUTOMATIC",
+            "node_id": "apply",
+            "original_action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "reason": "governed patch compensation started",
+            "receipt_id": null,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "STARTED",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-925ddd42-691b-40f2-8251-9e9e79028172",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"arguments_json\":\"{\\\"compensation_ref\\\":\\\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\\\",\\\"manifest_sha256\\\":\\\"e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b\\\",\\\"original_action_key\\\":\\\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply\\\",\\\"path\\\":\\\"apps/cli/__main__.py\\\"}\",\"candidate_envelope_id\":\"envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1\",\"capability_id\":\"workspace.compensate_patch\",\"capability_version\":\"1\",\"created_at\":\"2026-07-23T00:52:47.208814Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:selfdev-mt-20260723-t3\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:compensate:apply\",\"node_id\":\"apply\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":1,\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:47.221052Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-b8728e97-ee95-465b-a7e0-adb5bcf4b293",
+        "sequence": 41,
+        "payload": {
+          "action": {
+            "action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "arguments_json": "{\"compensation_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"manifest_sha256\":\"e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b\",\"original_action_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:apply\",\"path\":\"apps/cli/__main__.py\"}",
+            "candidate_envelope_id": "envelope-5236da2d-1b62-4e75-a1c0-7732670c1bb1",
+            "capability_id": "workspace.compensate_patch",
+            "capability_version": "1",
+            "created_at": "2026-07-23T00:52:47.208814Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:compensate:apply",
+            "node_id": "apply",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 1,
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-77ad606c-4c1b-408a-b977-02a6562110d9",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d\",\"action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-e57d4d5b-d247-451a-8dc4-a9c50d98738c\",\"evaluated_at\":\"2026-07-23T00:52:47.224984Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:47.228720Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-925ddd42-691b-40f2-8251-9e9e79028172",
+        "sequence": 42,
+        "payload": {
+          "decision": {
+            "action_digest": "d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d",
+            "action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-e57d4d5b-d247-451a-8dc4-a9c50d98738c",
+            "evaluated_at": "2026-07-23T00:52:47.224984Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-c0f191c5-37bb-4c5d-93ec-47a9ed28dd94",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d\",\"action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-e57d4d5b-d247-451a-8dc4-a9c50d98738c\",\"evaluated_at\":\"2026-07-23T00:52:47.224984Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d\",\"action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-23T00:57:47.236520Z\",\"grant_id\":\"grant:internal:workspace.compensate_patch\",\"issued_at\":\"2026-07-23T00:52:47.236520Z\",\"lease_fence\":2,\"permit_id\":\"permit-53d9975f-01ef-4a95-9a82-78e34f63c6dc\",\"policy_decision_id\":\"decision-e57d4d5b-d247-451a-8dc4-a9c50d98738c\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d\",\"action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"attempt\":1,\"connector_id\":\"workspace.compensate_patch\",\"detail_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257:compensate:apply\",\"occurred_at\":\"2026-07-23T00:52:47.238417Z\",\"output_artifact_ids\":[],\"permit_id\":\"permit-53d9975f-01ef-4a95-9a82-78e34f63c6dc\",\"receipt_id\":\"receipt-4e474497-7628-4873-93ee-c674bb211c27\",\"schema_version\":\"1.0\",\"status\":\"COMPENSATED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-23T00:52:47.247162Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-77ad606c-4c1b-408a-b977-02a6562110d9",
+        "sequence": 43,
+        "payload": {
+          "decision": {
+            "action_digest": "d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d",
+            "action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-e57d4d5b-d247-451a-8dc4-a9c50d98738c",
+            "evaluated_at": "2026-07-23T00:52:47.224984Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d",
+            "action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-23T00:57:47.236520Z",
+            "grant_id": "grant:internal:workspace.compensate_patch",
+            "issued_at": "2026-07-23T00:52:47.236520Z",
+            "lease_fence": 2,
+            "permit_id": "permit-53d9975f-01ef-4a95-9a82-78e34f63c6dc",
+            "policy_decision_id": "decision-e57d4d5b-d247-451a-8dc4-a9c50d98738c",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "d872e4d5c5c4a08170075e110f63202e4ad1edd6670bb7c0c4b566a664beab3d",
+            "action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "attempt": 1,
+            "connector_id": "workspace.compensate_patch",
+            "detail_ref": "compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985",
+            "error_code": "error:none",
+            "idempotency_key": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257:compensate:apply",
+            "occurred_at": "2026-07-23T00:52:47.238417Z",
+            "output_artifact_ids": [],
+            "permit_id": "permit-53d9975f-01ef-4a95-9a82-78e34f63c6dc",
+            "receipt_id": "receipt-4e474497-7628-4873-93ee-c674bb211c27",
+            "schema_version": "1.0",
+            "status": "COMPENSATED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e6b7f24a-4ee6-44eb-b67c-b8f273bbbe5a",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "event_type": "ACTION_COMPENSATED",
+        "payload_json": "{\"compensation\":{\"compensation_action_id\":\"action-19d945c4-fa97-4356-9994-3b22697b3605\",\"compensation_id\":\"compensation-b718da59-f1ad-4a50-b793-1757603d83b4\",\"compensation_ref\":\"compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985\",\"created_at\":\"2026-07-23T00:52:47.251656Z\",\"manifest_sha256\":\"e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b\",\"manual_intervention_required\":false,\"mode\":\"AUTOMATIC\",\"node_id\":\"apply\",\"original_action_id\":\"action-87f775b9-2a9f-41bc-a979-1b0db1603c19\",\"reason\":\"governed patch compensation completed\",\"receipt_id\":\"receipt-4e474497-7628-4873-93ee-c674bb211c27\",\"run_id\":\"run:36f22ab3-389d-4dbe-9adb-0eb87e470257\",\"schema_version\":\"1.0\",\"status\":\"COMPENSATED\",\"task_id\":\"task-0b443f75-e30b-4b6e-9402-952afc388ed3\"}}",
+        "occurred_at": "2026-07-23T00:52:47.255613Z",
+        "correlation_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+        "causation_id": "event-c0f191c5-37bb-4c5d-93ec-47a9ed28dd94",
+        "sequence": 44,
+        "payload": {
+          "compensation": {
+            "compensation_action_id": "action-19d945c4-fa97-4356-9994-3b22697b3605",
+            "compensation_id": "compensation-b718da59-f1ad-4a50-b793-1757603d83b4",
+            "compensation_ref": "compensation:76f8123cae01e833e5957d7ab0d592e75fea3239ea1b03d5d8c0d0dfd085d985",
+            "created_at": "2026-07-23T00:52:47.251656Z",
+            "manifest_sha256": "e181359ada4676011c3858604b2771384ddf49c3d260ab1106f2646e3d8f686b",
+            "manual_intervention_required": false,
+            "mode": "AUTOMATIC",
+            "node_id": "apply",
+            "original_action_id": "action-87f775b9-2a9f-41bc-a979-1b0db1603c19",
+            "reason": "governed patch compensation completed",
+            "receipt_id": "receipt-4e474497-7628-4873-93ee-c674bb211c27",
+            "run_id": "run:36f22ab3-389d-4dbe-9adb-0eb87e470257",
+            "schema_version": "1.0",
+            "status": "COMPENSATED",
+            "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3"
+          }
+        }
+      }
+    ],
+    "domain_pack": {
+      "schema_version": "1.0",
+      "pack_id": "developer-agent",
+      "version": "1.0",
+      "namespace": "developer_agent",
+      "capabilities": [
+        "workspace.read",
+        "workspace.apply_patch",
+        "workspace.run_tests",
+        "artifact.write"
+      ],
+      "workflow_templates": [
+        "developer_agent.repository_patch.v1"
+      ],
+      "evaluator_types": [
+        "pytest"
+      ],
+      "credential_classes": [
+        "none",
+        "provider-api-key"
+      ],
+      "created_at": "2026-07-23T00:49:50.957649Z"
+    }
+  },
+  "package": {
+    "admission_receipt": {
+      "mandate_id": "META-SHADOW-MANDATE-0",
+      "repository_id": "autonomous-agent-core",
+      "repository_head": "4c40ff6",
+      "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-mt-20260723/t3/provider",
+      "isolated_branch": "codex/selfdev-mt-20260723-t3",
+      "target_path": "apps/cli/__main__.py",
+      "verifier_commands": [
+        "python -m pytest"
+      ],
+      "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+      "rollback_strategy": "compensate_task",
+      "operator_intervention_count": 0,
+      "hcw_minutes": 0.0,
+      "baseline_assignment_id": "baseline:selfdev-mt-20260723-t3",
+      "receipt_digest": "77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832"
+    },
+    "task_commit_payload": {
+      "commitment": {
+        "commitment_id": "commitment:selfdev:77cb8ae23fbc",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "goal_id": "goal:selfdev:77cb8ae23fbc",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "accepted_by": "user:local",
+        "accepted_at": "2026-07-23T08:49:50.963201+08:00",
+        "deliverables": [
+          "Agent OS repository patch",
+          "SELFDEV admission receipt 77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832"
+        ],
+        "acceptance_criteria": [
+          "admission receipt validates SELFDEV target",
+          "exact-digest approval is recorded before patch effect",
+          "allowlisted verifier evidence is content-bound",
+          "compensation restores pre-change bytes"
+        ],
+        "authority_scopes": [
+          "workspace:read",
+          "workspace:write",
+          "task.configuration.snapshot"
+        ],
+        "budget": {
+          "max_cost_usd": "1",
+          "max_duration_seconds": 3600,
+          "max_provider_tokens": 1000,
+          "max_tool_calls": 10
+        },
+        "risk_tier": 1,
+        "exit_conditions": [
+          "verified",
+          "compensated on failure"
+        ],
+        "expires_at": "2026-07-23T09:49:50.963201+08:00"
+      },
+      "workflow": {
+        "schema_version": "1.0",
+        "workflow_id": "workflow:selfdev-s2",
+        "version": 1,
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "created_by": "user:local",
+        "created_at": "2026-07-23T00:49:50.963201Z",
+        "policy_version": "policy-1",
+        "evaluator_refs": [
+          "evaluator:pytest:1"
+        ],
+        "nodes": [
+          {
+            "schema_version": "1.0",
+            "node_id": "read",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.read",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "idempotent",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "provider",
+            "kind": "provider",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "provider.chat",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "approve",
+            "kind": "approval",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "apply",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.apply_patch",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "compensatable",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "tests",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.run_tests",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "compensatable",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "evaluate",
+            "kind": "evaluation",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "done",
+            "kind": "terminal",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          }
+        ],
+        "edges": [
+          {
+            "schema_version": "1.0",
+            "source": "read",
+            "target": "provider",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "provider",
+            "target": "approve",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "approve",
+            "target": "apply",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "apply",
+            "target": "tests",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "tests",
+            "target": "evaluate",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "evaluate",
+            "target": "done",
+            "condition": null
+          }
+        ],
+        "max_replans": 1
+      },
+      "expected_outcome": {
+        "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+        "task_id": "task-0b443f75-e30b-4b6e-9402-952afc388ed3",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "evaluator_type": "pytest",
+        "evaluator_version": "1",
+        "evidence_requirements": [
+          "test-report"
+        ],
+        "failure_semantics": [
+          "non-zero exit"
+        ],
+        "threshold": 1,
+        "observation_window_seconds": 3600,
+        "frozen_at": "2026-07-23T08:49:50.963201+08:00"
+      },
+      "selfdev_admission_receipt": {
+        "mandate_id": "META-SHADOW-MANDATE-0",
+        "repository_id": "autonomous-agent-core",
+        "repository_head": "4c40ff6",
+        "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-mt-20260723/t3/provider",
+        "isolated_branch": "codex/selfdev-mt-20260723-t3",
+        "target_path": "apps/cli/__main__.py",
+        "verifier_commands": [
+          "python -m pytest"
+        ],
+        "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+        "rollback_strategy": "compensate_task",
+        "operator_intervention_count": 0,
+        "hcw_minutes": 0.0,
+        "baseline_assignment_id": "baseline:selfdev-mt-20260723-t3",
+        "receipt_digest": "77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832"
+      },
+      "statement": "In apps/cli/__main__.py, make selfdev-run-provider report provider run failures structurally. Acceptance contract: when run_task raises agent_os_core RunExecutionError, the command must print a JSON object to stdout containing mode REAL_PROVIDER_RUN_FAILED and the task payload, and must not crash with a traceback; success-path output must remain unchanged."
+    },
+    "run_inputs": {
+      "target_path": "apps/cli/__main__.py",
+      "test_command": "python -m pytest"
+    }
+  }
+}

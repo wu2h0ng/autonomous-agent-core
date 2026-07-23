@@ -1,0 +1,53 @@
+diff --git a/packages/os_core/src/agent_os_core/recovery.py b/packages/os_core/src/agent_os_core/recovery.py
+index 6dbc1b5..8f9e40c 100644
+--- a/packages/os_core/src/agent_os_core/recovery.py
++++ b/packages/os_core/src/agent_os_core/recovery.py
+@@ -29,13 +29,21 @@ def build_recovery_snapshot(
+     logical_action_keys: set[str] = set()
+     outcome_status: str | None = None
+ 
++    def _bind_run_id(candidate: object) -> None:
++        nonlocal run_id
++        if not isinstance(candidate, str) or not candidate:
++            return
++        if run_id is None:
++            run_id = candidate
++            return
++        if run_id != candidate:
++            raise ValueError("recovery projection requires one run stream")
++
+     for event in events:
+         payload = event.decoded_payload()
+         run_payload = payload.get("run")
+         if isinstance(run_payload, dict):
+-            candidate = run_payload.get("run_id")
+-            if isinstance(candidate, str) and candidate:
+-                run_id = run_id or candidate
++            _bind_run_id(run_payload.get("run_id"))
+         if event.event_type is TaskEventType.RUN_RESUMED:
+             run_resumed_count += 1
+         elif event.event_type is TaskEventType.WAIT_REGISTERED:
+@@ -48,9 +56,7 @@ def build_recovery_snapshot(
+             compensation_count += 1
+             compensation = payload.get("compensation")
+             if isinstance(compensation, dict):
+-                candidate = compensation.get("run_id")
+-                if isinstance(candidate, str) and candidate:
+-                    run_id = run_id or candidate
++                _bind_run_id(compensation.get("run_id"))
+         elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
+             action_receipt_count += 1
+             receipt = payload.get("receipt")
+@@ -62,11 +68,9 @@ def build_recovery_snapshot(
+             outcome = payload.get("outcome")
+             if isinstance(outcome, dict):
+                 status = outcome.get("status")
+-                candidate = outcome.get("run_id")
+                 if isinstance(status, str) and status:
+                     outcome_status = status
+-                if isinstance(candidate, str) and candidate:
+-                    run_id = run_id or candidate
++                _bind_run_id(outcome.get("run_id"))
+ 
+     if run_id is None:
+         raise ValueError("recovery projection could not derive a run_id")

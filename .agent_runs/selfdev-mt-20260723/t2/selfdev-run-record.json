@@ -1,0 +1,12 @@
+{
+  "admission_receipt_digest": "9c6699da27d038b906e6cf1925960aefa3c99376a9d540110b2bb9cfb05d4572",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+  "operator_intervention_count": 4,
+  "hcw_minutes": 0.3,
+  "outcome_status": "NOT_MET",
+  "evidence_refs": [
+    "agent-run:selfdev-mt-20260723:t2:attempt-3-not-met:811119d6bc5620f0d7555c817aac452049b7619d04cb5c61aee34edd9578cc12"
+  ],
+  "record_digest": "ba469b16e96b2e30d3ce0679af94fc26f9e763da0a3acbfe9e85cd88ce5f4299"
+}

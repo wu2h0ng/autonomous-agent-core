@@ -1,0 +1,41 @@
+{
+  "admission_receipt": {
+    "mandate_id": "META-SHADOW-MANDATE-0",
+    "repository_id": "autonomous-agent-core",
+    "repository_head": "4c40ff6",
+    "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-mt-20260723/t2/provider",
+    "isolated_branch": "codex/selfdev-mt-20260723-t2",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "verifier_commands": [
+      "python -m pytest"
+    ],
+    "expected_outcome_id": "expected:selfdev-mt-20260723-t2",
+    "rollback_strategy": "compensate_task",
+    "operator_intervention_count": 0,
+    "hcw_minutes": 0.0,
+    "baseline_assignment_id": "baseline:selfdev-mt-20260723-t2",
+    "receipt_digest": "9c6699da27d038b906e6cf1925960aefa3c99376a9d540110b2bb9cfb05d4572"
+  },
+  "baseline_record": {
+    "baseline_assignment_id": "baseline:selfdev-mt-20260723-t2",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 1.5,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-mt-20260723:t2:founder-model-tools-source-fix",
+      "verifier:6c0c2c5dc0e7b515d7ff76b75285472c7f485f1fe77f6defc2d2e7a369cdf379"
+    ],
+    "record_digest": "a729d87f5aa3e7f8bf090d27d2e06197502135edacdd18870c4c0ec05051b6f5"
+  },
+  "verifier": {
+    "command": "python -m pytest",
+    "exit_code": 0,
+    "stdout_sha256": "b514a58609c1a84ac421d22944e38bb1a23048a84228cef112566f8792203baf",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "receipt_digest": "9c6699da27d038b906e6cf1925960aefa3c99376a9d540110b2bb9cfb05d4572",
+    "evidence_ref": "verifier:6c0c2c5dc0e7b515d7ff76b75285472c7f485f1fe77f6defc2d2e7a369cdf379"
+  }
+}

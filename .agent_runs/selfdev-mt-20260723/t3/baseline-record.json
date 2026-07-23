@@ -1,0 +1,13 @@
+{
+  "baseline_assignment_id": "baseline:selfdev-mt-20260723-t3",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "apps/cli/__main__.py",
+  "operator_intervention_count": 1,
+  "hcw_minutes": 2.0,
+  "outcome_status": "VERIFIED",
+  "evidence_refs": [
+    "agent-run:selfdev-mt-20260723:t3:founder-model-tools-source-fix",
+    "verifier:d8ec0bf0b5f2399271e88d04ec4db3cbc8d12ebf545c04833e7b0741c80d37a7"
+  ],
+  "record_digest": "abcb611e2ab39b13836954c978bdbb628092b854d2db4888d103b3d21d71d142"
+}

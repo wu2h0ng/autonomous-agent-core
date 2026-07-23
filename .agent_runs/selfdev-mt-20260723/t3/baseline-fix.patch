@@ -1,0 +1,124 @@
+diff --git a/apps/cli/__main__.py b/apps/cli/__main__.py
+index c743b54..de9975c 100644
+--- a/apps/cli/__main__.py
++++ b/apps/cli/__main__.py
+@@ -15,6 +15,7 @@ from apps.api_server.app import AgentOSApplication
+ from agent_os_core import (
+     DeterministicProvider,
+     RUN_DENIED,
++    RunExecutionError,
+     SelfDevelopmentTaskSpec,
+     SelfDevelopmentValidationError,
+     build_self_development_baseline_record,
+@@ -255,55 +256,67 @@ def main() -> None:
+         )
+         committed = app.commit_task(created.task_id, package.task_commit_payload)
+         snapshot = app.seal_task_configuration(committed.task_id, {})
+-        proposed = app.run_task(
+-            committed.task_id,
+-            package.run_inputs,
+-            configuration_snapshot_id=snapshot.snapshot_id,
+-        )
+-        waiting_approval = (
+-            proposed.run is not None
+-            and proposed.run.status is RunStatus.WAITING_APPROVAL
+-        )
+-        mode = (
+-            "REAL_PROVIDER_READY_UNTIL_APPROVAL"
+-            if waiting_approval
+-            else "REAL_PROVIDER_RUN_FINISHED"
+-        )
+-        task = proposed
+-        if waiting_approval and args.approve:
+-            app.record_approval(
+-                committed.task_id,
+-                {
+-                    "disposition": "APPROVE",
+-                    "reason": (
+-                        "Approved exact-digest SELFDEV provider patch proposal "
+-                        "via CLI --approve"
+-                    ),
+-                },
+-            )
+-            task = app.run_task(
++        try:
++            proposed = app.run_task(
+                 committed.task_id,
+                 package.run_inputs,
+                 configuration_snapshot_id=snapshot.snapshot_id,
+             )
+-            mode = "REAL_PROVIDER_RUN_COMPLETED"
+-        print(
+-            json.dumps(
+-                {
+-                    "mode": mode,
+-                    "provider": provider,
+-                    "runtime_provider": runtime_provider,
+-                    "readiness": asdict(readiness),
+-                    "baseline_record": asdict(baseline_record),
+-                    "configuration_snapshot_id": snapshot.snapshot_id,
+-                    "approval_required": waiting_approval and not args.approve,
+-                    "task": app.task_json(task.task_id),
+-                    "package": asdict(package),
+-                },
+-                indent=2,
+-                default=str,
++            waiting_approval = (
++                proposed.run is not None
++                and proposed.run.status is RunStatus.WAITING_APPROVAL
++            )
++            mode = (
++                "REAL_PROVIDER_READY_UNTIL_APPROVAL"
++                if waiting_approval
++                else "REAL_PROVIDER_RUN_FINISHED"
++            )
++            task = proposed
++            if waiting_approval and args.approve:
++                app.record_approval(
++                    committed.task_id,
++                    {
++                        "disposition": "APPROVE",
++                        "reason": (
++                            "Approved exact-digest SELFDEV provider patch proposal "
++                            "via CLI --approve"
++                        ),
++                    },
++                )
++                task = app.run_task(
++                    committed.task_id,
++                    package.run_inputs,
++                    configuration_snapshot_id=snapshot.snapshot_id,
++                )
++                mode = "REAL_PROVIDER_RUN_COMPLETED"
++            print(
++                json.dumps(
++                    {
++                        "mode": mode,
++                        "provider": provider,
++                        "runtime_provider": runtime_provider,
++                        "readiness": asdict(readiness),
++                        "baseline_record": asdict(baseline_record),
++                        "configuration_snapshot_id": snapshot.snapshot_id,
++                        "approval_required": waiting_approval and not args.approve,
++                        "task": app.task_json(task.task_id),
++                        "package": asdict(package),
++                    },
++                    indent=2,
++                    default=str,
++                )
++            )
++        except RunExecutionError:
++            print(
++                json.dumps(
++                    {
++                        "mode": "REAL_PROVIDER_RUN_FAILED",
++                        "task": app.task_json(committed.task_id),
++                    },
++                    indent=2,
++                    default=str,
++                )
+             )
+-        )
+     elif args.command == "selfdev-run-local":
+         spec = _selfdev_spec_from_file(args.spec_json)
+         receipt = validate_self_development_task(spec)

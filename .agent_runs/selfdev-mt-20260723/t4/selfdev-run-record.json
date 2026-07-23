@@ -1,0 +1,12 @@
+{
+  "admission_receipt_digest": "1f76a2acaf51b7cdae6d9b5c43314ee88ea8694f6b68b19841ac714d5fb01939",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+  "operator_intervention_count": 1,
+  "hcw_minutes": 0.1,
+  "outcome_status": "VERIFIED",
+  "evidence_refs": [
+    "agent-run:selfdev-mt-20260723:t4:attempt-1-verified:c27b44fcccfd88f2f69a17c2abc139667b9e82f8ffc50ac3050b7659eb0dfe6c"
+  ],
+  "record_digest": "8c6d8e6aa0d0fbaa7e402d12272bb48b791adc7ebe8a53ca9a721a9b176a3f61"
+}

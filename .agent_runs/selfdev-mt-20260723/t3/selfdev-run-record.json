@@ -1,0 +1,12 @@
+{
+  "admission_receipt_digest": "77cb8ae23fbcf90df1dccbebfbf7f45b049ad6ca16653a15f36025cbf8d2b832",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "apps/cli/__main__.py",
+  "operator_intervention_count": 4,
+  "hcw_minutes": 0.3,
+  "outcome_status": "NOT_MET",
+  "evidence_refs": [
+    "agent-run:selfdev-mt-20260723:t3:attempt-3-not-met:6f3db5bbfd9134f0f5a57329dba4b5b4a92c324bfb905c5cbad0aadb7716e715"
+  ],
+  "record_digest": "9df923fed72c701e48a516abaf9f61fb383025b1f391c464daa464cdd760c045"
+}
