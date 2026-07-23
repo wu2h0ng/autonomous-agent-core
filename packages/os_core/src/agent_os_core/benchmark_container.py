@@ -204,10 +204,9 @@ class ContainerRunner:
                 f"verifier work_dir is not a directory: {work_dir}",
             )
         env_flags = _env_flags(env_allowlist)
-        mount = (
-            f"type=bind,src={work_dir.resolve()},"
-            f"dst={CONTAINER_WORK_DIR},rw=true"
-        )
+        # Bind mounts are rw by default; an explicit "rw=true" token is
+        # rejected by docker 29.x ("unknown option 'rw'") — do not add one.
+        mount = f"type=bind,src={work_dir.resolve()},dst={CONTAINER_WORK_DIR}"
         docker_argv = [
             "docker",
             "run",

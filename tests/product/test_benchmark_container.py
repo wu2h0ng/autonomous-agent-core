@@ -214,7 +214,7 @@ def test_run_verifier_argv_has_every_security_flag(
         "--tmpfs",
         "/tmp:rw,noexec,size=256m",
         "--mount",
-        "type=bind,src=" + str(tmp_path.resolve()) + ",dst=/work,rw=true",
+        "type=bind,src=" + str(tmp_path.resolve()) + ",dst=/work",
         "--workdir",
         "/work",
         "--memory",
