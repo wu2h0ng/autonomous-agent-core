@@ -166,6 +166,7 @@ from .srl_working_set import (
     WORKING_SET_SELECTION_POLICY_DIGEST,
 )
 from .mandate_steward import MandateSteward
+from .mandate_terminal import MandateTerminalError
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
@@ -429,6 +430,7 @@ __all__ = [
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",
+    "MandateTerminalError",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",

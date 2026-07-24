@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 
 from agent_os_contracts import ProviderToolProposal, RunStatus
 from apps.api_server.app import AgentOSApplication
@@ -24,12 +25,141 @@ from agent_os_core import (
     prepare_self_development_task_package,
     validate_self_development_task,
 )
+from agent_os_core.mandate_repl import run_mandate_repl
+from agent_os_core.mandate_terminal import (
+    MandateTerminalError,
+    attach_mandate,
+    bootstrap_mandate,
+    emit_help_request,
+    load_help_request_json,
+    load_mandate_json,
+    load_relevance_context_json,
+    mandate_status,
+)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(prog="agent-os")
+_SUBCOMMANDS = frozenset(
+    {
+        "task-create",
+        "task-show",
+        "task-run",
+        "workflow-validate",
+        "task-commit",
+        "task-signal",
+        "task-replan",
+        "correction-resume",
+        "task-compensate",
+        "task-recovery",
+        "selfdev-validate",
+        "selfdev-prepare",
+        "selfdev-create",
+        "selfdev-run-local",
+        "selfdev-readiness",
+        "selfdev-baseline-record",
+        "selfdev-baseline-capture",
+        "selfdev-run-provider",
+        "selfdev-run-record",
+        "selfdev-compare",
+        "mandate",
+        "mandate-bootstrap",
+        "mandate-attach",
+        "mandate-status",
+        "mandate-help-request",
+    }
+)
+
+
+def _normalize_argv(argv: list[str]) -> list[str]:
+    """Bare `agent-os` (like `codex`) defaults to the Mandate REPL."""
+    args = list(argv[1:])
+    flags_passthrough = []
+    for flag in (
+        "--offline",
+        "--no-tools",
+        "--auto-approve-patches",
+        "--continue",
+        "--no-zero-config",
+    ):
+        if flag in args:
+            flags_passthrough.append(flag)
+            args = [token for token in args if token != flag]
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token in {
+            "--database",
+            "--workspace",
+            "--repo",
+            "--max-continuation-cycles",
+            "--mission",
+        }:
+            i += 2 if i + 1 < len(args) else 1
+            continue
+        if token.startswith("-"):
+            i += 1
+            continue
+        break
+    if i >= len(args) or args[i] not in _SUBCOMMANDS:
+        args[i:i] = ["mandate"]
+    for flag in reversed(flags_passthrough):
+        args.insert(0, flag)
+    return [argv[0], *args]
+
+
+def main(argv: list[str] | None = None) -> None:
+    raw = list(sys.argv if argv is None else argv)
+    normalized = _normalize_argv(raw)
+    parser = argparse.ArgumentParser(
+        prog="agent-os",
+        description=(
+            "Agent OS CLI. Bare `agent-os` launches the Mandate terminal agent "
+            "(same usage pattern as `codex` / `kimi`)."
+        ),
+    )
     parser.add_argument("--database", default="agent-os.sqlite3")
     parser.add_argument("--workspace", default=".")
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Mandate REPL: force DeterministicProvider (no live model)",
+    )
+    parser.add_argument(
+        "--repo",
+        default=".",
+        help="Sandbox root for terminal tools (default: cwd)",
+    )
+    parser.add_argument(
+        "--no-tools",
+        action="store_true",
+        help="Chat-only Mandate REPL (disable workspace tools)",
+    )
+    parser.add_argument(
+        "--auto-approve-patches",
+        action="store_true",
+        help="CI/test only: apply_patch/shell without interactive y/N",
+    )
+    parser.add_argument(
+        "--continue",
+        dest="continue_autonomous",
+        action="store_true",
+        help="After the initial goal, auto-continue until DONE/BLOCKED/max cycles",
+    )
+    parser.add_argument(
+        "--max-continuation-cycles",
+        type=int,
+        default=8,
+        help="Max autonomous continuation cycles (default 8)",
+    )
+    parser.add_argument(
+        "--no-zero-config",
+        action="store_true",
+        help="Require prior mandate-attach (disable auto bootstrap)",
+    )
+    parser.add_argument(
+        "--mission",
+        default=None,
+        help="Mission statement used when zero-config bootstraps a local Mandate",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("task-create")
     create.add_argument("statement")
@@ -107,7 +237,75 @@ def main() -> None:
     selfdev_compare.add_argument("spec_json", type=Path)
     selfdev_compare.add_argument("baseline_record_json", type=Path)
     selfdev_compare.add_argument("selfdev_run_record_json", type=Path)
-    args = parser.parse_args()
+    mandate_repl = sub.add_parser(
+        "mandate",
+        help="Interactive Mandate terminal agent (default when no subcommand)",
+    )
+    mandate_repl.add_argument(
+        "prompt",
+        nargs="*",
+        help="Optional initial prompt (Codex-style: agent-os \"...\")",
+    )
+    mandate_bootstrap = sub.add_parser(
+        "mandate-bootstrap",
+        help="Admin: persist RatifiedMandateRef (not the agent entry)",
+    )
+    mandate_bootstrap.add_argument("mandate_json", type=Path)
+    mandate_bootstrap.add_argument("--relevance-context", type=Path)
+    mandate_attach = sub.add_parser(
+        "mandate-attach",
+        help="Admin: bind durable Mandate session before REPL",
+    )
+    mandate_attach.add_argument("--mandate-id", required=True)
+    mandate_attach.add_argument("--environment-binding-id", required=True)
+    mandate_attach.add_argument("--principal-id", required=True)
+    mandate_attach.add_argument("--tenant-id", required=True)
+    mandate_attach.add_argument("--workspace-id", required=True)
+    mandate_attach.add_argument("--evaluated-at")
+    mandate_status_cmd = sub.add_parser(
+        "mandate-status",
+        help="Admin: print Mandate JSON status",
+    )
+    mandate_status_cmd.add_argument("--evaluated-at")
+    mandate_help = sub.add_parser(
+        "mandate-help-request",
+        help="Admin: emit HelpRequest from JSON file",
+    )
+    mandate_help.add_argument("help_request_json", type=Path)
+    mandate_help.add_argument("--evaluated-at")
+    args = parser.parse_args(normalized[1:])
+    if args.command == "mandate":
+        initial = " ".join(args.prompt).strip() or None
+        try:
+            run_mandate_repl(
+                workspace=Path(args.workspace),
+                database=Path(args.database),
+                offline=bool(args.offline),
+                initial_prompt=initial,
+                tools_enabled=not bool(args.no_tools),
+                repo_root=Path(args.repo),
+                auto_approve_patches=bool(args.auto_approve_patches),
+                continue_autonomous=bool(args.continue_autonomous),
+                max_continuation_cycles=int(args.max_continuation_cycles),
+                zero_config=not bool(args.no_zero_config),
+                mission_statement=args.mission,
+            )
+        except MandateTerminalError as exc:
+            print(f"MandateTerminalError: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        return
+    if args.command in {
+        "mandate-bootstrap",
+        "mandate-attach",
+        "mandate-status",
+        "mandate-help-request",
+    }:
+        try:
+            _run_mandate_terminal_command(args)
+        except MandateTerminalError as exc:
+            print(f"MandateTerminalError: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+        return
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
         print(json.dumps(asdict(receipt), indent=2, default=str))
@@ -581,6 +779,56 @@ def _capture_selfdev_baseline(
         "baseline_record": asdict(record),
         "verifier": {**verifier_payload, "evidence_ref": f"verifier:{verifier_digest}"},
     }
+
+
+def _run_mandate_terminal_command(args: argparse.Namespace) -> None:
+    workspace = Path(args.workspace)
+    database = Path(args.database)
+    evaluated_at = (
+        datetime.fromisoformat(args.evaluated_at.replace("Z", "+00:00"))
+        if getattr(args, "evaluated_at", None)
+        else None
+    )
+    if args.command == "mandate-bootstrap":
+        relevance = (
+            load_relevance_context_json(args.relevance_context)
+            if args.relevance_context
+            else None
+        )
+        output = bootstrap_mandate(
+            database=database,
+            mandate=load_mandate_json(args.mandate_json),
+            relevance_context=relevance,
+            workspace=workspace if relevance is not None else None,
+        )
+        print(json.dumps(output, indent=2, default=str))
+        return
+    if args.command == "mandate-attach":
+        session = attach_mandate(
+            workspace=workspace,
+            database=database,
+            mandate_id=args.mandate_id,
+            environment_binding_id=args.environment_binding_id,
+            principal_id=args.principal_id,
+            tenant_id=args.tenant_id,
+            workspace_id=args.workspace_id,
+            evaluated_at=evaluated_at,
+        )
+        print(json.dumps(session.to_dict(), indent=2, default=str))
+        return
+    if args.command == "mandate-status":
+        output = mandate_status(workspace=workspace, evaluated_at=evaluated_at)
+        print(json.dumps(output, indent=2, default=str))
+        return
+    if args.command == "mandate-help-request":
+        output = emit_help_request(
+            workspace=workspace,
+            help_request=load_help_request_json(args.help_request_json),
+            evaluated_at=evaluated_at,
+        )
+        print(json.dumps(output, indent=2, default=str))
+        return
+    raise MandateTerminalError(f"unknown mandate command: {args.command}")
 
 
 if __name__ == "__main__":

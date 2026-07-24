@@ -1,5 +1,5 @@
 schema_version: 2
-updated: "2026-07-23T06:12:00+08:00"
+updated: "2026-07-24T16:00:00+08:00"
 mt_round_note: "2026-07-23 multi-target round adjudicated NEGATIVE in .agent_runs/selfdev-mt-20260723/round-adjudication.md: kill criterion 1 fired (T2/T3 exhausted 3-attempt budgets without VERIFIED), T1 not run, T4 VERIFIED with receipt SELFDEV_HCW_LOWER. No HCW-reduction support; three-class negative map recorded (parallel-load timeouts 2/7, neighbor breakage 2/2 on self_development.py, large-file full-replacement syntax failure 2/2 on apps/cli/__main__.py)."
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
@@ -217,6 +217,19 @@ active_work:
     entry_gate: "Exact design f63648c8766ec42a15e25951a6cb9cfca930efc05d3d2f6631317145c96f362a has Kimi TECHNICAL_APPROVE and independent RR-0029 ACCEPT_FOR_SPEC; ADR-0057 owns only the minimal Product decision."
     boundary: "Main contains closed contracts, append-only persistence, deterministic validation/failures and real HTTP entry points through ADM-P4. Production policy V1 always DEFERs; only tests exercise atomic PROMOTE, inert-prior persistence and reference binding. ADM-P4 freezes configuration and binds a later Run but does not apply the prior or alter execution. No evaluator execution, evidence custody/independence proof, activation/configuration mutation, adaptive experiment, training, migration or release claim."
     source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
+  - id: "AGENT-OS-TERMINAL-1"
+    track: "product"
+    status: "IMPLEMENTED_LOCAL / V1_TOOLS_ZEROCONFIG_CONTINUATION / 23_PRODUCT_TESTS_PASSED / NO_AUTONOMY / NO_HCW_CLAIM"
+    purpose: "Codex/Claude-Code-shaped terminal: bare `agent-os`, zero-config local Mandate, multi-turn tools (read/search/apply_patch/run_tests/shell), interactive write approval, --continue autonomous cycles until DONE/BLOCKED."
+    boundary: "Not full peer CLI parity (no free shell/MCP/TUI). Not HCW/Autonomy evidence until founder daily-drives this surface. Shell is allowlisted argv only."
+    evidence: "Branch codex/mandate-terminal-entry-20260723; docs/product/AGENT-OS-TERMINAL-1-2026-07-24.md; pytest mandate terminal suite => 23 passed"
+    source:
+      - "docs/product/MANDATE-TERMINAL-ENTRY-0-2026-07-23.md"
+      - "packages/os_core/src/agent_os_core/mandate_repl.py"
+      - "packages/os_core/src/agent_os_core/mandate_terminal.py"
+      - "apps/cli/__main__.py"
+      - "tests/product/test_mandate_repl.py"
+      - "tests/product/test_mandate_terminal.py"
   - id: "MANDATE-SRL-V0"
     track: "product_architecture"
     status: "TASK6_AND_M1_PLUS_INTEGRATED_CANONICAL_AT_EFC59C8 / PROPOSAL_ONLY_STEWARD / TRUSTED_WORKING_SET / SEPARATE_TASK_ACTIVATION / NO_PRODUCTION_ACTIVATION"
@@ -560,13 +573,13 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "P/R — AGENT-OS-SELFDEV-1: the frozen multi-target round (22ec4d3) is adjudicated NEGATIVE in .agent_runs/selfdev-mt-20260723/round-adjudication.md — kill criterion 1 fired (T2/T3 exhausted budgets without VERIFIED; T4 VERIFIED, receipt SELFDEV_HCW_LOWER; T1 unconsumed). The blocker class has moved up one level: execution chain held in 5/5 completed attempts; failures are provider output fidelity (large-file full-replacement syntax 2/2, neighbor breakage 2/2) plus parallel-load timeouts 2/7. Next package: design the next round from the negative map (smaller target files, neighbor-preservation clauses in provider-visible statements, or a diff-format patch channel as an ADR-level execution-contract change) under a NEW prereg; T1 with its frozen baseline remains available. Durable cross-process resume rehydration remains a separate ADR-level decision."
+    action: "P — AGENT-OS-TERMINAL-1: daily-drive `agent-os --continue "..."` from repos; merge to canonical; no HCW claim until this is the operator surface."
   - priority: 2
-    action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity or irreducibility against same-Mandate baselines. Preserve NOT_FROZEN/NO_RESULT_RUN until run-artifact HCW data capture, rater/pilot reliability and remaining methodology-review blockers close or are explicitly PARKed."
+    action: "P/R — AGENT-OS-SELFDEV-1: multi-target round NEGATIVE (kill criterion 1). Next round only from negative map under a NEW prereg; do not expand while Mandate terminal substrate is unmerged."
   - priority: 3
-    action: "Portfolio discipline: PARK/REFERENCE_ONLY any continuing experiment or architecture expansion that cannot pass terminal-gap, irreducibility, kill-metric and live-consumer checks in one compact design pass."
+    action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity; remain NOT_FROZEN/NO_RESULT_RUN until Mandate terminal is the measurement surface or blockers are PARKed."
   - priority: 4
-    action: "Keep SPINE-1, release and production activation gated."
+    action: "Portfolio discipline: PARK known-result retests; keep SPINE-1/release gated."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"

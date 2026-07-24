@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Agent OS terminal entry — same usage pattern as `codex` / `kimi`:
+#   agent-os
+#   agent-os "optional first prompt"
+#   agent-os --offline
+# Runs in the caller's current working directory (do not cd into the install root).
+set -euo pipefail
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd "$(dirname "$SOURCE")/.." && pwd)"
+export PYTHONPATH="${ROOT}/packages/contracts/src:${ROOT}/packages/os_core/src:${ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m apps.cli "$@"
