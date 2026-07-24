@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 import shutil
+import shlex
 import subprocess
+import re
+from fnmatch import fnmatch
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -89,6 +92,16 @@ class WorkspaceSandbox:
             "workspace.run_tests": CapabilitySpec(
                 capability_id="workspace.run_tests", version="1", display_name="Run allowlisted tests",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **common,
+            ),
+            "workspace.search": CapabilitySpec(
+                capability_id="workspace.search", version="1", display_name="Search workspace files",
+                side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **common,
+            ),
+            "workspace.shell": CapabilitySpec(
+                capability_id="workspace.shell", version="1", display_name="Run allowlisted shell argv",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=False,
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
             "artifact.write": CapabilitySpec(
@@ -232,6 +245,10 @@ class WorkspaceSandbox:
             return self._compensate_patch(args)
         if capability_id == "workspace.run_tests":
             return self._run_tests(args, action_key)
+        if capability_id == "workspace.search":
+            return self._search(args)
+        if capability_id == "workspace.shell":
+            return self._run_shell(args, action_key)
         if capability_id == "artifact.write":
             content = str(args.get("content", "")).encode("utf-8")
             digest = _sha256(content)
@@ -627,6 +644,134 @@ class WorkspaceSandbox:
         if not artifact.exists():
             artifact.write_bytes(output)
         return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
+
+    _SHELL_ALLOWLIST = frozenset({
+        "git", "ls", "rg", "grep", "find", "cat", "head", "tail", "wc", "pwd",
+        "python", "python3", "pytest", "npm", "npx", "node", "cargo", "make",
+        "ruff", "mypy", "pyright", "sed", "awk", "diff", "stat", "tree",
+    })
+    _SHELL_DENIED_TOKENS = frozenset({";", "|", "&", "`", "$(", "${", ">", "<", "\n", "\r"})
+
+    def _search(self, args: dict[str, object]) -> dict[str, object]:
+        pattern = str(args.get("pattern", ""))
+        if not pattern:
+            raise CapabilityDenied("workspace.search requires pattern")
+        try:
+            regex = re.compile(pattern)
+        except re.error as exc:
+            raise CapabilityDenied(f"invalid search pattern: {exc}") from exc
+        glob_pat = str(args.get("glob", "**/*"))
+        rel_root = str(args.get("path", ".")).strip() or "."
+        max_matches = min(int(str(args.get("max_matches", 50))), 200)
+        max_file_bytes = min(int(str(args.get("max_file_bytes", 200_000))), 1_000_000)
+        base = self.root if rel_root in {".", ""} else self._safe_path(rel_root)
+        if not base.exists():
+            raise FileNotFoundError(rel_root)
+        matches: list[dict[str, object]] = []
+        skip_dirs = {".git", ".hg", ".svn", "node_modules", ".agent-os-artifacts", "__pycache__", ".venv", "venv"}
+        for path in base.rglob("*"):
+            if len(matches) >= max_matches:
+                break
+            if not path.is_file() or path.is_symlink():
+                continue
+            if any(part in skip_dirs for part in path.parts):
+                continue
+            try:
+                rel = str(path.relative_to(self.root))
+            except ValueError:
+                continue
+            if glob_pat not in {"**/*", "*"}:
+                if not (
+                    fnmatch(rel, glob_pat)
+                    or fnmatch(path.name, glob_pat)
+                    or fnmatch(rel, glob_pat.lstrip("./"))
+                ):
+                    continue
+            try:
+                if path.stat().st_size > max_file_bytes:
+                    continue
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if b"\x00" in data[:4096]:
+                continue
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if regex.search(line):
+                    matches.append({"path": rel, "line": lineno, "text": line[:400]})
+                    if len(matches) >= max_matches:
+                        break
+        return {
+            "pattern": pattern,
+            "glob": glob_pat,
+            "path": rel_root,
+            "match_count": len(matches),
+            "matches": matches,
+            "truncated": len(matches) >= max_matches,
+        }
+
+    def _run_shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        raw = args.get("argv")
+        if isinstance(raw, str):
+            try:
+                argv = shlex.split(raw)
+            except ValueError as exc:
+                raise CapabilityDenied(f"invalid shell argv string: {exc}") from exc
+        elif isinstance(raw, (list, tuple)):
+            argv = [str(item) for item in raw]
+        else:
+            raise CapabilityDenied("workspace.shell requires argv list or string")
+        if not argv:
+            raise CapabilityDenied("workspace.shell argv is empty")
+        joined = " ".join(argv)
+        for token in self._SHELL_DENIED_TOKENS:
+            if token in joined:
+                raise CapabilityDenied(f"shell metacharacter denied: {token}")
+        prog = Path(argv[0]).name
+        if prog not in self._SHELL_ALLOWLIST:
+            raise CapabilityDenied(f"shell program not allowlisted: {prog}")
+        # reject absolute path args that escape repo (except interpreter-safe flags)
+        for item in argv[1:]:
+            if item.startswith("/") and not item.startswith(str(self.root)):
+                # allow /dev/null style only for redirection-like common args — deny absolute outside root
+                if item not in {"/dev/null"}:
+                    raise CapabilityDenied(f"absolute path outside workspace denied: {item}")
+        timeout = min(int(str(args.get("timeout_seconds", 60))), 120)
+        result = subprocess.run(
+            argv,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env={**os.environ, "NO_COLOR": "1"},
+        )
+        stdout = result.stdout[:20_000]
+        stderr = result.stderr[:8_000]
+        report = {
+            "schema_version": "shell-report.v1",
+            "action_key_sha256": _sha256(action_key.encode("utf-8")),
+            "argv": argv,
+            "exit_code": result.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+        }
+        output = _canonical_json_bytes(report)
+        digest = _sha256(output)
+        artifact = self.artifacts / digest
+        if not artifact.exists():
+            artifact.write_bytes(output)
+        return {
+            "exit_code": result.returncode,
+            "argv": argv,
+            "stdout": stdout,
+            "stderr": stderr,
+            "artifact_ids": (f"artifact:{digest}",),
+            "digest": digest,
+        }
 
 
 def _sha256(value: bytes) -> str:
