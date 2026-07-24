@@ -42,12 +42,16 @@ execution. Not release, not `Autonomy(S,E,O,V,T)` evidence.
 - Inputs (identical both arms): issue text + base-commit bytes of the gold
   file + FAIL_TO_PASS node ids. Neither arm sees test_patch contents or the
   gold patch.
-- Chain arm: frozen argv `agent-os selfdev-run-provider <spec> --baseline-record
-  <record> --approve --duration-seconds 3600 --statement <issue+contract>`.
+- Chain arm: frozen argv `agent-os benchmark-run-provider <task-manifest>
+  --approve --duration-seconds 3600` (ADR-0056 Decision 1-3 CLI surface for
+  benchmark tasks; create → commit → seal → run → WAITING_APPROVAL →
+  in-process approve → resume → container-backed tests → evaluate).
   Output: complete-file replacement of the gold file. 2 attempts per task.
-- Cheap baseline: same provider profile/timeout/sampling, same inputs, one-shot
-  unified-diff output, `git apply` fail-closed (malformed diff = attempt
-  failure, no human repair). 2 calls per task. Equal budgets by construction.
+- Cheap baseline: frozen argv `agent-os benchmark-run-baseline <task-manifest>`
+  — same provider profile/timeout/sampling, same inputs, one-shot unified-diff
+  output, `git apply` fail-closed (malformed diff = attempt failure, no human
+  repair), then the §6 independent verifier. 2 calls per task. Equal budgets
+  by construction.
 - Attempt accounting (carried over): an attempt is consumed the moment the
   provider node is invoked; terminal classes VERIFIED / NOT_MET (verifier
   non-zero) / INVALID (malformed envelope, provider infra failure, any other
@@ -60,21 +64,73 @@ execution. Not release, not `Autonomy(S,E,O,V,T)` evidence.
 - Execution is SEQUENTIAL for both arms (no parallel provider calls). No
   early stopping: the round runs to completion regardless of standings.
 
-## 4. Frozen subset (FILLED AT FREEZE — placeholder)
+## 4. Frozen subset (FROZEN at freeze commit)
 
-- Selection: seeded RNG (seed recorded in manifest), stratified cap 2 tasks
-  per repo, N=12 + 5 reserve (amended from 6 by founder decision 2026-07-23:
-  cap-2/repo validated pool tops out at 17), drawn ONLY from the
-  gold-validation-passing pool (§8). The manifest pins: instance_id, repo,
-  base_commit, environment_setup_commit, issue_text_hash,
-  gold_file_path/bytes/lines, f2p/p2p node ids (resolved to pytest form,
-  `benchmark_node_ids` evidence), per-task interpreter, pinned deps with
-  hashes, verifier timeout seconds, min output-token budget, gold-validation
-  evidence digest.
+- Selection (executed 2026-07-23): seed `20260723`,
+  `random.Random(seed).shuffle` over the 17 gold-validation-passing
+  instance_ids sorted lexicographically; first 12 = main, last 5 = reserve;
+  cap 2 per repo enforced by pool construction. Machine-readable selection:
+  `.agent_runs/selfdev-2/selection.json` (pins every field in §4 of the
+  design: commits, issue hash, gold file path/bytes/lines, resolved
+  f2p/p2p node ids, image tag, interpreter, verifier timeout, min output
+  tokens 8192, gold-validation evidence digest). Per-repo Dockerfiles and
+  dependency pins: `.agent_runs/selfdev-2/env/<repo>/`.
+- Vacuous-P2P declaration: two MAIN tasks (`pydata__xarray-4075`,
+  `pylint-dev__pylint-6903`) have fully-parametrized raw PASS_TO_PASS lists
+  and therefore an EMPTY resolved p2p set (`p2p_vacuous: true`). For these
+  two tasks, solve = f2p green only, with no regression coverage; this is
+  declared upfront, affects both arms symmetrically, and is flagged in
+  adjudication. All other tasks carry real p2p coverage (2–20 ids).
 - Reserve swaps: only before the round's first provider call; each swap is a
   declared, recorded, re-hashed manifest event. Post-first-call swaps are
   forbidden; a round-time task failure records task-level INVALID and counts
   toward kill criterion 1.
+
+### Main set (12)
+
+| instance_id | repo | gold file | bytes | f2p | p2p |
+|---|---|---|---|---|---|
+| astropy__astropy-13453 | astropy/astropy | astropy/io/ascii/html.py | 17668 | 1 | 9 |
+| django__django-13670 | django/django | django/utils/dateformat.py | 10850 | 1 | 17 |
+| django__django-14089 | django/django | django/utils/datastructures.py | 9891 | 1 | 20 |
+| matplotlib__matplotlib-22719 | matplotlib/matplotlib | lib/matplotlib/category.py | 7921 | 1 | 3 |
+| psf__requests-1766 | psf/requests | requests/auth.py | 6063 | 6 | 20 |
+| pydata__xarray-4075 | pydata/xarray | xarray/core/weighted.py | 8032 | 2 | 0 (VACUOUS) |
+| pylint-dev__pylint-6903 | pylint-dev/pylint | pylint/lint/run.py | 8258 | 1 | 0 (VACUOUS) |
+| pylint-dev__pylint-7080 | pylint-dev/pylint | pylint/lint/expand_modules.py | 5982 | 1 | 20 |
+| scikit-learn__scikit-learn-14141 | scikit-learn/scikit-learn | sklearn/utils/_show_versions.py | 2513 | 1 | 2 |
+| sphinx-doc__sphinx-10449 | sphinx-doc/sphinx | sphinx/ext/autodoc/typehints.py | 7033 | 1 | 20 |
+| sphinx-doc__sphinx-10466 | sphinx-doc/sphinx | sphinx/builders/gettext.py | 11238 | 1 | 6 |
+| sympy__sympy-13974 | sympy/sympy | sympy/physics/quantum/tensorproduct.py | 13565 | 1 | 4 |
+
+### Reserve (5)
+
+| instance_id | repo | gold file | bytes | f2p | p2p |
+|---|---|---|---|---|---|
+| astropy__astropy-14182 | astropy/astropy | astropy/io/ascii/rst.py | 1649 | 1 | 9 |
+| pytest-dev__pytest-5631 | pytest-dev/pytest | src/_pytest/compat.py | 9930 | 1 | 15 |
+| pytest-dev__pytest-7490 | pytest-dev/pytest | src/_pytest/skipping.py | 10727 | 2 | 16 |
+| scikit-learn__scikit-learn-13328 | scikit-learn/scikit-learn | sklearn/linear_model/huber.py | 11056 | 1 | 9 |
+| sympy__sympy-12419 | sympy/sympy | sympy/matrices/expressions/matexpr.py | 14874 | 1 | 13 |
+
+### Frozen per-task statement template (chain `--statement`; cheap baseline gets the same information content)
+
+```
+Repository: <repo> (base commit <base_commit>)
+Issue report:
+<issue.txt verbatim>
+
+Target file: <gold_file_path>
+Acceptance contract: after your change, the following tests must pass:
+<f2p_node_ids, one per line>
+Existing behavior to preserve (regression tests, when non-empty):
+<p2p_node_ids, one per line; omitted when empty>
+
+Replace ONLY the target file. Do not modify any other file.
+```
+
+The chain injects this as the task goal (execution.py:320); the cheap
+baseline receives the same template text plus the same file bytes.
 
 ## 5. Environment freeze
 

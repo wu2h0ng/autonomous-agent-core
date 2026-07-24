@@ -1,0 +1,28 @@
+{
+ "drops": {
+  "a_multi_or_zero_file_patch": 71,
+  "b_repo_not_in_allowlist": 137,
+  "c_gold_file_not_py": 0,
+  "e_empty_fail_to_pass": 0,
+  "d_gold_file_oversize": 173,
+  "d_fetch_failure": 0
+ },
+ "pool_size": 119,
+ "pool_repo_counts": {
+  "django/django": 86,
+  "psf/requests": 2,
+  "pytest-dev/pytest": 9,
+  "sympy/sympy": 22
+ },
+ "param_in_pool": [
+  "pytest-dev__pytest-10081",
+  "pytest-dev__pytest-5787",
+  "pytest-dev__pytest-7205",
+  "pytest-dev__pytest-7236",
+  "pytest-dev__pytest-7324",
+  "pytest-dev__pytest-7432"
+ ],
+ "n_p2p_trunc": 75,
+ "fetch_failures": [],
+ "retried": 0
+}

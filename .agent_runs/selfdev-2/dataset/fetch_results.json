@@ -1,0 +1,2046 @@
+[
+ {
+  "instance_id": "django__django-10097",
+  "ok": true,
+  "bytes": 18759,
+  "lines": 538,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-10880",
+  "ok": true,
+  "bytes": 5868,
+  "lines": 155,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-10914",
+  "ok": true,
+  "bytes": 21934,
+  "lines": 634,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-10973",
+  "ok": true,
+  "bytes": 2383,
+  "lines": 71,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-10999",
+  "ok": true,
+  "bytes": 4708,
+  "lines": 146,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11066",
+  "ok": true,
+  "bytes": 4857,
+  "lines": 134,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11087",
+  "ok": true,
+  "bytes": 14029,
+  "lines": 328,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11095",
+  "ok": true,
+  "bytes": 91505,
+  "lines": 2166,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11099",
+  "ok": true,
+  "bytes": 685,
+  "lines": 25,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11119",
+  "ok": true,
+  "bytes": 6854,
+  "lines": 180,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11133",
+  "ok": true,
+  "bytes": 19731,
+  "lines": 558,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11141",
+  "ok": true,
+  "bytes": 15174,
+  "lines": 324,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11149",
+  "ok": true,
+  "bytes": 91563,
+  "lines": 2162,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11163",
+  "ok": true,
+  "bytes": 56018,
+  "lines": 1358,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11179",
+  "ok": true,
+  "bytes": 13965,
+  "lines": 327,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11206",
+  "ok": true,
+  "bytes": 3142,
+  "lines": 79,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11211",
+  "ok": true,
+  "bytes": 84578,
+  "lines": 2355,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11239",
+  "ok": true,
+  "bytes": 1278,
+  "lines": 42,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11265",
+  "ok": true,
+  "bytes": 103001,
+  "lines": 2302,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11276",
+  "ok": true,
+  "bytes": 13621,
+  "lines": 390,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11292",
+  "ok": true,
+  "bytes": 21235,
+  "lines": 548,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11299",
+  "ok": true,
+  "bytes": 102989,
+  "lines": 2302,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11433",
+  "ok": true,
+  "bytes": 56030,
+  "lines": 1358,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11451",
+  "ok": true,
+  "bytes": 7658,
+  "lines": 208,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11477",
+  "ok": true,
+  "bytes": 27001,
+  "lines": 669,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11490",
+  "ok": true,
+  "bytes": 69473,
+  "lines": 1516,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11551",
+  "ok": true,
+  "bytes": 44765,
+  "lines": 1116,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11555",
+  "ok": true,
+  "bytes": 69847,
+  "lines": 1522,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11603",
+  "ok": true,
+  "bytes": 5881,
+  "lines": 155,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11728",
+  "ok": true,
+  "bytes": 7971,
+  "lines": 237,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11740",
+  "ok": true,
+  "bytes": 63909,
+  "lines": 1320,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11749",
+  "ok": true,
+  "bytes": 16239,
+  "lines": 393,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11790",
+  "ok": true,
+  "bytes": 15641,
+  "lines": 435,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11815",
+  "ok": true,
+  "bytes": 12415,
+  "lines": 339,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11820",
+  "ok": true,
+  "bytes": 78199,
+  "lines": 1903,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11848",
+  "ok": true,
+  "bytes": 16527,
+  "lines": 474,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11880",
+  "ok": true,
+  "bytes": 44552,
+  "lines": 1200,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11951",
+  "ok": true,
+  "bytes": 81116,
+  "lines": 1922,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11964",
+  "ok": true,
+  "bytes": 2470,
+  "lines": 75,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-11999",
+  "ok": true,
+  "bytes": 87066,
+  "lines": 2421,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12039",
+  "ok": true,
+  "bytes": 6506,
+  "lines": 194,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12050",
+  "ok": true,
+  "bytes": 105572,
+  "lines": 2362,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12125",
+  "ok": true,
+  "bytes": 12346,
+  "lines": 340,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12143",
+  "ok": true,
+  "bytes": 91651,
+  "lines": 2169,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12193",
+  "ok": true,
+  "bytes": 37011,
+  "lines": 1076,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12209",
+  "ok": true,
+  "bytes": 78571,
+  "lines": 1911,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12262",
+  "ok": true,
+  "bytes": 12836,
+  "lines": 328,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12273",
+  "ok": true,
+  "bytes": 78595,
+  "lines": 1912,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12276",
+  "ok": true,
+  "bytes": 36950,
+  "lines": 1074,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12304",
+  "ok": true,
+  "bytes": 2696,
+  "lines": 81,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12308",
+  "ok": true,
+  "bytes": 19546,
+  "lines": 545,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12419",
+  "ok": true,
+  "bytes": 22203,
+  "lines": 642,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12663",
+  "ok": true,
+  "bytes": 106444,
+  "lines": 2384,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12708",
+  "ok": true,
+  "bytes": 55942,
+  "lines": 1200,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12713",
+  "ok": true,
+  "bytes": 92351,
+  "lines": 2184,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12754",
+  "ok": true,
+  "bytes": 64432,
+  "lines": 1329,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12774",
+  "ok": true,
+  "bytes": 82389,
+  "lines": 1966,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12858",
+  "ok": true,
+  "bytes": 81565,
+  "lines": 1979,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-12965",
+  "ok": true,
+  "bytes": 72795,
+  "lines": 1599,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13012",
+  "ok": true,
+  "bytes": 48912,
+  "lines": 1357,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13023",
+  "ok": true,
+  "bytes": 88489,
+  "lines": 2456,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13028",
+  "ok": true,
+  "bytes": 107888,
+  "lines": 2414,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13033",
+  "ok": true,
+  "bytes": 73051,
+  "lines": 1604,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13089",
+  "ok": true,
+  "bytes": 10970,
+  "lines": 279,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13109",
+  "ok": true,
+  "bytes": 70194,
+  "lines": 1692,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13112",
+  "ok": true,
+  "bytes": 70191,
+  "lines": 1692,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13128",
+  "ok": true,
+  "bytes": 48839,
+  "lines": 1361,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13158",
+  "ok": true,
+  "bytes": 108323,
+  "lines": 2424,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13279",
+  "ok": true,
+  "bytes": 13041,
+  "lines": 377,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13297",
+  "ok": true,
+  "bytes": 8683,
+  "lines": 240,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13315",
+  "ok": true,
+  "bytes": 57706,
+  "lines": 1401,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13343",
+  "ok": true,
+  "bytes": 18130,
+  "lines": 477,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13346",
+  "ok": true,
+  "bytes": 18280,
+  "lines": 505,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13363",
+  "ok": true,
+  "bytes": 11596,
+  "lines": 326,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13401",
+  "ok": true,
+  "bytes": 88514,
+  "lines": 2456,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13406",
+  "ok": true,
+  "bytes": 82799,
+  "lines": 1979,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13410",
+  "ok": true,
+  "bytes": 3513,
+  "lines": 115,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13417",
+  "ok": true,
+  "bytes": 82881,
+  "lines": 1981,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13449",
+  "ok": true,
+  "bytes": 51202,
+  "lines": 1420,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13513",
+  "ok": true,
+  "bytes": 21894,
+  "lines": 542,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13516",
+  "ok": true,
+  "bytes": 22579,
+  "lines": 577,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13551",
+  "ok": true,
+  "bytes": 4082,
+  "lines": 107,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13568",
+  "ok": true,
+  "bytes": 8139,
+  "lines": 207,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13569",
+  "ok": true,
+  "bytes": 5179,
+  "lines": 180,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13590",
+  "ok": true,
+  "bytes": 110562,
+  "lines": 2469,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13658",
+  "ok": true,
+  "bytes": 16999,
+  "lines": 414,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13670",
+  "ok": true,
+  "bytes": 10850,
+  "lines": 349,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13741",
+  "ok": true,
+  "bytes": 16311,
+  "lines": 453,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13786",
+  "ok": true,
+  "bytes": 34472,
+  "lines": 907,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13794",
+  "ok": true,
+  "bytes": 13993,
+  "lines": 417,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13807",
+  "ok": true,
+  "bytes": 25850,
+  "lines": 609,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13809",
+  "ok": true,
+  "bytes": 6267,
+  "lines": 158,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13810",
+  "ok": true,
+  "bytes": 14351,
+  "lines": 348,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13820",
+  "ok": true,
+  "bytes": 16133,
+  "lines": 349,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13821",
+  "ok": true,
+  "bytes": 26094,
+  "lines": 614,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13837",
+  "ok": true,
+  "bytes": 24107,
+  "lines": 642,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13925",
+  "ok": true,
+  "bytes": 89053,
+  "lines": 2139,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13933",
+  "ok": true,
+  "bytes": 57665,
+  "lines": 1400,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-13964",
+  "ok": true,
+  "bytes": 89262,
+  "lines": 2144,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14007",
+  "ok": true,
+  "bytes": 74135,
+  "lines": 1626,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14017",
+  "ok": true,
+  "bytes": 11822,
+  "lines": 324,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14034",
+  "ok": true,
+  "bytes": 10512,
+  "lines": 284,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14053",
+  "ok": true,
+  "bytes": 17618,
+  "lines": 441,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14089",
+  "ok": true,
+  "bytes": 9891,
+  "lines": 335,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14122",
+  "ok": true,
+  "bytes": 74079,
+  "lines": 1625,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14140",
+  "ok": true,
+  "bytes": 11871,
+  "lines": 324,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14155",
+  "ok": true,
+  "bytes": 27894,
+  "lines": 694,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14238",
+  "ok": true,
+  "bytes": 92346,
+  "lines": 2554,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14311",
+  "ok": true,
+  "bytes": 23953,
+  "lines": 639,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14349",
+  "ok": true,
+  "bytes": 19985,
+  "lines": 561,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14351",
+  "ok": true,
+  "bytes": 23348,
+  "lines": 659,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14373",
+  "ok": true,
+  "bytes": 10205,
+  "lines": 333,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14404",
+  "ok": true,
+  "bytes": 22003,
+  "lines": 570,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14434",
+  "ok": true,
+  "bytes": 62884,
+  "lines": 1373,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14493",
+  "ok": true,
+  "bytes": 19000,
+  "lines": 473,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14500",
+  "ok": true,
+  "bytes": 17841,
+  "lines": 373,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14534",
+  "ok": true,
+  "bytes": 10536,
+  "lines": 284,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14539",
+  "ok": true,
+  "bytes": 13151,
+  "lines": 378,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14559",
+  "ok": true,
+  "bytes": 85225,
+  "lines": 2033,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14580",
+  "ok": true,
+  "bytes": 12935,
+  "lines": 357,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14608",
+  "ok": true,
+  "bytes": 19864,
+  "lines": 496,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14672",
+  "ok": true,
+  "bytes": 11169,
+  "lines": 330,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14725",
+  "ok": true,
+  "bytes": 58671,
+  "lines": 1427,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14752",
+  "ok": true,
+  "bytes": 3888,
+  "lines": 102,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14765",
+  "ok": true,
+  "bytes": 35608,
+  "lines": 824,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14771",
+  "ok": true,
+  "bytes": 24098,
+  "lines": 644,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14787",
+  "ok": true,
+  "bytes": 6834,
+  "lines": 179,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14792",
+  "ok": true,
+  "bytes": 7965,
+  "lines": 269,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14855",
+  "ok": true,
+  "bytes": 16818,
+  "lines": 441,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14915",
+  "ok": true,
+  "bytes": 58614,
+  "lines": 1424,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-14999",
+  "ok": true,
+  "bytes": 32388,
+  "lines": 884,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15022",
+  "ok": true,
+  "bytes": 93430,
+  "lines": 2224,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15037",
+  "ok": true,
+  "bytes": 13810,
+  "lines": 299,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15098",
+  "ok": true,
+  "bytes": 20029,
+  "lines": 583,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15104",
+  "ok": true,
+  "bytes": 67541,
+  "lines": 1396,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15127",
+  "ok": true,
+  "bytes": 194,
+  "lines": 7,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15128",
+  "ok": true,
+  "bytes": 110409,
+  "lines": 2478,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15161",
+  "ok": true,
+  "bytes": 54241,
+  "lines": 1485,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15252",
+  "ok": true,
+  "bytes": 18300,
+  "lines": 381,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15268",
+  "ok": true,
+  "bytes": 32533,
+  "lines": 885,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15277",
+  "ok": true,
+  "bytes": 91252,
+  "lines": 2539,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15278",
+  "ok": true,
+  "bytes": 21089,
+  "lines": 447,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15280",
+  "ok": true,
+  "bytes": 55080,
+  "lines": 1226,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15315",
+  "ok": true,
+  "bytes": 91296,
+  "lines": 2540,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15368",
+  "ok": true,
+  "bytes": 90888,
+  "lines": 2172,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15375",
+  "ok": true,
+  "bytes": 6488,
+  "lines": 165,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15380",
+  "ok": true,
+  "bytes": 67547,
+  "lines": 1396,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15382",
+  "ok": true,
+  "bytes": 54583,
+  "lines": 1492,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15467",
+  "ok": true,
+  "bytes": 97886,
+  "lines": 2503,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15499",
+  "ok": true,
+  "bytes": 33965,
+  "lines": 946,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15503",
+  "ok": true,
+  "bytes": 19542,
+  "lines": 569,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15525",
+  "ok": true,
+  "bytes": 13259,
+  "lines": 408,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15554",
+  "ok": true,
+  "bytes": 113654,
+  "lines": 2664,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15569",
+  "ok": true,
+  "bytes": 11778,
+  "lines": 340,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15572",
+  "ok": true,
+  "bytes": 1791,
+  "lines": 54,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15695",
+  "ok": true,
+  "bytes": 39539,
+  "lines": 1105,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15731",
+  "ok": true,
+  "bytes": 6917,
+  "lines": 213,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15732",
+  "ok": true,
+  "bytes": 68998,
+  "lines": 1724,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15741",
+  "ok": true,
+  "bytes": 10481,
+  "lines": 310,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15814",
+  "ok": true,
+  "bytes": 114568,
+  "lines": 2693,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15851",
+  "ok": true,
+  "bytes": 2052,
+  "lines": 64,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15863",
+  "ok": true,
+  "bytes": 27960,
+  "lines": 978,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15916",
+  "ok": true,
+  "bytes": 60344,
+  "lines": 1666,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15930",
+  "ok": true,
+  "bytes": 62628,
+  "lines": 1803,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15957",
+  "ok": true,
+  "bytes": 59091,
+  "lines": 1419,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15973",
+  "ok": true,
+  "bytes": 77919,
+  "lines": 1736,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-15987",
+  "ok": true,
+  "bytes": 15969,
+  "lines": 432,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16082",
+  "ok": true,
+  "bytes": 64003,
+  "lines": 1835,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16100",
+  "ok": true,
+  "bytes": 97954,
+  "lines": 2498,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16116",
+  "ok": true,
+  "bytes": 22253,
+  "lines": 511,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16136",
+  "ok": true,
+  "bytes": 9095,
+  "lines": 275,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16139",
+  "ok": true,
+  "bytes": 16405,
+  "lines": 485,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16145",
+  "ok": true,
+  "bytes": 6788,
+  "lines": 183,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16255",
+  "ok": true,
+  "bytes": 9039,
+  "lines": 258,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16333",
+  "ok": true,
+  "bytes": 16451,
+  "lines": 487,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16429",
+  "ok": true,
+  "bytes": 4745,
+  "lines": 137,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16454",
+  "ok": true,
+  "bytes": 23820,
+  "lines": 678,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16485",
+  "ok": true,
+  "bytes": 27959,
+  "lines": 978,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16493",
+  "ok": true,
+  "bytes": 18822,
+  "lines": 510,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16502",
+  "ok": true,
+  "bytes": 8802,
+  "lines": 246,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16527",
+  "ok": true,
+  "bytes": 4981,
+  "lines": 150,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16569",
+  "ok": true,
+  "bytes": 21047,
+  "lines": 575,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16595",
+  "ok": true,
+  "bytes": 12692,
+  "lines": 357,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16612",
+  "ok": true,
+  "bytes": 22689,
+  "lines": 611,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16642",
+  "ok": true,
+  "bytes": 25692,
+  "lines": 749,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16661",
+  "ok": true,
+  "bytes": 98406,
+  "lines": 2513,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16662",
+  "ok": true,
+  "bytes": 11458,
+  "lines": 311,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16667",
+  "ok": true,
+  "bytes": 38361,
+  "lines": 1171,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16801",
+  "ok": true,
+  "bytes": 18842,
+  "lines": 510,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16819",
+  "ok": true,
+  "bytes": 40387,
+  "lines": 1137,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16877",
+  "ok": true,
+  "bytes": 28093,
+  "lines": 983,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16899",
+  "ok": true,
+  "bytes": 49941,
+  "lines": 1353,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16901",
+  "ok": true,
+  "bytes": 12710,
+  "lines": 355,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-16950",
+  "ok": true,
+  "bytes": 60410,
+  "lines": 1668,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-17029",
+  "ok": true,
+  "bytes": 17638,
+  "lines": 436,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-17084",
+  "ok": true,
+  "bytes": 114109,
+  "lines": 2678,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-17087",
+  "ok": true,
+  "bytes": 13750,
+  "lines": 400,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-7530",
+  "ok": true,
+  "bytes": 15067,
+  "lines": 322,
+  "attempts": 1
+ },
+ {
+  "instance_id": "django__django-9296",
+  "ok": true,
+  "bytes": 5985,
+  "lines": 186,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pallets__flask-5014",
+  "ok": true,
+  "bytes": 24356,
+  "lines": 621,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-1142",
+  "ok": true,
+  "bytes": 20789,
+  "lines": 657,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-1724",
+  "ok": true,
+  "bytes": 18710,
+  "lines": 531,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-1766",
+  "ok": true,
+  "bytes": 6063,
+  "lines": 194,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-1921",
+  "ok": true,
+  "bytes": 19902,
+  "lines": 569,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-2317",
+  "ok": true,
+  "bytes": 23791,
+  "lines": 671,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-2931",
+  "ok": true,
+  "bytes": 29203,
+  "lines": 848,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-5414",
+  "ok": true,
+  "bytes": 35043,
+  "lines": 973,
+  "attempts": 1
+ },
+ {
+  "instance_id": "psf__requests-6028",
+  "ok": true,
+  "bytes": 33128,
+  "lines": 1056,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-10051",
+  "ok": true,
+  "bytes": 30010,
+  "lines": 826,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-10081",
+  "ok": true,
+  "bytes": 14456,
+  "lines": 414,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-10356",
+  "ok": true,
+  "bytes": 20357,
+  "lines": 590,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-5262",
+  "ok": true,
+  "bytes": 27149,
+  "lines": 844,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-5631",
+  "ok": true,
+  "bytes": 9930,
+  "lines": 332,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-5787",
+  "ok": true,
+  "bytes": 13918,
+  "lines": 426,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-5809",
+  "ok": true,
+  "bytes": 3701,
+  "lines": 114,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-6197",
+  "ok": true,
+  "bytes": 54071,
+  "lines": 1457,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-6202",
+  "ok": true,
+  "bytes": 53656,
+  "lines": 1445,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7205",
+  "ok": true,
+  "bytes": 2479,
+  "lines": 80,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7236",
+  "ok": true,
+  "bytes": 10658,
+  "lines": 303,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7324",
+  "ok": true,
+  "bytes": 6195,
+  "lines": 218,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7432",
+  "ok": true,
+  "bytes": 10713,
+  "lines": 314,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7490",
+  "ok": true,
+  "bytes": 10727,
+  "lines": 315,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7521",
+  "ok": true,
+  "bytes": 29331,
+  "lines": 888,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7571",
+  "ok": true,
+  "bytes": 29762,
+  "lines": 816,
+  "attempts": 1
+ },
+ {
+  "instance_id": "pytest-dev__pytest-7982",
+  "ok": true,
+  "bytes": 20146,
+  "lines": 610,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-11618",
+  "ok": true,
+  "bytes": 28794,
+  "lines": 1128,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-12096",
+  "ok": true,
+  "bytes": 90467,
+  "lines": 2650,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-12419",
+  "ok": true,
+  "bytes": 14874,
+  "lines": 548,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-12481",
+  "ok": true,
+  "bytes": 79424,
+  "lines": 2835,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-12489",
+  "ok": true,
+  "bytes": 79237,
+  "lines": 2831,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13031",
+  "ok": true,
+  "bytes": 39037,
+  "lines": 1299,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13372",
+  "ok": true,
+  "bytes": 50411,
+  "lines": 1491,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13480",
+  "ok": true,
+  "bytes": 40282,
+  "lines": 1403,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13551",
+  "ok": true,
+  "bytes": 15452,
+  "lines": 517,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13615",
+  "ok": true,
+  "bytes": 65185,
+  "lines": 2218,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13647",
+  "ok": true,
+  "bytes": 66874,
+  "lines": 2319,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13757",
+  "ok": true,
+  "bytes": 179792,
+  "lines": 7079,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13798",
+  "ok": true,
+  "bytes": 79611,
+  "lines": 2208,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13852",
+  "ok": true,
+  "bytes": 17502,
+  "lines": 578,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13878",
+  "ok": true,
+  "bytes": 68069,
+  "lines": 2822,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-13974",
+  "ok": true,
+  "bytes": 13565,
+  "lines": 393,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-14531",
+  "ok": true,
+  "bytes": 26461,
+  "lines": 848,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-14711",
+  "ok": true,
+  "bytes": 24066,
+  "lines": 726,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-14976",
+  "ok": true,
+  "bytes": 18645,
+  "lines": 556,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15017",
+  "ok": true,
+  "bytes": 6027,
+  "lines": 205,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15345",
+  "ok": true,
+  "bytes": 4304,
+  "lines": 131,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15349",
+  "ok": true,
+  "bytes": 16945,
+  "lines": 551,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15599",
+  "ok": true,
+  "bytes": 6778,
+  "lines": 211,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15809",
+  "ok": true,
+  "bytes": 25896,
+  "lines": 827,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15875",
+  "ok": true,
+  "bytes": 35840,
+  "lines": 1061,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-15976",
+  "ok": true,
+  "bytes": 33830,
+  "lines": 969,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-16450",
+  "ok": true,
+  "bytes": 61569,
+  "lines": 1829,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-16766",
+  "ok": true,
+  "bytes": 25383,
+  "lines": 747,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-16792",
+  "ok": true,
+  "bytes": 81519,
+  "lines": 2232,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-16886",
+  "ok": true,
+  "bytes": 69241,
+  "lines": 2527,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-17139",
+  "ok": true,
+  "bytes": 66734,
+  "lines": 2215,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-17630",
+  "ok": true,
+  "bytes": 38192,
+  "lines": 1232,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-17655",
+  "ok": true,
+  "bytes": 36067,
+  "lines": 1351,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-18189",
+  "ok": true,
+  "bytes": 99228,
+  "lines": 3342,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-18199",
+  "ok": true,
+  "bytes": 33035,
+  "lines": 1302,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-18211",
+  "ok": true,
+  "bytes": 37734,
+  "lines": 1121,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-18698",
+  "ok": true,
+  "bytes": 182916,
+  "lines": 7151,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-18763",
+  "ok": true,
+  "bytes": 103603,
+  "lines": 2843,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-19040",
+  "ok": true,
+  "bytes": 34292,
+  "lines": 1366,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-19346",
+  "ok": true,
+  "bytes": 11948,
+  "lines": 345,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-19495",
+  "ok": true,
+  "bytes": 9740,
+  "lines": 265,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-19637",
+  "ok": true,
+  "bytes": 17463,
+  "lines": 545,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-19954",
+  "ok": true,
+  "bytes": 181656,
+  "lines": 5262,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-20154",
+  "ok": true,
+  "bytes": 78022,
+  "lines": 2731,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-20428",
+  "ok": true,
+  "bytes": 6265,
+  "lines": 230,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-20590",
+  "ok": true,
+  "bytes": 2201,
+  "lines": 60,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-20801",
+  "ok": true,
+  "bytes": 116549,
+  "lines": 3969,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-20916",
+  "ok": true,
+  "bytes": 2562,
+  "lines": 88,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-21379",
+  "ok": true,
+  "bytes": 7405,
+  "lines": 239,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-21596",
+  "ok": true,
+  "bytes": 16865,
+  "lines": 490,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-21612",
+  "ok": true,
+  "bytes": 32213,
+  "lines": 997,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-21847",
+  "ok": true,
+  "bytes": 18968,
+  "lines": 636,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-21930",
+  "ok": true,
+  "bytes": 89890,
+  "lines": 3106,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-22456",
+  "ok": true,
+  "bytes": 55300,
+  "lines": 1863,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-22714",
+  "ok": true,
+  "bytes": 36722,
+  "lines": 1376,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-22914",
+  "ok": true,
+  "bytes": 20202,
+  "lines": 640,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-23262",
+  "ok": true,
+  "bytes": 51123,
+  "lines": 1402,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-23413",
+  "ok": true,
+  "bytes": 12934,
+  "lines": 403,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-23534",
+  "ok": true,
+  "bytes": 27900,
+  "lines": 925,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-23824",
+  "ok": true,
+  "bytes": 24275,
+  "lines": 717,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-23950",
+  "ok": true,
+  "bytes": 1242,
+  "lines": 48,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-24066",
+  "ok": true,
+  "bytes": 7512,
+  "lines": 206,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-24213",
+  "ok": true,
+  "bytes": 7571,
+  "lines": 205,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-24443",
+  "ok": true,
+  "bytes": 19247,
+  "lines": 560,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-24539",
+  "ok": true,
+  "bytes": 68978,
+  "lines": 2467,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-24562",
+  "ok": true,
+  "bytes": 136217,
+  "lines": 4496,
+  "attempts": 1
+ },
+ {
+  "instance_id": "sympy__sympy-24661",
+  "ok": true,
+  "bytes": 42999,
+  "lines": 1241,
+  "attempts": 1
+ }
+]

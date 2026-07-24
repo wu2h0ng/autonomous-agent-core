@@ -1,0 +1,52 @@
+{
+ "drops": {
+  "a_multi_or_zero_file_patch": 29,
+  "c_gold_file_not_py": 0,
+  "e_empty_fail_to_pass": 0,
+  "d_gold_file_oversize": 94,
+  "d_fetch_failure": 0
+ },
+ "added": 43,
+ "added_per_repo": {
+  "astropy/astropy": 8,
+  "matplotlib/matplotlib": 2,
+  "pydata/xarray": 3,
+  "pylint-dev/pylint": 3,
+  "scikit-learn/scikit-learn": 7,
+  "sphinx-doc/sphinx": 20
+ },
+ "style_per_repo": {
+  "astropy/astropy": {
+   "pytest": 8
+  },
+  "matplotlib/matplotlib": {
+   "pytest": 2
+  },
+  "mwaskom/seaborn": {},
+  "pydata/xarray": {
+   "pytest": 3
+  },
+  "pylint-dev/pylint": {
+   "pytest": 3
+  },
+  "scikit-learn/scikit-learn": {
+   "pytest": 7
+  },
+  "sphinx-doc/sphinx": {
+   "pytest": 20
+  }
+ },
+ "parametrized_f2p_added": [
+  "astropy__astropy-12907",
+  "matplotlib__matplotlib-24026",
+  "pydata__xarray-4356",
+  "pydata__xarray-4966",
+  "scikit-learn__scikit-learn-13135",
+  "scikit-learn__scikit-learn-13779",
+  "sphinx-doc__sphinx-8265",
+  "sphinx-doc__sphinx-8621",
+  "sphinx-doc__sphinx-9367"
+ ],
+ "fetch_failures": [],
+ "merged_pool_size": 162
+}

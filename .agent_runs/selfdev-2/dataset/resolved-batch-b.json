@@ -1,0 +1,93 @@
+{
+  "django__django-13670": {
+    "f2p": [
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_year_before_1000"
+    ],
+    "p2p": [
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_am_pm",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_date",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_date_formats",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_dateformat",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_datetime_with_local_tzinfo",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_datetime_with_tzinfo",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_day_of_year_leap",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_empty_format",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_epoch",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_futuredates",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_invalid_time_format_specifiers",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_microsecond",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_naive_ambiguous_datetime",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_naive_datetime",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_r_format_with_non_en_locale",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_time_formats",
+      "tests/utils_tests/test_dateformat.py::DateFormatTests::test_timezones"
+    ]
+  },
+  "django__django-14089": {
+    "f2p": [
+      "tests/utils_tests/test_datastructures.py::OrderedSetTests::test_reversed"
+    ],
+    "p2p": [
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_copy",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_create_with_invalid_key",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_create_with_invalid_values",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_del",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_dict",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_equal",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_getitem",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_in",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_items",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_list",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_repr",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_set",
+      "tests/utils_tests/test_datastructures.py::CaseInsensitiveMappingTests::test_str",
+      "tests/utils_tests/test_datastructures.py::DictWrapperTests::test_dictwrapper",
+      "tests/utils_tests/test_datastructures.py::ImmutableListTests::test_custom_warning",
+      "tests/utils_tests/test_datastructures.py::ImmutableListTests::test_sort",
+      "tests/utils_tests/test_datastructures.py::OrderedSetTests::test_bool",
+      "tests/utils_tests/test_datastructures.py::OrderedSetTests::test_contains",
+      "tests/utils_tests/test_datastructures.py::OrderedSetTests::test_discard",
+      "tests/utils_tests/test_datastructures.py::OrderedSetTests::test_init_with_iterable"
+    ]
+  },
+  "sphinx-doc__sphinx-10449": {
+    "f2p": [
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_with_documented_init"
+    ],
+    "p2p": [
+      "tests/test_ext_autodoc_configs.py::test_autoclass_content_class",
+      "tests/test_ext_autodoc_configs.py::test_autoclass_content_init",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_class_signature_mixed",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_class_signature_separated_init",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_class_signature_separated_new",
+      "tests/test_ext_autodoc_configs.py::test_autoclass_content_both",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_inherit_docstrings",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_docstring_signature",
+      "tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_class",
+      "tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_init",
+      "tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_both",
+      "tests/test_ext_autodoc_configs.py::test_mocked_module_imports",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_signature",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none_for_overload",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_no_undoc",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_no_undoc_doc_rtype",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_with_documented_init_no_undoc",
+      "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_with_documented_init_no_undoc_doc_rtype"
+    ]
+  },
+  "sphinx-doc__sphinx-10466": {
+    "f2p": [
+      "tests/test_build_gettext.py::test_Catalog_duplicated_message"
+    ],
+    "p2p": [
+      "tests/test_build_gettext.py::test_build_gettext",
+      "tests/test_build_gettext.py::test_gettext_index_entries",
+      "tests/test_build_gettext.py::test_gettext_disable_index_entries",
+      "tests/test_build_gettext.py::test_gettext_template",
+      "tests/test_build_gettext.py::test_gettext_template_msgid_order_in_sphinxpot",
+      "tests/test_build_gettext.py::test_build_single_pot"
+    ]
+  }
+}
