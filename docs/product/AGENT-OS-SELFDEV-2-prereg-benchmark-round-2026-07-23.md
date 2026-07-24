@@ -63,12 +63,14 @@ execution. Not release, not `Autonomy(S,E,O,V,T)` evidence.
 ## 4. Frozen subset (FILLED AT FREEZE — placeholder)
 
 - Selection: seeded RNG (seed recorded in manifest), stratified cap 2 tasks
-  per repo, N=12 + 6 reserve, drawn ONLY from the gold-validation-passing
-  pool (§8). The manifest pins: instance_id, repo, base_commit,
-  environment_setup_commit, issue_text_hash, gold_file_path/bytes/lines,
-  f2p/p2p node ids (resolved to pytest form, `benchmark_node_ids` evidence),
-  per-task interpreter, pinned deps with hashes, verifier timeout seconds,
-  min output-token budget, gold-validation evidence digest.
+  per repo, N=12 + 5 reserve (amended from 6 by founder decision 2026-07-23:
+  cap-2/repo validated pool tops out at 17), drawn ONLY from the
+  gold-validation-passing pool (§8). The manifest pins: instance_id, repo,
+  base_commit, environment_setup_commit, issue_text_hash,
+  gold_file_path/bytes/lines, f2p/p2p node ids (resolved to pytest form,
+  `benchmark_node_ids` evidence), per-task interpreter, pinned deps with
+  hashes, verifier timeout seconds, min output-token budget, gold-validation
+  evidence digest.
 - Reserve swaps: only before the round's first provider call; each swap is a
   declared, recorded, re-hashed manifest event. Post-first-call swaps are
   forbidden; a round-time task failure records task-level INVALID and counts

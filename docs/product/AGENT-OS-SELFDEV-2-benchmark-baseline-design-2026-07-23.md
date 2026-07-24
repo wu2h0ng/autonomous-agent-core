@@ -1,8 +1,11 @@
 # AGENT-OS-SELFDEV-2 — Public-Benchmark Baseline Round: Design Packet (for CTO gate)
 
 > Status: `GATED` — founder/CTO gate passed 2026-07-23: D1 yes, D2 SWE-bench
-> Verified filtered subset, D3 yes (N=12 + reserve 6, 2 attempts per task per
-> arm), D4 yes (ADR scope authorized), D5 containerized per-task runner.
+> Verified filtered subset, D3 yes (N=12, 2 attempts per task per arm), D4 yes
+> (ADR scope authorized), D5 containerized per-task runner.
+> Amendment 2026-07-23 (founder): reserve list 6 → 5, after dry-run validation
+> showed the cap-2/repo validated pool tops out at 17 (requests and matplotlib
+> exhausted below cap). Pool diversity rules unchanged.
 > Date: 2026-07-23. Author: kimi-cli session.
 > Independent review: kimi subagent (blind-anchored per RR-0031, no builder run
 > history). Round 1: CHANGES_REQUESTED (F-1..F-11). Round 2: CHANGES_REQUESTED
@@ -67,8 +70,8 @@ chain adds value over just asking the model, within the declared envelope.
   (c) repo env builds in a plain venv on this host — VERIFIED BY DRY-RUN
   before freeze, not assumed (see §6 sequencing).
 - Selection: seeded RNG with the seed recorded in the manifest; stratified,
-  cap 2 tasks per repo; N=12 plus a frozen reserve list of 6. The frozen
-  manifest includes the reserve list and per-task env manifests for all 18
+  cap 2 tasks per repo; N=12 plus a frozen reserve list of 5. The frozen
+  manifest includes the reserve list and per-task env manifests for all 17
   tasks. A reserve swap executed before the round's first provider call is a
   declared, recorded, re-hashed manifest event (not drift); swaps after the
   first provider call are forbidden — a round-time task failure then records
@@ -188,7 +191,8 @@ decisions) recorded exactly as in the MT prereg. No founder baseline work.
 - D1: claim-class split (A primary, B ledger) — yes/no.
 - D2: task source — SWE-bench Verified filtered subset (recommended) vs
   SWE-rebench vintage slice (cleaner, +1-2 days pipeline).
-- D3: N=12 + reserve 6, 2 attempts per task per arm — yes/no.
+- D3: N=12 + reserve 5 (amended from 6 on 2026-07-23), 2 attempts per task
+  per arm — yes/no.
 - D4: authorize the §4 ADR scope — yes/no.
 - D5 (new per review F-4): third-party code execution — host with
   cwd-confinement + env scrubbing + founder risk acceptance (faster, weaker),
