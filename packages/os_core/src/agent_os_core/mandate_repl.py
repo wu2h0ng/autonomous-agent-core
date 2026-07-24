@@ -39,6 +39,8 @@ from .mandate_terminal import (
     load_attach_session,
     mandate_status,
 )
+from .terminal_mcp import MandateMcpHub, McpError
+from .terminal_tui import TerminalRenderer
 from .terminal_session import (
     TerminalSessionState,
     TerminalSessionTurn,
@@ -201,6 +203,8 @@ class MandateRepl:
         max_continuation_cycles: int = MAX_CONTINUATION_CYCLES,
         auto_attached: bool = False,
         resume_session: bool = False,
+        enable_tui: bool = False,
+        enable_mcp: bool = True,
     ) -> None:
         self.workspace = Path(workspace)
         self.provider = provider
@@ -220,6 +224,10 @@ class MandateRepl:
         self.max_continuation_cycles = max_continuation_cycles
         self.auto_attached = auto_attached
         self.resume_session = resume_session
+        self.enable_tui = enable_tui
+        self.enable_mcp = enable_mcp
+        self._mcp_hub: MandateMcpHub | None = None
+        self._renderer: TerminalRenderer | None = None
         self.tool_runtime = tool_runtime or (
             MandateToolRuntime(
                 repo_root=self.repo_root,
@@ -242,7 +250,40 @@ class MandateRepl:
         )
         if self.auto_attached:
             self._write("[zero-config] local Mandate bootstrap+attach completed\n")
-        goal_from_session = None
+        if self.enable_tui:
+            self._renderer = TerminalRenderer(stdout=self._stdout)
+            self._renderer.start("Agent OS Mandate Terminal")
+        if self.enable_mcp:
+            try:
+                self._mcp_hub = MandateMcpHub(self.workspace)
+                tools = self._mcp_hub.start()
+                if tools:
+                    self._write(f"[mcp] loaded {len(tools)} tools\n")
+                    if self._renderer:
+                        self._renderer.set_status(f"MCP tools={len(tools)}")
+            except Exception as exc:  # noqa: BLE001
+                self._write(f"[mcp] disabled: {exc}\n")
+                self._mcp_hub = None
+        try:
+            return self._run_session(status=status, goal_from_session_seed=None)
+        finally:
+            self._shutdown_extras()
+
+    def _shutdown_extras(self) -> None:
+        if self._renderer is not None:
+            self._renderer.stop()
+            self._renderer = None
+        if self._mcp_hub is not None:
+            self._mcp_hub.close()
+            self._mcp_hub = None
+
+    def _run_session(
+        self,
+        *,
+        status: dict[str, object],
+        goal_from_session_seed: str | None,
+    ) -> MandateReplResult:
+        goal_from_session = goal_from_session_seed
         if self.resume_session:
             loaded = load_terminal_session(self.workspace)
             if loaded is None:
@@ -322,11 +363,14 @@ class MandateRepl:
                 if not self.tools_enabled or self.tool_runtime is None:
                     self._write("tools: OFF\n")
                 else:
+                    caps = list(self.tool_runtime.allowed_capability_ids())
+                    if self._mcp_hub is not None:
+                        caps.extend(self._mcp_hub.tool_ids())
                     self._write(
                         "tools: "
-                        + ", ".join(self.tool_runtime.allowed_capability_ids())
+                        + ", ".join(caps)
                         + f"\nrepo: {self.repo_root}\n"
-                        "writes require interactive approval "
+                        "writes/mcp require interactive approval "
                         f"(auto_approve={self.auto_approve_patches})\n"
                     )
                 continue
@@ -389,7 +433,11 @@ class MandateRepl:
             self._history.append(MandateReplTurn("assistant", reply))
             self._trim_history()
             prefix = "" if ok else "[provider-failure] "
-            self._write(prefix + reply + "\n")
+            if self._renderer is not None and ok and not prefix:
+                # already streamed via renderer
+                self._write("\n")
+            else:
+                self._write(prefix + reply + "\n")
             self._persist_session(
                 goal=goal,
                 tool_invocations=tool_invocations,
@@ -499,7 +547,18 @@ class MandateRepl:
                 timeout_seconds=120,
                 created_at=self._clock(),
             )
-            result = self.provider.complete(request)
+            extra_tools: tuple[dict, ...] = ()
+            if self._mcp_hub is not None:
+                extra_tools = tuple(self._mcp_hub.tool_openai_specs())
+            on_delta = None
+            if self._renderer is not None:
+                self._renderer.set_assistant("")
+                on_delta = self._renderer.append_assistant
+            result = self.provider.complete_streaming(
+                request,
+                on_text_delta=on_delta,
+                extra_tools=extra_tools,
+            )
             stats["provider_calls"] += 1
             if isinstance(result, ProviderFailure):
                 return (result.safe_message or result.code.value, False, stats)
@@ -507,6 +566,8 @@ class MandateRepl:
                 return ("unknown provider result", False, stats)
             if result.text.strip():
                 final_text = result.text
+                if self._renderer is not None and on_delta is None:
+                    self._renderer.set_assistant(final_text)
             if not result.tool_proposals:
                 return (final_text or "(empty)", True, stats)
             if self.tool_runtime is None:
@@ -519,6 +580,8 @@ class MandateRepl:
                     stats["patches_applied"] += 1
                 tool_notes.append(note)
                 self._write(note + "\n")
+                if self._renderer is not None:
+                    self._renderer.add_tool(note.splitlines()[0][:160])
             messages.append(
                 ProviderMessage(
                     role=ProviderMessageRole.ASSISTANT,
@@ -539,17 +602,22 @@ class MandateRepl:
 
     def _handle_proposal(self, proposal: ProviderToolProposal) -> tuple[str, bool]:
         assert self.tool_runtime is not None
-        summary = self.tool_runtime.summarize_proposal(proposal)
+        is_mcp = proposal.capability_id.startswith("mcp.")
+        if is_mcp:
+            summary = f"MCP {proposal.capability_id} args={proposal.arguments_json[:400]}"
+        else:
+            summary = self.tool_runtime.summarize_proposal(proposal)
         approved = True
         applied = False
-        if proposal.capability_id in WRITE_CAPABILITIES:
+        needs_approval = proposal.capability_id in WRITE_CAPABILITIES or is_mcp
+        if needs_approval:
             if self.auto_approve_patches:
                 approved = True
                 self._write(f"[auto-approve]\n{summary}\n")
             else:
                 self._write(f"[approval required]\n{summary}\n")
                 try:
-                    answer = self._read("Approve write/shell? [y/N] ").strip().lower()
+                    answer = self._read("Approve write/shell/mcp? [y/N] ").strip().lower()
                 except EOFError:
                     answer = "n"
                 approved = answer in {"y", "yes"}
@@ -559,6 +627,44 @@ class MandateRepl:
                         f"reason=operator_rejected\n{summary}",
                         False,
                     )
+        if is_mcp:
+            if self._mcp_hub is None:
+                payload = {
+                    "capability_id": proposal.capability_id,
+                    "ok": False,
+                    "error": "mcp hub not started",
+                    "output": {},
+                }
+                return (
+                    f"TOOL_RESULT {json.dumps(payload, ensure_ascii=False, default=str)}",
+                    False,
+                )
+            try:
+                args = json.loads(proposal.arguments_json)
+                if not isinstance(args, dict):
+                    raise McpError("arguments must be object")
+                output = self._mcp_hub.call(proposal.capability_id, args)
+                payload = {
+                    "capability_id": proposal.capability_id,
+                    "ok": True,
+                    "error": None,
+                    "output": output,
+                }
+                return (
+                    f"TOOL_RESULT {json.dumps(payload, ensure_ascii=False, default=str)}",
+                    True,
+                )
+            except (McpError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                payload = {
+                    "capability_id": proposal.capability_id,
+                    "ok": False,
+                    "error": str(exc),
+                    "output": {},
+                }
+                return (
+                    f"TOOL_RESULT {json.dumps(payload, ensure_ascii=False, default=str)}",
+                    False,
+                )
         result = self.tool_runtime.invoke_proposal(proposal, approved=approved)
         if result.ok and proposal.capability_id in WRITE_CAPABILITIES:
             applied = True

@@ -55,6 +55,20 @@ class ProviderPort(ABC):
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
         raise NotImplementedError
 
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+        extra_tools: tuple[dict, ...] = (),
+    ) -> ProviderResponse | ProviderFailure:
+        """Default: non-streaming complete; subclasses may stream deltas."""
+        del extra_tools
+        result = self.complete(request)
+        if on_text_delta is not None and isinstance(result, ProviderResponse) and result.text:
+            on_text_delta(result.text)
+        return result
+
     def decide(
         self, request: ProviderDecisionRequest
     ) -> ProviderResponse | ProviderFailure:
@@ -85,6 +99,19 @@ class DeterministicProvider(ProviderPort):
     def complete(self, request: ProviderRequest) -> ProviderResponse:
         self.requests.append(request)
         return self._response(request)
+
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+        extra_tools: tuple[dict, ...] = (),
+    ) -> ProviderResponse:
+        del extra_tools
+        response = self.complete(request)
+        if on_text_delta is not None and response.text:
+            on_text_delta(response.text)
+        return response
 
     def decide(
         self, request: ProviderDecisionRequest
@@ -262,6 +289,9 @@ class OpenAICompatibleProvider(ProviderPort):
         request: ProviderRequest | ProviderDecisionRequest,
         *,
         allowed_capability_ids: tuple[str, ...],
+        extra_tools: tuple[dict, ...] = (),
+        stream: bool = False,
+        on_text_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         try:
             invocation = self._invocation_binding
@@ -319,6 +349,12 @@ class OpenAICompatibleProvider(ProviderPort):
                     for capability_id in allowed_capability_ids
                 ]
                 body["tool_choice"] = "auto"
+            if extra_tools:
+                body.setdefault("tools", [])
+                body["tools"] = list(body.get("tools", [])) + list(extra_tools)
+                body["tool_choice"] = "auto"
+            if stream:
+                body["stream"] = True
             encoded = json.dumps(body).encode("utf-8")
             http_request = urllib.request.Request(
                 f"{base_url}{endpoint_path}",
@@ -333,6 +369,12 @@ class OpenAICompatibleProvider(ProviderPort):
                 http_request,
                 timeout=min(runtime_timeout_seconds, request.timeout_seconds),
             ) as response:  # type: ignore[call-arg]
+                if stream:
+                    return self._parse_sse_stream(
+                        response,
+                        request=request,
+                        on_text_delta=on_text_delta,
+                    )
                 payload = json.loads(response.read().decode("utf-8"))
             choice = payload["choices"][0]
             message = choice["message"]
@@ -342,10 +384,13 @@ class OpenAICompatibleProvider(ProviderPort):
             usage = payload.get("usage", {})
             input_tokens = int(usage.get("prompt_tokens", 0))
             output_tokens = int(usage.get("completion_tokens", 0))
+            text_out = str(message.get("content") or "")
+            if on_text_delta is not None and text_out:
+                on_text_delta(text_out)
             return ProviderResponse(
                 response_id=str(payload.get("id", f"response-{uuid4()}")),
                 request_id=request.request_id,
-                text=str(message.get("content") or ""),
+                text=text_out,
                 tool_proposals=proposals,
                 usage=ProviderUsage(
                     input_tokens=input_tokens,
@@ -402,6 +447,110 @@ class OpenAICompatibleProvider(ProviderPort):
                 f"provider unavailable: {type(exc).__name__}",
                 True,
             )
+
+
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+        extra_tools: tuple[dict, ...] = (),
+    ) -> ProviderResponse | ProviderFailure:
+        return self._invoke(
+            request,
+            allowed_capability_ids=request.allowed_capability_ids,
+            extra_tools=extra_tools,
+            stream=True,
+            on_text_delta=on_text_delta,
+        )
+
+    def _parse_sse_stream(
+        self,
+        response: object,
+        *,
+        request: ProviderRequest | ProviderDecisionRequest,
+        on_text_delta: Callable[[str], None] | None,
+    ) -> ProviderResponse:
+        text_parts: list[str] = []
+        tool_calls: dict[int, dict[str, str]] = {}
+        response_id = f"response-{uuid4()}"
+        finish_reason = "stop"
+        readline = getattr(response, "readline", None)
+        while True:
+            raw_line = readline() if callable(readline) else b""
+            if raw_line in (b"", ""):
+                break
+            if isinstance(raw_line, bytes):
+                line = raw_line.decode("utf-8")
+            else:
+                line = str(raw_line)
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("data:"):
+                data = line[5:].strip()
+            else:
+                data = line
+            if data == "[DONE]":
+                break
+            try:
+                payload = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            response_id = str(payload.get("id") or response_id)
+            choices = payload.get("choices") or []
+            if not choices:
+                continue
+            choice = choices[0]
+            finish_reason = str(choice.get("finish_reason") or finish_reason)
+            delta = choice.get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(str(content))
+                if on_text_delta is not None:
+                    on_text_delta(str(content))
+            for tool_delta in delta.get("tool_calls") or []:
+                index = int(tool_delta.get("index", 0))
+                bucket = tool_calls.setdefault(
+                    index,
+                    {"id": "", "name": "", "arguments": ""},
+                )
+                if tool_delta.get("id"):
+                    bucket["id"] = str(tool_delta["id"])
+                function = tool_delta.get("function") or {}
+                if function.get("name"):
+                    bucket["name"] = str(function["name"])
+                if function.get("arguments"):
+                    bucket["arguments"] += str(function["arguments"])
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=item["id"] or f"proposal-{uuid4()}",
+                capability_id=item["name"].replace("__", "."),
+                arguments_json=item["arguments"] or "{}",
+            )
+            for _, item in sorted(tool_calls.items())
+            if item["name"]
+        )
+        text_out = "".join(text_parts)
+        return ProviderResponse(
+            response_id=response_id,
+            request_id=request.request_id,
+            text=text_out,
+            tool_proposals=proposals,
+            usage=ProviderUsage(
+                input_tokens=0,
+                output_tokens=len(text_out.split()),
+                total_tokens=len(text_out.split()),
+                estimated_cost_usd=Decimal("0"),
+            ),
+            finish_reason=finish_reason or "stop",
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
+        )
 
     @staticmethod
     def _proposal(item: dict[str, object]) -> ProviderToolProposal:

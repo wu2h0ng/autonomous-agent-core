@@ -43,7 +43,7 @@ def test_workspace_search_finds_line(tmp_path: Path) -> None:
     assert out["matches"][0]["path"] == "a.py"
 
 
-def test_workspace_shell_allowlist_and_deny(tmp_path: Path) -> None:
+def test_workspace_shell_deny_dangerous_and_meta(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     sandbox = WorkspaceSandbox(repo)

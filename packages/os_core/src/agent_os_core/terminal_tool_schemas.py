@@ -79,7 +79,7 @@ TERMINAL_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["argv"],
         "properties": {
             "argv": {
-                "description": "Allowlisted argv list or shell-like string without metacharacters",
+                "description": "Free argv list or bash/sh/zsh -c string; metacharacters ; | & ` $() ${} > < and newlines are denied",
                 "oneOf": [
                     {"type": "array", "items": {"type": "string"}, "minItems": 1},
                     {"type": "string"},
@@ -110,7 +110,7 @@ def tool_description_for(capability_id: str) -> str:
         ),
         "workspace.run_tests": "Run an allowlisted pytest command in the repo.",
         "workspace.shell": (
-            "Run an allowlisted program argv inside the repo (no shell metacharacters)."
+            "Run any program argv (or bash/sh/zsh -c) in the repo; still bans ;|& and related metas."
         ),
     }
     return descriptions.get(capability_id, f"Invoke typed capability {capability_id}")

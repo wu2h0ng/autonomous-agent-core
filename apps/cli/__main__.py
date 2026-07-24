@@ -173,6 +173,16 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Mission statement used when zero-config bootstraps a local Mandate",
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Streaming rich TUI (Rich Live if installed; else ANSI progressive)",
+    )
+    parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help="Disable MCP tool loading from .agent_os/mcp.json",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("task-create")
     create.add_argument("statement")
@@ -303,6 +313,8 @@ def main(argv: list[str] | None = None) -> None:
                 zero_config=not bool(args.no_zero_config),
                 mission_statement=args.mission,
                 resume_session=bool(args.resume),
+                enable_tui=bool(args.tui),
+                enable_mcp=not bool(args.no_mcp),
             )
         except MandateTerminalError as exc:
             print(f"MandateTerminalError: {exc}", file=sys.stderr)

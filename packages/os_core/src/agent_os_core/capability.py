@@ -105,7 +105,7 @@ class WorkspaceSandbox:
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
             "workspace.shell": CapabilitySpec(
-                capability_id="workspace.shell", version="1", display_name="Run allowlisted shell argv",
+                capability_id="workspace.shell", version="1", display_name="Run shell argv (meta ;|& banned)",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=False,
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
@@ -717,10 +717,9 @@ class WorkspaceSandbox:
             artifact.write_bytes(output)
         return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
 
-    _SHELL_ALLOWLIST = frozenset({
-        "git", "ls", "rg", "grep", "find", "cat", "head", "tail", "wc", "pwd",
-        "python", "python3", "pytest", "npm", "npx", "node", "cargo", "make",
-        "ruff", "mypy", "pyright", "sed", "awk", "diff", "stat", "tree",
+    # Free argv/bash: any program except denylist; still forbid shell metacharacters.
+    _SHELL_DENIED_PROGRAMS = frozenset({
+        "sudo", "su", "doas", "pkexec", "chmod", "chown", "launchctl", "osascript",
     })
     _SHELL_DENIED_TOKENS = frozenset({";", "|", "&", "`", "$(", "${", ">", "<", "\n", "\r"})
 
@@ -803,13 +802,21 @@ class WorkspaceSandbox:
             if token in joined:
                 raise CapabilityDenied(f"shell metacharacter denied: {token}")
         prog = Path(argv[0]).name
-        if prog not in self._SHELL_ALLOWLIST:
-            raise CapabilityDenied(f"shell program not allowlisted: {prog}")
-        # reject absolute path args that escape repo (except interpreter-safe flags)
+        if prog in self._SHELL_DENIED_PROGRAMS:
+            raise CapabilityDenied(f"shell program denied: {prog}")
+        if prog in {"bash", "sh", "zsh"} and "-c" in argv:
+            c_index = argv.index("-c")
+            if c_index + 1 >= len(argv):
+                raise CapabilityDenied("shell -c requires a command string")
+            command = argv[c_index + 1]
+            for token in self._SHELL_DENIED_TOKENS:
+                if token in command:
+                    raise CapabilityDenied(f"shell -c metacharacter denied: {token}")
         for item in argv[1:]:
             if item.startswith("/") and not item.startswith(str(self.root)):
-                # allow /dev/null style only for redirection-like common args — deny absolute outside root
-                if item not in {"/dev/null"}:
+                if item not in {"/dev/null"} and not (
+                    item.startswith("/bin/") or item.startswith("/usr/bin/")
+                ):
                     raise CapabilityDenied(f"absolute path outside workspace denied: {item}")
         timeout = min(int(str(args.get("timeout_seconds", 60))), 120)
         result = subprocess.run(
