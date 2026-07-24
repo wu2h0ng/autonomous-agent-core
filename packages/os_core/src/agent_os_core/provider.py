@@ -302,16 +302,18 @@ class OpenAICompatibleProvider(ProviderPort):
                 "temperature": temperature,
             }
             if allowed_capability_ids:
+                from .terminal_tool_schemas import (
+                    tool_description_for,
+                    tool_parameters_for,
+                )
+
                 body["tools"] = [
                     {
                         "type": "function",
                         "function": {
                             "name": capability_id.replace(".", "__"),
-                            "description": f"Invoke typed capability {capability_id}",
-                            "parameters": {
-                                "type": "object",
-                                "additionalProperties": True,
-                            },
+                            "description": tool_description_for(capability_id),
+                            "parameters": tool_parameters_for(capability_id),
                         },
                     }
                     for capability_id in allowed_capability_ids

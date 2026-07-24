@@ -129,6 +129,7 @@ def test_tools_enabled_on_provider_request(tmp_path: Path) -> None:
     ).run()
     assert provider.requests[0].allowed_capability_ids == (
         "workspace.apply_patch",
+        "workspace.glob",
         "workspace.read",
         "workspace.run_tests",
         "workspace.search",

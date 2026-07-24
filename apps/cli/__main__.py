@@ -78,6 +78,8 @@ def _normalize_argv(argv: list[str]) -> list[str]:
         "--no-tools",
         "--auto-approve-patches",
         "--continue",
+        "--agent",
+        "--resume",
         "--no-zero-config",
     ):
         if flag in args:
@@ -143,6 +145,17 @@ def main(argv: list[str] | None = None) -> None:
         dest="continue_autonomous",
         action="store_true",
         help="After the initial goal, auto-continue until DONE/BLOCKED/max cycles",
+    )
+    parser.add_argument(
+        "--agent",
+        dest="continue_autonomous",
+        action="store_true",
+        help="Alias for --continue (Codex-like agent mode)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume prior terminal session transcript from workspace",
     )
     parser.add_argument(
         "--max-continuation-cycles",
@@ -289,6 +302,7 @@ def main(argv: list[str] | None = None) -> None:
                 max_continuation_cycles=int(args.max_continuation_cycles),
                 zero_config=not bool(args.no_zero_config),
                 mission_statement=args.mission,
+                resume_session=bool(args.resume),
             )
         except MandateTerminalError as exc:
             print(f"MandateTerminalError: {exc}", file=sys.stderr)

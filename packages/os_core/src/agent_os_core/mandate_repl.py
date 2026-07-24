@@ -39,6 +39,12 @@ from .mandate_terminal import (
     load_attach_session,
     mandate_status,
 )
+from .terminal_session import (
+    TerminalSessionState,
+    TerminalSessionTurn,
+    load_terminal_session,
+    save_terminal_session,
+)
 from .mandate_tool_runtime import (
     TERMINAL_CAPABILITIES,
     WRITE_CAPABILITIES,
@@ -48,7 +54,7 @@ from .provider import DeterministicProvider, ProviderPort
 from .situated_persistence import SQLiteSituatedAssessmentStore
 
 HISTORY_LIMIT = 24
-MAX_TOOL_ROUNDS = 12
+MAX_TOOL_ROUNDS = 32
 MAX_CONTINUATION_CYCLES = 8
 
 
@@ -142,8 +148,8 @@ def format_status_banner(
         lines.append("constraints: " + "; ".join(str(c) for c in constraints))
     lines.extend(
         [
-            "commands: /status  /tools  /help <q>  /continue  /stop  /quit",
-            "claim_ceiling: AGENT_OS_TERMINAL_V0 / NO_AUTONOMY / NO_HCW_CLAIM",
+            "commands: /status  /tools  /help <q>  /continue  /stop  /save  /resume  /quit",
+            "claim_ceiling: AGENT_OS_TERMINAL_V2 / NO_AUTONOMY / NO_HCW_CLAIM",
             "================================",
         ]
     )
@@ -194,6 +200,7 @@ class MandateRepl:
         continue_autonomous: bool = False,
         max_continuation_cycles: int = MAX_CONTINUATION_CYCLES,
         auto_attached: bool = False,
+        resume_session: bool = False,
     ) -> None:
         self.workspace = Path(workspace)
         self.provider = provider
@@ -212,6 +219,7 @@ class MandateRepl:
         self.continue_autonomous = continue_autonomous
         self.max_continuation_cycles = max_continuation_cycles
         self.auto_attached = auto_attached
+        self.resume_session = resume_session
         self.tool_runtime = tool_runtime or (
             MandateToolRuntime(
                 repo_root=self.repo_root,
@@ -234,6 +242,22 @@ class MandateRepl:
         )
         if self.auto_attached:
             self._write("[zero-config] local Mandate bootstrap+attach completed\n")
+        goal_from_session = None
+        if self.resume_session:
+            loaded = load_terminal_session(self.workspace)
+            if loaded is None:
+                self._write("[resume] no saved session\n")
+            else:
+                self._history = [
+                    MandateReplTurn(role=item.role, content=item.content)
+                    for item in loaded.turns
+                ]
+                goal_from_session = loaded.goal
+                self._write(
+                    f"[resume] loaded {len(self._history)} turns"
+                    + (f" goal={loaded.goal!r}" if loaded.goal else "")
+                    + "\n"
+                )
         turns = 0
         help_emitted = 0
         provider_calls = 0
@@ -241,8 +265,10 @@ class MandateRepl:
         patches_applied = 0
         continuation_cycles = 0
         pending: str | None = self._initial_prompt
-        autonomous = self.continue_autonomous and self._initial_prompt is not None
-        goal = self._initial_prompt
+        autonomous = self.continue_autonomous and (
+            self._initial_prompt is not None or goal_from_session is not None
+        )
+        goal = self._initial_prompt or goal_from_session
         stop_requested = False
         while True:
             try:
@@ -309,6 +335,29 @@ class MandateRepl:
                 stop_requested = True
                 autonomous = False
                 continue
+            if text == "/save":
+                saved = self._persist_session(
+                    goal=goal,
+                    tool_invocations=tool_invocations,
+                    patches_applied=patches_applied,
+                    continuation_cycles=continuation_cycles,
+                    status=status,
+                )
+                self._write(f"[session saved] {saved}\n")
+                continue
+            if text == "/resume":
+                loaded = load_terminal_session(self.workspace)
+                if loaded is None:
+                    self._write("[resume] no saved session\n")
+                    continue
+                self._history = [
+                    MandateReplTurn(role=item.role, content=item.content)
+                    for item in loaded.turns
+                ]
+                if loaded.goal:
+                    goal = loaded.goal
+                self._write(f"[resume] loaded {len(self._history)} turns\n")
+                continue
             if text == "/continue":
                 if goal is None:
                     self._write("usage: start with a goal prompt, then /continue\n")
@@ -341,6 +390,13 @@ class MandateRepl:
             self._trim_history()
             prefix = "" if ok else "[provider-failure] "
             self._write(prefix + reply + "\n")
+            self._persist_session(
+                goal=goal,
+                tool_invocations=tool_invocations,
+                patches_applied=patches_applied,
+                continuation_cycles=continuation_cycles,
+                status=status,
+            )
             if not ok or stop_requested:
                 autonomous = False
             if autonomous and goal is not None:
@@ -360,6 +416,30 @@ class MandateRepl:
                     )
                     continue
 
+
+
+    def _persist_session(
+        self,
+        *,
+        goal: str | None,
+        tool_invocations: int,
+        patches_applied: int,
+        continuation_cycles: int,
+        status: dict[str, object],
+    ) -> Path:
+        state = TerminalSessionState(
+            goal=goal,
+            repo_root=str(self.repo_root),
+            mandate_id=str(status.get("mandate_id") or ""),
+            turns=[
+                TerminalSessionTurn(role=item.role, content=item.content)
+                for item in self._history
+            ],
+            tool_invocations=tool_invocations,
+            patches_applied=patches_applied,
+            continuation_cycles=continuation_cycles,
+        )
+        return save_terminal_session(self.workspace, state)
 
     @staticmethod
     def _continuation_prompt(goal: str) -> str:
@@ -639,6 +719,7 @@ def run_mandate_repl(
     repo_root: Path | None = None,
     auto_approve_patches: bool = False,
     continue_autonomous: bool = False,
+    resume_session: bool = False,
     max_continuation_cycles: int = MAX_CONTINUATION_CYCLES,
     database: Path | None = None,
     zero_config: bool = True,
@@ -672,6 +753,7 @@ def run_mandate_repl(
         continue_autonomous=continue_autonomous,
         max_continuation_cycles=max_continuation_cycles,
         auto_attached=auto_attached,
+        resume_session=resume_session,
         **kwargs,  # type: ignore[arg-type]
     )
     return repl.run()

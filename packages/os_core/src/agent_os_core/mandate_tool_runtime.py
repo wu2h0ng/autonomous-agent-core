@@ -28,6 +28,7 @@ from .governance import CorrectionAuthority
 TERMINAL_CAPABILITIES: tuple[str, ...] = (
     "workspace.read",
     "workspace.search",
+    "workspace.glob",
     "workspace.apply_patch",
     "workspace.run_tests",
     "workspace.shell",
@@ -105,6 +106,9 @@ class MandateToolRuntime:
                 error="arguments must be a JSON object",
             )
         now = self._clock()
+        # Permit lifetime must use wall clock: WorkspaceSandbox checks expiry
+        # against datetime.now(), not the REPL test clock.
+        wall = datetime.now(timezone.utc)
         action = self._build_action(capability_id, args, now=now)
         permit = ActionPermit(
             permit_id=f"permit:{action.action_id}",
@@ -117,8 +121,8 @@ class MandateToolRuntime:
             grant_id=f"grant:mandate-terminal:{capability_id}",
             correction_epochs=action.observed_correction_epochs,
             lease_fence=0,
-            issued_at=now,
-            expires_at=now + timedelta(minutes=5),
+            issued_at=wall,
+            expires_at=wall + timedelta(minutes=5),
         )
         try:
             result = self.broker.invoke(action, permit)
@@ -146,6 +150,13 @@ class MandateToolRuntime:
             args = {}
         path = args.get("path", "?")
         if proposal.capability_id == "workspace.apply_patch":
+            if args.get("diff"):
+                diff = str(args.get("diff", ""))
+                preview = diff if len(diff) <= 240 else diff[:240] + "…"
+                return (
+                    f"apply_patch unified-diff proposal={proposal.proposal_id}\n"
+                    f"--- preview ---\n{preview}"
+                )
             content = str(args.get("content", ""))
             preview = content if len(content) <= 240 else content[:240] + "…"
             digest = proposal.proposal_id
@@ -157,6 +168,8 @@ class MandateToolRuntime:
             return f"read path={path}"
         if proposal.capability_id == "workspace.run_tests":
             return f"run_tests command={args.get('command', 'python -m pytest')}"
+        if proposal.capability_id == "workspace.glob":
+            return f"glob pattern={args.get('pattern')}"
         if proposal.capability_id == "workspace.search":
             return (
                 f"search pattern={args.get('pattern')} glob={args.get('glob', '**/*')} "

@@ -99,6 +99,11 @@ class WorkspaceSandbox:
                 side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
+            "workspace.glob": CapabilitySpec(
+                capability_id="workspace.glob", version="1", display_name="Glob workspace paths",
+                side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **common,
+            ),
             "workspace.shell": CapabilitySpec(
                 capability_id="workspace.shell", version="1", display_name="Run allowlisted shell argv",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=False,
@@ -247,6 +252,8 @@ class WorkspaceSandbox:
             return self._run_tests(args, action_key)
         if capability_id == "workspace.search":
             return self._search(args)
+        if capability_id == "workspace.glob":
+            return self._glob(args)
         if capability_id == "workspace.shell":
             return self._run_shell(args, action_key)
         if capability_id == "artifact.write":
@@ -289,6 +296,8 @@ class WorkspaceSandbox:
         return candidate
 
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        if args.get("diff"):
+            return self._apply_unified_diff(str(args.get("diff", "")), action_key)
         path = self._safe_path(str(args.get("path", "")))
         content = str(args.get("content", ""))
         content_bytes = content.encode("utf-8")
@@ -620,6 +629,69 @@ class WorkspaceSandbox:
         finally:
             temp_path.unlink(missing_ok=True)
 
+
+    def _glob(self, args: dict[str, object]) -> dict[str, object]:
+        pattern = str(args.get("pattern", "")).strip()
+        if not pattern:
+            raise CapabilityDenied("workspace.glob requires pattern")
+        max_results = min(int(str(args.get("max_results", 200))), 1000)
+        skip_dirs = {".git", ".hg", ".svn", "node_modules", ".agent-os-artifacts", "__pycache__", ".venv", "venv"}
+        matches: list[str] = []
+        for path in self.root.rglob("*"):
+            if len(matches) >= max_results:
+                break
+            if any(part in skip_dirs for part in path.parts):
+                continue
+            try:
+                rel = str(path.relative_to(self.root))
+            except ValueError:
+                continue
+            if path.is_symlink():
+                continue
+            kind = "dir" if path.is_dir() else "file" if path.is_file() else "other"
+            if kind == "other":
+                continue
+            if fnmatch(rel, pattern) or fnmatch(path.name, pattern):
+                matches.append(rel if kind == "file" else rel.rstrip("/") + "/")
+        return {
+            "pattern": pattern,
+            "match_count": len(matches),
+            "paths": matches,
+            "truncated": len(matches) >= max_results,
+        }
+
+    def _apply_unified_diff(self, diff_text: str, action_key: str) -> dict[str, object]:
+        """Apply a restricted unified diff (single or multi file) inside the sandbox."""
+        files = _parse_unified_diff(diff_text)
+        if not files:
+            raise CapabilityDenied("unified diff contained no file hunks")
+        applied: list[dict[str, object]] = []
+        for item in files:
+            rel = item["path"]
+            path = self._safe_path(rel)
+            old_lines = item["old_lines"]
+            new_lines = item["new_lines"]
+            if item["is_new"]:
+                if path.exists():
+                    raise CapabilityDenied(f"diff creates existing file: {rel}")
+                content = "".join(new_lines)
+                # reuse full-file apply for compensation semantics
+                result = self._apply_patch({"path": rel, "content": content}, f"{action_key}:{rel}")
+                applied.append({"path": rel, "mode": "create", **{k: result[k] for k in ("sha256", "compensation_ref") if k in result}})
+                continue
+            if not path.is_file():
+                raise CapabilityDenied(f"diff target missing: {rel}")
+            current = path.read_text(encoding="utf-8")
+            current_lines = current.splitlines(keepends=True)
+            if item["hunks"]:
+                updated = _apply_hunks_to_lines(current_lines, item["hunks"])
+            else:
+                updated = new_lines
+            content = "".join(updated)
+            result = self._apply_patch({"path": rel, "content": content}, f"{action_key}:{rel}")
+            applied.append({"path": rel, "mode": "update", **{k: result[k] for k in ("sha256", "compensation_ref") if k in result}})
+        return {"diff_files": len(applied), "applied": applied}
+
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
         allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
@@ -772,6 +844,99 @@ class WorkspaceSandbox:
             "artifact_ids": (f"artifact:{digest}",),
             "digest": digest,
         }
+
+
+
+def _parse_unified_diff(diff_text: str) -> list[dict[str, object]]:
+    lines = diff_text.splitlines(keepends=True)
+    files: list[dict[str, object]] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("--- "):
+            old = line[4:].strip()
+            if old.startswith("a/"):
+                old = old[2:]
+            i += 1
+            if i >= len(lines) or not lines[i].startswith("+++ "):
+                raise CapabilityDenied("unified diff missing +++ line")
+            new = lines[i][4:].strip()
+            if new.startswith("b/"):
+                new = new[2:]
+            i += 1
+            path = new if new != "/dev/null" else old
+            if path in {"/dev/null", ""}:
+                raise CapabilityDenied("diff file path missing")
+            hunks: list[tuple[int, int, list[str]]] = []
+            old_lines: list[str] = []
+            new_lines: list[str] = []
+            is_new = old in {"/dev/null"}
+            while i < len(lines) and lines[i].startswith("@@"):
+                header = lines[i].rstrip("\n")
+                i += 1
+                m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", header)
+                if not m:
+                    raise CapabilityDenied(f"invalid hunk header: {header}")
+                old_start = int(m.group(1))
+                hunk_body: list[str] = []
+                while i < len(lines) and not lines[i].startswith("--- ") and not lines[i].startswith("@@"):
+                    row = lines[i]
+                    if row.startswith("\\"):
+                        i += 1
+                        continue
+                    if row.startswith("+") and not row.startswith("+++"):
+                        new_lines.append(row[1:])
+                        hunk_body.append(row)
+                    elif row.startswith("-") and not row.startswith("---"):
+                        old_lines.append(row[1:])
+                        hunk_body.append(row)
+                    elif row.startswith(" ") or row == "\n":
+                        ctx = row[1:] if row.startswith(" ") else row
+                        old_lines.append(ctx)
+                        new_lines.append(ctx)
+                        hunk_body.append(row if row.startswith(" ") else " " + row)
+                    else:
+                        break
+                    i += 1
+                hunks.append((old_start, 0, hunk_body))
+            files.append(
+                {
+                    "path": path,
+                    "is_new": is_new,
+                    "old_lines": old_lines,
+                    "new_lines": new_lines,
+                    "hunks": hunks,
+                }
+            )
+            continue
+        i += 1
+    return files
+
+
+def _apply_hunks_to_lines(current: list[str], hunks: list[tuple[int, int, list[str]]]) -> list[str]:
+    text_lines = list(current)
+    for old_start, _, body in sorted(hunks, key=lambda item: item[0], reverse=True):
+        idx = max(old_start - 1, 0)
+        out: list[str] = []
+        cursor = idx
+        for row in body:
+            if row.startswith(" "):
+                if cursor >= len(text_lines):
+                    raise CapabilityDenied("unified diff context past EOF")
+                if text_lines[cursor] != row[1:] and text_lines[cursor].rstrip("\n") != row[1:].rstrip("\n"):
+                    raise CapabilityDenied("unified diff context mismatch")
+                out.append(text_lines[cursor])
+                cursor += 1
+            elif row.startswith("-"):
+                if cursor >= len(text_lines):
+                    raise CapabilityDenied("unified diff deletion past EOF")
+                if text_lines[cursor] != row[1:] and text_lines[cursor].rstrip("\n") != row[1:].rstrip("\n"):
+                    raise CapabilityDenied("unified diff deletion mismatch")
+                cursor += 1
+            elif row.startswith("+"):
+                out.append(row[1:])
+        text_lines = text_lines[:idx] + out + text_lines[cursor:]
+    return text_lines
 
 
 def _sha256(value: bytes) -> str:
