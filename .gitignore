@@ -19,3 +19,4 @@ experiments/data/perturb_seq/
 
 # Experiment run logs (reproducible stdout artifacts)
 experiments/*.stdout.log
+.agent_runs/selfdev-2/workspaces/

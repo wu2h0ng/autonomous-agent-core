@@ -1,9 +1,8 @@
 # AGENT-OS-SELFDEV-2 — Benchmark-Baseline Round Prereg (DRAFT pending subset freeze)
 
-> Status: `DRAFT` — Sections 1-10 complete for review; §4 (frozen subset) is
-> filled ONLY after gold env validation dry-runs complete. No result-bearing
-> run is authorized until independent review accepts and the freeze commit
-> records the exact-content manifest.
+> Status: `DRAFT` — all sections complete including the frozen subset (§4).
+> No result-bearing run is authorized until independent review accepts and
+> the freeze commit records the exact-content manifest.
 > Date: 2026-07-23. Builder: kimi-cli session.
 > Governing documents: design packet `AGENT-OS-SELFDEV-2-benchmark-baseline-design-2026-07-23.md`
 > (GATED, review TECHNICAL_APPROVE ×3), ADR-0056 (Accepted).
@@ -18,7 +17,8 @@ inputs, at pass@2 with equal budgets?
 
 Class A only: internal A/B capability gate. NON-CLAIMS (verbatim from the
 GATED design): no comparability to published agentic-scaffold rates (our
-inputs include oracle localization and FAIL_TO_PASS ids); no leaderboard claim
+inputs include oracle localization and FAIL_TO_PASS + PASS_TO_PASS node id
+lists); no leaderboard claim
 (12-task subset, 8.3pp granularity, no inferential power); no HCW-reduction
 claim (class B is a recorded ledger only); contamination — Verified is likely
 inside K2's training distribution, results are an upper bound on novelty-free
@@ -40,15 +40,20 @@ execution. Not release, not `Autonomy(S,E,O,V,T)` evidence.
 ## 3. Arms, inputs, budgets
 
 - Inputs (identical both arms): issue text + base-commit bytes of the gold
-  file + FAIL_TO_PASS node ids. Neither arm sees test_patch contents or the
-  gold patch.
-- Chain arm: frozen argv `agent-os benchmark-run-provider <task-manifest>
-  --approve --duration-seconds 3600` (ADR-0056 Decision 1-3 CLI surface for
+  file + FAIL_TO_PASS node ids + PASS_TO_PASS node ids (declared envelope
+  widening per review F-B: the P2P list encodes the MT neighbor-preservation
+  learning and is disclosed to both arms symmetrically; for the 2
+  vacuous-p2p tasks the disclosed P2P section is empty). Neither arm sees
+  test_patch contents or the gold patch.
+- Chain arm: frozen argv `agent-os benchmark-run-provider
+  .agent_runs/selfdev-2/selection.json <instance_id> --approve
+  --duration-seconds 3600` (ADR-0056 Decision 1-3 CLI surface for
   benchmark tasks; create → commit → seal → run → WAITING_APPROVAL →
   in-process approve → resume → container-backed tests → evaluate).
   Output: complete-file replacement of the gold file. 2 attempts per task.
-- Cheap baseline: frozen argv `agent-os benchmark-run-baseline <task-manifest>`
-  — same provider profile/timeout/sampling, same inputs, one-shot unified-diff
+- Cheap baseline: frozen argv `agent-os benchmark-run-baseline
+  .agent_runs/selfdev-2/selection.json <instance_id>` — same provider
+  profile/timeout/sampling, same inputs, one-shot unified-diff
   output, `git apply` fail-closed (malformed diff = attempt failure, no human
   repair), then the §6 independent verifier. 2 calls per task. Equal budgets
   by construction.
@@ -161,8 +166,11 @@ env scrubbed of credentials.
 
 - SUPPORTS the narrow claim iff chain pass@2 solve count > cheap-baseline
   pass@2 solve count on the frozen subset, with no task-level integrity
-  failure. Strict inequality; ties do not support. SUPPORTS reads exactly as:
-  "observed difference on this frozen 12-task subset" — nothing more.
+  failure. Strict inequality; ties do not support. 2 of the 12 MAIN tasks
+  (`pydata__xarray-4075`, `pylint-dev__pylint-6903`) carry `p2p_vacuous`
+  (§4) and their solves are f2p-only; solve counts include them as such.
+  SUPPORTS reads exactly as: "observed difference on this frozen 12-task
+  subset" — nothing more.
 - NEGATIVE iff a kill criterion fired or chain < baseline; MIXED otherwise.
 - Kill criteria: (1) env/infra failure on >25% of frozen tasks (round
   INVALID); (2) any manifest/fixture/argv drift other than a declared §4

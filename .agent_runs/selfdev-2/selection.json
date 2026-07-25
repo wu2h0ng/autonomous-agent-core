@@ -1,7 +1,7 @@
 {
   "schema": "selfdev-2-subset-selection.v1",
   "seed": 20260723,
-  "rule": "random.Random(seed).shuffle over 17 validated instance_ids sorted lexicographically; first 12 = main, last 5 = reserve; cap 2 per repo enforced by pool construction; p2p_vacuous=true iff resolved p2p list is empty",
+  "rule": "random.Random(seed).shuffle over 17 validated instance_ids sorted lexicographically; first 12 = main, last 5 = reserve; cap 2 per repo enforced by pool construction; p2p_vacuous=true iff resolved p2p list is empty; sympy p2p lists resolved pre-freeze via resolve_benchmark_node_id against base+test_patch; unresolvable p2p ids dropped with p2p_dropped_unresolved recorded; unresolvable f2p id excludes the task fail-closed",
   "tasks": [
     {
       "instance_id": "astropy__astropy-13453",
@@ -28,11 +28,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-astropy:py39",
-      "interpreter": "pythonpython:3.9-slim-bookworm",
+      "interpreter": "python:3.9-slim-bookworm",
       "verifier_timeout_seconds": 900,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "d94909563ffa9973ac5f1aa6f51cc6fb0421069245904eec617886e9c6477023",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/astropy__astropy-13453",
+      "workspace_head": "19cc80471739bcb67b7e8099246b391c355023ee"
     },
     {
       "instance_id": "astropy__astropy-14182",
@@ -59,11 +61,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-astropy:py39",
-      "interpreter": "pythonpython:3.9-slim-bookworm",
+      "interpreter": "python:3.9-slim-bookworm",
       "verifier_timeout_seconds": 900,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "cfc0d27ece8183844eeff07c427e0ef0b6fb277c798469bf74100dde58043fa7",
-      "set": "reserve"
+      "set": "reserve",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/astropy__astropy-14182",
+      "workspace_head": "a5917978be39d13cd90b517e1de4e7a539ffaa48"
     },
     {
       "instance_id": "django__django-13670",
@@ -98,11 +102,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-django:py39",
-      "interpreter": "pythonpython:3.9-slim",
+      "interpreter": "python:3.9-slim",
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "cf2d561a212ccebcef2037a21e84a77e2a39d0dedbdd9de3960feacbba8488dd",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/django__django-13670",
+      "workspace_head": "c448e614c60cc97c6194c62052363f4f501e0953"
     },
     {
       "instance_id": "django__django-14089",
@@ -140,11 +146,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-django:py39",
-      "interpreter": "pythonpython:3.9-slim",
+      "interpreter": "python:3.9-slim",
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "518dfd85a58d9d3b59739894adcbe4054363953089fa0966e996ec86da5450c2",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/django__django-14089",
+      "workspace_head": "d01709aae21de9cd2565b9c52f32732ea28a2d98"
     },
     {
       "instance_id": "matplotlib__matplotlib-22719",
@@ -169,7 +177,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "b53c9a4222fd7d6df9054e354680a816a0a310d71aeee10aaf9aaa91f6d26015",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/matplotlib__matplotlib-22719",
+      "workspace_head": "a2a1b0a11b993fe5f8fab64b6161e99243a6393c"
     },
     {
       "instance_id": "psf__requests-1766",
@@ -216,7 +226,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "1496935133159561386cea3c4045441e744f6fb87e55b5853c3108c0dd229367",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/psf__requests-1766",
+      "workspace_head": "847735553aeda6e6633f2b32e14ba14ba86887a4"
     },
     {
       "instance_id": "pydata__xarray-4075",
@@ -234,11 +246,13 @@
       "p2p_node_ids": [],
       "p2p_vacuous": true,
       "image_tag": "selfdev2-dryrun-xarray:py39",
-      "interpreter": "pythonpython:3.9-slim",
+      "interpreter": "python:3.9-slim",
       "verifier_timeout_seconds": 900,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "32946b5ffffc439ae66bf313663607e290f662f61970227829341371f34b708f",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/pydata__xarray-4075",
+      "workspace_head": "19b088636eb7d3f65ab7a1046ac672e0689371d8"
     },
     {
       "instance_id": "pylint-dev__pylint-6903",
@@ -259,7 +273,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "4534c2200cff88076f86acccbf5aff7273042cf5b53da562f6cad5f8cf5d03c2",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/pylint-dev__pylint-6903",
+      "workspace_head": "ca80f03a43bc39e4cc2c67dc99817b3c9f13b8a6"
     },
     {
       "instance_id": "pylint-dev__pylint-7080",
@@ -301,7 +317,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "1ab720e6ab9f1d12ec3c35f9e5868b1a08049775d98d333c0acd3e2b07ff2d19",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/pylint-dev__pylint-7080",
+      "workspace_head": "3c5eca2ded3dd2b59ebaf23eb289453b5d2930f0"
     },
     {
       "instance_id": "pytest-dev__pytest-5631",
@@ -338,7 +356,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "da9f9da3b07aed149aa1f359c1f546ef86d40c1a9991c53a112ef6aa45e22b5c",
-      "set": "reserve"
+      "set": "reserve",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/pytest-dev__pytest-5631",
+      "workspace_head": "cb828ebe70b4fa35cd5f9a7ee024272237eab351"
     },
     {
       "instance_id": "pytest-dev__pytest-7490",
@@ -377,7 +397,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "7f1bb9d2340f11ae6c612345f0649b351fa2d49ff92e382238af8efc94efd2ba",
-      "set": "reserve"
+      "set": "reserve",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/pytest-dev__pytest-7490",
+      "workspace_head": "7f7a36478abe7dd1fa993b115d22606aa0e35e88"
     },
     {
       "instance_id": "scikit-learn__scikit-learn-13328",
@@ -404,11 +426,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-sklearn:py39",
-      "interpreter": "pythonpython:3.9-slim-bookworm",
+      "interpreter": "python:3.9-slim-bookworm",
       "verifier_timeout_seconds": 900,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "efa2cb58d2d2ebd0ba391380a63a24b3769abe6e90883f97f36f4211257f05b1",
-      "set": "reserve"
+      "set": "reserve",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/scikit-learn__scikit-learn-13328",
+      "workspace_head": "37b0e66c871e8fb032a9c7086b2a1d5419838154"
     },
     {
       "instance_id": "scikit-learn__scikit-learn-14141",
@@ -428,11 +452,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-sklearn:py39",
-      "interpreter": "pythonpython:3.9-slim-bookworm",
+      "interpreter": "python:3.9-slim-bookworm",
       "verifier_timeout_seconds": 900,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "e9c6361f8ed4f52a1e90f9ca38cf615022d97b5066c8111e316eac95ce5de92d",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/scikit-learn__scikit-learn-14141",
+      "workspace_head": "3d997697fdd166eff428ea9fd35734b6a8ba113e"
     },
     {
       "instance_id": "sphinx-doc__sphinx-10449",
@@ -470,11 +496,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-sphinx:py39",
-      "interpreter": "pythonpython:3.9-slim",
+      "interpreter": "python:3.9-slim",
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "87aefc69785cb9f1b913767102812ebe98d600fbbbf47f8fe82445c3be16b933",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/sphinx-doc__sphinx-10449",
+      "workspace_head": "36367765fe780f962bba861bf368a765380bbc68"
     },
     {
       "instance_id": "sphinx-doc__sphinx-10466",
@@ -498,11 +526,13 @@
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-sphinx:py39",
-      "interpreter": "pythonpython:3.9-slim",
+      "interpreter": "python:3.9-slim",
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "b6b56f3bf1bd56fa2780c0d985f000e3ccaa3cc19a78a000f44bcc105aac0aad",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/sphinx-doc__sphinx-10466",
+      "workspace_head": "cab2d93076d0cca7c53fac885f927dde3e2a5fec"
     },
     {
       "instance_id": "sympy__sympy-12419",
@@ -517,19 +547,19 @@
         "sympy/matrices/expressions/tests/test_matexpr.py::test_Identity"
       ],
       "p2p_node_ids": [
-        "test_matexpr",
-        "test_ZeroMatrix_doit",
-        "test_Identity_doit",
-        "test_MatPow",
-        "test_dense_conversion",
-        "test_zero_matmul",
-        "test_matadd_simplify",
-        "test_matmul_simplify",
-        "test_invariants",
-        "test_indexing",
-        "test_single_indexing",
-        "test_MatrixElement_commutative",
-        "test_MatrixSymbol_determinant"
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_matexpr",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_ZeroMatrix_doit",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_Identity_doit",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_MatPow",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_dense_conversion",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_zero_matmul",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_matadd_simplify",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_matmul_simplify",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_invariants",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_indexing",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_single_indexing",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_MatrixElement_commutative",
+        "sympy/matrices/expressions/tests/test_matexpr.py::test_MatrixSymbol_determinant"
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-sympy:v1",
@@ -537,7 +567,18 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "a1c4d1b65002f2c04a3b62fab8d447a6c37de0947895d3445d576daba3caf2a2",
-      "set": "reserve"
+      "set": "reserve",
+      "p2p_dropped_unresolved": [
+        "test_shape",
+        "test_subs",
+        "test_ZeroMatrix",
+        "test_addition",
+        "test_multiplication",
+        "test_MatrixSymbol",
+        "test_free_symbols"
+      ],
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/sympy__sympy-12419",
+      "workspace_head": "479939f8c65c8c2908bbedc959549a257a7c0b0b"
     },
     {
       "instance_id": "sympy__sympy-13974",
@@ -552,10 +593,10 @@
         "sympy/physics/quantum/tests/test_tensorproduct.py::test_tensor_product_simp"
       ],
       "p2p_node_ids": [
-        "test_tensor_product_abstract",
-        "test_tensor_product_expand",
-        "test_tensor_product_commutator",
-        "test_issue_5923"
+        "sympy/physics/quantum/tests/test_tensorproduct.py::test_tensor_product_abstract",
+        "sympy/physics/quantum/tests/test_tensorproduct.py::test_tensor_product_expand",
+        "sympy/physics/quantum/tests/test_tensorproduct.py::test_tensor_product_commutator",
+        "sympy/physics/quantum/tests/test_tensorproduct.py::test_issue_5923"
       ],
       "p2p_vacuous": false,
       "image_tag": "selfdev2-dryrun-sympy:v1",
@@ -563,7 +604,9 @@
       "verifier_timeout_seconds": 600,
       "min_output_tokens": 8192,
       "gold_validation_evidence_digest": "7379f371132f85968e6bef5ea7f3fda8b8c345300c2236e7ebf8b3b07952c2b3",
-      "set": "main"
+      "set": "main",
+      "workspace_path": ".agent_runs/selfdev-2/workspaces/sympy__sympy-13974",
+      "workspace_head": "84c125972ad535b2dfb245f8d311d347b45e5b8a"
     }
   ]
 }

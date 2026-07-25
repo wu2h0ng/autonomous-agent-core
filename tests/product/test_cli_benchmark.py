@@ -288,48 +288,77 @@ def test_cli_benchmark_run_provider_unknown_instance_fails(
         cli.main()
 
 
-def test_benchmark_mirror_name_mapping() -> None:
-    assert cli._benchmark_mirror_name("django/django") == "django-django.git"
-    assert cli._benchmark_mirror_name("astropy/astropy") == "astropy-astropy.git"
-    assert cli._benchmark_mirror_name("pydata/xarray") == "pydata-xarray.git"
-    assert (
-        cli._benchmark_mirror_name("scikit-learn/scikit-learn")
-        == "scikit-learn-scikit-learn.git"
+def _make_workspace_repo(root: Path) -> str:
+    import subprocess
+
+    ws = root / ".agent_runs" / "selfdev-2" / "workspaces" / INSTANCE_ID
+    ws.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=ws, capture_output=True, check=True)
+    (ws / "django").mkdir()
+    (ws / "django" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=ws, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "i"],
+        cwd=ws,
+        capture_output=True,
+        check=True,
     )
-    assert cli._benchmark_mirror_name("pallets/flask") == "pallets-flask.git"
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ws,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
-def test_ensure_benchmark_workspace_uses_shared_mirror(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_ensure_benchmark_workspace_happy_path(tmp_path: Path) -> None:
+    head = _make_workspace_repo(tmp_path)
+    entry = _selection_entry(base_commit=head)
+    ws = cli._ensure_benchmark_workspace(entry, repo_root=tmp_path)
+    assert ws == tmp_path / ".agent_runs" / "selfdev-2" / "workspaces" / INSTANCE_ID
+
+
+def test_ensure_benchmark_workspace_fails_closed_when_missing(
+    tmp_path: Path,
 ) -> None:
-    mirror = tmp_path / "mirrors" / "django-django.git"
-    mirror.mkdir(parents=True)
-    monkeypatch.setattr(cli, "_BENCHMARK_MIRROR_BASE", tmp_path / "mirrors")
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run_checked", lambda argv: calls.append(argv))
-    ws = cli._ensure_benchmark_workspace(
-        _selection_entry(), repo_root=tmp_path
-    )
-    assert ws == tmp_path / ".worktrees" / "selfdev-2" / INSTANCE_ID
-    assert calls == [
-        ["git", "clone", "--shared", str(mirror), str(ws)],
-        ["git", "-C", str(ws), "checkout", "0" * 40],
-    ]
+    try:
+        cli._ensure_benchmark_workspace(_selection_entry(), repo_root=tmp_path)
+    except SelfDevelopmentValidationError as exc:
+        assert exc.code == RUN_DENIED
+        assert "benchmark workspace missing" in exc.detail
+    else:
+        raise AssertionError("missing workspace must fail closed")
 
 
-def test_ensure_benchmark_workspace_falls_back_to_github(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_ensure_benchmark_workspace_fails_closed_on_head_drift(
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cli, "_BENCHMARK_MIRROR_BASE", tmp_path / "mirrors")
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli, "_run_checked", lambda argv: calls.append(argv))
-    ws = cli._ensure_benchmark_workspace(
-        _selection_entry(), repo_root=tmp_path
-    )
-    assert calls == [
-        ["git", "clone", "https://github.com/django/django.git", str(ws)],
-        ["git", "-C", str(ws), "checkout", "0" * 40],
-    ]
+    _make_workspace_repo(tmp_path)
+    try:
+        cli._ensure_benchmark_workspace(_selection_entry(), repo_root=tmp_path)
+    except SelfDevelopmentValidationError as exc:
+        assert exc.code == RUN_DENIED
+        assert "head drift" in exc.detail
+    else:
+        raise AssertionError("head drift must fail closed")
+
+
+def test_ensure_benchmark_workspace_fails_closed_when_dirty(
+    tmp_path: Path,
+) -> None:
+    head = _make_workspace_repo(tmp_path)
+    ws = tmp_path / ".agent_runs" / "selfdev-2" / "workspaces" / INSTANCE_ID
+    (ws / "stray.txt").write_text("dirty\n", encoding="utf-8")
+    try:
+        cli._ensure_benchmark_workspace(
+            _selection_entry(base_commit=head), repo_root=tmp_path
+        )
+    except SelfDevelopmentValidationError as exc:
+        assert exc.code == RUN_DENIED
+        assert "not clean" in exc.detail
+    else:
+        raise AssertionError("dirty workspace must fail closed")
 
 
 def test_prepare_benchmark_task_package_shape() -> None:

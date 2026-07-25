@@ -899,9 +899,6 @@ def _run_mandate_terminal_command(args: argparse.Namespace) -> None:
     raise MandateTerminalError(f"unknown mandate command: {args.command}")
 
 
-_BENCHMARK_MIRROR_BASE = Path("/tmp/selfdev2-dryrun/mirrors")
-
-
 def _cmd_benchmark_run_provider(args: argparse.Namespace) -> dict[str, object]:
     """Chain arm (ADR-0056 D1-3): governed workflow with container tests.
 
@@ -1086,42 +1083,45 @@ def _benchmark_selection_entry(
     )
 
 
-def _benchmark_mirror_name(repo: str) -> str:
-    return repo.replace("/", "-") + ".git"
-
-
 def _ensure_benchmark_workspace(
     entry: dict[str, object], *, repo_root: Path
 ) -> Path:
     instance_id = str(entry["instance_id"])
-    ws = repo_root / ".worktrees" / "selfdev-2" / instance_id
-    if (ws / ".git").exists():
-        return ws
-    ws.parent.mkdir(parents=True, exist_ok=True)
-    repo = str(entry["repo"])
-    mirror = _BENCHMARK_MIRROR_BASE / _benchmark_mirror_name(repo)
-    if mirror.is_dir():
-        clone_argv = ["git", "clone", "--shared", str(mirror), str(ws)]
-    else:
-        clone_argv = ["git", "clone", f"https://github.com/{repo}.git", str(ws)]
-    _run_checked(clone_argv)
-    _run_checked(
-        ["git", "-C", str(ws), "checkout", str(entry["base_commit"])]
+    rel = str(entry.get("workspace_path") or "")
+    ws = (repo_root / rel) if rel else (
+        repo_root / ".agent_runs" / "selfdev-2" / "workspaces" / instance_id
     )
-    return ws
-
-
-def _run_checked(argv: list[str]) -> None:
-    completed = subprocess.run(
-        argv, capture_output=True, text=True, check=False
-    )
-    if completed.returncode != 0:
-        detail = (completed.stderr or "").strip()
-        raise RuntimeError(
-            f"benchmark workspace command failed "
-            f"({completed.returncode}): {argv!r}: {detail}"
+    if not (ws / ".git").exists():
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "benchmark workspace missing for "
+            f"{instance_id}: {ws} (freeze-materialized workspaces are "
+            "required; run-time cloning is forbidden)",
         )
-
+    head = subprocess.run(
+        ["git", "-C", str(ws), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    if head != str(entry["base_commit"]):
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            f"benchmark workspace head drift for {instance_id}: "
+            f"{head} != {entry['base_commit']}",
+        )
+    dirty = subprocess.run(
+        ["git", "-C", str(ws), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    if dirty:
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            f"benchmark workspace is not clean for {instance_id}",
+        )
+    return ws
 
 def _benchmark_issue_text(repo_root: Path, instance_id: str) -> str:
     return _benchmark_dataset_file(repo_root, instance_id, "issue.txt")
