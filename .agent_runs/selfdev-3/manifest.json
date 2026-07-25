@@ -1,0 +1,16 @@
+{
+  "schema": "selfdev-3-prereg-manifest.v1",
+  "prereg": "docs/product/AGENT-OS-SELFDEV-3-envelope-upgrade-prereg-2026-07-25.md",
+  "reviewer": "kimi subagent (blind-anchored, no builder history): TECHNICAL_APPROVE round 2",
+  "reused_subset": {
+    "path": ".agent_runs/selfdev-2/selection.json",
+    "sha256": "3bb5566c93a382134d2dd32772d12a19267aa97a48f58655a17cb29a936d43d5",
+    "byte_identical_to_selfdev2_manifest_pin": true
+  },
+  "files": {
+    "docs/product/AGENT-OS-SELFDEV-3-envelope-upgrade-prereg-2026-07-25.md": "844bcc3cdb80fb23310fd3919cf96d1715ec3a45e8b4f8ee25c2d2a9a735df92",
+    ".agent_runs/selfdev-3/round/driver3.py": "d745245291d0365c507c603f8de4a68ef9bb98c3e20048de663b10ba44589409",
+    ".agent_runs/selfdev-3/round/solve3.py": "8f9d4e8458da0f149d66cef00fb88ae12c7519670af5e7dfa89999ccd83e8b9c",
+    ".agent_runs/selfdev-2/round/round-adjudication.md": "8f1efab7f3c3ed12ac541d47d10fd1a2430247f5dbf15ed4d2848eca357a32ae"
+  }
+}
