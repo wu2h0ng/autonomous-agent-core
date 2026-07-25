@@ -196,6 +196,12 @@ recorded in the negative map.
 2. Freeze commit: this prereg, subset manifest, per-task env manifests,
    gold-validation evidence, acquisition reports, exact-content sha256
    manifest over all mechanism files. Drift ⇒ round INVALID.
+   Freeze precondition (review R-1): all 17 workspaces are gitignored build
+   artifacts, so the freeze commit cannot pin their bytes — before the
+   freeze commit, the builder MUST verify all 17 materialized workspaces
+   (`git rev-parse HEAD` equals the pinned `workspace_head`/`base_commit`
+   AND empty `git status --porcelain`) and record that verification in the
+   commit message; the run-time fail-closed check then enforces it.
 3. Round order: cheap baseline pass@2 for all 12 tasks, then chain pass@2
    per task; sequential; to completion.
 4. Adjudication: receipts per task, round verdict per §7, negative map,
