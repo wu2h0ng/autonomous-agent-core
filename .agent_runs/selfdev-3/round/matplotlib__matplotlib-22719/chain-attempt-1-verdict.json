@@ -1,0 +1,10 @@
+{
+  "instance_id": "matplotlib__matplotlib-22719",
+  "attempt": 1,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "63ce7556bb0edb14fc45dde07f475b7619fe63efb29ee9003a6b779828be81e5"
+}

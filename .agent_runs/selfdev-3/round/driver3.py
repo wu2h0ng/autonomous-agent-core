@@ -81,6 +81,20 @@ def run_arm(arm: str, entry: dict[str, object], attempt: int) -> dict[str, objec
                 "stderr_tail": stderr_tail,
             }))
             return {"attempt_class": "INVALID_PROVIDER"}
+        if "BASELINE_DIFF_INVALID" in stderr_tail:
+            out_file.write_text(json.dumps({
+                "instance_id": instance_id, "arm": arm, "attempt": attempt,
+                "attempt_class": "DIFF_INVALID",
+                "stderr_tail": stderr_tail,
+            }))
+            return {"attempt_class": "DIFF_INVALID"}
+        if "provider patch arguments must contain only path and content" in stderr_tail:
+            out_file.write_text(json.dumps({
+                "instance_id": instance_id, "arm": arm, "attempt": attempt,
+                "attempt_class": "INVALID_ENVELOPE",
+                "stderr_tail": stderr_tail,
+            }))
+            return {"attempt_class": "INVALID_ENVELOPE"}
         out_file.write_text(json.dumps({
             "instance_id": instance_id, "arm": arm, "attempt": attempt,
             "infra_error": True, "returncode": proc.returncode,

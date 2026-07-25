@@ -1,0 +1,10 @@
+{
+  "instance_id": "sphinx-doc__sphinx-10449",
+  "attempt": 2,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "4f367a7f3c3bcd0ec3ac27496d3a1b1b796887bbfbe7536050f98a2575a00c2e"
+}

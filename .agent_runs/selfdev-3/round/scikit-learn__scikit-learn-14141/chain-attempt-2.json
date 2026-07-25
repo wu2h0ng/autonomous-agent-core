@@ -1,0 +1,2778 @@
+{
+  "mode": "BENCHMARK_PROVIDER_RUN_COMPLETED",
+  "instance_id": "scikit-learn__scikit-learn-14141",
+  "task": {
+    "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+    "sequence": 44,
+    "status": "FAILED",
+    "goal": {
+      "schema_version": "1.0",
+      "goal_id": "goal:benchmark:7e8a9a3dbea4",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "created_by": "user:local",
+      "created_at": "2026-07-25T14:21:59.469060Z",
+      "statement": "Repository: scikit-learn/scikit-learn (base commit 3d997697fdd166eff428ea9fd35734b6a8ba113e)\nIssue report:\nAdd joblib in show_versions\njoblib should be added to the dependencies listed in show_versions or added to the issue template when sklearn version is > 0.20.\n\nTarget file: sklearn/utils/_show_versions.py\nAcceptance contract: after your change, the following tests must pass:\nsklearn/utils/tests/test_show_versions.py::test_get_deps_info\nExisting behavior to preserve (regression tests, when non-empty):\nsklearn/utils/tests/test_show_versions.py::test_get_sys_info\nsklearn/utils/tests/test_show_versions.py::test_show_versions_with_blas\n\nReplace ONLY the target file. Do not modify any other file.",
+      "constraints": []
+    },
+    "commitment": {
+      "schema_version": "1.0",
+      "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+      "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+      "goal_id": "goal:benchmark:7e8a9a3dbea4",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "accepted_by": "user:local",
+      "accepted_at": "2026-07-25T14:21:59.469060Z",
+      "deliverables": [
+        "external benchmark repository patch",
+        "benchmark task digest 7e8a9a3dbea41d27a467a4043c4dc69f6960bdadf7fe275fb0ad047bd796a6a2"
+      ],
+      "acceptance_criteria": [
+        "admitted benchmark task contract validates",
+        "exact-digest approval is recorded before patch effect",
+        "containerized verifier evidence is content-bound",
+        "compensation restores pre-change bytes"
+      ],
+      "authority_scopes": [
+        "task.configuration.snapshot",
+        "workspace:read",
+        "workspace:write"
+      ],
+      "budget": {
+        "schema_version": "1.0",
+        "max_cost_usd": "10",
+        "max_duration_seconds": 3600,
+        "max_provider_tokens": 100000,
+        "max_tool_calls": 20
+      },
+      "risk_tier": 1,
+      "assumptions": [],
+      "exit_conditions": [
+        "verified",
+        "compensated on failure"
+      ],
+      "expires_at": "2026-07-25T15:21:59.469060Z"
+    },
+    "workflow": {
+      "schema_version": "1.0",
+      "workflow_id": "workflow:benchmark-s2",
+      "version": 1,
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "created_by": "user:local",
+      "created_at": "2026-07-25T14:21:59.469060Z",
+      "policy_version": "policy-1",
+      "evaluator_refs": [
+        "evaluator:pytest:1"
+      ],
+      "nodes": [
+        {
+          "schema_version": "1.0",
+          "node_id": "read",
+          "kind": "tool",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "workspace.read",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "idempotent",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "provider",
+          "kind": "provider",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "provider.chat",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "approve",
+          "kind": "approval",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": null,
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "apply",
+          "kind": "tool",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "workspace.apply_patch",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "compensatable",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "tests",
+          "kind": "tool",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": "workspace.run_tests",
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "compensatable",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "evaluate",
+          "kind": "evaluation",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": null,
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        },
+        {
+          "schema_version": "1.0",
+          "node_id": "done",
+          "kind": "terminal",
+          "input_contract": "contract:any:1",
+          "output_contract": "contract:any:1",
+          "capability": null,
+          "timeout_seconds": 60,
+          "max_attempts": 1,
+          "risk_tier": 0,
+          "idempotency": "none",
+          "max_iterations": null,
+          "max_concurrency": null,
+          "subworkflow_ref": null,
+          "failure_edge": null,
+          "retry_class": "never",
+          "stop_predicate": null,
+          "wait_signal_name": null,
+          "wait_correlation_key": null
+        }
+      ],
+      "edges": [
+        {
+          "schema_version": "1.0",
+          "source": "read",
+          "target": "provider",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "provider",
+          "target": "approve",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "approve",
+          "target": "apply",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "apply",
+          "target": "tests",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "tests",
+          "target": "evaluate",
+          "condition": null
+        },
+        {
+          "schema_version": "1.0",
+          "source": "evaluate",
+          "target": "done",
+          "condition": null
+        }
+      ],
+      "max_replans": 1
+    },
+    "run": {
+      "schema_version": "1.0",
+      "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+      "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+      "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+      "workflow_id": "workflow:benchmark-s2",
+      "workflow_version": 1,
+      "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+      "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "status": "FAILED",
+      "created_at": "2026-07-25T14:21:59.482079Z",
+      "provider_profile_id": "provider-profile:default",
+      "policy_version": "policy-1",
+      "lease_fence": 2,
+      "active_node_id": null,
+      "attempt": 1,
+      "wait_condition": null,
+      "replan_count": 0,
+      "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+      "configuration_snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725"
+    },
+    "expected_outcome": {
+      "schema_version": "1.0",
+      "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+      "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "evaluator_type": "pytest",
+      "evaluator_version": "1",
+      "evidence_requirements": [
+        "test-report"
+      ],
+      "failure_semantics": [
+        "non-zero exit"
+      ],
+      "threshold": 1.0,
+      "observation_window_seconds": 3600,
+      "frozen_at": "2026-07-25T14:21:59.469060Z"
+    },
+    "configuration_snapshot": {
+      "schema_version": "1.0",
+      "snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+      "snapshot_version": 1,
+      "snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+      "seal_request_digest": "e9d6152585ec9653e852b8f2c102d4741715fa978583c01c05d71282bce62504",
+      "consumer_task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+      "reserved_run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+      "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "principal_id": "user:local",
+      "workflow": {
+        "schema_version": "1.0",
+        "workflow_id": "workflow:benchmark-s2",
+        "version": 1,
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "created_by": "user:local",
+        "created_at": "2026-07-25T14:21:59.469060Z",
+        "policy_version": "policy-1",
+        "evaluator_refs": [
+          "evaluator:pytest:1"
+        ],
+        "nodes": [
+          {
+            "schema_version": "1.0",
+            "node_id": "read",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.read",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "idempotent",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "provider",
+            "kind": "provider",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "provider.chat",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "approve",
+            "kind": "approval",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "apply",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.apply_patch",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "compensatable",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "tests",
+            "kind": "tool",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": "workspace.run_tests",
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "compensatable",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "evaluate",
+            "kind": "evaluation",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          },
+          {
+            "schema_version": "1.0",
+            "node_id": "done",
+            "kind": "terminal",
+            "input_contract": "contract:any:1",
+            "output_contract": "contract:any:1",
+            "capability": null,
+            "timeout_seconds": 60,
+            "max_attempts": 1,
+            "risk_tier": 0,
+            "idempotency": "none",
+            "max_iterations": null,
+            "max_concurrency": null,
+            "subworkflow_ref": null,
+            "failure_edge": null,
+            "retry_class": "never",
+            "stop_predicate": null,
+            "wait_signal_name": null,
+            "wait_correlation_key": null
+          }
+        ],
+        "edges": [
+          {
+            "schema_version": "1.0",
+            "source": "read",
+            "target": "provider",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "provider",
+            "target": "approve",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "approve",
+            "target": "apply",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "apply",
+            "target": "tests",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "tests",
+            "target": "evaluate",
+            "condition": null
+          },
+          {
+            "schema_version": "1.0",
+            "source": "evaluate",
+            "target": "done",
+            "condition": null
+          }
+        ],
+        "max_replans": 1
+      },
+      "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+      "policy_version": "policy-1",
+      "policy_digest": "96919d59893d7310515e41132b30f5175933f2b201eb6ec3fa70a54228a28f5b",
+      "provider_profile": {
+        "schema_version": "1.0",
+        "profile_id": "provider-profile:default",
+        "provider_id": "openai-compatible",
+        "model_id": "kimi-k2-0711-preview",
+        "model_revision_digest": null,
+        "endpoint_class": "openai-compatible",
+        "credential_ref_id": "credential:default",
+        "capabilities": [
+          "chat"
+        ],
+        "max_context_tokens": 16000,
+        "request_timeout_seconds": 600,
+        "created_at": "1970-01-01T00:00:00Z"
+      },
+      "provider_profile_digest": "365f901dda87d5b22a3517ae8b0004439bc2dd4672da4695c4dae11ee31c570c",
+      "execution_grants": [
+        {
+          "schema_version": "1.0",
+          "grant_id": "grant:workspace.apply_patch",
+          "principal_id": "user:local",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local",
+          "capability_id": "workspace.apply_patch",
+          "capability_version": "1",
+          "max_risk_tier": 1,
+          "budget_limit": {
+            "schema_version": "1.0",
+            "max_cost_usd": "10",
+            "max_duration_seconds": 3600,
+            "max_provider_tokens": 100000,
+            "max_tool_calls": 100
+          },
+          "status": "ACTIVE",
+          "granted_by": "system",
+          "granted_at": "2026-07-25T14:21:59.469094Z",
+          "expires_at": "2026-08-24T14:21:59.469094Z"
+        },
+        {
+          "schema_version": "1.0",
+          "grant_id": "grant:workspace.read",
+          "principal_id": "user:local",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local",
+          "capability_id": "workspace.read",
+          "capability_version": "1",
+          "max_risk_tier": 1,
+          "budget_limit": {
+            "schema_version": "1.0",
+            "max_cost_usd": "10",
+            "max_duration_seconds": 3600,
+            "max_provider_tokens": 100000,
+            "max_tool_calls": 100
+          },
+          "status": "ACTIVE",
+          "granted_by": "system",
+          "granted_at": "2026-07-25T14:21:59.469094Z",
+          "expires_at": "2026-08-24T14:21:59.469094Z"
+        },
+        {
+          "schema_version": "1.0",
+          "grant_id": "grant:workspace.run_tests",
+          "principal_id": "user:local",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local",
+          "capability_id": "workspace.run_tests",
+          "capability_version": "1",
+          "max_risk_tier": 1,
+          "budget_limit": {
+            "schema_version": "1.0",
+            "max_cost_usd": "10",
+            "max_duration_seconds": 3600,
+            "max_provider_tokens": 100000,
+            "max_tool_calls": 100
+          },
+          "status": "ACTIVE",
+          "granted_by": "system",
+          "granted_at": "2026-07-25T14:21:59.469094Z",
+          "expires_at": "2026-08-24T14:21:59.469094Z"
+        }
+      ],
+      "execution_grants_digest": "6c09a23f78bf413e3aea8c2d56aabb8545452b0e9cdd089ef0cd77a9e2ffea8b",
+      "expected_outcome": {
+        "schema_version": "1.0",
+        "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "evaluator_type": "pytest",
+        "evaluator_version": "1",
+        "evidence_requirements": [
+          "test-report"
+        ],
+        "failure_semantics": [
+          "non-zero exit"
+        ],
+        "threshold": 1.0,
+        "observation_window_seconds": 3600,
+        "frozen_at": "2026-07-25T14:21:59.469060Z"
+      },
+      "expected_outcome_digest": "e81a91e07a1d26f748beded636a9a83d17069f690c847867de1ab8cc022531be",
+      "observed_correction_epochs": {
+        "schema_version": "1.0",
+        "task_epoch": 0,
+        "run_epoch": 0,
+        "capability_epoch": 0
+      },
+      "optional_prior": null,
+      "sealed_by": "system:task-configuration-sealer:v1",
+      "sealed_at": "2026-07-25T14:21:59.475359Z",
+      "state": "SEALED",
+      "prior_consumption_mode": "REFERENCE_ONLY"
+    },
+    "observed_outcome": {
+      "schema_version": "1.0",
+      "observed_outcome_id": "observed-993486e5-dc47-4c32-ba90-4ace40397d2b",
+      "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+      "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+      "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "evaluator_type": "pytest",
+      "evaluator_version": "1",
+      "status": "UNRESOLVED",
+      "score": null,
+      "confidence": 1.0,
+      "evidence_refs": [
+        "artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a"
+      ],
+      "unresolved_gaps": [
+        "test-report evidence is not bound to the durable event chain"
+      ],
+      "observed_at": "2026-07-25T14:22:22.614935Z"
+    },
+    "historical_observed_outcome": null,
+    "outcome_evidence_valid": null,
+    "approval": {
+      "schema_version": "1.0",
+      "approval_id": "approval:6ccbefea-910b-4bb2-add6-12adaa42e95f",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+      "actor_id": "user:local",
+      "actor_role": "PRINCIPAL",
+      "disposition": "APPROVE",
+      "reason": "Approved exact-digest benchmark provider patch proposal via CLI --approve",
+      "decided_at": "2026-07-25T14:22:21.204385Z",
+      "expires_at": "2026-07-25T14:32:21.204385Z"
+    },
+    "proposed_action": {
+      "schema_version": "1.0",
+      "action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+      "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+      "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+      "node_id": "apply",
+      "principal_id": "user:local",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local",
+      "capability_id": "workspace.compensate_patch",
+      "capability_version": "1",
+      "arguments_json": "{\"compensation_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"manifest_sha256\":\"4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47\",\"original_action_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:apply\",\"path\":\"sklearn/utils/_show_versions.py\"}",
+      "risk_tier": 1,
+      "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:compensate:apply",
+      "estimated_budget": {
+        "schema_version": "1.0",
+        "max_cost_usd": "0",
+        "max_duration_seconds": 120,
+        "max_provider_tokens": 0,
+        "max_tool_calls": 1
+      },
+      "policy_version": "policy-1",
+      "observed_correction_epochs": {
+        "schema_version": "1.0",
+        "task_epoch": 0,
+        "run_epoch": 0,
+        "capability_epoch": 0
+      },
+      "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+      "candidate_envelope_id": "envelope-aecb7509-21d9-442a-ac7a-195faf863545",
+      "created_at": "2026-07-25T14:22:22.662570Z",
+      "arguments": {
+        "compensation_ref": "compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc",
+        "manifest_sha256": "4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47",
+        "original_action_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:apply",
+        "path": "sklearn/utils/_show_versions.py"
+      },
+      "action_digest": "fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba"
+    },
+    "provider": {
+      "configured": true,
+      "provider_id": "openai-compatible",
+      "model_id": "kimi-k2-0711-preview",
+      "model_revision_digest": null,
+      "endpoint_class": "openai-compatible",
+      "credential_ref_id": "credential:default",
+      "usage": {
+        "estimated_cost_usd": "0",
+        "input_tokens": 1023,
+        "output_tokens": 969,
+        "schema_version": "1.0",
+        "total_tokens": 1992
+      }
+    },
+    "workspace": {
+      "attached": true,
+      "root": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.agent_runs/selfdev-2/workspaces/scikit-learn__scikit-learn-14141",
+      "is_git_repository": true,
+      "entries": [
+        ".circleci",
+        ".codecov.yml",
+        ".coveragerc",
+        ".git",
+        ".gitattributes",
+        ".gitignore",
+        ".landscape.yml",
+        ".mailmap",
+        ".pytest_cache",
+        ".travis.yml",
+        "CONTRIBUTING.md",
+        "COPYING",
+        "ISSUE_TEMPLATE.md",
+        "MANIFEST.in",
+        "Makefile",
+        "PULL_REQUEST_TEMPLATE.md",
+        "README.rst",
+        "__pycache__",
+        "appveyor.yml",
+        "azure-pipelines.yml",
+        "benchmarks",
+        "build_tools",
+        "conftest.py",
+        "doc",
+        "examples",
+        "lgtm.yml",
+        "maint_tools",
+        "setup.cfg",
+        "setup.py",
+        "site.cfg",
+        "sklearn"
+      ]
+    },
+    "artifacts": [
+      "artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a"
+    ],
+    "events": [
+      {
+        "schema_version": "1.0",
+        "event_id": "event-8af5812d-4707-48c9-b7f2-55ed168970e9",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "TASK_CREATED",
+        "payload_json": "{\"goal\":{\"constraints\":[],\"created_at\":\"2026-07-25T14:21:59.469060Z\",\"created_by\":\"user:local\",\"goal_id\":\"goal:benchmark:7e8a9a3dbea4\",\"schema_version\":\"1.0\",\"statement\":\"Repository: scikit-learn/scikit-learn (base commit 3d997697fdd166eff428ea9fd35734b6a8ba113e)\\nIssue report:\\nAdd joblib in show_versions\\njoblib should be added to the dependencies listed in show_versions or added to the issue template when sklearn version is > 0.20.\\n\\nTarget file: sklearn/utils/_show_versions.py\\nAcceptance contract: after your change, the following tests must pass:\\nsklearn/utils/tests/test_show_versions.py::test_get_deps_info\\nExisting behavior to preserve (regression tests, when non-empty):\\nsklearn/utils/tests/test_show_versions.py::test_get_sys_info\\nsklearn/utils/tests/test_show_versions.py::test_show_versions_with_blas\\n\\nReplace ONLY the target file. Do not modify any other file.\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.472114Z",
+        "correlation_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "causation_id": null,
+        "sequence": 1,
+        "payload": {
+          "goal": {
+            "constraints": [],
+            "created_at": "2026-07-25T14:21:59.469060Z",
+            "created_by": "user:local",
+            "goal_id": "goal:benchmark:7e8a9a3dbea4",
+            "schema_version": "1.0",
+            "statement": "Repository: scikit-learn/scikit-learn (base commit 3d997697fdd166eff428ea9fd35734b6a8ba113e)\nIssue report:\nAdd joblib in show_versions\njoblib should be added to the dependencies listed in show_versions or added to the issue template when sklearn version is > 0.20.\n\nTarget file: sklearn/utils/_show_versions.py\nAcceptance contract: after your change, the following tests must pass:\nsklearn/utils/tests/test_show_versions.py::test_get_deps_info\nExisting behavior to preserve (regression tests, when non-empty):\nsklearn/utils/tests/test_show_versions.py::test_get_sys_info\nsklearn/utils/tests/test_show_versions.py::test_show_versions_with_blas\n\nReplace ONLY the target file. Do not modify any other file.",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-2aa22cf9-2385-422f-b4a9-3b0a8a45c967",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "TASK_COMMITTED",
+        "payload_json": "{\"commitment\":{\"acceptance_criteria\":[\"admitted benchmark task contract validates\",\"exact-digest approval is recorded before patch effect\",\"containerized verifier evidence is content-bound\",\"compensation restores pre-change bytes\"],\"accepted_at\":\"2026-07-25T14:21:59.469060Z\",\"accepted_by\":\"user:local\",\"assumptions\":[],\"authority_scopes\":[\"task.configuration.snapshot\",\"workspace:read\",\"workspace:write\"],\"budget\":{\"max_cost_usd\":\"10\",\"max_duration_seconds\":3600,\"max_provider_tokens\":100000,\"max_tool_calls\":20,\"schema_version\":\"1.0\"},\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"deliverables\":[\"external benchmark repository patch\",\"benchmark task digest 7e8a9a3dbea41d27a467a4043c4dc69f6960bdadf7fe275fb0ad047bd796a6a2\"],\"exit_conditions\":[\"verified\",\"compensated on failure\"],\"expires_at\":\"2026-07-25T15:21:59.469060Z\",\"goal_id\":\"goal:benchmark:7e8a9a3dbea4\",\"risk_tier\":1,\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"expected_outcome\":{\"evaluator_type\":\"pytest\",\"evaluator_version\":\"1\",\"evidence_requirements\":[\"test-report\"],\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"failure_semantics\":[\"non-zero exit\"],\"frozen_at\":\"2026-07-25T14:21:59.469060Z\",\"observation_window_seconds\":3600,\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"threshold\":1.0,\"workspace_id\":\"workspace:local\"},\"workflow\":{\"created_at\":\"2026-07-25T14:21:59.469060Z\",\"created_by\":\"user:local\",\"edges\":[{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"read\",\"target\":\"provider\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"provider\",\"target\":\"approve\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"approve\",\"target\":\"apply\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"apply\",\"target\":\"tests\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"tests\",\"target\":\"evaluate\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"evaluate\",\"target\":\"done\"}],\"evaluator_refs\":[\"evaluator:pytest:1\"],\"max_replans\":1,\"nodes\":[{\"capability\":\"workspace.read\",\"failure_edge\":null,\"idempotency\":\"idempotent\",\"input_contract\":\"contract:any:1\",\"kind\":\"tool\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"read\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":\"provider.chat\",\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"provider\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"provider\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":null,\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"approval\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"approve\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":\"workspace.apply_patch\",\"failure_edge\":null,\"idempotency\":\"compensatable\",\"input_contract\":\"contract:any:1\",\"kind\":\"tool\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"apply\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":\"workspace.run_tests\",\"failure_edge\":null,\"idempotency\":\"compensatable\",\"input_contract\":\"contract:any:1\",\"kind\":\"tool\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"tests\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":null,\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"evaluation\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"evaluate\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":null,\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"terminal\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"done\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null}],\"policy_version\":\"policy-1\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"version\":1,\"workflow_id\":\"workflow:benchmark-s2\",\"workspace_id\":\"workspace:local\"},\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\"}",
+        "occurred_at": "2026-07-25T14:21:59.473830Z",
+        "correlation_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "causation_id": "event-8af5812d-4707-48c9-b7f2-55ed168970e9",
+        "sequence": 2,
+        "payload": {
+          "commitment": {
+            "acceptance_criteria": [
+              "admitted benchmark task contract validates",
+              "exact-digest approval is recorded before patch effect",
+              "containerized verifier evidence is content-bound",
+              "compensation restores pre-change bytes"
+            ],
+            "accepted_at": "2026-07-25T14:21:59.469060Z",
+            "accepted_by": "user:local",
+            "assumptions": [],
+            "authority_scopes": [
+              "task.configuration.snapshot",
+              "workspace:read",
+              "workspace:write"
+            ],
+            "budget": {
+              "max_cost_usd": "10",
+              "max_duration_seconds": 3600,
+              "max_provider_tokens": 100000,
+              "max_tool_calls": 20,
+              "schema_version": "1.0"
+            },
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "deliverables": [
+              "external benchmark repository patch",
+              "benchmark task digest 7e8a9a3dbea41d27a467a4043c4dc69f6960bdadf7fe275fb0ad047bd796a6a2"
+            ],
+            "exit_conditions": [
+              "verified",
+              "compensated on failure"
+            ],
+            "expires_at": "2026-07-25T15:21:59.469060Z",
+            "goal_id": "goal:benchmark:7e8a9a3dbea4",
+            "risk_tier": 1,
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "expected_outcome": {
+            "evaluator_type": "pytest",
+            "evaluator_version": "1",
+            "evidence_requirements": [
+              "test-report"
+            ],
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "failure_semantics": [
+              "non-zero exit"
+            ],
+            "frozen_at": "2026-07-25T14:21:59.469060Z",
+            "observation_window_seconds": 3600,
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "threshold": 1.0,
+            "workspace_id": "workspace:local"
+          },
+          "workflow": {
+            "created_at": "2026-07-25T14:21:59.469060Z",
+            "created_by": "user:local",
+            "edges": [
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "read",
+                "target": "provider"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "provider",
+                "target": "approve"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "approve",
+                "target": "apply"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "apply",
+                "target": "tests"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "tests",
+                "target": "evaluate"
+              },
+              {
+                "condition": null,
+                "schema_version": "1.0",
+                "source": "evaluate",
+                "target": "done"
+              }
+            ],
+            "evaluator_refs": [
+              "evaluator:pytest:1"
+            ],
+            "max_replans": 1,
+            "nodes": [
+              {
+                "capability": "workspace.read",
+                "failure_edge": null,
+                "idempotency": "idempotent",
+                "input_contract": "contract:any:1",
+                "kind": "tool",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "read",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": "provider.chat",
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "provider",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "provider",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "approval",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "approve",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": "workspace.apply_patch",
+                "failure_edge": null,
+                "idempotency": "compensatable",
+                "input_contract": "contract:any:1",
+                "kind": "tool",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "apply",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": "workspace.run_tests",
+                "failure_edge": null,
+                "idempotency": "compensatable",
+                "input_contract": "contract:any:1",
+                "kind": "tool",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "tests",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "evaluation",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "evaluate",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              },
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "terminal",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "done",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              }
+            ],
+            "policy_version": "policy-1",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "version": 1,
+            "workflow_id": "workflow:benchmark-s2",
+            "workspace_id": "workspace:local"
+          },
+          "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-3f6c8cea-14f5-42ec-aee9-73d2a78a00ec",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "TASK_CONFIGURATION_SNAPSHOT_SEALED",
+        "payload_json": "{\"configuration_snapshot\":{\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"consumer_task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"execution_grants\":[{\"budget_limit\":{\"max_cost_usd\":\"10\",\"max_duration_seconds\":3600,\"max_provider_tokens\":100000,\"max_tool_calls\":100,\"schema_version\":\"1.0\"},\"capability_id\":\"workspace.apply_patch\",\"capability_version\":\"1\",\"expires_at\":\"2026-08-24T14:21:59.469094Z\",\"grant_id\":\"grant:workspace.apply_patch\",\"granted_at\":\"2026-07-25T14:21:59.469094Z\",\"granted_by\":\"system\",\"max_risk_tier\":1,\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"status\":\"ACTIVE\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},{\"budget_limit\":{\"max_cost_usd\":\"10\",\"max_duration_seconds\":3600,\"max_provider_tokens\":100000,\"max_tool_calls\":100,\"schema_version\":\"1.0\"},\"capability_id\":\"workspace.read\",\"capability_version\":\"1\",\"expires_at\":\"2026-08-24T14:21:59.469094Z\",\"grant_id\":\"grant:workspace.read\",\"granted_at\":\"2026-07-25T14:21:59.469094Z\",\"granted_by\":\"system\",\"max_risk_tier\":1,\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"status\":\"ACTIVE\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},{\"budget_limit\":{\"max_cost_usd\":\"10\",\"max_duration_seconds\":3600,\"max_provider_tokens\":100000,\"max_tool_calls\":100,\"schema_version\":\"1.0\"},\"capability_id\":\"workspace.run_tests\",\"capability_version\":\"1\",\"expires_at\":\"2026-08-24T14:21:59.469094Z\",\"grant_id\":\"grant:workspace.run_tests\",\"granted_at\":\"2026-07-25T14:21:59.469094Z\",\"granted_by\":\"system\",\"max_risk_tier\":1,\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"status\":\"ACTIVE\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}],\"execution_grants_digest\":\"6c09a23f78bf413e3aea8c2d56aabb8545452b0e9cdd089ef0cd77a9e2ffea8b\",\"expected_outcome\":{\"evaluator_type\":\"pytest\",\"evaluator_version\":\"1\",\"evidence_requirements\":[\"test-report\"],\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"failure_semantics\":[\"non-zero exit\"],\"frozen_at\":\"2026-07-25T14:21:59.469060Z\",\"observation_window_seconds\":3600,\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"threshold\":1.0,\"workspace_id\":\"workspace:local\"},\"expected_outcome_digest\":\"e81a91e07a1d26f748beded636a9a83d17069f690c847867de1ab8cc022531be\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"optional_prior\":null,\"policy_digest\":\"96919d59893d7310515e41132b30f5175933f2b201eb6ec3fa70a54228a28f5b\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"prior_consumption_mode\":\"REFERENCE_ONLY\",\"provider_profile\":{\"capabilities\":[\"chat\"],\"created_at\":\"1970-01-01T00:00:00Z\",\"credential_ref_id\":\"credential:default\",\"endpoint_class\":\"openai-compatible\",\"max_context_tokens\":16000,\"model_id\":\"kimi-k2-0711-preview\",\"model_revision_digest\":null,\"profile_id\":\"provider-profile:default\",\"provider_id\":\"openai-compatible\",\"request_timeout_seconds\":600,\"schema_version\":\"1.0\"},\"provider_profile_digest\":\"365f901dda87d5b22a3517ae8b0004439bc2dd4672da4695c4dae11ee31c570c\",\"reserved_run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"seal_request_digest\":\"e9d6152585ec9653e852b8f2c102d4741715fa978583c01c05d71282bce62504\",\"sealed_at\":\"2026-07-25T14:21:59.475359Z\",\"sealed_by\":\"system:task-configuration-sealer:v1\",\"snapshot_digest\":\"274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725\",\"snapshot_id\":\"task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370\",\"snapshot_version\":1,\"state\":\"SEALED\",\"tenant_id\":\"tenant:local\",\"workflow\":{\"created_at\":\"2026-07-25T14:21:59.469060Z\",\"created_by\":\"user:local\",\"edges\":[{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"read\",\"target\":\"provider\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"provider\",\"target\":\"approve\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"approve\",\"target\":\"apply\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"apply\",\"target\":\"tests\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"tests\",\"target\":\"evaluate\"},{\"condition\":null,\"schema_version\":\"1.0\",\"source\":\"evaluate\",\"target\":\"done\"}],\"evaluator_refs\":[\"evaluator:pytest:1\"],\"max_replans\":1,\"nodes\":[{\"capability\":\"workspace.read\",\"failure_edge\":null,\"idempotency\":\"idempotent\",\"input_contract\":\"contract:any:1\",\"kind\":\"tool\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"read\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":\"provider.chat\",\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"provider\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"provider\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":null,\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"approval\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"approve\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":\"workspace.apply_patch\",\"failure_edge\":null,\"idempotency\":\"compensatable\",\"input_contract\":\"contract:any:1\",\"kind\":\"tool\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"apply\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":\"workspace.run_tests\",\"failure_edge\":null,\"idempotency\":\"compensatable\",\"input_contract\":\"contract:any:1\",\"kind\":\"tool\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"tests\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":null,\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"evaluation\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"evaluate\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null},{\"capability\":null,\"failure_edge\":null,\"idempotency\":\"none\",\"input_contract\":\"contract:any:1\",\"kind\":\"terminal\",\"max_attempts\":1,\"max_concurrency\":null,\"max_iterations\":null,\"node_id\":\"done\",\"output_contract\":\"contract:any:1\",\"retry_class\":\"never\",\"risk_tier\":0,\"schema_version\":\"1.0\",\"stop_predicate\":null,\"subworkflow_ref\":null,\"timeout_seconds\":60,\"wait_correlation_key\":null,\"wait_signal_name\":null}],\"policy_version\":\"policy-1\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"version\":1,\"workflow_id\":\"workflow:benchmark-s2\",\"workspace_id\":\"workspace:local\"},\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.476617Z",
+        "correlation_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "causation_id": "event-2aa22cf9-2385-422f-b4a9-3b0a8a45c967",
+        "sequence": 3,
+        "payload": {
+          "configuration_snapshot": {
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "consumer_task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "execution_grants": [
+              {
+                "budget_limit": {
+                  "max_cost_usd": "10",
+                  "max_duration_seconds": 3600,
+                  "max_provider_tokens": 100000,
+                  "max_tool_calls": 100,
+                  "schema_version": "1.0"
+                },
+                "capability_id": "workspace.apply_patch",
+                "capability_version": "1",
+                "expires_at": "2026-08-24T14:21:59.469094Z",
+                "grant_id": "grant:workspace.apply_patch",
+                "granted_at": "2026-07-25T14:21:59.469094Z",
+                "granted_by": "system",
+                "max_risk_tier": 1,
+                "principal_id": "user:local",
+                "schema_version": "1.0",
+                "status": "ACTIVE",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local"
+              },
+              {
+                "budget_limit": {
+                  "max_cost_usd": "10",
+                  "max_duration_seconds": 3600,
+                  "max_provider_tokens": 100000,
+                  "max_tool_calls": 100,
+                  "schema_version": "1.0"
+                },
+                "capability_id": "workspace.read",
+                "capability_version": "1",
+                "expires_at": "2026-08-24T14:21:59.469094Z",
+                "grant_id": "grant:workspace.read",
+                "granted_at": "2026-07-25T14:21:59.469094Z",
+                "granted_by": "system",
+                "max_risk_tier": 1,
+                "principal_id": "user:local",
+                "schema_version": "1.0",
+                "status": "ACTIVE",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local"
+              },
+              {
+                "budget_limit": {
+                  "max_cost_usd": "10",
+                  "max_duration_seconds": 3600,
+                  "max_provider_tokens": 100000,
+                  "max_tool_calls": 100,
+                  "schema_version": "1.0"
+                },
+                "capability_id": "workspace.run_tests",
+                "capability_version": "1",
+                "expires_at": "2026-08-24T14:21:59.469094Z",
+                "grant_id": "grant:workspace.run_tests",
+                "granted_at": "2026-07-25T14:21:59.469094Z",
+                "granted_by": "system",
+                "max_risk_tier": 1,
+                "principal_id": "user:local",
+                "schema_version": "1.0",
+                "status": "ACTIVE",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local"
+              }
+            ],
+            "execution_grants_digest": "6c09a23f78bf413e3aea8c2d56aabb8545452b0e9cdd089ef0cd77a9e2ffea8b",
+            "expected_outcome": {
+              "evaluator_type": "pytest",
+              "evaluator_version": "1",
+              "evidence_requirements": [
+                "test-report"
+              ],
+              "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+              "failure_semantics": [
+                "non-zero exit"
+              ],
+              "frozen_at": "2026-07-25T14:21:59.469060Z",
+              "observation_window_seconds": 3600,
+              "schema_version": "1.0",
+              "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+              "tenant_id": "tenant:local",
+              "threshold": 1.0,
+              "workspace_id": "workspace:local"
+            },
+            "expected_outcome_digest": "e81a91e07a1d26f748beded636a9a83d17069f690c847867de1ab8cc022531be",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "optional_prior": null,
+            "policy_digest": "96919d59893d7310515e41132b30f5175933f2b201eb6ec3fa70a54228a28f5b",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "prior_consumption_mode": "REFERENCE_ONLY",
+            "provider_profile": {
+              "capabilities": [
+                "chat"
+              ],
+              "created_at": "1970-01-01T00:00:00Z",
+              "credential_ref_id": "credential:default",
+              "endpoint_class": "openai-compatible",
+              "max_context_tokens": 16000,
+              "model_id": "kimi-k2-0711-preview",
+              "model_revision_digest": null,
+              "profile_id": "provider-profile:default",
+              "provider_id": "openai-compatible",
+              "request_timeout_seconds": 600,
+              "schema_version": "1.0"
+            },
+            "provider_profile_digest": "365f901dda87d5b22a3517ae8b0004439bc2dd4672da4695c4dae11ee31c570c",
+            "reserved_run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "seal_request_digest": "e9d6152585ec9653e852b8f2c102d4741715fa978583c01c05d71282bce62504",
+            "sealed_at": "2026-07-25T14:21:59.475359Z",
+            "sealed_by": "system:task-configuration-sealer:v1",
+            "snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+            "snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+            "snapshot_version": 1,
+            "state": "SEALED",
+            "tenant_id": "tenant:local",
+            "workflow": {
+              "created_at": "2026-07-25T14:21:59.469060Z",
+              "created_by": "user:local",
+              "edges": [
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "read",
+                  "target": "provider"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "provider",
+                  "target": "approve"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "approve",
+                  "target": "apply"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "apply",
+                  "target": "tests"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "tests",
+                  "target": "evaluate"
+                },
+                {
+                  "condition": null,
+                  "schema_version": "1.0",
+                  "source": "evaluate",
+                  "target": "done"
+                }
+              ],
+              "evaluator_refs": [
+                "evaluator:pytest:1"
+              ],
+              "max_replans": 1,
+              "nodes": [
+                {
+                  "capability": "workspace.read",
+                  "failure_edge": null,
+                  "idempotency": "idempotent",
+                  "input_contract": "contract:any:1",
+                  "kind": "tool",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "read",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": "provider.chat",
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "provider",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "provider",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": null,
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "approval",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "approve",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": "workspace.apply_patch",
+                  "failure_edge": null,
+                  "idempotency": "compensatable",
+                  "input_contract": "contract:any:1",
+                  "kind": "tool",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "apply",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": "workspace.run_tests",
+                  "failure_edge": null,
+                  "idempotency": "compensatable",
+                  "input_contract": "contract:any:1",
+                  "kind": "tool",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "tests",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": null,
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "evaluation",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "evaluate",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                },
+                {
+                  "capability": null,
+                  "failure_edge": null,
+                  "idempotency": "none",
+                  "input_contract": "contract:any:1",
+                  "kind": "terminal",
+                  "max_attempts": 1,
+                  "max_concurrency": null,
+                  "max_iterations": null,
+                  "node_id": "done",
+                  "output_contract": "contract:any:1",
+                  "retry_class": "never",
+                  "risk_tier": 0,
+                  "schema_version": "1.0",
+                  "stop_predicate": null,
+                  "subworkflow_ref": null,
+                  "timeout_seconds": 60,
+                  "wait_correlation_key": null,
+                  "wait_signal_name": null
+                }
+              ],
+              "policy_version": "policy-1",
+              "schema_version": "1.0",
+              "tenant_id": "tenant:local",
+              "version": 1,
+              "workflow_id": "workflow:benchmark-s2",
+              "workspace_id": "workspace:local"
+            },
+            "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-47069515-f30e-41ad-8997-86a51fe4d05d",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "RUN_STARTED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"configuration_snapshot_digest\":\"274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725\",\"configuration_snapshot_id\":\"task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370\",\"created_at\":\"2026-07-25T14:21:59.482079Z\",\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"lease_fence\":0,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"QUEUED\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\",\"workflow_id\":\"workflow:benchmark-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.482114Z",
+        "correlation_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "causation_id": "event-3f6c8cea-14f5-42ec-aee9-73d2a78a00ec",
+        "sequence": 4,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "configuration_snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+            "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+            "created_at": "2026-07-25T14:21:59.482079Z",
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "lease_fence": 0,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "QUEUED",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+            "workflow_id": "workflow:benchmark-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-d8b3975a-b834-466e-8759-fa73eddcd557",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "RUN_QUEUED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"configuration_snapshot_digest\":\"274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725\",\"configuration_snapshot_id\":\"task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370\",\"created_at\":\"2026-07-25T14:21:59.482079Z\",\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"lease_fence\":1,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"RUNNING\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\",\"workflow_id\":\"workflow:benchmark-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.486953Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-47069515-f30e-41ad-8997-86a51fe4d05d",
+        "sequence": 5,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "configuration_snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+            "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+            "created_at": "2026-07-25T14:21:59.482079Z",
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "lease_fence": 1,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "RUNNING",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+            "workflow_id": "workflow:benchmark-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-3e3074ae-df54-447f-8559-f7c65969a695",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "CANDIDATES_GENERATED",
+        "payload_json": "{\"envelope\":{\"allowed_capability_ids\":[\"artifact.write\",\"workspace.apply_patch\",\"workspace.glob\",\"workspace.read\",\"workspace.run_tests\",\"workspace.search\",\"workspace.shell\"],\"candidate_ids\":[\"apply\",\"approve\",\"done\",\"evaluate\",\"provider\",\"read\",\"tests\"],\"coverage_evidence_refs\":[],\"created_at\":\"2026-07-25T14:21:59.488776Z\",\"envelope_id\":\"envelope-aecb7509-21d9-442a-ac7a-195faf863545\",\"exclusions\":[],\"generator_id\":\"developer-golden-path\",\"generator_version\":\"1\",\"has_abstain\":true,\"has_ask\":true,\"has_no_action\":true,\"resource_budget\":{\"max_cost_usd\":\"10\",\"max_duration_seconds\":3600,\"max_provider_tokens\":100000,\"max_tool_calls\":20,\"schema_version\":\"1.0\"},\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.489693Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-d8b3975a-b834-466e-8759-fa73eddcd557",
+        "sequence": 6,
+        "payload": {
+          "envelope": {
+            "allowed_capability_ids": [
+              "artifact.write",
+              "workspace.apply_patch",
+              "workspace.glob",
+              "workspace.read",
+              "workspace.run_tests",
+              "workspace.search",
+              "workspace.shell"
+            ],
+            "candidate_ids": [
+              "apply",
+              "approve",
+              "done",
+              "evaluate",
+              "provider",
+              "read",
+              "tests"
+            ],
+            "coverage_evidence_refs": [],
+            "created_at": "2026-07-25T14:21:59.488776Z",
+            "envelope_id": "envelope-aecb7509-21d9-442a-ac7a-195faf863545",
+            "exclusions": [],
+            "generator_id": "developer-golden-path",
+            "generator_version": "1",
+            "has_abstain": true,
+            "has_ask": true,
+            "has_no_action": true,
+            "resource_budget": {
+              "max_cost_usd": "10",
+              "max_duration_seconds": 3600,
+              "max_provider_tokens": 100000,
+              "max_tool_calls": 20,
+              "schema_version": "1.0"
+            },
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-add540da-f08e-4388-a2ad-fee4193927a7",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"read\"}",
+        "occurred_at": "2026-07-25T14:21:59.491953Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-3e3074ae-df54-447f-8559-f7c65969a695",
+        "sequence": 7,
+        "payload": {
+          "node_id": "read"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-5f14a645-ec51-4158-8349-bc7365fdf864",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-019bf191-487e-4568-b571-efc63c836234\",\"arguments_json\":\"{\\\"path\\\":\\\"sklearn/utils/_show_versions.py\\\"}\",\"candidate_envelope_id\":\"envelope-aecb7509-21d9-442a-ac7a-195faf863545\",\"capability_id\":\"workspace.read\",\"capability_version\":\"1\",\"created_at\":\"2026-07-25T14:21:59.493349Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:read\",\"node_id\":\"read\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.494381Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-add540da-f08e-4388-a2ad-fee4193927a7",
+        "sequence": 8,
+        "payload": {
+          "action": {
+            "action_id": "action-019bf191-487e-4568-b571-efc63c836234",
+            "arguments_json": "{\"path\":\"sklearn/utils/_show_versions.py\"}",
+            "candidate_envelope_id": "envelope-aecb7509-21d9-442a-ac7a-195faf863545",
+            "capability_id": "workspace.read",
+            "capability_version": "1",
+            "created_at": "2026-07-25T14:21:59.493349Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:read",
+            "node_id": "read",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-676210b1-b9f4-4110-81c4-76a296af857a",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9\",\"action_id\":\"action-019bf191-487e-4568-b571-efc63c836234\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-80fa0bc1-1872-403c-8357-d6a9f38819ea\",\"evaluated_at\":\"2026-07-25T14:21:59.495710Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.496898Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-5f14a645-ec51-4158-8349-bc7365fdf864",
+        "sequence": 9,
+        "payload": {
+          "decision": {
+            "action_digest": "cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9",
+            "action_id": "action-019bf191-487e-4568-b571-efc63c836234",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-80fa0bc1-1872-403c-8357-d6a9f38819ea",
+            "evaluated_at": "2026-07-25T14:21:59.495710Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e8e5af40-7e18-4a1a-8af3-adad08c15e0c",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9\",\"action_id\":\"action-019bf191-487e-4568-b571-efc63c836234\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-80fa0bc1-1872-403c-8357-d6a9f38819ea\",\"evaluated_at\":\"2026-07-25T14:21:59.495710Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9\",\"action_id\":\"action-019bf191-487e-4568-b571-efc63c836234\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-25T14:26:59.499337Z\",\"grant_id\":\"grant:workspace.read\",\"issued_at\":\"2026-07-25T14:21:59.499337Z\",\"lease_fence\":1,\"permit_id\":\"permit-f3909896-03a0-430a-9170-538da12fbf6d\",\"policy_decision_id\":\"decision-80fa0bc1-1872-403c-8357-d6a9f38819ea\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9\",\"action_id\":\"action-019bf191-487e-4568-b571-efc63c836234\",\"attempt\":1,\"connector_id\":\"workspace.read\",\"detail_ref\":\"detail:none\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:read\",\"occurred_at\":\"2026-07-25T14:21:59.500161Z\",\"output_artifact_ids\":[],\"permit_id\":\"permit-f3909896-03a0-430a-9170-538da12fbf6d\",\"receipt_id\":\"receipt-725e8b15-8b0b-4e7e-8396-42a49db46772\",\"schema_version\":\"1.0\",\"status\":\"SUCCEEDED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:21:59.503040Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-676210b1-b9f4-4110-81c4-76a296af857a",
+        "sequence": 10,
+        "payload": {
+          "decision": {
+            "action_digest": "cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9",
+            "action_id": "action-019bf191-487e-4568-b571-efc63c836234",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-80fa0bc1-1872-403c-8357-d6a9f38819ea",
+            "evaluated_at": "2026-07-25T14:21:59.495710Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9",
+            "action_id": "action-019bf191-487e-4568-b571-efc63c836234",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-25T14:26:59.499337Z",
+            "grant_id": "grant:workspace.read",
+            "issued_at": "2026-07-25T14:21:59.499337Z",
+            "lease_fence": 1,
+            "permit_id": "permit-f3909896-03a0-430a-9170-538da12fbf6d",
+            "policy_decision_id": "decision-80fa0bc1-1872-403c-8357-d6a9f38819ea",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "cc176cff12ddfc68f84f072468fc525fc90bd1f07d0f3666c90d155ad1caa0d9",
+            "action_id": "action-019bf191-487e-4568-b571-efc63c836234",
+            "attempt": 1,
+            "connector_id": "workspace.read",
+            "detail_ref": "detail:none",
+            "error_code": "error:none",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:read",
+            "occurred_at": "2026-07-25T14:21:59.500161Z",
+            "output_artifact_ids": [],
+            "permit_id": "permit-f3909896-03a0-430a-9170-538da12fbf6d",
+            "receipt_id": "receipt-725e8b15-8b0b-4e7e-8396-42a49db46772",
+            "schema_version": "1.0",
+            "status": "SUCCEEDED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-02097770-82e0-4aee-b218-0b1ba73928d4",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"read\",\"output\":{\"content\":\"\\\"\\\"\\\"\\nUtility methods to print system info for debugging\\n\\nadapted from :func:`pandas.show_versions`\\n\\\"\\\"\\\"\\n# License: BSD 3 clause\\n\\nimport platform\\nimport sys\\nimport importlib\\n\\n\\ndef _get_sys_info():\\n    \\\"\\\"\\\"System information\\n\\n    Return\\n    ------\\n    sys_info : dict\\n        system and Python version information\\n\\n    \\\"\\\"\\\"\\n    python = sys.version.replace('\\\\n', ' ')\\n\\n    blob = [\\n        (\\\"python\\\", python),\\n        ('executable', sys.executable),\\n        (\\\"machine\\\", platform.platform()),\\n    ]\\n\\n    return dict(blob)\\n\\n\\ndef _get_deps_info():\\n    \\\"\\\"\\\"Overview of the installed version of main dependencies\\n\\n    Returns\\n    -------\\n    deps_info: dict\\n        version information on relevant Python libraries\\n\\n    \\\"\\\"\\\"\\n    deps = [\\n        \\\"pip\\\",\\n        \\\"setuptools\\\",\\n        \\\"sklearn\\\",\\n        \\\"numpy\\\",\\n        \\\"scipy\\\",\\n        \\\"Cython\\\",\\n        \\\"pandas\\\",\\n        \\\"matplotlib\\\",\\n    ]\\n\\n    def get_version(module):\\n        return module.__version__\\n\\n    deps_info = {}\\n\\n    for modname in deps:\\n        try:\\n            if modname in sys.modules:\\n                mod = sys.modules[modname]\\n            else:\\n                mod = importlib.import_module(modname)\\n            ver = get_version(mod)\\n            deps_info[modname] = ver\\n        except ImportError:\\n            deps_info[modname] = None\\n\\n    return deps_info\\n\\n\\ndef _get_blas_info():\\n    \\\"\\\"\\\"Information on system BLAS\\n\\n    Uses the `scikit-learn` builtin method\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\n\\n    Returns\\n    -------\\n    blas_info: dict\\n        system BLAS information\\n\\n    \\\"\\\"\\\"\\n    from .._build_utils import get_blas_info\\n\\n    cblas_libs, blas_dict = get_blas_info()\\n\\n    macros = ['{key}={val}'.format(key=a, val=b)\\n              for (a, b) in blas_dict.get('define_macros', [])]\\n\\n    blas_blob = [\\n        ('macros', ', '.join(macros)),\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\n        ('cblas_libs', ', '.join(cblas_libs)),\\n    ]\\n\\n    return dict(blas_blob)\\n\\n\\ndef show_versions():\\n    \\\"Print useful debugging information\\\"\\n\\n    sys_info = _get_sys_info()\\n    deps_info = _get_deps_info()\\n    blas_info = _get_blas_info()\\n\\n    print('\\\\nSystem:')\\n    for k, stat in sys_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nBLAS:')\\n    for k, stat in blas_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nPython deps:')\\n    for k, stat in deps_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\",\"path\":\"sklearn/utils/_show_versions.py\",\"sha256\":\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\"}}",
+        "occurred_at": "2026-07-25T14:21:59.506064Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-e8e5af40-7e18-4a1a-8af3-adad08c15e0c",
+        "sequence": 11,
+        "payload": {
+          "node_id": "read",
+          "output": {
+            "content": "\"\"\"\nUtility methods to print system info for debugging\n\nadapted from :func:`pandas.show_versions`\n\"\"\"\n# License: BSD 3 clause\n\nimport platform\nimport sys\nimport importlib\n\n\ndef _get_sys_info():\n    \"\"\"System information\n\n    Return\n    ------\n    sys_info : dict\n        system and Python version information\n\n    \"\"\"\n    python = sys.version.replace('\\n', ' ')\n\n    blob = [\n        (\"python\", python),\n        ('executable', sys.executable),\n        (\"machine\", platform.platform()),\n    ]\n\n    return dict(blob)\n\n\ndef _get_deps_info():\n    \"\"\"Overview of the installed version of main dependencies\n\n    Returns\n    -------\n    deps_info: dict\n        version information on relevant Python libraries\n\n    \"\"\"\n    deps = [\n        \"pip\",\n        \"setuptools\",\n        \"sklearn\",\n        \"numpy\",\n        \"scipy\",\n        \"Cython\",\n        \"pandas\",\n        \"matplotlib\",\n    ]\n\n    def get_version(module):\n        return module.__version__\n\n    deps_info = {}\n\n    for modname in deps:\n        try:\n            if modname in sys.modules:\n                mod = sys.modules[modname]\n            else:\n                mod = importlib.import_module(modname)\n            ver = get_version(mod)\n            deps_info[modname] = ver\n        except ImportError:\n            deps_info[modname] = None\n\n    return deps_info\n\n\ndef _get_blas_info():\n    \"\"\"Information on system BLAS\n\n    Uses the `scikit-learn` builtin method\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\n\n    Returns\n    -------\n    blas_info: dict\n        system BLAS information\n\n    \"\"\"\n    from .._build_utils import get_blas_info\n\n    cblas_libs, blas_dict = get_blas_info()\n\n    macros = ['{key}={val}'.format(key=a, val=b)\n              for (a, b) in blas_dict.get('define_macros', [])]\n\n    blas_blob = [\n        ('macros', ', '.join(macros)),\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\n        ('cblas_libs', ', '.join(cblas_libs)),\n    ]\n\n    return dict(blas_blob)\n\n\ndef show_versions():\n    \"Print useful debugging information\"\n\n    sys_info = _get_sys_info()\n    deps_info = _get_deps_info()\n    blas_info = _get_blas_info()\n\n    print('\\nSystem:')\n    for k, stat in sys_info.items():\n        print(\"{k:>10}: {stat}\".format(k=k, stat=stat))\n\n    print('\\nBLAS:')\n    for k, stat in blas_info.items():\n        print(\"{k:>10}: {stat}\".format(k=k, stat=stat))\n\n    print('\\nPython deps:')\n    for k, stat in deps_info.items():\n        print(\"{k:>10}: {stat}\".format(k=k, stat=stat))\n",
+            "path": "sklearn/utils/_show_versions.py",
+            "sha256": "9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-1cc2d4bc-41d5-4d20-ad87-fcaf9289fc68",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"provider\"}",
+        "occurred_at": "2026-07-25T14:21:59.509048Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-02097770-82e0-4aee-b218-0b1ba73928d4",
+        "sequence": 12,
+        "payload": {
+          "node_id": "provider"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event:provider-response:221229b5-f38f-4560-85ec-d558934e4f07",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "PROVIDER_RESPONDED",
+        "payload_json": "{\"node_id\":\"provider\",\"provider_execution_receipt\":{\"correction_epoch\":0,\"invocation_binding_digest\":\"07279b6ef01c1006ea448396f11fe036f83dca2031441253692ec18df5ec969e\",\"missing_fields\":[\"model_revision_digest\",\"working_set_digest\"],\"model_id\":\"kimi-k2-0711-preview\",\"model_revision_digest\":null,\"node_id\":\"provider\",\"post_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"pre_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"provider_id\":\"openai-compatible\",\"provider_profile_digest\":\"365f901dda87d5b22a3517ae8b0004439bc2dd4672da4695c4dae11ee31c570c\",\"provider_profile_id\":\"provider-profile:default\",\"receipt_digest\":\"e5cfe562a5d5d332e8db8f99d3c2c72b4c03255e1d4b921cfcfe84d87981e071\",\"request_digest\":\"51b427a51693efbb3f28532becc078134dccd0d8518373ecf65fb29ce1b0b398\",\"request_id\":\"request-389f143a-5f0a-412f-abb4-90c32d664732\",\"response_digest\":\"4cec035cfea0c140d3f77c8f7cfb3f167a42a4753af5bf981b36e52751db63f8\",\"response_id\":\"chatcmpl-HGDAoEEwrxYcu89jNn5AoyNs\",\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"source_event_id\":\"event:provider-response:221229b5-f38f-4560-85ec-d558934e4f07\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"working_set_ref\":{\"digest\":null,\"gap_reason\":\"developer provider path has no TrustedWorkingSet binding\",\"schema_version\":\"1.0\",\"status\":\"MISSING\",\"working_set_id\":null},\"workspace_id\":\"workspace:local\"},\"provider_output\":{\"finish_reason\":\"tool_calls\",\"text\":\"\",\"tool_proposals\":[{\"arguments_json\":\"{\\\"content\\\":\\\"\\\\\\\"\\\\\\\"\\\\\\\"\\\\nUtility methods to print system info for debugging\\\\n\\\\nadapted from :func:`pandas.show_versions`\\\\n\\\\\\\"\\\\\\\"\\\\\\\"\\\\n# License: BSD 3 clause\\\\n\\\\nimport platform\\\\nimport sys\\\\nimport importlib\\\\n\\\\n\\\\ndef _get_sys_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"System information\\\\n\\\\n    Return\\\\n    ------\\\\n    sys_info : dict\\\\n        system and Python version information\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    python = sys.version.replace('\\\\\\\\n', ' ')\\\\n\\\\n    blob = [\\\\n        (\\\\\\\"python\\\\\\\", python),\\\\n        ('executable', sys.executable),\\\\n        (\\\\\\\"machine\\\\\\\", platform.platform()),\\\\n    ]\\\\n\\\\n    return dict(blob)\\\\n\\\\n\\\\ndef _get_deps_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"Overview of the installed version of main dependencies\\\\n\\\\n    Returns\\\\n    -------\\\\n    deps_info: dict\\\\n        version information on relevant Python libraries\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    deps = [\\\\n        \\\\\\\"pip\\\\\\\",\\\\n        \\\\\\\"setuptools\\\\\\\",\\\\n        \\\\\\\"sklearn\\\\\\\",\\\\n        \\\\\\\"numpy\\\\\\\",\\\\n        \\\\\\\"scipy\\\\\\\",\\\\n        \\\\\\\"Cython\\\\\\\",\\\\n        \\\\\\\"pandas\\\\\\\",\\\\n        \\\\\\\"matplotlib\\\\\\\",\\\\n        \\\\\\\"joblib\\\\\\\",\\\\n    ]\\\\n\\\\n    def get_version(module):\\\\n        return module.__version__\\\\n\\\\n    deps_info = {}\\\\n\\\\n    for modname in deps:\\\\n        try:\\\\n            if modname in sys.modules:\\\\n                mod = sys.modules[modname]\\\\n            else:\\\\n                mod = importlib.import_module(modname)\\\\n            ver = get_version(mod)\\\\n            deps_info[modname] = ver\\\\n        except ImportError:\\\\n            deps_info[modname] = None\\\\n\\\\n    return deps_info\\\\n\\\\n\\\\ndef _get_blas_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"Information on system BLAS\\\\n\\\\n    Uses the `scikit-learn` builtin method\\\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\\\n\\\\n    Returns\\\\n    -------\\\\n    blas_info: dict\\\\n        system BLAS information\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    from .._build_utils import get_blas_info\\\\n\\\\n    cblas_libs, blas_dict = get_blas_info()\\\\n\\\\n    macros = ['{key}={val}'.format(key=a, val=b)\\\\n              for (a, b) in blas_dict.get('define_macros', [])]\\\\n\\\\n    blas_blob = [\\\\n        ('macros', ', '.join(macros)),\\\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\\\n        ('cblas_libs', ', '.join(cblas_libs)),\\\\n    ]\\\\n\\\\n    return dict(blas_blob)\\\\n\\\\n\\\\ndef show_versions():\\\\n    \\\\\\\"Print useful debugging information\\\\\\\"\\\\n\\\\n    sys_info = _get_sys_info()\\\\n    deps_info = _get_deps_info()\\\\n    blas_info = _get_blas_info()\\\\n\\\\n    print('\\\\\\\\nSystem:')\\\\n    for k, stat in sys_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\\n    print('\\\\\\\\nBLAS:')\\\\n    for k, stat in blas_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\\n    print('\\\\\\\\nPython deps:')\\\\n    for k, stat in deps_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\",\\\"expected_sha256\\\":\\\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\\\",\\\"path\\\":\\\"sklearn/utils/_show_versions.py\\\"}\",\"capability_id\":\"workspace.apply_patch\",\"proposal_id\":\"tool_I3QLgW4RJd6b1YmKmTNgPWyo\",\"schema_version\":\"1.0\"}],\"usage\":{\"estimated_cost_usd\":\"0\",\"input_tokens\":1023,\"output_tokens\":969,\"schema_version\":\"1.0\",\"total_tokens\":1992}}}",
+        "occurred_at": "2026-07-25T14:22:21.177388Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-1cc2d4bc-41d5-4d20-ad87-fcaf9289fc68",
+        "sequence": 13,
+        "payload": {
+          "node_id": "provider",
+          "provider_execution_receipt": {
+            "correction_epoch": 0,
+            "invocation_binding_digest": "07279b6ef01c1006ea448396f11fe036f83dca2031441253692ec18df5ec969e",
+            "missing_fields": [
+              "model_revision_digest",
+              "working_set_digest"
+            ],
+            "model_id": "kimi-k2-0711-preview",
+            "model_revision_digest": null,
+            "node_id": "provider",
+            "post_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "pre_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "provider_id": "openai-compatible",
+            "provider_profile_digest": "365f901dda87d5b22a3517ae8b0004439bc2dd4672da4695c4dae11ee31c570c",
+            "provider_profile_id": "provider-profile:default",
+            "receipt_digest": "e5cfe562a5d5d332e8db8f99d3c2c72b4c03255e1d4b921cfcfe84d87981e071",
+            "request_digest": "51b427a51693efbb3f28532becc078134dccd0d8518373ecf65fb29ce1b0b398",
+            "request_id": "request-389f143a-5f0a-412f-abb4-90c32d664732",
+            "response_digest": "4cec035cfea0c140d3f77c8f7cfb3f167a42a4753af5bf981b36e52751db63f8",
+            "response_id": "chatcmpl-HGDAoEEwrxYcu89jNn5AoyNs",
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "source_event_id": "event:provider-response:221229b5-f38f-4560-85ec-d558934e4f07",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "working_set_ref": {
+              "digest": null,
+              "gap_reason": "developer provider path has no TrustedWorkingSet binding",
+              "schema_version": "1.0",
+              "status": "MISSING",
+              "working_set_id": null
+            },
+            "workspace_id": "workspace:local"
+          },
+          "provider_output": {
+            "finish_reason": "tool_calls",
+            "text": "",
+            "tool_proposals": [
+              {
+                "arguments_json": "{\"content\":\"\\\"\\\"\\\"\\nUtility methods to print system info for debugging\\n\\nadapted from :func:`pandas.show_versions`\\n\\\"\\\"\\\"\\n# License: BSD 3 clause\\n\\nimport platform\\nimport sys\\nimport importlib\\n\\n\\ndef _get_sys_info():\\n    \\\"\\\"\\\"System information\\n\\n    Return\\n    ------\\n    sys_info : dict\\n        system and Python version information\\n\\n    \\\"\\\"\\\"\\n    python = sys.version.replace('\\\\n', ' ')\\n\\n    blob = [\\n        (\\\"python\\\", python),\\n        ('executable', sys.executable),\\n        (\\\"machine\\\", platform.platform()),\\n    ]\\n\\n    return dict(blob)\\n\\n\\ndef _get_deps_info():\\n    \\\"\\\"\\\"Overview of the installed version of main dependencies\\n\\n    Returns\\n    -------\\n    deps_info: dict\\n        version information on relevant Python libraries\\n\\n    \\\"\\\"\\\"\\n    deps = [\\n        \\\"pip\\\",\\n        \\\"setuptools\\\",\\n        \\\"sklearn\\\",\\n        \\\"numpy\\\",\\n        \\\"scipy\\\",\\n        \\\"Cython\\\",\\n        \\\"pandas\\\",\\n        \\\"matplotlib\\\",\\n        \\\"joblib\\\",\\n    ]\\n\\n    def get_version(module):\\n        return module.__version__\\n\\n    deps_info = {}\\n\\n    for modname in deps:\\n        try:\\n            if modname in sys.modules:\\n                mod = sys.modules[modname]\\n            else:\\n                mod = importlib.import_module(modname)\\n            ver = get_version(mod)\\n            deps_info[modname] = ver\\n        except ImportError:\\n            deps_info[modname] = None\\n\\n    return deps_info\\n\\n\\ndef _get_blas_info():\\n    \\\"\\\"\\\"Information on system BLAS\\n\\n    Uses the `scikit-learn` builtin method\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\n\\n    Returns\\n    -------\\n    blas_info: dict\\n        system BLAS information\\n\\n    \\\"\\\"\\\"\\n    from .._build_utils import get_blas_info\\n\\n    cblas_libs, blas_dict = get_blas_info()\\n\\n    macros = ['{key}={val}'.format(key=a, val=b)\\n              for (a, b) in blas_dict.get('define_macros', [])]\\n\\n    blas_blob = [\\n        ('macros', ', '.join(macros)),\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\n        ('cblas_libs', ', '.join(cblas_libs)),\\n    ]\\n\\n    return dict(blas_blob)\\n\\n\\ndef show_versions():\\n    \\\"Print useful debugging information\\\"\\n\\n    sys_info = _get_sys_info()\\n    deps_info = _get_deps_info()\\n    blas_info = _get_blas_info()\\n\\n    print('\\\\nSystem:')\\n    for k, stat in sys_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nBLAS:')\\n    for k, stat in blas_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nPython deps:')\\n    for k, stat in deps_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\",\"expected_sha256\":\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\",\"path\":\"sklearn/utils/_show_versions.py\"}",
+                "capability_id": "workspace.apply_patch",
+                "proposal_id": "tool_I3QLgW4RJd6b1YmKmTNgPWyo",
+                "schema_version": "1.0"
+              }
+            ],
+            "usage": {
+              "estimated_cost_usd": "0",
+              "input_tokens": 1023,
+              "output_tokens": 969,
+              "schema_version": "1.0",
+              "total_tokens": 1992
+            }
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-0fc033f2-425e-46ad-a57a-99a3ac484875",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"arguments_json\":\"{\\\"content\\\":\\\"\\\\\\\"\\\\\\\"\\\\\\\"\\\\nUtility methods to print system info for debugging\\\\n\\\\nadapted from :func:`pandas.show_versions`\\\\n\\\\\\\"\\\\\\\"\\\\\\\"\\\\n# License: BSD 3 clause\\\\n\\\\nimport platform\\\\nimport sys\\\\nimport importlib\\\\n\\\\n\\\\ndef _get_sys_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"System information\\\\n\\\\n    Return\\\\n    ------\\\\n    sys_info : dict\\\\n        system and Python version information\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    python = sys.version.replace('\\\\\\\\n', ' ')\\\\n\\\\n    blob = [\\\\n        (\\\\\\\"python\\\\\\\", python),\\\\n        ('executable', sys.executable),\\\\n        (\\\\\\\"machine\\\\\\\", platform.platform()),\\\\n    ]\\\\n\\\\n    return dict(blob)\\\\n\\\\n\\\\ndef _get_deps_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"Overview of the installed version of main dependencies\\\\n\\\\n    Returns\\\\n    -------\\\\n    deps_info: dict\\\\n        version information on relevant Python libraries\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    deps = [\\\\n        \\\\\\\"pip\\\\\\\",\\\\n        \\\\\\\"setuptools\\\\\\\",\\\\n        \\\\\\\"sklearn\\\\\\\",\\\\n        \\\\\\\"numpy\\\\\\\",\\\\n        \\\\\\\"scipy\\\\\\\",\\\\n        \\\\\\\"Cython\\\\\\\",\\\\n        \\\\\\\"pandas\\\\\\\",\\\\n        \\\\\\\"matplotlib\\\\\\\",\\\\n        \\\\\\\"joblib\\\\\\\",\\\\n    ]\\\\n\\\\n    def get_version(module):\\\\n        return module.__version__\\\\n\\\\n    deps_info = {}\\\\n\\\\n    for modname in deps:\\\\n        try:\\\\n            if modname in sys.modules:\\\\n                mod = sys.modules[modname]\\\\n            else:\\\\n                mod = importlib.import_module(modname)\\\\n            ver = get_version(mod)\\\\n            deps_info[modname] = ver\\\\n        except ImportError:\\\\n            deps_info[modname] = None\\\\n\\\\n    return deps_info\\\\n\\\\n\\\\ndef _get_blas_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"Information on system BLAS\\\\n\\\\n    Uses the `scikit-learn` builtin method\\\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\\\n\\\\n    Returns\\\\n    -------\\\\n    blas_info: dict\\\\n        system BLAS information\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    from .._build_utils import get_blas_info\\\\n\\\\n    cblas_libs, blas_dict = get_blas_info()\\\\n\\\\n    macros = ['{key}={val}'.format(key=a, val=b)\\\\n              for (a, b) in blas_dict.get('define_macros', [])]\\\\n\\\\n    blas_blob = [\\\\n        ('macros', ', '.join(macros)),\\\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\\\n        ('cblas_libs', ', '.join(cblas_libs)),\\\\n    ]\\\\n\\\\n    return dict(blas_blob)\\\\n\\\\n\\\\ndef show_versions():\\\\n    \\\\\\\"Print useful debugging information\\\\\\\"\\\\n\\\\n    sys_info = _get_sys_info()\\\\n    deps_info = _get_deps_info()\\\\n    blas_info = _get_blas_info()\\\\n\\\\n    print('\\\\\\\\nSystem:')\\\\n    for k, stat in sys_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\\n    print('\\\\\\\\nBLAS:')\\\\n    for k, stat in blas_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\\n    print('\\\\\\\\nPython deps:')\\\\n    for k, stat in deps_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\",\\\"expected_sha256\\\":\\\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\\\",\\\"path\\\":\\\"sklearn/utils/_show_versions.py\\\"}\",\"candidate_envelope_id\":\"envelope-aecb7509-21d9-442a-ac7a-195faf863545\",\"capability_id\":\"workspace.apply_patch\",\"capability_version\":\"1\",\"created_at\":\"2026-07-25T14:22:21.180827Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:apply\",\"node_id\":\"apply\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.182485Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event:provider-response:221229b5-f38f-4560-85ec-d558934e4f07",
+        "sequence": 14,
+        "payload": {
+          "action": {
+            "action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "arguments_json": "{\"content\":\"\\\"\\\"\\\"\\nUtility methods to print system info for debugging\\n\\nadapted from :func:`pandas.show_versions`\\n\\\"\\\"\\\"\\n# License: BSD 3 clause\\n\\nimport platform\\nimport sys\\nimport importlib\\n\\n\\ndef _get_sys_info():\\n    \\\"\\\"\\\"System information\\n\\n    Return\\n    ------\\n    sys_info : dict\\n        system and Python version information\\n\\n    \\\"\\\"\\\"\\n    python = sys.version.replace('\\\\n', ' ')\\n\\n    blob = [\\n        (\\\"python\\\", python),\\n        ('executable', sys.executable),\\n        (\\\"machine\\\", platform.platform()),\\n    ]\\n\\n    return dict(blob)\\n\\n\\ndef _get_deps_info():\\n    \\\"\\\"\\\"Overview of the installed version of main dependencies\\n\\n    Returns\\n    -------\\n    deps_info: dict\\n        version information on relevant Python libraries\\n\\n    \\\"\\\"\\\"\\n    deps = [\\n        \\\"pip\\\",\\n        \\\"setuptools\\\",\\n        \\\"sklearn\\\",\\n        \\\"numpy\\\",\\n        \\\"scipy\\\",\\n        \\\"Cython\\\",\\n        \\\"pandas\\\",\\n        \\\"matplotlib\\\",\\n        \\\"joblib\\\",\\n    ]\\n\\n    def get_version(module):\\n        return module.__version__\\n\\n    deps_info = {}\\n\\n    for modname in deps:\\n        try:\\n            if modname in sys.modules:\\n                mod = sys.modules[modname]\\n            else:\\n                mod = importlib.import_module(modname)\\n            ver = get_version(mod)\\n            deps_info[modname] = ver\\n        except ImportError:\\n            deps_info[modname] = None\\n\\n    return deps_info\\n\\n\\ndef _get_blas_info():\\n    \\\"\\\"\\\"Information on system BLAS\\n\\n    Uses the `scikit-learn` builtin method\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\n\\n    Returns\\n    -------\\n    blas_info: dict\\n        system BLAS information\\n\\n    \\\"\\\"\\\"\\n    from .._build_utils import get_blas_info\\n\\n    cblas_libs, blas_dict = get_blas_info()\\n\\n    macros = ['{key}={val}'.format(key=a, val=b)\\n              for (a, b) in blas_dict.get('define_macros', [])]\\n\\n    blas_blob = [\\n        ('macros', ', '.join(macros)),\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\n        ('cblas_libs', ', '.join(cblas_libs)),\\n    ]\\n\\n    return dict(blas_blob)\\n\\n\\ndef show_versions():\\n    \\\"Print useful debugging information\\\"\\n\\n    sys_info = _get_sys_info()\\n    deps_info = _get_deps_info()\\n    blas_info = _get_blas_info()\\n\\n    print('\\\\nSystem:')\\n    for k, stat in sys_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nBLAS:')\\n    for k, stat in blas_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nPython deps:')\\n    for k, stat in deps_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\",\"expected_sha256\":\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\",\"path\":\"sklearn/utils/_show_versions.py\"}",
+            "candidate_envelope_id": "envelope-aecb7509-21d9-442a-ac7a-195faf863545",
+            "capability_id": "workspace.apply_patch",
+            "capability_version": "1",
+            "created_at": "2026-07-25T14:22:21.180827Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:apply",
+            "node_id": "apply",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-cc44aa37-766f-4f7d-a844-b4ca5243f23c",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"provider\",\"output\":{\"finish_reason\":\"tool_calls\",\"text\":\"\",\"tool_proposals\":[{\"arguments_json\":\"{\\\"content\\\":\\\"\\\\\\\"\\\\\\\"\\\\\\\"\\\\nUtility methods to print system info for debugging\\\\n\\\\nadapted from :func:`pandas.show_versions`\\\\n\\\\\\\"\\\\\\\"\\\\\\\"\\\\n# License: BSD 3 clause\\\\n\\\\nimport platform\\\\nimport sys\\\\nimport importlib\\\\n\\\\n\\\\ndef _get_sys_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"System information\\\\n\\\\n    Return\\\\n    ------\\\\n    sys_info : dict\\\\n        system and Python version information\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    python = sys.version.replace('\\\\\\\\n', ' ')\\\\n\\\\n    blob = [\\\\n        (\\\\\\\"python\\\\\\\", python),\\\\n        ('executable', sys.executable),\\\\n        (\\\\\\\"machine\\\\\\\", platform.platform()),\\\\n    ]\\\\n\\\\n    return dict(blob)\\\\n\\\\n\\\\ndef _get_deps_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"Overview of the installed version of main dependencies\\\\n\\\\n    Returns\\\\n    -------\\\\n    deps_info: dict\\\\n        version information on relevant Python libraries\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    deps = [\\\\n        \\\\\\\"pip\\\\\\\",\\\\n        \\\\\\\"setuptools\\\\\\\",\\\\n        \\\\\\\"sklearn\\\\\\\",\\\\n        \\\\\\\"numpy\\\\\\\",\\\\n        \\\\\\\"scipy\\\\\\\",\\\\n        \\\\\\\"Cython\\\\\\\",\\\\n        \\\\\\\"pandas\\\\\\\",\\\\n        \\\\\\\"matplotlib\\\\\\\",\\\\n        \\\\\\\"joblib\\\\\\\",\\\\n    ]\\\\n\\\\n    def get_version(module):\\\\n        return module.__version__\\\\n\\\\n    deps_info = {}\\\\n\\\\n    for modname in deps:\\\\n        try:\\\\n            if modname in sys.modules:\\\\n                mod = sys.modules[modname]\\\\n            else:\\\\n                mod = importlib.import_module(modname)\\\\n            ver = get_version(mod)\\\\n            deps_info[modname] = ver\\\\n        except ImportError:\\\\n            deps_info[modname] = None\\\\n\\\\n    return deps_info\\\\n\\\\n\\\\ndef _get_blas_info():\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"Information on system BLAS\\\\n\\\\n    Uses the `scikit-learn` builtin method\\\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\\\n\\\\n    Returns\\\\n    -------\\\\n    blas_info: dict\\\\n        system BLAS information\\\\n\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    from .._build_utils import get_blas_info\\\\n\\\\n    cblas_libs, blas_dict = get_blas_info()\\\\n\\\\n    macros = ['{key}={val}'.format(key=a, val=b)\\\\n              for (a, b) in blas_dict.get('define_macros', [])]\\\\n\\\\n    blas_blob = [\\\\n        ('macros', ', '.join(macros)),\\\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\\\n        ('cblas_libs', ', '.join(cblas_libs)),\\\\n    ]\\\\n\\\\n    return dict(blas_blob)\\\\n\\\\n\\\\ndef show_versions():\\\\n    \\\\\\\"Print useful debugging information\\\\\\\"\\\\n\\\\n    sys_info = _get_sys_info()\\\\n    deps_info = _get_deps_info()\\\\n    blas_info = _get_blas_info()\\\\n\\\\n    print('\\\\\\\\nSystem:')\\\\n    for k, stat in sys_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\\n    print('\\\\\\\\nBLAS:')\\\\n    for k, stat in blas_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\\n    print('\\\\\\\\nPython deps:')\\\\n    for k, stat in deps_info.items():\\\\n        print(\\\\\\\"{k:>10}: {stat}\\\\\\\".format(k=k, stat=stat))\\\\n\\\",\\\"expected_sha256\\\":\\\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\\\",\\\"path\\\":\\\"sklearn/utils/_show_versions.py\\\"}\",\"capability_id\":\"workspace.apply_patch\",\"proposal_id\":\"tool_I3QLgW4RJd6b1YmKmTNgPWyo\",\"schema_version\":\"1.0\"}],\"usage\":{\"estimated_cost_usd\":\"0\",\"input_tokens\":1023,\"output_tokens\":969,\"schema_version\":\"1.0\",\"total_tokens\":1992}}}",
+        "occurred_at": "2026-07-25T14:22:21.186099Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-0fc033f2-425e-46ad-a57a-99a3ac484875",
+        "sequence": 15,
+        "payload": {
+          "node_id": "provider",
+          "output": {
+            "finish_reason": "tool_calls",
+            "text": "",
+            "tool_proposals": [
+              {
+                "arguments_json": "{\"content\":\"\\\"\\\"\\\"\\nUtility methods to print system info for debugging\\n\\nadapted from :func:`pandas.show_versions`\\n\\\"\\\"\\\"\\n# License: BSD 3 clause\\n\\nimport platform\\nimport sys\\nimport importlib\\n\\n\\ndef _get_sys_info():\\n    \\\"\\\"\\\"System information\\n\\n    Return\\n    ------\\n    sys_info : dict\\n        system and Python version information\\n\\n    \\\"\\\"\\\"\\n    python = sys.version.replace('\\\\n', ' ')\\n\\n    blob = [\\n        (\\\"python\\\", python),\\n        ('executable', sys.executable),\\n        (\\\"machine\\\", platform.platform()),\\n    ]\\n\\n    return dict(blob)\\n\\n\\ndef _get_deps_info():\\n    \\\"\\\"\\\"Overview of the installed version of main dependencies\\n\\n    Returns\\n    -------\\n    deps_info: dict\\n        version information on relevant Python libraries\\n\\n    \\\"\\\"\\\"\\n    deps = [\\n        \\\"pip\\\",\\n        \\\"setuptools\\\",\\n        \\\"sklearn\\\",\\n        \\\"numpy\\\",\\n        \\\"scipy\\\",\\n        \\\"Cython\\\",\\n        \\\"pandas\\\",\\n        \\\"matplotlib\\\",\\n        \\\"joblib\\\",\\n    ]\\n\\n    def get_version(module):\\n        return module.__version__\\n\\n    deps_info = {}\\n\\n    for modname in deps:\\n        try:\\n            if modname in sys.modules:\\n                mod = sys.modules[modname]\\n            else:\\n                mod = importlib.import_module(modname)\\n            ver = get_version(mod)\\n            deps_info[modname] = ver\\n        except ImportError:\\n            deps_info[modname] = None\\n\\n    return deps_info\\n\\n\\ndef _get_blas_info():\\n    \\\"\\\"\\\"Information on system BLAS\\n\\n    Uses the `scikit-learn` builtin method\\n    :func:`sklearn._build_utils.get_blas_info` which may fail from time to time\\n\\n    Returns\\n    -------\\n    blas_info: dict\\n        system BLAS information\\n\\n    \\\"\\\"\\\"\\n    from .._build_utils import get_blas_info\\n\\n    cblas_libs, blas_dict = get_blas_info()\\n\\n    macros = ['{key}={val}'.format(key=a, val=b)\\n              for (a, b) in blas_dict.get('define_macros', [])]\\n\\n    blas_blob = [\\n        ('macros', ', '.join(macros)),\\n        ('lib_dirs', ':'.join(blas_dict.get('library_dirs', ''))),\\n        ('cblas_libs', ', '.join(cblas_libs)),\\n    ]\\n\\n    return dict(blas_blob)\\n\\n\\ndef show_versions():\\n    \\\"Print useful debugging information\\\"\\n\\n    sys_info = _get_sys_info()\\n    deps_info = _get_deps_info()\\n    blas_info = _get_blas_info()\\n\\n    print('\\\\nSystem:')\\n    for k, stat in sys_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nBLAS:')\\n    for k, stat in blas_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\\n    print('\\\\nPython deps:')\\n    for k, stat in deps_info.items():\\n        print(\\\"{k:>10}: {stat}\\\".format(k=k, stat=stat))\\n\",\"expected_sha256\":\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\",\"path\":\"sklearn/utils/_show_versions.py\"}",
+                "capability_id": "workspace.apply_patch",
+                "proposal_id": "tool_I3QLgW4RJd6b1YmKmTNgPWyo",
+                "schema_version": "1.0"
+              }
+            ],
+            "usage": {
+              "estimated_cost_usd": "0",
+              "input_tokens": 1023,
+              "output_tokens": 969,
+              "schema_version": "1.0",
+              "total_tokens": 1992
+            }
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-f2c81e93-a694-4d19-b069-d8cc66d3eb37",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-25T14:22:21.189945Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-cc44aa37-766f-4f7d-a844-b4ca5243f23c",
+        "sequence": 16,
+        "payload": {
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-4ad5cae3-7a81-404c-bcc0-dc6d53a2958b",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "APPROVAL_REQUESTED",
+        "payload_json": "{\"action_digest\":\"36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0\",\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-25T14:22:21.193840Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-f2c81e93-a694-4d19-b069-d8cc66d3eb37",
+        "sequence": 17,
+        "payload": {
+          "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-79b74390-5813-406b-9d8d-c841eb9915cf",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "APPROVAL_REQUESTED",
+        "payload_json": "{\"run\":{\"active_node_id\":\"approve\",\"attempt\":1,\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"configuration_snapshot_digest\":\"274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725\",\"configuration_snapshot_id\":\"task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370\",\"created_at\":\"2026-07-25T14:21:59.482079Z\",\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"lease_fence\":1,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"WAITING_APPROVAL\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\",\"workflow_id\":\"workflow:benchmark-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.197679Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-4ad5cae3-7a81-404c-bcc0-dc6d53a2958b",
+        "sequence": 18,
+        "payload": {
+          "run": {
+            "active_node_id": "approve",
+            "attempt": 1,
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "configuration_snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+            "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+            "created_at": "2026-07-25T14:21:59.482079Z",
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "lease_fence": 1,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "WAITING_APPROVAL",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+            "workflow_id": "workflow:benchmark-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-676a2393-f6fa-41d6-8c1e-f97e25cec1dc",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "APPROVAL_RECORDED",
+        "payload_json": "{\"approval\":{\"action_digest\":\"36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0\",\"actor_id\":\"user:local\",\"actor_role\":\"PRINCIPAL\",\"approval_id\":\"approval:6ccbefea-910b-4bb2-add6-12adaa42e95f\",\"decided_at\":\"2026-07-25T14:22:21.204385Z\",\"disposition\":\"APPROVE\",\"expires_at\":\"2026-07-25T14:32:21.204385Z\",\"reason\":\"Approved exact-digest benchmark provider patch proposal via CLI --approve\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.206450Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-79b74390-5813-406b-9d8d-c841eb9915cf",
+        "sequence": 19,
+        "payload": {
+          "approval": {
+            "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+            "actor_id": "user:local",
+            "actor_role": "PRINCIPAL",
+            "approval_id": "approval:6ccbefea-910b-4bb2-add6-12adaa42e95f",
+            "decided_at": "2026-07-25T14:22:21.204385Z",
+            "disposition": "APPROVE",
+            "expires_at": "2026-07-25T14:32:21.204385Z",
+            "reason": "Approved exact-digest benchmark provider patch proposal via CLI --approve",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-1d71a163-76c6-4772-84a8-f7eb71d166c0",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "RUN_RESUMED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"configuration_snapshot_digest\":\"274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725\",\"configuration_snapshot_id\":\"task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370\",\"created_at\":\"2026-07-25T14:21:59.482079Z\",\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"lease_fence\":2,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"RUNNING\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\",\"workflow_id\":\"workflow:benchmark-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.218768Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-676a2393-f6fa-41d6-8c1e-f97e25cec1dc",
+        "sequence": 20,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "configuration_snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+            "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+            "created_at": "2026-07-25T14:21:59.482079Z",
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "lease_fence": 2,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "RUNNING",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+            "workflow_id": "workflow:benchmark-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-8fa336e2-2357-442e-918a-a29a1e4fbefb",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "CANDIDATES_GENERATED",
+        "payload_json": "{\"envelope\":{\"allowed_capability_ids\":[\"artifact.write\",\"workspace.apply_patch\",\"workspace.glob\",\"workspace.read\",\"workspace.run_tests\",\"workspace.search\",\"workspace.shell\"],\"candidate_ids\":[\"apply\",\"approve\",\"done\",\"evaluate\",\"provider\",\"read\",\"tests\"],\"coverage_evidence_refs\":[],\"created_at\":\"2026-07-25T14:22:21.222535Z\",\"envelope_id\":\"envelope-5e99d9c0-3e43-4514-ae1d-8f83abf4ae1e\",\"exclusions\":[],\"generator_id\":\"developer-golden-path\",\"generator_version\":\"1\",\"has_abstain\":true,\"has_ask\":true,\"has_no_action\":true,\"resource_budget\":{\"max_cost_usd\":\"10\",\"max_duration_seconds\":3600,\"max_provider_tokens\":100000,\"max_tool_calls\":20,\"schema_version\":\"1.0\"},\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.224602Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-1d71a163-76c6-4772-84a8-f7eb71d166c0",
+        "sequence": 21,
+        "payload": {
+          "envelope": {
+            "allowed_capability_ids": [
+              "artifact.write",
+              "workspace.apply_patch",
+              "workspace.glob",
+              "workspace.read",
+              "workspace.run_tests",
+              "workspace.search",
+              "workspace.shell"
+            ],
+            "candidate_ids": [
+              "apply",
+              "approve",
+              "done",
+              "evaluate",
+              "provider",
+              "read",
+              "tests"
+            ],
+            "coverage_evidence_refs": [],
+            "created_at": "2026-07-25T14:22:21.222535Z",
+            "envelope_id": "envelope-5e99d9c0-3e43-4514-ae1d-8f83abf4ae1e",
+            "exclusions": [],
+            "generator_id": "developer-golden-path",
+            "generator_version": "1",
+            "has_abstain": true,
+            "has_ask": true,
+            "has_no_action": true,
+            "resource_budget": {
+              "max_cost_usd": "10",
+              "max_duration_seconds": 3600,
+              "max_provider_tokens": 100000,
+              "max_tool_calls": 20,
+              "schema_version": "1.0"
+            },
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-e6af1f90-dc5c-4979-ba8b-89047eff9a5f",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-25T14:22:21.229007Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-8fa336e2-2357-442e-918a-a29a1e4fbefb",
+        "sequence": 22,
+        "payload": {
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-519600fb-9f53-46dd-b0fb-bcc3aba5b10c",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"approve\"}",
+        "occurred_at": "2026-07-25T14:22:21.233483Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-e6af1f90-dc5c-4979-ba8b-89047eff9a5f",
+        "sequence": 23,
+        "payload": {
+          "node_id": "approve"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-4e63f3e8-699f-48c8-b2fb-d3a9fe896f76",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"apply\"}",
+        "occurred_at": "2026-07-25T14:22:21.237987Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-519600fb-9f53-46dd-b0fb-bcc3aba5b10c",
+        "sequence": 24,
+        "payload": {
+          "node_id": "apply"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-5395a2ed-c736-4ba3-ad1e-fa080ab39f1a",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0\",\"action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"approval_id\":\"approval:6ccbefea-910b-4bb2-add6-12adaa42e95f\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-ab75e354-8001-4d69-a8e8-4e7c7bab5d7a\",\"evaluated_at\":\"2026-07-25T14:22:21.240474Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.242846Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-4e63f3e8-699f-48c8-b2fb-d3a9fe896f76",
+        "sequence": 25,
+        "payload": {
+          "decision": {
+            "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+            "action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "approval_id": "approval:6ccbefea-910b-4bb2-add6-12adaa42e95f",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-ab75e354-8001-4d69-a8e8-4e7c7bab5d7a",
+            "evaluated_at": "2026-07-25T14:22:21.240474Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-9e9461d3-3e9e-4331-8c86-791c9a4a9dab",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0\",\"action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"approval_id\":\"approval:6ccbefea-910b-4bb2-add6-12adaa42e95f\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-ab75e354-8001-4d69-a8e8-4e7c7bab5d7a\",\"evaluated_at\":\"2026-07-25T14:22:21.240474Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0\",\"action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-25T14:27:21.247718Z\",\"grant_id\":\"grant:workspace.apply_patch\",\"issued_at\":\"2026-07-25T14:22:21.247718Z\",\"lease_fence\":2,\"permit_id\":\"permit-1d8ff137-8f71-4f5a-b638-e2eb774d7b93\",\"policy_decision_id\":\"decision-ab75e354-8001-4d69-a8e8-4e7c7bab5d7a\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0\",\"action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"attempt\":1,\"connector_id\":\"workspace.apply_patch\",\"detail_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:apply\",\"occurred_at\":\"2026-07-25T14:22:21.250032Z\",\"output_artifact_ids\":[],\"permit_id\":\"permit-1d8ff137-8f71-4f5a-b638-e2eb774d7b93\",\"receipt_id\":\"receipt-5461950e-dcaf-413e-9672-64a1de40053a\",\"schema_version\":\"1.0\",\"status\":\"SUCCEEDED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.255650Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-5395a2ed-c736-4ba3-ad1e-fa080ab39f1a",
+        "sequence": 26,
+        "payload": {
+          "decision": {
+            "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+            "action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "approval_id": "approval:6ccbefea-910b-4bb2-add6-12adaa42e95f",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-ab75e354-8001-4d69-a8e8-4e7c7bab5d7a",
+            "evaluated_at": "2026-07-25T14:22:21.240474Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+            "action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-25T14:27:21.247718Z",
+            "grant_id": "grant:workspace.apply_patch",
+            "issued_at": "2026-07-25T14:22:21.247718Z",
+            "lease_fence": 2,
+            "permit_id": "permit-1d8ff137-8f71-4f5a-b638-e2eb774d7b93",
+            "policy_decision_id": "decision-ab75e354-8001-4d69-a8e8-4e7c7bab5d7a",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "36bc9accd07e76435c2473ea32da62ccb2452be6896f5efbd5174a521fd223e0",
+            "action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "attempt": 1,
+            "connector_id": "workspace.apply_patch",
+            "detail_ref": "compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc",
+            "error_code": "error:none",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:apply",
+            "occurred_at": "2026-07-25T14:22:21.250032Z",
+            "output_artifact_ids": [],
+            "permit_id": "permit-1d8ff137-8f71-4f5a-b638-e2eb774d7b93",
+            "receipt_id": "receipt-5461950e-dcaf-413e-9672-64a1de40053a",
+            "schema_version": "1.0",
+            "status": "SUCCEEDED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-970072ba-dfeb-4d19-baf9-6f5192cdc735",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"apply\",\"output\":{\"applied_sha256\":\"c11a68e2d837baaeb725d1801c8ae29c0156cd7ee58c7c554f177b5976603eba\",\"before_sha256\":\"9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959\",\"compensation_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"manifest_sha256\":\"4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47\",\"path\":\"sklearn/utils/_show_versions.py\",\"replayed\":false,\"sha256\":\"c11a68e2d837baaeb725d1801c8ae29c0156cd7ee58c7c554f177b5976603eba\"}}",
+        "occurred_at": "2026-07-25T14:22:21.261053Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-9e9461d3-3e9e-4331-8c86-791c9a4a9dab",
+        "sequence": 27,
+        "payload": {
+          "node_id": "apply",
+          "output": {
+            "applied_sha256": "c11a68e2d837baaeb725d1801c8ae29c0156cd7ee58c7c554f177b5976603eba",
+            "before_sha256": "9abc302757c13a663d2b960860666fb030598fce16edc64d37e455aae498c959",
+            "compensation_ref": "compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc",
+            "manifest_sha256": "4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47",
+            "path": "sklearn/utils/_show_versions.py",
+            "replayed": false,
+            "sha256": "c11a68e2d837baaeb725d1801c8ae29c0156cd7ee58c7c554f177b5976603eba"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-513530db-7804-4380-aa83-bed7c148244a",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"tests\"}",
+        "occurred_at": "2026-07-25T14:22:21.266295Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-970072ba-dfeb-4d19-baf9-6f5192cdc735",
+        "sequence": 28,
+        "payload": {
+          "node_id": "tests"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-22faebe5-ae1d-473b-a0d3-5b19284db1f3",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-6f52b762-acf4-4a00-9c27-9b297abbe5d9\",\"arguments_json\":\"{\\\"command\\\":\\\"python -m pytest\\\"}\",\"candidate_envelope_id\":\"envelope-5e99d9c0-3e43-4514-ae1d-8f83abf4ae1e\",\"capability_id\":\"workspace.run_tests\",\"capability_version\":\"1\",\"created_at\":\"2026-07-25T14:22:21.268959Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:tests\",\"node_id\":\"tests\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.271526Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-513530db-7804-4380-aa83-bed7c148244a",
+        "sequence": 29,
+        "payload": {
+          "action": {
+            "action_id": "action-6f52b762-acf4-4a00-9c27-9b297abbe5d9",
+            "arguments_json": "{\"command\":\"python -m pytest\"}",
+            "candidate_envelope_id": "envelope-5e99d9c0-3e43-4514-ae1d-8f83abf4ae1e",
+            "capability_id": "workspace.run_tests",
+            "capability_version": "1",
+            "created_at": "2026-07-25T14:22:21.268959Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:tests",
+            "node_id": "tests",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-c959cd6a-7ca2-42ae-8fba-9f6f03f07d00",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203\",\"action_id\":\"action-6f52b762-acf4-4a00-9c27-9b297abbe5d9\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-20808bbe-5ffa-4479-9930-9b4c5a38522a\",\"evaluated_at\":\"2026-07-25T14:22:21.274410Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:21.277105Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-22faebe5-ae1d-473b-a0d3-5b19284db1f3",
+        "sequence": 30,
+        "payload": {
+          "decision": {
+            "action_digest": "6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203",
+            "action_id": "action-6f52b762-acf4-4a00-9c27-9b297abbe5d9",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-20808bbe-5ffa-4479-9930-9b4c5a38522a",
+            "evaluated_at": "2026-07-25T14:22:21.274410Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-b4e8afe4-e738-40f5-ab80-9ce0a9b39037",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203\",\"action_id\":\"action-6f52b762-acf4-4a00-9c27-9b297abbe5d9\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-20808bbe-5ffa-4479-9930-9b4c5a38522a\",\"evaluated_at\":\"2026-07-25T14:22:21.274410Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203\",\"action_id\":\"action-6f52b762-acf4-4a00-9c27-9b297abbe5d9\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-25T14:27:21.282605Z\",\"grant_id\":\"grant:workspace.run_tests\",\"issued_at\":\"2026-07-25T14:22:21.282605Z\",\"lease_fence\":2,\"permit_id\":\"permit-979c2514-4cdc-4132-aa68-7305591b8892\",\"policy_decision_id\":\"decision-20808bbe-5ffa-4479-9930-9b4c5a38522a\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203\",\"action_id\":\"action-6f52b762-acf4-4a00-9c27-9b297abbe5d9\",\"attempt\":1,\"connector_id\":\"workspace.run_tests\",\"detail_ref\":\"detail:none\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:tests\",\"occurred_at\":\"2026-07-25T14:22:22.582994Z\",\"output_artifact_ids\":[\"artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a\"],\"permit_id\":\"permit-979c2514-4cdc-4132-aa68-7305591b8892\",\"receipt_id\":\"receipt-226cc137-3e2a-4cec-8a86-3e76957c77b3\",\"schema_version\":\"1.0\",\"status\":\"SUCCEEDED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:22.590052Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-c959cd6a-7ca2-42ae-8fba-9f6f03f07d00",
+        "sequence": 31,
+        "payload": {
+          "decision": {
+            "action_digest": "6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203",
+            "action_id": "action-6f52b762-acf4-4a00-9c27-9b297abbe5d9",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-20808bbe-5ffa-4479-9930-9b4c5a38522a",
+            "evaluated_at": "2026-07-25T14:22:21.274410Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203",
+            "action_id": "action-6f52b762-acf4-4a00-9c27-9b297abbe5d9",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-25T14:27:21.282605Z",
+            "grant_id": "grant:workspace.run_tests",
+            "issued_at": "2026-07-25T14:22:21.282605Z",
+            "lease_fence": 2,
+            "permit_id": "permit-979c2514-4cdc-4132-aa68-7305591b8892",
+            "policy_decision_id": "decision-20808bbe-5ffa-4479-9930-9b4c5a38522a",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "6c594ada1e4b06cd0d9d8acb14b387cb4102119536d73b89de4abc5fc9340203",
+            "action_id": "action-6f52b762-acf4-4a00-9c27-9b297abbe5d9",
+            "attempt": 1,
+            "connector_id": "workspace.run_tests",
+            "detail_ref": "detail:none",
+            "error_code": "error:none",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:tests",
+            "occurred_at": "2026-07-25T14:22:22.582994Z",
+            "output_artifact_ids": [
+              "artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a"
+            ],
+            "permit_id": "permit-979c2514-4cdc-4132-aa68-7305591b8892",
+            "receipt_id": "receipt-226cc137-3e2a-4cec-8a86-3e76957c77b3",
+            "schema_version": "1.0",
+            "status": "SUCCEEDED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-79423f16-0c30-418c-a6c8-96993c6fa16c",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ARTIFACT_RECORDED",
+        "payload_json": "{\"action_id\":\"action-6f52b762-acf4-4a00-9c27-9b297abbe5d9\",\"artifact_id\":\"artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a\",\"node_id\":\"tests\"}",
+        "occurred_at": "2026-07-25T14:22:22.600033Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-b4e8afe4-e738-40f5-ab80-9ce0a9b39037",
+        "sequence": 32,
+        "payload": {
+          "action_id": "action-6f52b762-acf4-4a00-9c27-9b297abbe5d9",
+          "artifact_id": "artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a",
+          "node_id": "tests"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-65eb56d0-d615-412a-b2f2-99c8440079d0",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"tests\",\"output\":{\"artifact_ids\":[\"artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a\"],\"digest\":\"a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a\",\"exit_code\":0}}",
+        "occurred_at": "2026-07-25T14:22:22.605881Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-79423f16-0c30-418c-a6c8-96993c6fa16c",
+        "sequence": 33,
+        "payload": {
+          "node_id": "tests",
+          "output": {
+            "artifact_ids": [
+              "artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a"
+            ],
+            "digest": "a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a",
+            "exit_code": 0
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-9f91cfa8-38a5-4a3b-82ca-85b6f082f625",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"evaluate\"}",
+        "occurred_at": "2026-07-25T14:22:22.611845Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-65eb56d0-d615-412a-b2f2-99c8440079d0",
+        "sequence": 34,
+        "payload": {
+          "node_id": "evaluate"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-ce73db50-59ed-4d25-964f-30979a5ee2ef",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "OUTCOME_OBSERVED",
+        "payload_json": "{\"outcome\":{\"confidence\":1.0,\"evaluator_type\":\"pytest\",\"evaluator_version\":\"1\",\"evidence_refs\":[\"artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a\"],\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"observed_at\":\"2026-07-25T14:22:22.614935Z\",\"observed_outcome_id\":\"observed-993486e5-dc47-4c32-ba90-4ace40397d2b\",\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"score\":null,\"status\":\"UNRESOLVED\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"unresolved_gaps\":[\"test-report evidence is not bound to the durable event chain\"],\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:22.622952Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-9f91cfa8-38a5-4a3b-82ca-85b6f082f625",
+        "sequence": 35,
+        "payload": {
+          "outcome": {
+            "confidence": 1.0,
+            "evaluator_type": "pytest",
+            "evaluator_version": "1",
+            "evidence_refs": [
+              "artifact:a5ebc4a4455bd3ad816a5a10bd6e02a5485f83cb645bc3234be0870b390c686a"
+            ],
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "observed_at": "2026-07-25T14:22:22.614935Z",
+            "observed_outcome_id": "observed-993486e5-dc47-4c32-ba90-4ace40397d2b",
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "score": null,
+            "status": "UNRESOLVED",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "unresolved_gaps": [
+              "test-report evidence is not bound to the durable event chain"
+            ],
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-9d20962e-215e-43a3-95bc-80e2d187b193",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"evaluate\",\"output\":{\"score\":null,\"status\":\"UNRESOLVED\"}}",
+        "occurred_at": "2026-07-25T14:22:22.629248Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-ce73db50-59ed-4d25-964f-30979a5ee2ef",
+        "sequence": 36,
+        "payload": {
+          "node_id": "evaluate",
+          "output": {
+            "score": null,
+            "status": "UNRESOLVED"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-cc442c38-dba3-44b4-97ec-a8f0740d8c53",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_STARTED",
+        "payload_json": "{\"node_id\":\"done\"}",
+        "occurred_at": "2026-07-25T14:22:22.635455Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-9d20962e-215e-43a3-95bc-80e2d187b193",
+        "sequence": 37,
+        "payload": {
+          "node_id": "done"
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-a64b1223-1d72-41a3-9c0b-9a483046b2b7",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "NODE_COMPLETED",
+        "payload_json": "{\"node_id\":\"done\",\"output\":{\"status\":\"complete\"}}",
+        "occurred_at": "2026-07-25T14:22:22.641716Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-cc442c38-dba3-44b4-97ec-a8f0740d8c53",
+        "sequence": 38,
+        "payload": {
+          "node_id": "done",
+          "output": {
+            "status": "complete"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-3462e094-6eac-4453-b070-b258ae273bfb",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "RUN_FAILED",
+        "payload_json": "{\"run\":{\"active_node_id\":null,\"attempt\":1,\"commitment_id\":\"commitment:benchmark:7e8a9a3dbea4\",\"configuration_snapshot_digest\":\"274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725\",\"configuration_snapshot_id\":\"task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370\",\"created_at\":\"2026-07-25T14:21:59.482079Z\",\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"lease_fence\":2,\"policy_version\":\"policy-1\",\"provider_profile_id\":\"provider-profile:default\",\"replan_count\":0,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"FAILED\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"wait_condition\":null,\"workflow_digest\":\"28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960\",\"workflow_id\":\"workflow:benchmark-s2\",\"workflow_version\":1,\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:22.648243Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-a64b1223-1d72-41a3-9c0b-9a483046b2b7",
+        "sequence": 39,
+        "payload": {
+          "run": {
+            "active_node_id": null,
+            "attempt": 1,
+            "commitment_id": "commitment:benchmark:7e8a9a3dbea4",
+            "configuration_snapshot_digest": "274538cf50a4b7b79914d9a1eb9d7fbb5aefac73f00aa6a820a006aa15f52725",
+            "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370",
+            "created_at": "2026-07-25T14:21:59.482079Z",
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "lease_fence": 2,
+            "policy_version": "policy-1",
+            "provider_profile_id": "provider-profile:default",
+            "replan_count": 0,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "FAILED",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "wait_condition": null,
+            "workflow_digest": "28acd9a2d41a09f48ae3dbc91b6d5082d27ce1149e585e01e35dd11752d57960",
+            "workflow_id": "workflow:benchmark-s2",
+            "workflow_version": 1,
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-2e7edd7c-166f-40d2-8446-a18ff472b3bc",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "COMPENSATION_STARTED",
+        "payload_json": "{\"compensation\":{\"compensation_action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"compensation_id\":\"compensation-5e4deec5-5aea-4b6e-9346-0d448a6c1ef2\",\"compensation_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"created_at\":\"2026-07-25T14:22:22.662609Z\",\"manifest_sha256\":\"4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47\",\"manual_intervention_required\":false,\"mode\":\"AUTOMATIC\",\"node_id\":\"apply\",\"original_action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"reason\":\"governed patch compensation started\",\"receipt_id\":null,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"STARTED\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\"}}",
+        "occurred_at": "2026-07-25T14:22:22.666092Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-3462e094-6eac-4453-b070-b258ae273bfb",
+        "sequence": 40,
+        "payload": {
+          "compensation": {
+            "compensation_action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "compensation_id": "compensation-5e4deec5-5aea-4b6e-9346-0d448a6c1ef2",
+            "compensation_ref": "compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc",
+            "created_at": "2026-07-25T14:22:22.662609Z",
+            "manifest_sha256": "4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47",
+            "manual_intervention_required": false,
+            "mode": "AUTOMATIC",
+            "node_id": "apply",
+            "original_action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "reason": "governed patch compensation started",
+            "receipt_id": null,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "STARTED",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-ed9146de-1ed5-4310-ab8d-7456a379e470",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_PROPOSED",
+        "payload_json": "{\"action\":{\"action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"arguments_json\":\"{\\\"compensation_ref\\\":\\\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\\\",\\\"manifest_sha256\\\":\\\"4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47\\\",\\\"original_action_key\\\":\\\"run:42e617e1-3852-438f-a568-b3d07935c5d9:apply\\\",\\\"path\\\":\\\"sklearn/utils/_show_versions.py\\\"}\",\"candidate_envelope_id\":\"envelope-aecb7509-21d9-442a-ac7a-195faf863545\",\"capability_id\":\"workspace.compensate_patch\",\"capability_version\":\"1\",\"created_at\":\"2026-07-25T14:22:22.662570Z\",\"estimated_budget\":{\"max_cost_usd\":\"0\",\"max_duration_seconds\":120,\"max_provider_tokens\":0,\"max_tool_calls\":1,\"schema_version\":\"1.0\"},\"expected_outcome_id\":\"expected:benchmark:7e8a9a3dbea4\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:compensate:apply\",\"node_id\":\"apply\",\"observed_correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"risk_tier\":1,\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:22.673008Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-2e7edd7c-166f-40d2-8446-a18ff472b3bc",
+        "sequence": 41,
+        "payload": {
+          "action": {
+            "action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "arguments_json": "{\"compensation_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"manifest_sha256\":\"4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47\",\"original_action_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:apply\",\"path\":\"sklearn/utils/_show_versions.py\"}",
+            "candidate_envelope_id": "envelope-aecb7509-21d9-442a-ac7a-195faf863545",
+            "capability_id": "workspace.compensate_patch",
+            "capability_version": "1",
+            "created_at": "2026-07-25T14:22:22.662570Z",
+            "estimated_budget": {
+              "max_cost_usd": "0",
+              "max_duration_seconds": 120,
+              "max_provider_tokens": 0,
+              "max_tool_calls": 1,
+              "schema_version": "1.0"
+            },
+            "expected_outcome_id": "expected:benchmark:7e8a9a3dbea4",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:compensate:apply",
+            "node_id": "apply",
+            "observed_correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "risk_tier": 1,
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-c3cfa298-735d-43b4-91fe-9b4ef20c432d",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "POLICY_DECIDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba\",\"action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-12ce16d7-58cd-42e4-8b33-ce439d85c5e8\",\"evaluated_at\":\"2026-07-25T14:22:22.676588Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:22.679920Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-ed9146de-1ed5-4310-ab8d-7456a379e470",
+        "sequence": 42,
+        "payload": {
+          "decision": {
+            "action_digest": "fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba",
+            "action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-12ce16d7-58cd-42e4-8b33-ce439d85c5e8",
+            "evaluated_at": "2026-07-25T14:22:22.676588Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-cd1493b6-24aa-451c-94e3-65c49a3910d2",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_RECEIPT_RECORDED",
+        "payload_json": "{\"decision\":{\"action_digest\":\"fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba\",\"action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"approval_id\":\"approval:none\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"decision_id\":\"decision-12ce16d7-58cd-42e4-8b33-ce439d85c5e8\",\"evaluated_at\":\"2026-07-25T14:22:22.676588Z\",\"policy_version\":\"policy-1\",\"principal_id\":\"user:local\",\"reason_codes\":[\"ADMITTED\"],\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"verdict\":\"ALLOW\",\"workspace_id\":\"workspace:local\"},\"permit\":{\"action_digest\":\"fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba\",\"action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"correction_epochs\":{\"capability_epoch\":0,\"run_epoch\":0,\"schema_version\":\"1.0\",\"task_epoch\":0},\"expires_at\":\"2026-07-25T14:27:22.686946Z\",\"grant_id\":\"grant:internal:workspace.compensate_patch\",\"issued_at\":\"2026-07-25T14:22:22.686946Z\",\"lease_fence\":2,\"permit_id\":\"permit-8f3ba8ac-b8c6-4b5f-bebd-689cb9127bcd\",\"policy_decision_id\":\"decision-12ce16d7-58cd-42e4-8b33-ce439d85c5e8\",\"principal_id\":\"user:local\",\"schema_version\":\"1.0\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"},\"receipt\":{\"action_digest\":\"fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba\",\"action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"attempt\":1,\"connector_id\":\"workspace.compensate_patch\",\"detail_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"error_code\":\"error:none\",\"idempotency_key\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9:compensate:apply\",\"occurred_at\":\"2026-07-25T14:22:22.688695Z\",\"output_artifact_ids\":[],\"permit_id\":\"permit-8f3ba8ac-b8c6-4b5f-bebd-689cb9127bcd\",\"receipt_id\":\"receipt-2f0bfc7f-b6ce-4a20-8f99-cb9ad31c1ff9\",\"schema_version\":\"1.0\",\"status\":\"COMPENSATED\",\"tenant_id\":\"tenant:local\",\"workspace_id\":\"workspace:local\"}}",
+        "occurred_at": "2026-07-25T14:22:22.696748Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-c3cfa298-735d-43b4-91fe-9b4ef20c432d",
+        "sequence": 43,
+        "payload": {
+          "decision": {
+            "action_digest": "fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba",
+            "action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "approval_id": "approval:none",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "decision_id": "decision-12ce16d7-58cd-42e4-8b33-ce439d85c5e8",
+            "evaluated_at": "2026-07-25T14:22:22.676588Z",
+            "policy_version": "policy-1",
+            "principal_id": "user:local",
+            "reason_codes": [
+              "ADMITTED"
+            ],
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "verdict": "ALLOW",
+            "workspace_id": "workspace:local"
+          },
+          "permit": {
+            "action_digest": "fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba",
+            "action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "correction_epochs": {
+              "capability_epoch": 0,
+              "run_epoch": 0,
+              "schema_version": "1.0",
+              "task_epoch": 0
+            },
+            "expires_at": "2026-07-25T14:27:22.686946Z",
+            "grant_id": "grant:internal:workspace.compensate_patch",
+            "issued_at": "2026-07-25T14:22:22.686946Z",
+            "lease_fence": 2,
+            "permit_id": "permit-8f3ba8ac-b8c6-4b5f-bebd-689cb9127bcd",
+            "policy_decision_id": "decision-12ce16d7-58cd-42e4-8b33-ce439d85c5e8",
+            "principal_id": "user:local",
+            "schema_version": "1.0",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          },
+          "receipt": {
+            "action_digest": "fb4d6c1df856f715c8cd307394323cef63e659a893984a8486a655b25b5675ba",
+            "action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "attempt": 1,
+            "connector_id": "workspace.compensate_patch",
+            "detail_ref": "compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc",
+            "error_code": "error:none",
+            "idempotency_key": "run:42e617e1-3852-438f-a568-b3d07935c5d9:compensate:apply",
+            "occurred_at": "2026-07-25T14:22:22.688695Z",
+            "output_artifact_ids": [],
+            "permit_id": "permit-8f3ba8ac-b8c6-4b5f-bebd-689cb9127bcd",
+            "receipt_id": "receipt-2f0bfc7f-b6ce-4a20-8f99-cb9ad31c1ff9",
+            "schema_version": "1.0",
+            "status": "COMPENSATED",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local"
+          }
+        }
+      },
+      {
+        "schema_version": "1.0",
+        "event_id": "event-b7a3acb0-d755-4401-aa8c-47db74d28cd8",
+        "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b",
+        "event_type": "ACTION_COMPENSATED",
+        "payload_json": "{\"compensation\":{\"compensation_action_id\":\"action-7d4b7712-9e66-43cb-a1d9-6b515495576a\",\"compensation_id\":\"compensation-5e4deec5-5aea-4b6e-9346-0d448a6c1ef2\",\"compensation_ref\":\"compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc\",\"created_at\":\"2026-07-25T14:22:22.700604Z\",\"manifest_sha256\":\"4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47\",\"manual_intervention_required\":false,\"mode\":\"AUTOMATIC\",\"node_id\":\"apply\",\"original_action_id\":\"action-c9b6b641-396f-4336-8db8-6305c5deeb41\",\"reason\":\"governed patch compensation completed\",\"receipt_id\":\"receipt-2f0bfc7f-b6ce-4a20-8f99-cb9ad31c1ff9\",\"run_id\":\"run:42e617e1-3852-438f-a568-b3d07935c5d9\",\"schema_version\":\"1.0\",\"status\":\"COMPENSATED\",\"task_id\":\"task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b\"}}",
+        "occurred_at": "2026-07-25T14:22:22.704091Z",
+        "correlation_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+        "causation_id": "event-cd1493b6-24aa-451c-94e3-65c49a3910d2",
+        "sequence": 44,
+        "payload": {
+          "compensation": {
+            "compensation_action_id": "action-7d4b7712-9e66-43cb-a1d9-6b515495576a",
+            "compensation_id": "compensation-5e4deec5-5aea-4b6e-9346-0d448a6c1ef2",
+            "compensation_ref": "compensation:122dd45003fc7460949838ecd7a253146d0b7b0d3564079b8f004887ee2779dc",
+            "created_at": "2026-07-25T14:22:22.700604Z",
+            "manifest_sha256": "4bb75f40ddcafee2abed9de2e25bbed036e884b6f69c78fbed3c95dddfe82b47",
+            "manual_intervention_required": false,
+            "mode": "AUTOMATIC",
+            "node_id": "apply",
+            "original_action_id": "action-c9b6b641-396f-4336-8db8-6305c5deeb41",
+            "reason": "governed patch compensation completed",
+            "receipt_id": "receipt-2f0bfc7f-b6ce-4a20-8f99-cb9ad31c1ff9",
+            "run_id": "run:42e617e1-3852-438f-a568-b3d07935c5d9",
+            "schema_version": "1.0",
+            "status": "COMPENSATED",
+            "task_id": "task-39a97cc6-2b2e-4e31-b4a8-b4890b90242b"
+          }
+        }
+      }
+    ],
+    "domain_pack": {
+      "schema_version": "1.0",
+      "pack_id": "developer-agent",
+      "version": "1.0",
+      "namespace": "developer_agent",
+      "capabilities": [
+        "workspace.read",
+        "workspace.apply_patch",
+        "workspace.run_tests",
+        "artifact.write"
+      ],
+      "workflow_templates": [
+        "developer_agent.repository_patch.v1"
+      ],
+      "evaluator_types": [
+        "pytest"
+      ],
+      "credential_classes": [
+        "none",
+        "provider-api-key"
+      ],
+      "created_at": "2026-07-25T14:21:59.469094Z"
+    }
+  },
+  "configuration_snapshot_id": "task-configuration:9f0180b9-4ea9-42a7-9604-1cc1cb51d370"
+}

@@ -1,0 +1,10 @@
+{
+  "instance_id": "astropy__astropy-13453",
+  "attempt": 2,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "d3e556edaba1a2e1f7e18fc9ceedad4fa73e3268ea35649ec40d1739b76d0c7f"
+}

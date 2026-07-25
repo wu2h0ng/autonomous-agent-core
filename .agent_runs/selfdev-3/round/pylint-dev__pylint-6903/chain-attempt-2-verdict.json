@@ -1,0 +1,10 @@
+{
+  "instance_id": "pylint-dev__pylint-6903",
+  "attempt": 2,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p not declared; solved=True",
+  "evidence_digest": "1954ce6cc4d1d9ce4d22a2c6e5e2ef9afe18e4d30ed4fd0af15ebf6deb262383"
+}

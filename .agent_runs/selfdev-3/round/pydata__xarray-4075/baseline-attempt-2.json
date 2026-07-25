@@ -1,0 +1,15 @@
+{
+  "instance_id": "pydata__xarray-4075",
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p not declared; solved=True",
+  "evidence_digest": "555330988275e2ea9a3f6ef93ae659681a9efed9db9167e93393f462c311d34e",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 2796,
+    "output_tokens": 1363,
+    "total_tokens": 4159,
+    "estimated_cost_usd": "0"
+  }
+}
