@@ -105,8 +105,10 @@ from .self_development import (
 )
 from .benchmark_task import (
     VERIFIER_ARGV_SCHEMA,
+    BenchmarkTaskPackage,
     build_benchmark_task,
     build_verifier_argv,
+    prepare_benchmark_task_package,
     validate_f2p_p2p_disjoint,
     validate_gold_file,
 )
@@ -144,6 +146,10 @@ from .benchmark_executor import (
     ContainerVerifierExecutor,
     GoldValidationResult,
     run_gold_validation,
+)
+from .benchmark_sandbox import (
+    BenchmarkContainerSandbox,
+    ContainerVerifierRunner,
 )
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
@@ -315,10 +321,13 @@ __all__ = [
     "GOLD_VALIDATION_EVIDENCE_SCHEMA",
     "VERIFIER_ARGV_SCHEMA",
     "BenchmarkContainerError",
+    "BenchmarkContainerSandbox",
+    "BenchmarkTaskPackage",
     "BenchmarkVerdict",
     "ContainerResult",
     "ContainerRunner",
     "ContainerVerifierExecutor",
+    "ContainerVerifierRunner",
     "DockerRunner",
     "GoldValidationResult",
     "VerifierExecutor",
@@ -405,6 +414,7 @@ __all__ = [
     "run_benchmark_verifier",
     "run_gold_validation",
     "evaluate_self_development_readiness",
+    "prepare_benchmark_task_package",
     "prepare_self_development_task_package",
     "validate_f2p_p2p_disjoint",
     "validate_gold_file",
