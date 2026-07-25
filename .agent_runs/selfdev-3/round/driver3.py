@@ -25,7 +25,7 @@ ENV["AGENT_OS_PROVIDER_TIMEOUT_SECONDS"] = "600"
 ENV["PYTHONPATH"] = ".:src:packages/contracts/src:packages/os_core/src"
 PY = str(ROOT / ".venv/bin/python")
 
-TIMEOUTS = {"baseline": 1500, "chain": 2400}
+TIMEOUTS = {"baseline": 1800, "chain": 2400}
 
 
 def restore_workspace(entry: dict[str, object]) -> None:
@@ -57,6 +57,13 @@ def run_arm(arm: str, entry: dict[str, object], attempt: int) -> dict[str, objec
         restore_workspace(entry)
     except RuntimeError:
         return {"infra_error": True, "reason": "workspace_restore_failed"}
+    # invoked marker: written BEFORE the provider node can be reached, so an
+    # interrupted attempt is auditable as consumed INVALID (prereg §3).
+    invoked_file = out_dir / f"{arm}-attempt-{attempt}-invoked.json"
+    invoked_file.write_text(json.dumps({
+        "instance_id": instance_id, "arm": arm, "attempt": attempt,
+        "invoked_at": started,
+    }))
     try:
         proc = subprocess.run(
             cmd, cwd=ROOT, env=ENV, capture_output=True, text=True,

@@ -66,11 +66,22 @@ each arm's E1 result was envelope artifact. This analysis changes no verdict.
   calls, no parallel containers).
 - Unchanged (carried from the SELFDEV-2 prereg verbatim): subset; inputs
   (issue + base-commit file bytes + F2P + P2P ids); pass@2 budgets per arm;
-  attempt accounting (consumed on provider-node invocation; terminal classes
-  VERIFIED/NOT_MET/INVALID incl. provider infra failure; preview=consumed;
-  frozen argv = run integrity); solve determination ONLY by the independent
-  round-level verifier; workspace restore between attempts; sequential
-  execution; no early stopping; claim boundaries.
+  solve determination ONLY by the independent round-level verifier;
+  workspace restore between attempts; sequential execution; no early
+  stopping; claim boundaries.
+- Attempt accounting (carried from the SELFDEV-2 prereg verbatim): an attempt
+  is consumed the moment the provider node is invoked; terminal classes
+  VERIFIED / NOT_MET (verifier non-zero) / INVALID (malformed envelope,
+  provider infra failure, any other termination incl. interrupt or
+  WAITING_APPROVAL abandonment); every consumed attempt is logged;
+  preview-and-discard consumes an attempt + one intervention; the frozen argv
+  is run integrity, deviation ⇒ round INVALID. Driver watchdogs
+  (`baseline: 1800s`, `chain: 2400s`) are NOT the provider timeout — they cap
+  total attempt wall time (provider + verifier + container ops); a
+  `driver_timeout` after provider-node invocation records a consumed INVALID
+  attempt. The driver writes an `invoked` marker before each attempt; a
+  marker without a final attempt record at adjudication counts as a consumed
+  INVALID attempt (interrupted), never silently re-consumed.
 
 ## 4. Frozen subset (REUSED, hash-pinned)
 
@@ -98,6 +109,8 @@ each arm's E1 result was envelope artifact. This analysis changes no verdict.
 - Frozen argv (verbatim):
   chain — `agent-os benchmark-run-provider .agent_runs/selfdev-2/selection.json <instance_id> --approve --duration-seconds 3600`
   baseline — `agent-os benchmark-run-baseline .agent_runs/selfdev-2/selection.json <instance_id>`
+  (`python -m apps.cli` is the same entry point as `agent-os`, per
+  E1-adjudicated precedent.)
 - Execution boundary: unchanged from ADR-0056 D5 (containers, `--network
   none`, read-only rootfs, rw task mount only, resource caps, env allowlist,
   per-task verifier timeout, env scrubbing).
@@ -134,6 +147,9 @@ f2p-only.
   5. two or more tasks with restore/compensation failure ⇒ INVALID;
   6. pre-round re-verification (§5) fails and is waived ⇒ INVALID (there is
      no waiver path).
+  The driver's infra-collapse abort (3 consecutive non-provider infra
+  errors) terminates the round early; that termination is a kill-4 event
+  (round INVALID — infrastructure, not capability), recorded as such.
 
 ## 8. Freeze mechanics
 
