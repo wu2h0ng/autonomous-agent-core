@@ -106,7 +106,7 @@ class WorkspaceSandbox:
             ),
             "workspace.shell": CapabilitySpec(
                 capability_id="workspace.shell", version="1", display_name="Run shell argv (meta ;|& banned)",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=False,
+                side_effect_guarantee=SideEffectGuarantee.NON_IDEMPOTENT_NON_QUERYABLE, idempotency_supported=False,
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
             "artifact.write": CapabilitySpec(
