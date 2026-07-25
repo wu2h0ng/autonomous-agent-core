@@ -1,0 +1,10 @@
+{
+  "instance_id": "django__django-13670",
+  "attempt": 2,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "b6c58fb39d683033c1bd8c4944b5a24244255fd9ea76da9ca0be7da513681414"
+}

@@ -1,0 +1,10 @@
+{
+  "instance_id": "psf__requests-1766",
+  "attempt": 2,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "59170243bae74d13d03bb4586cd0d6b2c43f88a820221b59838be40c4bf0d4ec"
+}

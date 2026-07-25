@@ -1,0 +1,10 @@
+{
+  "instance_id": "scikit-learn__scikit-learn-14141",
+  "attempt": 1,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "adbf48f7a6524a89c77591ce0a6c15e768894e8b1cd0523ca65766393870f6cc"
+}

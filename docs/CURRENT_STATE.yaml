@@ -1,6 +1,7 @@
 schema_version: 2
-updated: "2026-07-24T16:00:00+08:00"
+updated: "2026-07-25T12:00:00+08:00"
 mt_round_note: "2026-07-23 multi-target round adjudicated NEGATIVE in .agent_runs/selfdev-mt-20260723/round-adjudication.md: kill criterion 1 fired (T2/T3 exhausted 3-attempt budgets without VERIFIED), T1 not run, T4 VERIFIED with receipt SELFDEV_HCW_LOWER. No HCW-reduction support; three-class negative map recorded (parallel-load timeouts 2/7, neighbor breakage 2/2 on self_development.py, large-file full-replacement syntax failure 2/2 on apps/cli/__main__.py)."
+selfdev2_round_note: "2026-07-25 SELFDEV-2 benchmark round adjudicated SUPPORTS with caveats in .agent_runs/selfdev-2/round/round-adjudication.md (independent adjudication ADJUDICATION_AMENDED): chain pass@2 9/12 > baseline pass@2 2/12 on the frozen 12-task SWE-bench Verified subset inside the declared oracle-localized single-shot single-file envelope. Caveats: arm-window asymmetry (baseline ran in a degraded-provider window, 20/24 provider-infra failures vs chain 7/24+1; margin unreliable) and 2/12 f2p-only solves (p2p_vacuous). Kill criterion 1 ruled not fired (provider degradation = prereg §3 consumed attempt class; zero environment failures). Next-round envelope learnings: longer timeout or diff channel for the chain, ABAB interleaved arm scheduling. NOT leaderboard/contamination-free/HCW/product-superiority/Autonomy(S,E,O,V,T) evidence."
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -573,9 +574,9 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "P — AGENT-OS-TERMINAL-1: daily-drive `agent-os --continue "..."` from repos; merge to canonical; no HCW claim until this is the operator surface."
+    action: "P — AGENT-OS-TERMINAL-1: daily-drive `agent-os --continue '...'` from repos; merge to canonical; no HCW claim until this is the operator surface."
   - priority: 2
-    action: "P/R — AGENT-OS-SELFDEV-1: multi-target round NEGATIVE (kill criterion 1). Next round only from negative map under a NEW prereg; do not expand while Mandate terminal substrate is unmerged."
+    action: "P/R — AGENT-OS-SELFDEV-2: benchmark round adjudicated SUPPORTS with caveats (.agent_runs/selfdev-2/round/round-adjudication.md): chain pass@2 9/12 > bare one-shot baseline 2/12 on a frozen 12-task SWE-bench Verified subset (oracle-localized single-shot single-file envelope); arm-window asymmetry makes the margin unreliable; kill criterion 1 ruled not fired. Next: a NEW prereg for the envelope upgrade (longer provider timeout or diff-format patch channel for the chain, ABAB interleaved arm scheduling), coordinated with the Mandate terminal substrate merge; T1 with its frozen baseline remains available."
   - priority: 3
     action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity; remain NOT_FROZEN/NO_RESULT_RUN until Mandate terminal is the measurement surface or blockers are PARKed."
   - priority: 4

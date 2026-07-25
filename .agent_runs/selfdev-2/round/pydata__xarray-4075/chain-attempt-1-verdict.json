@@ -1,0 +1,10 @@
+{
+  "instance_id": "pydata__xarray-4075",
+  "attempt": 1,
+  "independent_verifier": true,
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p not declared; solved=True",
+  "evidence_digest": "5fe1e2569f1757c16995565e9009f7638a9ab4c572a9ed583c130d34bb46f019"
+}
