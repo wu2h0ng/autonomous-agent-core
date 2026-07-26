@@ -450,7 +450,7 @@ def test_correction_during_provider_call_prevents_response_persistence(tmp_path)
 
     class CorrectingProvider(DeterministicProvider):
         def complete(self, request: ProviderRequest) -> ProviderResponse:
-            app.correction.correct("task", request.task_id, "during provider call")
+            app.correction_admin.correct("task", request.task_id, "during provider call")
             return super().complete(request)
 
     provider = CorrectingProvider(
