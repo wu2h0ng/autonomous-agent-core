@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from threading import RLock
 
 from apps.api_server.app import AgentOSApplication
@@ -11,6 +13,7 @@ from agent_os_core import (
     DomainCandidateSealer,
     PolicyKernel,
     RunCoordinator,
+    SQLiteTaskEventStore,
     TaskConfigurationSnapshotService,
     split_correction_authority,
 )
@@ -140,3 +143,86 @@ def test_generic_runtime_constructs_with_reader_only_port(tmp_path) -> None:
     for correction in retained:
         assert not hasattr(correction, "correct")
         assert not hasattr(correction, "resume")
+
+
+def test_admin_writes_survive_authority_restart_through_views(tmp_path) -> None:
+    path = tmp_path / "state.sqlite3"
+    _, first_admin = split_correction_authority(
+        CorrectionAuthority(SQLiteTaskEventStore(path))
+    )
+
+    assert first_admin.correct("task", "task-1", "stop") == 1
+
+    second_snapshot, _ = split_correction_authority(
+        CorrectionAuthority(SQLiteTaskEventStore(path))
+    )
+    assert second_snapshot.halted("task-1", "run-1", "workspace.read")
+    assert second_snapshot.snapshot("task-1", "run-1", "workspace.read").task_epoch == 1
+
+
+def test_guard_unchanged_linearizes_admin_write() -> None:
+    authority = CorrectionAuthority()
+    snapshot, admin = split_correction_authority(authority)
+    observed = snapshot.snapshot("task-1", "run-1", "capability-1")
+
+    guard_entered = threading.Event()
+    release_guard = threading.Event()
+    write_completed = threading.Event()
+    errors: list[BaseException] = []
+
+    def hold_guard() -> None:
+        try:
+            with snapshot.guard_unchanged(
+                "task-1", "run-1", "capability-1", observed
+            ) as unchanged:
+                assert unchanged
+                guard_entered.set()
+                release_guard.wait(timeout=10)
+        except BaseException as exc:  # noqa: BLE001 - surfaced in main thread
+            errors.append(exc)
+
+    def write() -> None:
+        try:
+            guard_entered.wait(timeout=10)
+            epoch = admin.correct("task", "task-1", "concurrent halt")
+            assert epoch == 1
+            write_completed.set()
+        except BaseException as exc:  # noqa: BLE001 - surfaced in main thread
+            errors.append(exc)
+
+    guard_thread = threading.Thread(target=hold_guard)
+    write_thread = threading.Thread(target=write)
+    guard_thread.start()
+    write_thread.start()
+
+    assert guard_entered.wait(timeout=10)
+    time.sleep(0.2)
+    assert not write_completed.is_set(), (
+        "admin write advanced while the guard held the authority lock"
+    )
+
+    release_guard.set()
+    guard_thread.join(timeout=10)
+    write_thread.join(timeout=10)
+
+    assert not guard_thread.is_alive()
+    assert not write_thread.is_alive()
+    assert not errors
+    assert write_completed.is_set()
+    after = snapshot.snapshot("task-1", "run-1", "capability-1")
+    assert after.task_epoch == observed.task_epoch + 1
+
+
+def test_stale_observation_is_detected_through_views() -> None:
+    authority = CorrectionAuthority()
+    snapshot, admin = split_correction_authority(authority)
+    initial = snapshot.snapshot("task-1", "run-1", "workspace.read")
+
+    admin.correct("task", "task-1", "principal pause")
+
+    assert snapshot.snapshot("task-1", "run-1", "workspace.read") != initial
+    assert snapshot.halted("task-1", "run-1", "workspace.read")
+    with snapshot.guard_unchanged(
+        "task-1", "run-1", "workspace.read", initial
+    ) as unchanged:
+        assert not unchanged
