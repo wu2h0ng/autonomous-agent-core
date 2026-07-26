@@ -49,7 +49,7 @@ from .errors import (
     UnsupportedNodeError,
     WorkerInterrupted,
 )
-from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
+from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .provider import ProviderPort
 from .task_service import (
     TaskService,
@@ -188,7 +188,7 @@ class RunCoordinator:
         provider: ProviderPort,
         provider_profile: ProviderProfile,
         policy: PolicyKernel,
-        correction: CorrectionAuthority,
+        correction: CorrectionReadPort,
         grant: CapabilityGrant | dict[str, CapabilityGrant],
         *,
         evaluator: DeterministicOutcomeEvaluator | None = None,

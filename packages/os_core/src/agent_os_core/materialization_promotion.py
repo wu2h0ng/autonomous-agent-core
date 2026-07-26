@@ -28,7 +28,7 @@ from .errors import (
     CandidatePromotionScopeMismatch,
     TaskNotFoundError,
 )
-from .governance import CorrectionGuard
+from .governance import CorrectionReadPort
 from .materialization import SEALER_ID
 from .materialization_promotion_persistence import (
     CandidatePromotionRecordRequest,
@@ -80,7 +80,7 @@ class DomainCandidatePromotionService:
     def __init__(
         self,
         tasks: TaskReader,
-        correction: CorrectionGuard,
+        correction: CorrectionReadPort,
         candidates: CandidateReader,
         evaluations: CandidateEvaluationReader,
         promotions: CandidatePromotionStore,
