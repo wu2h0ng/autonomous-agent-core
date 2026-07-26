@@ -240,6 +240,7 @@ def prepare_benchmark_task_package(
         run_inputs={
             "target_path": task.gold_file_path,
             "test_command": "python -m pytest",
+            "patch_format": "unified_diff",
         },
     )
 

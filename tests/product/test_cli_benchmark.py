@@ -221,6 +221,7 @@ def test_cli_benchmark_run_provider_until_approval(
     assert run_call[1] == {
         "target_path": "django/utils/dateformat.py",
         "test_command": "python -m pytest",
+        "patch_format": "unified_diff",
     }
     assert run_call[2] == "task-configuration:fake"
     assert isinstance(fake.sandbox, BenchmarkContainerSandbox)
@@ -418,6 +419,7 @@ def test_prepare_benchmark_task_package_shape() -> None:
     assert package.run_inputs == {
         "target_path": task.gold_file_path,
         "test_command": "python -m pytest",
+        "patch_format": "unified_diff",
     }
     assert package.benchmark_task is task
 

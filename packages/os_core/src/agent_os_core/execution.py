@@ -10,6 +10,7 @@ from uuid import uuid4
 from agent_os_contracts import (
     ActionContract,
     ApprovalDisposition,
+    BenchmarkTaskValidationError,
     BindingStatus,
     CapabilityGrant,
     CandidateGenerationEnvelope,
@@ -42,6 +43,7 @@ from agent_os_contracts import (
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
+from .benchmark_baseline import validate_unified_diff
 from .errors import ConcurrentWriteError
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
 from .provider import ProviderPort
@@ -59,6 +61,17 @@ def _strict_exit_code(output: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
+
+
+def _diff_header_path(diff_text: str) -> str | None:
+    """Extract the stripped single-file path from +++ headers of a validated diff."""
+    for line in diff_text.splitlines():
+        if line.startswith("+++"):
+            candidate = line[3:].strip()
+            if candidate.startswith("b/"):
+                candidate = candidate[2:]
+            return candidate or None
+    return None
 
 
 class RunExecutionError(RuntimeError):
@@ -1080,15 +1093,31 @@ class RunCoordinator:
             raise RunExecutionError("provider requires a target path and completed workspace.read")
         current_content = str(read_output.get("content", ""))
         goal = str(context.get("goal") or context.get("prompt") or "Produce the requested repository patch.")
+        patch_format = str(context.get("patch_format") or "complete_file")
+        if patch_format not in {"complete_file", "unified_diff"}:
+            raise RunExecutionError(f"unsupported patch_format: {patch_format}")
+        if patch_format == "unified_diff":
+            proposal_instruction = (
+                "Propose a single-file unified diff for the target path only by "
+                "calling only the workspace.apply_patch tool. Include path and "
+                "diff. The diff must start with '--- a/<path>' and '+++ b/<path>' "
+                "headers for the target path and contain only well-formed @@ "
+                "hunks. Do not output the complete file, do not call any other "
+                "capability and do not claim that the patch was applied."
+            )
+        else:
+            proposal_instruction = (
+                "Propose the complete replacement content by calling only the "
+                "workspace.apply_patch tool. Include path and content. Do not call any "
+                "other capability and do not claim that the patch was applied."
+            )
         prompt = (
             f"Repository task: {goal}\n"
             f"Target path: {target_path}\n"
             f"Current SHA-256: {read_output.get('sha256', '')}\n"
             "Current file content follows:\n"
             f"---BEGIN FILE---\n{current_content[:20000]}\n---END FILE---\n"
-            "Propose the complete replacement content by calling only the "
-            "workspace.apply_patch tool. Include path and content. Do not call any "
-            "other capability and do not claim that the patch was applied."
+            f"{proposal_instruction}"
         )
         request = ProviderRequest(
             request_id=f"request-{uuid4()}", task_id=task_id, run_id=run_id,
@@ -1123,7 +1152,11 @@ class RunCoordinator:
                 "provider returned an ambiguous or unauthorized tool proposal"
             )
         if not proposals:
-            fallback = self._parse_patch_json(response.text)
+            fallback = (
+                self._parse_patch_json(response.text)
+                if patch_format == "complete_file"
+                else None
+            )
             if fallback is not None:
                 proposals = [
                     ProviderToolProposal(
@@ -1137,16 +1170,41 @@ class RunCoordinator:
         raw_arguments = json.loads(proposals[0].arguments_json)
         if not isinstance(raw_arguments, dict):
             raise RunExecutionError("provider patch arguments must be an object")
-        if set(raw_arguments) != {"path", "content"}:
-            raise RunExecutionError(
-                "provider patch arguments must contain only path and content"
-            )
+        if patch_format == "unified_diff":
+            if set(raw_arguments) != {"path", "diff"}:
+                raise RunExecutionError(
+                    "provider diff arguments must contain only path and diff"
+                )
+            proposed_diff = raw_arguments.get("diff")
+            if not isinstance(proposed_diff, str) or not proposed_diff.strip():
+                raise RunExecutionError(
+                    "provider proposal requires string diff content"
+                )
+            try:
+                validate_unified_diff(proposed_diff)
+            except BenchmarkTaskValidationError as exc:
+                raise RunExecutionError(
+                    f"provider diff failed validation: {exc.detail}"
+                ) from exc
+        else:
+            if set(raw_arguments) != {"path", "content"}:
+                raise RunExecutionError(
+                    "provider patch arguments must contain only path and content"
+                )
+            proposed_content = raw_arguments.get("content")
+            if not isinstance(proposed_content, str):
+                raise RunExecutionError(
+                    "provider proposal requires complete string content"
+                )
         proposed_path = str(raw_arguments.get("path", ""))
-        proposed_content = raw_arguments.get("content")
+        if patch_format == "unified_diff":
+            header_path = _diff_header_path(str(raw_arguments.get("diff", "")))
+            if header_path is None or header_path != proposed_path:
+                raise RunExecutionError(
+                    "provider diff path does not match the proposal path"
+                )
         if proposed_path != target_path:
             raise RunExecutionError("provider proposal path does not match the reviewed target")
-        if not isinstance(proposed_content, str):
-            raise RunExecutionError("provider proposal requires complete string content")
         raw_arguments["expected_sha256"] = str(read_output.get("sha256", ""))
         bound_proposal = ProviderToolProposal(
             proposal_id=proposals[0].proposal_id,

@@ -12,7 +12,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -297,6 +297,17 @@ class WorkspaceSandbox:
 
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         if args.get("diff"):
+            expected = args.get("expected_sha256")
+            if expected is not None:
+                diff_target = str(args.get("path", ""))
+                candidate = self._safe_path(diff_target) if diff_target else None
+                actual = (
+                    _sha256(candidate.read_bytes())
+                    if candidate is not None and candidate.exists()
+                    else None
+                )
+                if expected != actual:
+                    raise CapabilityDenied("workspace changed since proposal")
             return self._apply_unified_diff(str(args.get("diff", "")), action_key)
         path = self._safe_path(str(args.get("path", "")))
         content = str(args.get("content", ""))
@@ -667,30 +678,49 @@ class WorkspaceSandbox:
             raise CapabilityDenied("unified diff contained no file hunks")
         applied: list[dict[str, object]] = []
         for item in files:
-            rel = item["path"]
+            rel = str(item["path"])
             path = self._safe_path(rel)
-            old_lines = item["old_lines"]
-            new_lines = item["new_lines"]
+            new_lines = cast(list[str], item["new_lines"])
+            # single-file diffs must snapshot under the plain action key so the
+            # governed compensation flow can resolve the compensation_ref
+            per_file_key = action_key if len(files) == 1 else f"{action_key}:{rel}"
             if item["is_new"]:
                 if path.exists():
                     raise CapabilityDenied(f"diff creates existing file: {rel}")
                 content = "".join(new_lines)
                 # reuse full-file apply for compensation semantics
-                result = self._apply_patch({"path": rel, "content": content}, f"{action_key}:{rel}")
-                applied.append({"path": rel, "mode": "create", **{k: result[k] for k in ("sha256", "compensation_ref") if k in result}})
+                result = self._apply_patch({"path": rel, "content": content}, per_file_key)
+                applied.append({"path": rel, "mode": "create", **result})
                 continue
             if not path.is_file():
                 raise CapabilityDenied(f"diff target missing: {rel}")
             current = path.read_text(encoding="utf-8")
             current_lines = current.splitlines(keepends=True)
             if item["hunks"]:
-                updated = _apply_hunks_to_lines(current_lines, item["hunks"])
+                updated = _apply_hunks_to_lines(
+                    current_lines,
+                    cast(list[tuple[int, int, list[str]]], item["hunks"]),
+                )
             else:
                 updated = new_lines
             content = "".join(updated)
-            result = self._apply_patch({"path": rel, "content": content}, f"{action_key}:{rel}")
-            applied.append({"path": rel, "mode": "update", **{k: result[k] for k in ("sha256", "compensation_ref") if k in result}})
-        return {"diff_files": len(applied), "applied": applied}
+            result = self._apply_patch({"path": rel, "content": content}, per_file_key)
+            applied.append({"path": rel, "mode": "update", **result})
+        output: dict[str, object] = {"diff_files": len(applied), "applied": applied}
+        if len(applied) == 1:
+            # lift single-file compensation binding so the governed
+            # compensation flow finds it at the top level (execution.py:778)
+            for key in (
+                "path",
+                "sha256",
+                "before_sha256",
+                "applied_sha256",
+                "compensation_ref",
+                "manifest_sha256",
+            ):
+                if key in applied[0]:
+                    output[key] = applied[0][key]
+        return output
 
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
