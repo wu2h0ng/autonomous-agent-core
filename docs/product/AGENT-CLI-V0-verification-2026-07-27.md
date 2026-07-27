@@ -30,16 +30,18 @@ uv run pyright packages/os_core/src/agent_os_core/{agent_cli,mandate_terminal,te
 ## Live provider
 
 Fixture procedure: `docs/product/AGENT-CLI-V0-live-provider-fixture-2026-07-27.md`.
-Attempted 2026-07-27 against a failing `add(a,b)` pytest fixture under Mandate + AgentLoop.
+
+Latest attempt 2026-07-27 under `AGENT_OS_PROVIDER_PROFILE=deepseek` / `deepseek-chat`
+against a failing `add(a,b)` pytest fixture under Mandate + AgentLoop:
 
 ```text
-stop_reason: provider_failure:AUTHENTICATION_FAILED
-exit_code: 1
+exit_code: 0
+broken.py: return a + b
 summary: docs/product/AGENT-CLI-V0-live-run-summary-2026-07-27.json
 ```
 
-Status: `ATTEMPTED / NOT_MET` — local credential was present but rejected by the
-OpenAI-compatible endpoint (HTTP 401). No workspace mutation occurred. Not usable-alpha.
+Status: `LIVE_PROVIDER_NARROW_VERIFIED` — one frozen tiny coding fixture completed with
+real DeepSeek. Not usable-alpha, not portfolio HCW evidence, not Autonomy.
 
 ## Review
 

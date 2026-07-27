@@ -1,10 +1,12 @@
 {
-  "exit_code": 1,
-  "last_text": "provider HTTP 401",
-  "stop_reason": "provider_failure:AUTHENTICATION_FAILED",
+  "exit_code": 0,
+  "last_text": "All tests pass with exit code 0 (green). The fix is complete:\n\n- **File**: `broken.py`\n- **Change**: `return a - b` \u2192 `return a + b`\n- **Result**: `add(a, b)` now correctly returns `a + b`, and all tests pass.",
+  "stop_reason": null,
   "mandate_id": "mandate:local-terminal",
-  "task_id": "task-08d8298e-d33b-49b8-8aac-ccdf91a48c52",
-  "run_id": "run:1a06a631-4672-4a2e-8f69-23a5011e690f",
-  "broken_py": "def add(a, b):\n    return a - b\n",
+  "task_id": "task-d6e65ff2-a59b-47cd-8797-cc723016b987",
+  "run_id": "run:4b87011f-1818-4e39-89b9-9178ab915cea",
+  "broken_py": "def add(a, b):\n    return a + b\n",
+  "profile": "deepseek",
+  "model": "deepseek-chat",
   "claim_ceiling": "LIVE_PROVIDER_ATTEMPT / NOT_USABLE_ALPHA"
 }

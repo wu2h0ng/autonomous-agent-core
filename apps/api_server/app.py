@@ -337,13 +337,9 @@ class AgentOSApplication:
             clock=self._clock,
         )
         self.policy = PolicyKernel(self.correction)
-        live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
-        live_model = os.environ.get("AGENT_OS_PROVIDER_MODEL", "gpt-4o-mini")
+        live_base_url, live_model, credential_key = self._resolve_live_provider_env()
         live_model_revision_digest = os.environ.get(
             "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
-        )
-        credential_key = os.environ.get(
-            "AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY"
         )
         credential_ref = CredentialRef(
             credential_ref_id="credential:default",
@@ -640,6 +636,70 @@ class AgentOSApplication:
             self.grants.clear()
             self.grants.update(rebuilt_grants)
         return self.workspace_status()
+
+    @staticmethod
+    def _normalize_provider_base_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        base = value.strip().rstrip("/")
+        if not base:
+            return None
+        if base.endswith("/chat/completions"):
+            base = base[: -len("/chat/completions")]
+        return base or None
+
+    @classmethod
+    def _resolve_live_provider_env(cls) -> tuple[str | None, str, str]:
+        """Resolve live provider base_url, model, and credential env var name.
+
+        Precedence:
+        1. Explicit AGENT_OS_PROVIDER_* overrides
+        2. AGENT_OS_PROVIDER_PROFILE=<kimi|openai|anthropic|deepseek>
+        3. Legacy OPENAI_API_URL / OPENAI_BASE_URL / OPENAI_MODEL / OPENAI_API_KEY
+        """
+        profile = os.environ.get("AGENT_OS_PROVIDER_PROFILE", "").strip().lower()
+        explicit_base = cls._normalize_provider_base_url(
+            os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
+        )
+        explicit_model = (os.environ.get("AGENT_OS_PROVIDER_MODEL") or "").strip()
+        explicit_key_env = (
+            os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV") or ""
+        ).strip()
+
+        profile_prefix = {
+            "kimi": "KIMI",
+            "openai": "OPENAI",
+            "anthropic": "ANTHROPIC",
+            "deepseek": "DEEPSEEK",
+        }.get(profile)
+
+        profile_base = None
+        profile_model = ""
+        profile_key_env = ""
+        if profile_prefix is not None:
+            profile_base = cls._normalize_provider_base_url(
+                os.environ.get(f"{profile_prefix}_BASE_URL")
+                or os.environ.get(f"{profile_prefix}_API_URL")
+            )
+            profile_model = (
+                os.environ.get(f"{profile_prefix}_MODEL") or ""
+            ).strip()
+            profile_key_env = f"{profile_prefix}_API_KEY"
+            profile_temp = os.environ.get(f"{profile_prefix}_TEMPERATURE")
+            if profile_temp and not os.environ.get("AGENT_OS_PROVIDER_TEMPERATURE"):
+                os.environ["AGENT_OS_PROVIDER_TEMPERATURE"] = profile_temp
+
+        legacy_base = cls._normalize_provider_base_url(
+            os.environ.get("OPENAI_API_URL") or os.environ.get("OPENAI_BASE_URL")
+        )
+        legacy_model = (os.environ.get("OPENAI_MODEL") or "").strip()
+
+        live_base_url = explicit_base or profile_base or legacy_base
+        live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
+        credential_key = (
+            explicit_key_env or profile_key_env or "OPENAI_API_KEY"
+        )
+        return live_base_url, live_model, credential_key
 
     def provider_status(self) -> dict[str, Any]:
         return {
