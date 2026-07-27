@@ -61,21 +61,7 @@ def _strict_exit_code(output: object) -> int | None:
     return value
 
 
-class RunExecutionError(RuntimeError):
-    pass
-
-
-class WorkerInterrupted(RunExecutionError):
-    """Test/worker crash boundary; durable event state remains resumable."""
-    pass
-
-
-class WaitingForApproval(RunExecutionError):
-    pass
-
-
-class UnsupportedNodeError(RunExecutionError):
-    pass
+from .errors import RunExecutionError, UnsupportedNodeError, WaitingForApproval, WorkerInterrupted
 
 
 class DeterministicOutcomeEvaluator:
