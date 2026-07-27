@@ -307,8 +307,9 @@ class WorkspaceSandbox:
     def _safe_path(self, value: str) -> Path:
         if not value or value.startswith("/") or "\\" in value:
             raise CapabilityDenied("path must be a relative workspace path")
-        if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
-            raise CapabilityDenied("workspace artifact state is reserved")
+        first = Path(value).parts[0] if Path(value).parts else ""
+        if first in {".agent-os-artifacts", ".agent_os"}:
+            raise CapabilityDenied("workspace agent state is reserved")
         raw = self.root / value
         if any(
             part.is_symlink()
@@ -320,7 +321,10 @@ class WorkspaceSandbox:
         if candidate != self.root and self.root not in candidate.parents:
             raise CapabilityDenied("path escapes workspace")
         if candidate == self.artifacts or self.artifacts in candidate.parents:
-            raise CapabilityDenied("workspace artifact state is reserved")
+            raise CapabilityDenied("workspace agent state is reserved")
+        agent_os_dir = (self.root / ".agent_os").resolve()
+        if candidate == agent_os_dir or agent_os_dir in candidate.parents:
+            raise CapabilityDenied("workspace agent state is reserved")
         return candidate
 
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
@@ -680,7 +684,9 @@ class WorkspaceSandbox:
             patch_args["expected_sha256"] = args["expected_sha256"]
         return self._apply_patch(patch_args, action_key)
 
-    _SEARCH_SKIP_DIRS = frozenset({".git", ".agent-os-artifacts", "node_modules", "__pycache__", ".venv"})
+    _SEARCH_SKIP_DIRS = frozenset(
+        {".git", ".agent-os-artifacts", ".agent_os", "node_modules", "__pycache__", ".venv"}
+    )
     _SEARCH_MAX_RESULTS = 200
     _SEARCH_MAX_OUTPUT_CHARS = 20000
 

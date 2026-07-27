@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 
+import pytest
 from agent_os_contracts import ProviderMessageRole, ProviderToolProposal, TaskEventType
 from agent_os_core import (
     AutoApproveGateway,
@@ -14,7 +15,8 @@ from agent_os_core import (
     load_terminal_session,
     run_agent_cli,
 )
-from agent_os_core.agent_cli import event_types
+from agent_os_core.agent_cli import AgentCLIError, event_types
+from agent_os_core.capability import CapabilityDenied, WorkspaceSandbox
 from agent_os_core.mandate_terminal import mandate_status
 
 from apps.api_server.app import AgentOSApplication
@@ -184,6 +186,43 @@ def test_policy_kernel_events_after_tool_turn(tmp_path: Path) -> None:
     events = event_types(app, saved.task_id)
     assert TaskEventType.ACTION_PROPOSED in events
     assert TaskEventType.POLICY_DECIDED in events
+
+
+def test_resume_rejects_mandate_or_workspace_mismatch(tmp_path: Path) -> None:
+    app = _agent_app(tmp_path, scripted=(("first", ()),))
+    run_agent_cli(
+        app=app,
+        workspace=tmp_path,
+        database=tmp_path / "agent-os.sqlite3",
+        goal="bind me",
+        gateway=AutoApproveGateway(),
+        prompt="hello",
+        offline=True,
+    )
+    session_path = tmp_path / ".agent_os" / "terminal_session.json"
+    raw = json.loads(session_path.read_text(encoding="utf-8"))
+    raw["mandate_id"] = "mandate:forged"
+    session_path.write_text(json.dumps(raw), encoding="utf-8")
+    app2 = _agent_app(tmp_path, scripted=(("nope", ()),))
+    with pytest.raises(AgentCLIError, match="mandate_id"):
+        run_agent_cli(
+            app=app2,
+            workspace=tmp_path,
+            database=tmp_path / "agent-os.sqlite3",
+            goal="bind me",
+            gateway=AutoApproveGateway(),
+            prompt="hello again",
+            resume=True,
+            offline=True,
+        )
+
+
+def test_workspace_tools_cannot_touch_agent_os_state(tmp_path: Path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+    (tmp_path / ".agent_os").mkdir()
+    (tmp_path / ".agent_os" / "terminal_session.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(CapabilityDenied, match="reserved"):
+        sandbox._safe_path(".agent_os/terminal_session.json")
 
 
 def test_ensure_local_mandate_session_clock_fix(tmp_path: Path) -> None:

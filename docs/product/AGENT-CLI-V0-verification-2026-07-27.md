@@ -3,18 +3,19 @@
 > Date: 2026-07-27
 > Branch: `codex/agent-cli-v0-20260727`
 > Worktree: `.worktrees/agent-cli-v0-20260727`
-> Result: `TARGETED_GREEN / NOT_REVIEWED / LIVE_PROVIDER_NOT_RUN`
-> Claim ceiling: `IMPLEMENTED_LOCAL / TARGETED_TESTED`
+> Result: `TARGETED_GREEN / REVIEWED_WITH_REMEDIATION / LIVE_PROVIDER_PENDING_ENV`
+> Claim ceiling: `IMPLEMENTED_LOCAL / TARGETED_TESTED / NOT_USABLE_ALPHA`
 
 ## Targeted tests
 
 ```text
 uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py -q
-27 passed in ~4.5s
+29 passed
 ```
 
 Coverage: governed AgentLoop (21) + Mandate zero-config / resume / confirmation
-fail-closed / PolicyKernel events / clock-fixed ensure_local / REPL status (6).
+fail-closed / PolicyKernel events / clock-fixed ensure_local / REPL status /
+resume mandate+workspace binding / `.agent_os` path reservation.
 
 ## Static
 
@@ -28,13 +29,19 @@ uv run pyright packages/os_core/src/agent_os_core/{agent_cli,mandate_terminal,te
 
 ## Live provider
 
-Provider env unset in this verification environment. Fixture procedure:
-`docs/product/AGENT-CLI-V0-live-provider-fixture-2026-07-27.md`. Status: `NOT_RUN`.
+Fixture procedure: `docs/product/AGENT-CLI-V0-live-provider-fixture-2026-07-27.md`.
+Status: `PENDING` — requires operator-approved load of local provider credentials;
+process env at review time had no `AGENT_OS_PROVIDER_*` exported.
 
 ## Review
 
-Independent exact-diff technical/security review: `NOT_RUN`.
-Request: `docs/product/AGENT-CLI-V0-independent-review-request-2026-07-27.md`.
+| Review | Result |
+|---|---|
+| Security Review | No medium+ findings; proposal-only + PolicyKernel path accepted |
+| Bugbot | 2 high + 1 medium; remediated: resume Mandate/workspace binding, reserve `.agent_os` |
+| Residual design debt | `workspace.run_tests` remains risk tier 1 (allowlisted pytest) while `workspace.shell` is tier 3 — accepted V0 product shape, not a synthetic-permit bypass |
+
+Request artifact: `docs/product/AGENT-CLI-V0-independent-review-request-2026-07-27.md`.
 
 ## Non-claims
 

@@ -100,8 +100,20 @@ def _resume_chat_session(
     app: Any,
     record: Any,
     gateway: ConfirmationGateway,
+    *,
+    workspace: Path,
+    mandate: MandateAttachSession,
     loop_config: AgentLoopConfig | None = None,
 ) -> tuple[ChatSession, AgentLoop]:
+    workspace = Path(workspace).resolve()
+    if record.mandate_id != mandate.mandate_id:
+        raise AgentCLIError(
+            "saved session mandate_id does not match the attached Mandate"
+        )
+    if Path(record.repo_root).resolve() != workspace:
+        raise AgentCLIError(
+            "saved session repo_root does not match the current workspace"
+        )
     aggregate = app.tasks.get_task(record.task_id)
     if aggregate.run is None or aggregate.run.run_id != record.run_id:
         raise AgentCLIError("saved run is not active; start a fresh agent session")
@@ -216,7 +228,14 @@ def run_agent_cli(
 
     if resume:
         record = load_terminal_session(workspace)
-        session, loop = _resume_chat_session(app, record, gateway, config)
+        session, loop = _resume_chat_session(
+            app,
+            record,
+            gateway,
+            workspace=workspace,
+            mandate=mandate,
+            loop_config=config,
+        )
         goal = record.goal
     else:
         if not app.provider_configured:
@@ -291,7 +310,14 @@ def run_agent_cli(
             continue
         if text == "/resume":
             record = load_terminal_session(workspace)
-            session, loop = _resume_chat_session(app, record, gateway, config)
+            session, loop = _resume_chat_session(
+                app,
+                record,
+                gateway,
+                workspace=workspace,
+                mandate=mandate,
+                loop_config=config,
+            )
             goal = record.goal
             print(
                 f"[resumed session {session.session_id}; "
