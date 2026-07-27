@@ -27,7 +27,9 @@ uv run python -m apps.cli --workspace /path/to/fixture --database /tmp/agent-cli
   agent -p "Fix the failing test with the smallest edit, then run tests."
 ```
 
-3. Approve edit/shell prompts when asked (interactive mode), or use interactive REPL without `-p`.
+3. One-shot `-p` uses `AutoApproveGateway` for risk tier &lt; 3 (read/edit/tests).
+   Tier ≥ 3 shell still requires interactive REPL confirmation and is rejected headlessly.
+   Prefer interactive REPL without `-p` when shell approval is required.
 4. Record transcript, `.agent_os/terminal_session.json`, Task/Run ids, and pytest outcome.
 
 ## Pass criteria

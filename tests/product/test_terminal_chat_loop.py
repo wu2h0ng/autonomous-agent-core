@@ -643,7 +643,7 @@ def test_cli_chat_prompt_mode_end_to_end(tmp_path: Path, stub_provider: str) -> 
     ]
 
 
-def test_cli_prompt_mode_denies_edit_without_interactive_approval(
+def test_cli_prompt_mode_auto_approves_tier2_edit(
     tmp_path: Path, stub_provider: str
 ) -> None:
     _prepare_workspace(tmp_path)
@@ -651,7 +651,7 @@ def test_cli_prompt_mode_denies_edit_without_interactive_approval(
     _StubHandler.first_tool_arguments = {
         "path": "fixture.txt",
         "old_string": "stable",
-        "new_string": "silently-mutated",
+        "new_string": "auto-approved",
     }
 
     completed = subprocess.run(
@@ -675,7 +675,37 @@ def test_cli_prompt_mode_denies_edit_without_interactive_approval(
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "auto-approved\n"
+
+
+def test_cli_prompt_mode_still_denies_tier3_shell(
+    tmp_path: Path, stub_provider: str
+) -> None:
+    _prepare_workspace(tmp_path)
+    _StubHandler.first_tool_name = "workspace__shell"
+    _StubHandler.first_tool_arguments = {"command": "git status"}
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "apps.cli",
+            "--database",
+            str(tmp_path / "agent-os.sqlite3"),
+            "--workspace",
+            str(tmp_path),
+            "agent",
+            "-p",
+            "run git status",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=_cli_env(stub_provider),
+        cwd=tmp_path,
+    )
+
+    assert completed.returncode == 0, completed.stderr
     second_request = _StubHandler.requests_seen[1]
     tool_message = next(
         message for message in second_request["messages"] if message["role"] == "tool"

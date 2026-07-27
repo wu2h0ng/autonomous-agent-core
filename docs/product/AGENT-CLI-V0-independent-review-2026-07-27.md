@@ -64,9 +64,11 @@ database path on resume for operator misconfig defense.
 
 ## Required before stronger claims
 
-1. Decide and implement one-shot policy: either wire `-p` to `AutoApproveGateway` (tier&lt;3) with explicit GC, or rewrite live fixture/docs to require interactive REPL / confirm gateway.
-2. Bind `database` (resolved path) into mandate attach and/or `terminal_session.json`; fail closed on mismatch at resume.
-3. Resume: reject non-active or correction-halted runs with a clear error.
+1. ~~Decide and implement one-shot policy~~ — **REMEDIATED 2026-07-27**: `-p` uses `AutoApproveGateway` (tier&lt;3); shell still headless-denied.
+2. ~~Bind `database`~~ — **REMEDIATED**: `agent-cli-session.v1` + attach/database mismatch fail-closed.
+3. ~~Resume reject halted/terminal~~ — **REMEDIATED**: status + `correction.halted` checks.
+
+See `docs/product/AGENT-CLI-V0-review-debt-remediation-2026-07-27.md`. Original verdict remains historical; debt items above are closed locally pending optional delta re-review / merge authorization.
 
 ## Out of reviewer authority
 

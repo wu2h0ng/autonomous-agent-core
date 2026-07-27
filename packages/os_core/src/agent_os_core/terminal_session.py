@@ -11,7 +11,7 @@ from typing import Any
 from agent_os_contracts import ProviderMessage, ProviderMessageRole
 
 SESSION_FILENAME = "terminal_session.json"
-SCHEMA_VERSION = "agent-cli-session.v0"
+SCHEMA_VERSION = "agent-cli-session.v1"
 
 
 class TerminalSessionError(ValueError):
@@ -28,6 +28,7 @@ class TerminalSessionRecord:
     envelope_id: str
     goal: str
     repo_root: str
+    database: str
     messages: tuple[dict[str, Any], ...]
     saved_at: str
 
@@ -41,6 +42,7 @@ class TerminalSessionRecord:
             "envelope_id": self.envelope_id,
             "goal": self.goal,
             "repo_root": self.repo_root,
+            "database": self.database,
             "messages": list(self.messages),
             "saved_at": self.saved_at,
         }
@@ -116,6 +118,7 @@ def save_terminal_session(
     envelope_id: str,
     goal: str,
     repo_root: Path,
+    database: Path,
     messages: tuple[ProviderMessage, ...],
 ) -> TerminalSessionRecord:
     record = TerminalSessionRecord(
@@ -127,6 +130,7 @@ def save_terminal_session(
         envelope_id=envelope_id,
         goal=goal,
         repo_root=str(Path(repo_root).resolve()),
+        database=str(Path(database).resolve()),
         messages=messages_from_history(messages),
         saved_at=_utc_now_iso(),
     )
@@ -155,6 +159,7 @@ def load_terminal_session(workspace: Path) -> TerminalSessionRecord:
         "envelope_id",
         "goal",
         "repo_root",
+        "database",
         "messages",
         "saved_at",
     )
@@ -164,6 +169,9 @@ def load_terminal_session(workspace: Path) -> TerminalSessionRecord:
     messages = raw.get("messages")
     if not isinstance(messages, list):
         raise TerminalSessionError("terminal session messages must be a list")
+    database = str(raw["database"]).strip()
+    if not database:
+        raise TerminalSessionError("terminal session database binding is empty")
     return TerminalSessionRecord(
         schema_version=schema,
         mandate_id=str(raw["mandate_id"]),
@@ -173,6 +181,7 @@ def load_terminal_session(workspace: Path) -> TerminalSessionRecord:
         envelope_id=str(raw["envelope_id"]),
         goal=str(raw["goal"]),
         repo_root=str(raw["repo_root"]),
+        database=database,
         messages=tuple(messages),
         saved_at=str(raw["saved_at"]),
     )

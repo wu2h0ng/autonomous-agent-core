@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
 
-from agent_os_contracts import SessionRef, TaskEventType
+from agent_os_contracts import RunStatus, SessionRef, TaskEventType
 
 from .agent_context import (
     AgentsMarkdownContext,
@@ -125,18 +125,31 @@ def _build_chat_loop(
     )
 
 
+_RESUMABLE_RUN_STATUSES = frozenset(
+    {
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.PAUSED,
+        RunStatus.WAITING_EVENT,
+        RunStatus.WAITING_APPROVAL,
+    }
+)
+
+
 def _resume_chat_session(
     app: Any,
     record: Any,
     gateway: ConfirmationGateway,
     *,
     workspace: Path,
+    database: Path,
     mandate: MandateAttachSession,
     loop_config: AgentLoopConfig | None = None,
     stream: bool = True,
     on_text_delta: Any | None = None,
 ) -> tuple[ChatSession, AgentLoop]:
     workspace = Path(workspace).resolve()
+    database = Path(database).resolve()
     if record.mandate_id != mandate.mandate_id:
         raise AgentCLIError(
             "saved session mandate_id does not match the attached Mandate"
@@ -145,9 +158,26 @@ def _resume_chat_session(
         raise AgentCLIError(
             "saved session repo_root does not match the current workspace"
         )
+    if Path(record.database).resolve() != database:
+        raise AgentCLIError(
+            "saved session database does not match the current --database"
+        )
+    if Path(mandate.database).resolve() != database:
+        raise AgentCLIError(
+            "attached Mandate database does not match the current --database"
+        )
     aggregate = app.tasks.get_task(record.task_id)
     if aggregate.run is None or aggregate.run.run_id != record.run_id:
         raise AgentCLIError("saved run is not active; start a fresh agent session")
+    if aggregate.run.status not in _RESUMABLE_RUN_STATUSES:
+        raise AgentCLIError(
+            f"saved run status {aggregate.run.status.value} is not resumable; "
+            "start a fresh agent session"
+        )
+    if app.correction.halted(record.task_id, record.run_id, "provider"):
+        raise AgentCLIError(
+            "saved run is correction-halted; start a fresh agent session"
+        )
     if aggregate.expected_outcome is None:
         raise AgentCLIError("saved task has no expected outcome")
     session = ChatSession(
@@ -187,6 +217,7 @@ def _configure_offline_provider(app: Any) -> None:
 def _persist_session(
     *,
     workspace: Path,
+    database: Path,
     mandate: MandateAttachSession,
     session: ChatSession,
     goal: str,
@@ -201,6 +232,7 @@ def _persist_session(
         envelope_id=session.envelope_id,
         goal=goal,
         repo_root=workspace,
+        database=database,
         messages=loop.history,
     )
 
@@ -263,7 +295,7 @@ def run_agent_cli(
 ) -> AgentCLIResult:
     """Programmatic Agent CLI entry for tests and the apps.cli wrapper."""
     workspace = Path(workspace).resolve()
-    database = Path(database)
+    database = Path(database).resolve()
     out = output_stream or sys.stdout
     inp = input_stream or sys.stdin
     apply_trusted_shell_profile(app.sandbox)
@@ -291,6 +323,7 @@ def run_agent_cli(
             record,
             gateway,
             workspace=workspace,
+            database=database,
             mandate=mandate,
             loop_config=config,
             stream=stream,
@@ -322,6 +355,7 @@ def run_agent_cli(
             return AgentCLIResult(exit_code=130, stop_reason="correction_halted")
         _persist_session(
             workspace=workspace,
+            database=database,
             mandate=mandate,
             session=session,
             goal=goal,
@@ -387,6 +421,7 @@ def run_agent_cli(
                 record,
                 gateway,
                 workspace=workspace,
+                database=database,
                 mandate=mandate,
                 loop_config=config,
                 stream=stream,
@@ -407,6 +442,7 @@ def run_agent_cli(
             break
         _persist_session(
             workspace=workspace,
+            database=database,
             mandate=mandate,
             session=session,
             goal=goal,

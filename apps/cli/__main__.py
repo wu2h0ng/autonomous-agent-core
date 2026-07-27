@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from agent_os_contracts import ActionContract
-from agent_os_core import NonInteractiveDenyGateway
+from agent_os_core import AutoApproveGateway
 from agent_os_core.agent_cli import run_agent_cli
 from agent_os_core.mandate_terminal import (
     MandateTerminalError,
@@ -66,8 +66,11 @@ def _run_agent_command(
     repl_banner_template: str | None,
 ) -> int:
     goal = args.prompt or default_goal
+    # One-shot `-p` / positional prompt: AutoApproveGateway admits tier < 3
+    # (read/edit/tests). Tier >= 3 shell still requires interactive confirm and
+    # is rejected headlessly. REPL uses TerminalConfirmationGateway.
     gateway = (
-        NonInteractiveDenyGateway()
+        AutoApproveGateway()
         if args.prompt is not None
         else TerminalConfirmationGateway()
     )

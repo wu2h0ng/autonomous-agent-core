@@ -386,24 +386,33 @@ def ensure_local_mandate_session(
     Returns (session, created_new).
     """
     workspace = Path(workspace)
-    database = Path(database)
+    database = Path(database).resolve()
     when = evaluated_at or _utc_now()
     attach = attach_path(workspace)
     if attach.is_file():
         try:
             session = load_attach_session(workspace)
-            store = SQLiteSituatedAssessmentStore(Path(session.database))
-            store.resolve_active(
-                session.mandate_id,
-                session.environment_binding_id,
-                principal_id=session.principal_id,
-                tenant_id=session.tenant_id,
-                workspace_id=session.workspace_id,
-                evaluated_at=when,
-            )
-            return session, False
-        except (MandateTerminalError, SituationalTrustDenied, OSError, ValueError):
-            pass
+        except MandateTerminalError:
+            session = None
+        else:
+            if Path(session.database).resolve() != database:
+                raise MandateTerminalError(
+                    "attached Mandate database does not match requested --database; "
+                    "use the original database or remove .agent_os/mandate_attach.json"
+                )
+            try:
+                store = SQLiteSituatedAssessmentStore(Path(session.database))
+                store.resolve_active(
+                    session.mandate_id,
+                    session.environment_binding_id,
+                    principal_id=session.principal_id,
+                    tenant_id=session.tenant_id,
+                    workspace_id=session.workspace_id,
+                    evaluated_at=when,
+                )
+                return session, False
+            except (SituationalTrustDenied, OSError, ValueError):
+                pass
 
     digest = "a" * 64
     binding_digest = "b" * 64
