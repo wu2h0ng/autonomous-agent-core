@@ -1,0 +1,10 @@
+{
+  "exit_code": 1,
+  "last_text": "provider HTTP 401",
+  "stop_reason": "provider_failure:AUTHENTICATION_FAILED",
+  "mandate_id": "mandate:local-terminal",
+  "task_id": "task-08d8298e-d33b-49b8-8aac-ccdf91a48c52",
+  "run_id": "run:1a06a631-4672-4a2e-8f69-23a5011e690f",
+  "broken_py": "def add(a, b):\n    return a - b\n",
+  "claim_ceiling": "LIVE_PROVIDER_ATTEMPT / NOT_USABLE_ALPHA"
+}

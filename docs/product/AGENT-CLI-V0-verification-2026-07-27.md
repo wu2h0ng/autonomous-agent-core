@@ -30,8 +30,16 @@ uv run pyright packages/os_core/src/agent_os_core/{agent_cli,mandate_terminal,te
 ## Live provider
 
 Fixture procedure: `docs/product/AGENT-CLI-V0-live-provider-fixture-2026-07-27.md`.
-Status: `PENDING` — requires operator-approved load of local provider credentials;
-process env at review time had no `AGENT_OS_PROVIDER_*` exported.
+Attempted 2026-07-27 against a failing `add(a,b)` pytest fixture under Mandate + AgentLoop.
+
+```text
+stop_reason: provider_failure:AUTHENTICATION_FAILED
+exit_code: 1
+summary: docs/product/AGENT-CLI-V0-live-run-summary-2026-07-27.json
+```
+
+Status: `ATTEMPTED / NOT_MET` — local credential was present but rejected by the
+OpenAI-compatible endpoint (HTTP 401). No workspace mutation occurred. Not usable-alpha.
 
 ## Review
 
