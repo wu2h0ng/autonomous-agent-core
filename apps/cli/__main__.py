@@ -82,6 +82,7 @@ def _run_agent_command(
         resume=args.resume,
         offline=args.offline,
         repl_banner_template=repl_banner_template,
+        stream=not args.no_stream,
     )
     return result.exit_code
 
@@ -153,6 +154,11 @@ def main(argv: list[str] | None = None) -> None:
     agent.add_argument("--prompt", "-p", dest="prompt_flag", default=None)
     agent.add_argument("--resume", action="store_true")
     agent.add_argument("--offline", action="store_true")
+    agent.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="disable provider SSE streaming (debug)",
+    )
     agent.set_defaults(_uses_prompt_flag=True)
 
     chat = sub.add_parser("chat", help="deprecated alias for agent")
@@ -160,6 +166,11 @@ def main(argv: list[str] | None = None) -> None:
     chat.add_argument("--prompt", "-p", dest="prompt_flag", default=None)
     chat.add_argument("--resume", action="store_true")
     chat.add_argument("--offline", action="store_true")
+    chat.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="disable provider SSE streaming (debug)",
+    )
     chat.set_defaults(_uses_prompt_flag=True)
 
     mandate_bootstrap = sub.add_parser("mandate-bootstrap")

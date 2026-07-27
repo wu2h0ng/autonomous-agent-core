@@ -446,11 +446,55 @@ class _StubHandler(BaseHTTPRequestHandler):
     first_tool_name = "workspace__search"
     first_tool_arguments: dict[str, object] = {"mode": "ls"}
 
+    def _write_sse(self, lines: list[str]) -> None:
+        body = "".join(f"data: {line}\n\n" for line in lines) + "data: [DONE]\n\n"
+        encoded = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length).decode("utf-8"))
         type(self).requests_seen.append(body)
+        stream = bool(body.get("stream"))
         if len(type(self).requests_seen) == 1:
+            if stream:
+                tool_args = json.dumps(type(self).first_tool_arguments)
+                self._write_sse(
+                    [
+                        json.dumps(
+                            {
+                                "id": "cmpl-1",
+                                "choices": [
+                                    {
+                                        "delta": {
+                                            "tool_calls": [
+                                                {
+                                                    "index": 0,
+                                                    "id": "call_1",
+                                                    "function": {
+                                                        "name": type(self).first_tool_name,
+                                                        "arguments": tool_args,
+                                                    },
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "id": "cmpl-1",
+                                "choices": [{"finish_reason": "tool_calls"}],
+                            }
+                        ),
+                    ]
+                )
+                return
             payload = {
                 "id": "cmpl-1",
                 "choices": [
@@ -477,6 +521,24 @@ class _StubHandler(BaseHTTPRequestHandler):
                 "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
             }
         else:
+            if stream:
+                self._write_sse(
+                    [
+                        json.dumps(
+                            {
+                                "id": "cmpl-2",
+                                "choices": [{"delta": {"content": "CLI-DONE"}}],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "id": "cmpl-2",
+                                "choices": [{"finish_reason": "stop"}],
+                            }
+                        ),
+                    ]
+                )
+                return
             payload = {
                 "id": "cmpl-2",
                 "choices": [

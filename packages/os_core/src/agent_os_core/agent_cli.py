@@ -91,6 +91,9 @@ def _build_chat_loop(
     session: ChatSession,
     gateway: ConfirmationGateway,
     loop_config: AgentLoopConfig | None = None,
+    *,
+    stream: bool = True,
+    on_text_delta: Any | None = None,
 ) -> AgentLoop:
     grants = dict(app.grants)
     for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
@@ -104,6 +107,9 @@ def _build_chat_loop(
     chat_grants = {
         capability_id: grants[capability_id] for capability_id in CHAT_CAPABILITY_IDS
     }
+    config = loop_config or _default_loop_config()
+    if not stream:
+        config = replace(config, stream=False)
     return AgentLoop(
         tasks=app.tasks,
         provider=app.provider,
@@ -114,7 +120,8 @@ def _build_chat_loop(
         grants=chat_grants,
         principal=app.principal,
         gateway=gateway,
-        config=loop_config or _default_loop_config(),
+        config=config,
+        on_text_delta=on_text_delta,
     )
 
 
@@ -126,6 +133,8 @@ def _resume_chat_session(
     workspace: Path,
     mandate: MandateAttachSession,
     loop_config: AgentLoopConfig | None = None,
+    stream: bool = True,
+    on_text_delta: Any | None = None,
 ) -> tuple[ChatSession, AgentLoop]:
     workspace = Path(workspace).resolve()
     if record.mandate_id != mandate.mandate_id:
@@ -152,7 +161,9 @@ def _resume_chat_session(
         envelope_id=record.envelope_id,
         expected=aggregate.expected_outcome,
     )
-    loop = _build_chat_loop(app, session, gateway, loop_config)
+    loop = _build_chat_loop(
+        app, session, gateway, loop_config, stream=stream, on_text_delta=on_text_delta
+    )
     loop.restore_history(history_from_messages(record.messages))
     return session, loop
 
@@ -219,6 +230,21 @@ def _print_status(
     print(json.dumps(payload, indent=2), file=out)
 
 
+def _emit_turn_output(
+    result: Any,
+    *,
+    out: TextIO,
+    streamed: bool,
+) -> None:
+    if result.text:
+        if streamed:
+            print(file=out)
+        else:
+            print(result.text, file=out)
+    if result.stop_reason != "completed":
+        print(f"[stopped: {result.stop_reason}]", file=out)
+
+
 def run_agent_cli(
     *,
     app: Any,
@@ -233,6 +259,7 @@ def run_agent_cli(
     input_stream: TextIO | None = None,
     output_stream: TextIO | None = None,
     repl_banner_template: str | None = None,
+    stream: bool = True,
 ) -> AgentCLIResult:
     """Programmatic Agent CLI entry for tests and the apps.cli wrapper."""
     workspace = Path(workspace).resolve()
@@ -242,6 +269,11 @@ def run_agent_cli(
     apply_trusted_shell_profile(app.sandbox)
     base_config = loop_config or _default_loop_config()
     config, agents_ctx = _loop_config_with_agents(base_config, workspace)
+
+    def _stream_delta(delta: str) -> None:
+        print(delta, file=out, end="", flush=True)
+
+    on_text_delta = _stream_delta if stream else None
 
     if offline:
         _configure_offline_provider(app)
@@ -261,6 +293,8 @@ def run_agent_cli(
             workspace=workspace,
             mandate=mandate,
             loop_config=config,
+            stream=stream,
+            on_text_delta=on_text_delta,
         )
         goal = record.goal
     else:
@@ -269,10 +303,23 @@ def run_agent_cli(
                 "provider is not configured: set AGENT_OS_PROVIDER_BASE_URL and "
                 "AGENT_OS_PROVIDER_MODEL or pass offline=True"
             )
-        session, loop = app.open_chat_session(goal, gateway, loop_config=config)
+        session, _ = app.open_chat_session(goal, gateway, loop_config=config)
+        loop = _build_chat_loop(
+            app,
+            session,
+            gateway,
+            config,
+            stream=stream,
+            on_text_delta=on_text_delta,
+        )
 
     if prompt is not None:
-        result = loop.run_turn(session, prompt)
+        try:
+            result = loop.run_turn(session, prompt)
+        except KeyboardInterrupt:
+            app.correct_task(session.task_id, "user interrupt during prompt turn")
+            print("[turn interrupted; task correction-halted]", file=out)
+            return AgentCLIResult(exit_code=130, stop_reason="correction_halted")
         _persist_session(
             workspace=workspace,
             mandate=mandate,
@@ -280,10 +327,8 @@ def run_agent_cli(
             goal=goal,
             loop=loop,
         )
-        if result.text:
-            print(result.text, file=out)
+        _emit_turn_output(result, out=out, streamed=stream)
         if result.stop_reason != "completed":
-            print(f"[stopped: {result.stop_reason}]", file=sys.stderr)
             return AgentCLIResult(
                 exit_code=1,
                 last_text=result.text,
@@ -344,6 +389,8 @@ def run_agent_cli(
                 workspace=workspace,
                 mandate=mandate,
                 loop_config=config,
+                stream=stream,
+                on_text_delta=on_text_delta,
             )
             goal = record.goal
             print(
@@ -356,8 +403,8 @@ def run_agent_cli(
             result = loop.run_turn(session, text)
         except KeyboardInterrupt:
             app.correct_task(session.task_id, "user interrupt from terminal")
-            print("[turn interrupted; task correction-halted]", file=out)
-            continue
+            print("\n[turn interrupted; task correction-halted]", file=out)
+            break
         _persist_session(
             workspace=workspace,
             mandate=mandate,
@@ -365,10 +412,7 @@ def run_agent_cli(
             goal=goal,
             loop=loop,
         )
-        if result.text:
-            print(result.text, file=out)
-        if result.stop_reason != "completed":
-            print(f"[stopped: {result.stop_reason}]", file=out)
+        _emit_turn_output(result, out=out, streamed=stream)
 
     return AgentCLIResult(exit_code=0)
 

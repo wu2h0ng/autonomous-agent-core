@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -115,6 +115,7 @@ class AgentLoopConfig:
     max_context_chars: int = 60_000
     loop_detection_threshold: int = 3
     system_prompt: str = _SYSTEM_PROMPT
+    stream: bool = True
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,7 @@ class AgentLoop:
         principal: PrincipalIdentity,
         gateway: ConfirmationGateway,
         config: AgentLoopConfig | None = None,
+        on_text_delta: Callable[[str], None] | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -181,6 +183,7 @@ class AgentLoop:
         self._principal = principal
         self._gateway = gateway
         self._config = config or AgentLoopConfig()
+        self._on_text_delta = on_text_delta
         self._broker = CapabilityBroker(sandbox, correction)
         self._actions = ActionPipeline(
             tasks, self._broker, policy, correction, grants
@@ -360,7 +363,12 @@ class AgentLoop:
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
-            response = self._provider.complete(request)
+            if self._config.stream:
+                response = self._provider.complete_streaming(
+                    request, on_text_delta=self._on_text_delta
+                )
+            else:
+                response = self._provider.complete(request)
             if isinstance(response, ProviderFailure):
                 last_failure = response
                 if response.request_id != request.request_id:
