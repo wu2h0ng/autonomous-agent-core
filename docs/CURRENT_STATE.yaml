@@ -13,12 +13,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-07-27T12:00:00+08:00"
+updated: "2026-07-27T13:30:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/agent-cli-v0-20260727 (worktree; origin/main tip retained as merge base)"
-status: "Agent CLI V0 local synthesis is IMPLEMENTED_LOCAL / TARGETED_TESTED on branch codex/agent-cli-v0-20260727: single agent entry, Mandate zero-config, PolicyKernel AgentLoop SE organ, durable transcript resume; 27 targeted tests passed; NOT_REVIEWED / LIVE_PROVIDER_NOT_RUN / NOT_MERGED / NOT_RELEASED. Agent OS main still includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
+status: "Agent CLI V0 local synthesis is IMPLEMENTED_LOCAL / TARGETED_TESTED / LIVE_PROVIDER_GREEN on branch codex/agent-cli-v0-20260727: single agent entry, Mandate zero-config, PolicyKernel AgentLoop SE organ, durable transcript resume, DeepSeek live fixture green; P1 slice (AGENTS.md discovery/injection + trusted shell profile) IMPLEMENTED_LOCAL / TARGETED_TESTED on same branch; NOT_REVIEWED / NOT_MERGED / NOT_RELEASED. Agent OS main still includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -322,10 +322,10 @@ research_ledger:
 active_work:
   - id: "P-AGENT-CLI-V0"
     track: "product"
-    status: "IMPLEMENTED_LOCAL / TARGETED_TESTED_27_PASSED / NOT_REVIEWED / LIVE_PROVIDER_NOT_RUN / NOT_MERGED / NOT_RELEASED"
+    status: "IMPLEMENTED_LOCAL / TARGETED_TESTED / LIVE_PROVIDER_GREEN / NOT_REVIEWED / NOT_MERGED / NOT_RELEASED"
     purpose: "Single Agent OS terminal entry under Mandate with governed SE organ (AgentLoop/PolicyKernel), durable resume; coding is organ not product name."
     boundary: "Clean worktree only. No MCP/sub-agent/TUI/Data Agent organ. No synthetic permits. No usable-alpha, Autonomy, or release claim."
-    evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py -q => 27 passed; ruff clean; pyright 0 on core modules"
+    evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py -q => 27 passed; DeepSeek live green; ruff clean; pyright 0 on core modules"
     source:
       - "docs/product/GC-AGENT-CLI-V0-2026-07-27.md"
       - "docs/product/CP-AGENT-CLI-V0-2026-07-27.md"
@@ -334,6 +334,17 @@ active_work:
       - "docs/product/AGENT-CLI-V0-independent-review-request-2026-07-27.md"
       - "packages/os_core/src/agent_os_core/agent_cli.py"
       - "packages/os_core/src/agent_os_core/agent_loop.py"
+  - id: "P-AGENT-CLI-P1"
+    track: "product"
+    status: "IMPLEMENTED_LOCAL / TARGETED_TESTED / NOT_REVIEWED / NOT_MERGED / NOT_RELEASED"
+    purpose: "AGENTS.md discovery/injection into Agent CLI system prompt and trusted shell profile for bounded git/lint/test commands."
+    boundary: "Exact-string shell allowlist only; symlink/outside-workspace AGENTS.md fail closed; no arbitrary shell or release claim."
+    evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py tests/product/test_agent_cli_p1.py -q"
+    source:
+      - "docs/product/GC-AGENT-CLI-P1-2026-07-27.md"
+      - "packages/os_core/src/agent_os_core/agent_context.py"
+      - "packages/os_core/src/agent_os_core/trusted_commands.py"
+      - "tests/product/test_agent_cli_p1.py"
   - id: "P-MANDATE-ACTIVE-PERCEPTION-1"
     track: "product"
     status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_AT_4BA2612 / PROPOSAL_ONLY / NOT_RELEASED"

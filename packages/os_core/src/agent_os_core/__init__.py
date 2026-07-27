@@ -139,6 +139,13 @@ from .capability import (
     WorkspaceSandbox,
 )
 from .agent_cli import AgentCLIError, AgentCLIResult, event_types, run_agent_cli
+from .agent_context import (
+    AgentsMarkdownContext,
+    agent_context_status_payload,
+    agents_markdown_system_section,
+    discover_agents_markdown,
+)
+from .trusted_commands import TRUSTED_SHELL_PROFILE_V1, apply_trusted_shell_profile
 from .mandate_terminal import (
     MandateAttachSession,
     MandateTerminalError,
@@ -414,6 +421,12 @@ __all__ = [
     "AgentCLIResult",
     "event_types",
     "run_agent_cli",
+    "AgentsMarkdownContext",
+    "agent_context_status_payload",
+    "agents_markdown_system_section",
+    "discover_agents_markdown",
+    "TRUSTED_SHELL_PROFILE_V1",
+    "apply_trusted_shell_profile",
     "MandateAttachSession",
     "MandateTerminalError",
     "attach_mandate",

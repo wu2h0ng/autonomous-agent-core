@@ -84,6 +84,9 @@ class WorkspaceSandbox:
             else ("pytest", "python -m pytest", "python3 -m pytest")
         )
 
+    def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None:
+        self._shell_allowlist = tuple(allowlist)
+
     def specs(
         self,
         now: datetime | None = None,

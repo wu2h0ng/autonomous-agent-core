@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
 
 from agent_os_contracts import SessionRef, TaskEventType
 
+from .agent_context import (
+    AgentsMarkdownContext,
+    agent_context_status_payload,
+    agents_markdown_system_section,
+    discover_agents_markdown,
+)
 from .agent_loop import (
     AgentLoop,
     AgentLoopConfig,
@@ -29,6 +35,7 @@ from .terminal_session import (
     load_terminal_session,
     save_terminal_session,
 )
+from .trusted_commands import apply_trusted_shell_profile
 
 _AGENT_SYSTEM_PROMPT = (
     "You are a governed Agent OS terminal agent operating under an external "
@@ -62,6 +69,21 @@ class AgentCLIResult:
 
 def _default_loop_config() -> AgentLoopConfig:
     return AgentLoopConfig(system_prompt=_AGENT_SYSTEM_PROMPT)
+
+
+def _loop_config_with_agents(
+    config: AgentLoopConfig, workspace: Path
+) -> tuple[AgentLoopConfig, AgentsMarkdownContext | None]:
+    agents_ctx = discover_agents_markdown(workspace)
+    if agents_ctx is None:
+        return config, None
+    return (
+        replace(
+            config,
+            system_prompt=config.system_prompt + agents_markdown_system_section(agents_ctx),
+        ),
+        agents_ctx,
+    )
 
 
 def _build_chat_loop(
@@ -179,6 +201,7 @@ def _print_status(
     session: ChatSession,
     loop: AgentLoop,
     goal: str,
+    agents_ctx: AgentsMarkdownContext | None,
     out: TextIO,
 ) -> None:
     status = mandate_status(workspace=workspace, session=mandate)
@@ -191,6 +214,7 @@ def _print_status(
             "session_id": session.session_id,
             "history_messages": len(loop.history),
         },
+        "agent_context": agent_context_status_payload(agents_ctx),
     }
     print(json.dumps(payload, indent=2), file=out)
 
@@ -215,7 +239,9 @@ def run_agent_cli(
     database = Path(database)
     out = output_stream or sys.stdout
     inp = input_stream or sys.stdin
-    config = loop_config or _default_loop_config()
+    apply_trusted_shell_profile(app.sandbox)
+    base_config = loop_config or _default_loop_config()
+    config, agents_ctx = _loop_config_with_agents(base_config, workspace)
 
     if offline:
         _configure_offline_provider(app)
@@ -305,6 +331,7 @@ def run_agent_cli(
                 session=session,
                 loop=loop,
                 goal=goal,
+                agents_ctx=agents_ctx,
                 out=out,
             )
             continue
