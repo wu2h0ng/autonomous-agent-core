@@ -161,3 +161,38 @@ passed
 
 This remains `FOUNDATION_NOT_APPROVED` pending a new exact-head independent
 review.
+
+Fifth exact-head review at `feacc61` returned
+`TECHNICAL_REVISE_FOUNDATION`, with `P0=0 / P1=1 / P2=0`. The exact verdict is
+preserved in `independent-foundation-rereview-4.md`.
+
+Fifth remediation adds a narrow, idempotent schema-v3 migration. It detects
+prior audit/link column shapes with `PRAGMA table_info`, backfills stable scope
+from canonical lease and rebind evidence, backfills content-bound
+cycle-settlement reservations, and returns a typed migration-required error
+when legacy provenance is ambiguous. A non-empty prior-exact-head database
+fixture verifies rebind evidence, lease reacquire, effect preservation and HCW
+truth after upgrade.
+
+Post-remediation evidence:
+
+```text
+pytest tests/product/test_responsibility_loop.py -q
+38 passed
+
+pytest responsibility_loop + mandate_outcome_portfolio
+  + mandate_responsibility_store + mandate_active_perception
+117 passed
+
+ruff check responsibility_loop.py test_responsibility_loop.py
+All checks passed
+
+pyright responsibility_loop.py test_responsibility_loop.py
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+This remains `FOUNDATION_NOT_APPROVED` pending a new exact-head independent
+review.

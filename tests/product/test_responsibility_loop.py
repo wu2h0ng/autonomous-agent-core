@@ -214,6 +214,44 @@ def _wall_clock() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _downgrade_to_pre_migration_schema(database: Path) -> None:
+    """Recreate the audit/link shape that existed at exact head 8b4066c."""
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            ALTER TABLE responsibility_loop_audit RENAME TO audit_new;
+            CREATE TABLE responsibility_loop_audit (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                binding_digest TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                process_instance_id TEXT NOT NULL,
+                fencing_token INTEGER NOT NULL,
+                occurred_at TEXT NOT NULL
+            );
+            INSERT INTO responsibility_loop_audit
+                (event_id,binding_digest,event_type,process_instance_id,
+                 fencing_token,occurred_at)
+            SELECT event_id,binding_digest,event_type,process_instance_id,
+                   fencing_token,occurred_at
+            FROM audit_new;
+            DROP TABLE audit_new;
+
+            ALTER TABLE responsibility_loop_audit_rebind_receipts
+                RENAME TO audit_rebind_new;
+            CREATE TABLE responsibility_loop_audit_rebind_receipts (
+                audit_event_id INTEGER PRIMARY KEY,
+                receipt_digest TEXT NOT NULL UNIQUE
+            );
+            INSERT INTO responsibility_loop_audit_rebind_receipts
+                (audit_event_id,receipt_digest)
+            SELECT audit_event_id,receipt_digest FROM audit_rebind_new;
+            DROP TABLE audit_rebind_new;
+
+            DROP TABLE responsibility_cycle_settlement_reservations;
+            """
+        )
+
+
 def _long_effect_worker(
     database: str,
     repository_root: str,
@@ -348,6 +386,114 @@ def test_nonempty_v1_lease_ledger_requires_explicit_migration(tmp_path: Path) ->
             ("a" * 64, "{}", "process:legacy", 7, NOW.isoformat(), NOW.isoformat()),
         )
     with pytest.raises(ResponsibilityLoopError):
+        SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+
+
+def test_pre_migration_nonempty_database_upgrades_without_losing_truth(
+    tmp_path: Path,
+) -> None:
+    """The prior exact-head schema must upgrade before any runtime write."""
+    database = tmp_path / "agent-os.sqlite3"
+    clock = MutableClock(NOW)
+    store = SQLiteResponsibilityLoopStore(database, clock=clock)
+    original = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    lease = store.acquire_lease(
+        original, process_instance_id="process:A", now=NOW
+    )
+    store.execute_effect(
+        original,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        operation_slot="workspace-edit:1",
+        intent_digest="d" * 64,
+        effect=_effect_receipt,
+        executed_at=NOW,
+    )
+    checkpoint = store.write_checkpoint(
+        original,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    cycle_receipt = store.seal_cycle_receipt(
+        original,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    settlement_digest = _insert_verified_settlement(
+        database,
+        original,
+        settlement_id="settlement:cycle-1",
+        task_id="task:1",
+    )
+    store.bind_cycle_settlement(
+        original,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        settlement_id="settlement:cycle-1",
+        expected_settlement_digest=settlement_digest,
+        cycle_receipt_digest=cycle_receipt.receipt_digest,
+    )
+    store.release_lease(original, lease, released_at=NOW)
+    replacement = replace(original, repository_head="c" * 40)
+    store.rebind_inactive_scope(
+        original,
+        replacement,
+        actor_principal_id="founder:1",
+        reason="approved repository transition",
+        authority_ref="approval:migration-fixture",
+    )
+    _downgrade_to_pre_migration_schema(database)
+
+    upgraded = SQLiteResponsibilityLoopStore(database, clock=clock)
+    assert len(upgraded.list_rebind_receipts(replacement)) == 1
+    next_lease = upgraded.acquire_lease(
+        replacement, process_instance_id="process:B", now=NOW
+    )
+    assert next_lease.fencing_token == 2
+    assert (
+        upgraded.measure_hcw(
+            original,
+            cycle_id="cycle:1",
+            evaluator_root_id=evaluator.evaluator_root_id,
+            measured_at=NOW,
+        ).accepted_outcome_count
+        == 1
+    )
+
+
+def test_pre_migration_unknown_audit_scope_fails_closed(tmp_path: Path) -> None:
+    """Ambiguous legacy provenance must not surface as a later SQL error."""
+    database = tmp_path / "agent-os.sqlite3"
+    SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    _downgrade_to_pre_migration_schema(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO responsibility_loop_audit "
+            "(binding_digest,event_type,process_instance_id,fencing_token,occurred_at) "
+            "VALUES (?,?,?,?,?)",
+            ("f" * 64, "LOOP_LEASE_ACQUIRED", "process:orphan", 1, NOW.isoformat()),
+        )
+
+    with pytest.raises(
+        ResponsibilityLoopError,
+        match="unambiguous lease scope provenance",
+    ):
         SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
 
 

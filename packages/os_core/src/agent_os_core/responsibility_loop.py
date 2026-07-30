@@ -392,8 +392,129 @@ class SQLiteResponsibilityLoopStore:
                     UNIQUE (binding_digest, cycle_id),
                     UNIQUE (settlement_id)
                 );
+                CREATE TABLE IF NOT EXISTS responsibility_loop_schema_meta (
+                    schema_name TEXT PRIMARY KEY,
+                    schema_version INTEGER NOT NULL
+                );
                 """
             )
+            self._migrate_foundation_schema(connection)
+
+    def _migrate_foundation_schema(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        """Upgrade the unreleased foundation schema without losing live truth."""
+        connection.execute("BEGIN IMMEDIATE")
+        audit_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "PRAGMA table_info(responsibility_loop_audit)"
+            ).fetchall()
+        }
+        if "lease_scope_id" not in audit_columns:
+            connection.execute(
+                "ALTER TABLE responsibility_loop_audit "
+                "ADD COLUMN lease_scope_id TEXT"
+            )
+        link_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "PRAGMA table_info(responsibility_loop_audit_rebind_receipts)"
+            ).fetchall()
+        }
+        if "lease_scope_id" not in link_columns:
+            connection.execute(
+                "ALTER TABLE responsibility_loop_audit_rebind_receipts "
+                "ADD COLUMN lease_scope_id TEXT"
+            )
+        connection.execute(
+            """
+            UPDATE responsibility_loop_audit_rebind_receipts
+            SET lease_scope_id = (
+                SELECT r.lease_scope_id
+                FROM responsibility_loop_rebind_receipts AS r
+                WHERE r.receipt_digest =
+                    responsibility_loop_audit_rebind_receipts.receipt_digest
+            )
+            WHERE lease_scope_id IS NULL
+            """
+        )
+        connection.execute(
+            """
+            UPDATE responsibility_loop_audit
+            SET lease_scope_id = COALESCE(
+                (
+                    SELECT ar.lease_scope_id
+                    FROM responsibility_loop_audit_rebind_receipts AS ar
+                    WHERE ar.audit_event_id = responsibility_loop_audit.event_id
+                ),
+                (
+                    SELECT r.lease_scope_id
+                    FROM responsibility_loop_rebind_receipts AS r
+                    WHERE r.previous_binding_digest =
+                              responsibility_loop_audit.binding_digest
+                       OR r.replacement_binding_digest =
+                              responsibility_loop_audit.binding_digest
+                    LIMIT 1
+                ),
+                (
+                    SELECT l.lease_scope_id
+                    FROM responsibility_loop_leases_v2 AS l
+                    WHERE l.binding_digest =
+                              responsibility_loop_audit.binding_digest
+                    LIMIT 1
+                )
+            )
+            WHERE lease_scope_id IS NULL
+            """
+        )
+        missing_link_scope = connection.execute(
+            "SELECT 1 FROM responsibility_loop_audit_rebind_receipts "
+            "WHERE lease_scope_id IS NULL LIMIT 1"
+        ).fetchone()
+        missing_audit_scope = connection.execute(
+            "SELECT 1 FROM responsibility_loop_audit "
+            "WHERE lease_scope_id IS NULL LIMIT 1"
+        ).fetchone()
+        if missing_link_scope is not None or missing_audit_scope is not None:
+            raise ResponsibilityLoopError(
+                "responsibility foundation schema migration requires "
+                "unambiguous lease scope provenance"
+            )
+        bridges = connection.execute(
+            "SELECT * FROM responsibility_cycle_settlements_v2"
+        ).fetchall()
+        for bridge in bridges:
+            payload = {
+                "schema_version": "1.0",
+                "binding_digest": str(bridge["binding_digest"]),
+                "cycle_id": str(bridge["cycle_id"]),
+                "cycle_receipt_digest": str(bridge["cycle_receipt_digest"]),
+                "task_id": str(bridge["task_id"]),
+                "settlement_id": str(bridge["settlement_id"]),
+                "settlement_digest": str(bridge["settlement_digest"]),
+            }
+            connection.execute(
+                "INSERT OR IGNORE INTO "
+                "responsibility_cycle_settlement_reservations "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    content_digest(payload),
+                    payload["binding_digest"],
+                    payload["cycle_id"],
+                    payload["cycle_receipt_digest"],
+                    payload["task_id"],
+                    payload["settlement_id"],
+                    payload["settlement_digest"],
+                ),
+            )
+        connection.execute(
+            "INSERT INTO responsibility_loop_schema_meta VALUES (?,?) "
+            "ON CONFLICT(schema_name) DO UPDATE SET schema_version=excluded.schema_version",
+            ("responsibility_loop", 3),
+        )
+        connection.commit()
 
     def _assert_binding(self, row: sqlite3.Row, binding: ResponsibilityLoopBinding) -> None:
         if row["binding_digest"] != binding.digest:
