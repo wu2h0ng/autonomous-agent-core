@@ -18,7 +18,8 @@ from agent_os_contracts import (
     WaitCondition,
     WorkflowGraph,
 )
-from agent_os_core import WorkspaceSandbox
+from domain_packs.developer_agent import DeveloperWorkspaceAdapter
+
 
 
 NOW = datetime(2026, 7, 12, 8, 0, tzinfo=timezone.utc)
@@ -158,7 +159,7 @@ def test_sandbox_idempotent_guarantee_does_not_claim_compensation() -> None:
 
 
 def test_workspace_specs_claim_compensation_only_for_patch(tmp_path) -> None:
-    specs = WorkspaceSandbox(tmp_path).specs(NOW)
+    specs = DeveloperWorkspaceAdapter(tmp_path).specs(NOW)
 
     assert specs["workspace.apply_patch"].compensation_supported is True
     assert specs["workspace.run_tests"].compensation_supported is False

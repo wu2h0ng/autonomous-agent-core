@@ -41,7 +41,7 @@ from agent_os_contracts import (
     provider_execution_receipt_digest,
 )
 
-from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
+from .capability import CapabilityBroker, CapabilityPort, CapabilityResult
 from .action_pipeline import ActionPipeline
 from .errors import (
     ConcurrentWriteError,
@@ -184,7 +184,7 @@ class RunCoordinator:
     def __init__(
         self,
         task_service: TaskService,
-        sandbox: WorkspaceSandbox,
+        sandbox: CapabilityPort,
         provider: ProviderPort,
         provider_profile: ProviderProfile,
         policy: PolicyKernel,
@@ -196,7 +196,6 @@ class RunCoordinator:
     ) -> None:
         self.tasks = task_service
         self.sandbox = sandbox
-        self.tasks.bind_artifact_reader(sandbox.read_artifact_bytes)
         self.tasks.bind_correction_reader(correction)
         self.broker = CapabilityBroker(sandbox, correction)
         self.actions = ActionPipeline(

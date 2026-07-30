@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from .capability import WorkspaceSandbox
+from typing import Protocol
+
+
+class TrustedShellProfileTarget(Protocol):
+    def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None: ...
+
 
 TRUSTED_SHELL_PROFILE_V1: tuple[str, ...] = (
     "pytest",
@@ -17,6 +22,6 @@ TRUSTED_SHELL_PROFILE_V1: tuple[str, ...] = (
 )
 
 
-def apply_trusted_shell_profile(sandbox: WorkspaceSandbox) -> None:
+def apply_trusted_shell_profile(sandbox: TrustedShellProfileTarget) -> None:
     """Replace sandbox shell allowlist with the Agent CLI trusted profile."""
     sandbox.set_shell_allowlist(TRUSTED_SHELL_PROFILE_V1)

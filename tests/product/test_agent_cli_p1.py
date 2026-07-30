@@ -12,10 +12,11 @@ from agent_os_core import (
     discover_agents_markdown,
     run_agent_cli,
 )
-from agent_os_core.capability import CapabilityDenied, WorkspaceSandbox
+from agent_os_core.capability import CapabilityDenied
 from agent_os_core.trusted_commands import TRUSTED_SHELL_PROFILE_V1
 
 from apps.api_server.app import AgentOSApplication
+from domain_packs.developer_agent import WorkspaceSandbox
 
 
 def _proposal(call_id: str, capability_id: str, arguments: dict) -> ProviderToolProposal:

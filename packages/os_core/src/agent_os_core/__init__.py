@@ -144,7 +144,6 @@ from .capability import (
     CapabilityEffect,
     CapabilityPort,
     CapabilityResult,
-    WorkspaceSandbox,
 )
 from .agent_cli import AgentCLIError, AgentCLIResult, event_types, run_agent_cli
 from .agent_context import (
@@ -432,7 +431,6 @@ __all__ = [
     "CapabilityEffect",
     "CapabilityPort",
     "CapabilityResult",
-    "WorkspaceSandbox",
     "AgentCLIError",
     "AgentCLIResult",
     "event_types",
