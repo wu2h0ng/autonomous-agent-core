@@ -11,11 +11,11 @@ live_pins:
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
   approved_designs:
-    - "P-AGENT-RESPONSIBILITY-LOOP-1 design at 5036ab7; Kimi R3 SPEC_APPROVE; persistence prototype at 3cbaf82 independently returned TECHNICAL_REVISE_FOUNDATION"
+    - "P-AGENT-RESPONSIBILITY-LOOP-1 design at 5036ab7; Kimi R3 SPEC_APPROVE; persistence foundation at exact head ddb021b independently returned TECHNICAL_APPROVE_FOUNDATION; controller/CLI/application loop remains incomplete"
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-07-30T20:12:00+08:00"
+updated: "2026-07-30T23:55:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -41,8 +41,8 @@ identity:
 
 current_phase:
   product:
-    label: "durable RATIFIED Mandate input, authenticated observation authority, bounded proposal-only active perception, and a Mandate-scoped read-only responsibility view; continuing Mandate/SRL loop incomplete"
-    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_THROUGH_3C7F524 / READ_ONLY_PROJECTION / NOT_RELEASED"
+    label: "durable RATIFIED Mandate input, authenticated observation authority, bounded proposal-only active perception, a Mandate-scoped read-only responsibility view, and an independently approved branch-contained responsibility persistence foundation; continuing Mandate/SRL product loop incomplete"
+    status: "MAIN_INTEGRATED_READ_ONLY_PROJECTION_THROUGH_3C7F524 / BRANCH_CONTAINED_RESPONSIBILITY_FOUNDATION_APPROVED_AT_DDB021B / CONTROLLER_CLI_APPLICATION_INCOMPLETE / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 has an approved public qualification scaffold plus external-closure audit only; no B1-B5 acceptance, freeze or result run"
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
@@ -145,6 +145,31 @@ verified_capabilities:
       quality: "Ruff clean; Pyright 0 errors/0 warnings; diff-check clean; desktop, 390px and injected partial/failure browser paths verified"
       durable_review: ".agent_runs/mandate-responsibility-view-20260718/messages.jsonl"
     boundary: "This is an explicit-link read projection and measurement machine only. It does not own a continuing Outcome Portfolio, form goals, settle commitments, activate Tasks, grant capabilities, execute effects, prove reduced Founder cognitive load, establish sustained responsibility, freeze/run a value comparison, or support an autonomy claim."
+  responsibility_loop_persistence_foundation:
+    status: "BRANCH_CONTAINED_IMPLEMENTED_TESTED / TECHNICAL_APPROVE_FOUNDATION / NOT_PRODUCT_LOOP_COMPLETE / NOT_MERGED / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A future Mandate-scoped continuing Work controller has a fail-closed SQLite foundation for single-owner leases, takeover fences, effect reservations and receipts, restart checkpoints, cycle-to-outcome truth and HCW measurement provenance."
+    real_entry_points:
+      - "SQLiteResponsibilityLoopStore persistence API"
+      - "ResponsibilityLoopBinding and fenced lease/checkpoint/effect/cycle methods"
+      - "HCW operator-event and measurement receipt methods"
+    verified_properties:
+      - "stable Mandate+tenant+workspace lease scope; binding drift and stale owners fail closed"
+      - "external effect callbacks run outside the takeover lock; APPLIED requires a content-bound receipt and stable identity reservation"
+      - "checkpoint head uses monotonic CAS and exact fencing; takeover owners must write a recovery checkpoint before sealing a cycle"
+      - "cycle receipts are idempotent across response-loss retry and bind canonical SettlementRecord, commitment and portfolio scope"
+      - "HCW measurement revalidates the complete cycle/bridge/settlement/commitment/portfolio truth chain"
+      - "rebind provenance and isolated projection deletion are detected through content-bound reservations and audit linkage"
+      - "non-empty prior foundation schemas migrate transactionally and idempotently; ambiguous provenance fails closed"
+    dated_verification:
+      date: "2026-07-30"
+      exact_head: "ddb021bead18151f3e97f8e8467473a89c068508"
+      independent_review: "TECHNICAL_APPROVE_FOUNDATION / P0=0 / P1=0 / P2=0"
+      targeted: "38 passed"
+      adjacent: "117 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; cumulative and incremental diff-check clean; manual old-database migration attacks passed"
+      durable_review: ".agent_runs/agent-responsibility-loop-s1-20260730/independent-foundation-approval.md"
+    boundary: "Foundation only. ResponsibilityLoopController, agent run/status/answer/correct/resume, responsibility admission, Outcome/Help application integration and a real A-to-B-to-A CLI fixture are not implemented. No merge, release, HCW reduction, sustained responsibility, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"

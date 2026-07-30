@@ -162,6 +162,16 @@ passed
 This remains `FOUNDATION_NOT_APPROVED` pending a new exact-head independent
 review.
 
+Sixth exact-head review at
+`ddb021bead18151f3e97f8e8467473a89c068508` returned
+`TECHNICAL_APPROVE_FOUNDATION` with `P0=0 / P1=0 / P2=0`. The durable verdict
+is `independent-foundation-approval.md`.
+
+The approval covers only the responsibility-loop persistence foundation.
+Controller, CLI commands, Outcome/Help application integration and the complete
+product loop remain incomplete. No merge, release, HCW reduction, sustained
+responsibility, self-improvement or autonomy claim follows from this approval.
+
 Fifth exact-head review at `feacc61` returned
 `TECHNICAL_REVISE_FOUNDATION`, with `P0=0 / P1=1 / P2=0`. The exact verdict is
 preserved in `independent-foundation-rereview-4.md`.
