@@ -90,6 +90,7 @@ class ActionPipeline:
         *,
         lease_fence_fn: Callable[[str], int] | None = None,
         capability_id: str | None = None,
+        record_artifacts: bool = True,
     ) -> CapabilityResult:
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
@@ -154,8 +155,16 @@ class ActionPipeline:
         )
         if result.receipt.status.value != "SUCCEEDED":
             raise RunExecutionError(
-                f"tool failed: {result.receipt.error_code}"
+                f"tool failed: {result.receipt.error_code}: "
+                f"{result.output.get('error', '')}"
             )
+        if not record_artifacts:
+            # Chat-loop actions use ephemeral per-turn node ids (required for
+            # idempotency uniqueness across repeated calls), which are not
+            # committed workflow nodes; the workflow-bound artifact index
+            # cannot cover them. The durable action receipt still binds the
+            # output artifact ids.
+            return result
         for artifact_id in result.receipt.output_artifact_ids:
             self._tasks.record_artifact(
                 action.task_id,

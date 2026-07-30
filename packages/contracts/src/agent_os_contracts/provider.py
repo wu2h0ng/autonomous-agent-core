@@ -32,6 +32,23 @@ class ProviderMessageRole(str, Enum):
     TOOL = "TOOL"
 
 
+class SessionRef(ContractModel):
+    """Stable typed identity for one terminal conversation session."""
+
+    session_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+
+
+class TurnId(ContractModel):
+    """Turn identity bound to the session that owns it."""
+
+    turn_id: NonEmptyStr
+    session_id: NonEmptyStr
+
+
 class ProviderErrorCode(str, Enum):
     RATE_LIMITED = "RATE_LIMITED"
     TIMEOUT = "TIMEOUT"
@@ -133,9 +150,47 @@ class ProviderInvocationBinding(ContractModel):
         return self
 
 
+class ProviderToolCall(ContractModel):
+    """Assistant-emitted tool invocation echoed back in conversation history."""
+
+    tool_call_id: NonEmptyStr
+    capability_id: NonEmptyStr
+    arguments_json: NonEmptyStr
+
+    @field_validator("arguments_json", mode="after")
+    @classmethod
+    def _canonicalize_arguments(cls, value: str) -> str:
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("arguments_json must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("arguments_json must encode an object")
+        return canonical_json(payload)
+
+
 class ProviderMessage(ContractModel):
     role: ProviderMessageRole
-    content: NonEmptyStr
+    content: str = ""
+    tool_call_id: NonEmptyStr | None = None
+    tool_calls: tuple[ProviderToolCall, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_tool_binding(self) -> ProviderMessage:
+        if self.role is ProviderMessageRole.TOOL:
+            if self.tool_call_id is None:
+                raise ValueError("TOOL message requires tool_call_id")
+            if self.tool_calls:
+                raise ValueError("TOOL message cannot carry tool_calls")
+            if not self.content.strip():
+                raise ValueError("TOOL message requires tool result content")
+        elif self.tool_call_id is not None:
+            raise ValueError("tool_call_id is only valid on TOOL messages")
+        if self.role is not ProviderMessageRole.ASSISTANT and self.tool_calls:
+            raise ValueError("tool_calls are only valid on ASSISTANT messages")
+        if not self.content.strip() and not self.tool_calls:
+            raise ValueError("message requires content or tool calls")
+        return self
 
 
 class ProviderToolProposal(ContractModel):

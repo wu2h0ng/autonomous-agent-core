@@ -17,6 +17,8 @@ from agent_os_contracts import (
     ProviderFailure,
     ProviderDecisionRequest,
     ProviderInvocationBinding,
+    ProviderMessage,
+    ProviderMessageRole,
     ProviderProfile,
     ProviderRequest,
     ProviderResponse,
@@ -24,6 +26,68 @@ from agent_os_contracts import (
     ProviderUsage,
     content_digest,
 )
+
+
+_WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
+    "workspace.read": {
+        "type": "object",
+        "properties": {"path": {"type": "string", "minLength": 1}},
+        "required": ["path"],
+        "additionalProperties": False,
+    },
+    "workspace.search": {
+        "type": "object",
+        "properties": {
+            "mode": {"type": "string", "enum": ["ls", "glob", "grep"]},
+            "path": {"type": "string"},
+            "pattern": {"type": "string"},
+        },
+        "required": ["mode"],
+        "additionalProperties": False,
+    },
+    "workspace.edit": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "old_string": {"type": "string", "minLength": 1},
+            "new_string": {"type": "string"},
+            "expected_sha256": {"type": "string"},
+        },
+        "required": ["path", "old_string", "new_string"],
+        "additionalProperties": False,
+    },
+    "workspace.apply_patch": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "content": {"type": "string"},
+            "expected_sha256": {"type": "string"},
+        },
+        "required": ["path", "content"],
+        "additionalProperties": False,
+    },
+    "workspace.run_tests": {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "enum": ["pytest", "python -m pytest", "python3 -m pytest"],
+            },
+            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+    "workspace.shell": {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "minLength": 1},
+            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+}
 
 
 class CredentialUnavailable(PermissionError):
@@ -69,12 +133,14 @@ class DeterministicProvider(ProviderPort):
         text: str = "provider-ok",
         tool_proposals: tuple[ProviderToolProposal, ...] = (),
         invocation_binding: ProviderInvocationBinding | None = None,
+        scripted: tuple[tuple[str, tuple[ProviderToolProposal, ...]], ...] = (),
     ) -> None:
         self.text = text
         self.tool_proposals = tool_proposals
         self.requests: list[ProviderRequest] = []
         self.decision_requests: list[ProviderDecisionRequest] = []
         self._invocation_binding = invocation_binding
+        self._scripted = list(scripted)
 
     @property
     def invocation_binding(self) -> ProviderInvocationBinding:
@@ -113,20 +179,24 @@ class DeterministicProvider(ProviderPort):
     def _response(
         self, request: ProviderRequest | ProviderDecisionRequest
     ) -> ProviderResponse:
+        if self._scripted:
+            text, tool_proposals = self._scripted.pop(0)
+        else:
+            text, tool_proposals = self.text, self.tool_proposals
         return ProviderResponse(
             response_id=f"response-{uuid4()}",
             request_id=request.request_id,
-            text=self.text,
-            tool_proposals=self.tool_proposals,
+            text=text,
+            tool_proposals=tool_proposals,
             usage=ProviderUsage(
                 input_tokens=sum(
                     len(message.content.split()) for message in request.messages
                 ),
-                output_tokens=len(self.text.split()),
+                output_tokens=len(text.split()),
                 total_tokens=sum(
                     len(message.content.split()) for message in request.messages
                 )
-                + len(self.text.split()),
+                + len(text.split()),
                 estimated_cost_usd=Decimal("0"),
             ),
             finish_reason="stop",
@@ -296,24 +366,13 @@ class OpenAICompatibleProvider(ProviderPort):
             body = {
                 "model": model_id,
                 "messages": [
-                    {"role": message.role.value.lower(), "content": message.content}
-                    for message in request.messages
+                    _serialize_message(message) for message in request.messages
                 ],
                 "temperature": temperature,
             }
             if allowed_capability_ids:
                 body["tools"] = [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": capability_id.replace(".", "__"),
-                            "description": f"Invoke typed capability {capability_id}",
-                            "parameters": {
-                                "type": "object",
-                                "additionalProperties": True,
-                            },
-                        },
-                    }
+                    _tool_definition(capability_id)
                     for capability_id in allowed_capability_ids
                 ]
                 body["tool_choice"] = "auto"
@@ -427,3 +486,50 @@ class OpenAICompatibleProvider(ProviderPort):
             safe_message=message,
             occurred_at=datetime.now(timezone.utc),
         )
+
+
+def _serialize_message(message: ProviderMessage) -> dict[str, object]:
+    """Map a typed ProviderMessage onto the OpenAI chat message wire shape."""
+    if message.role is ProviderMessageRole.TOOL:
+        return {
+            "role": "tool",
+            "tool_call_id": message.tool_call_id,
+            "content": message.content,
+        }
+    if message.role is ProviderMessageRole.ASSISTANT:
+        body: dict[str, object] = {
+            "role": "assistant",
+            "content": message.content or None,
+        }
+        if message.tool_calls:
+            body["tool_calls"] = [
+                {
+                    "id": tool_call.tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.capability_id.replace(".", "__"),
+                        "arguments": tool_call.arguments_json,
+                    },
+                }
+                for tool_call in message.tool_calls
+            ]
+        return body
+    return {"role": message.role.value.lower(), "content": message.content}
+
+
+def _tool_definition(capability_id: str) -> dict[str, object]:
+    parameters = _WORKSPACE_TOOL_PARAMETERS.get(
+        capability_id,
+        {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    )
+    return {
+        "type": "function",
+        "function": {
+            "name": capability_id.replace(".", "__"),
+            "description": f"Propose typed capability {capability_id}",
+            "parameters": parameters,
+        },
+    }

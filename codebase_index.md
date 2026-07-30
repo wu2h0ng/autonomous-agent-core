@@ -1,6 +1,6 @@
 # Agent OS Codebase Index
 
-> Updated: 2026-07-15
+> Updated: 2026-07-26
 > Purpose: module and evidence navigation only
 > Live status: `docs/CURRENT_STATE.yaml`
 > Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT.md`
@@ -52,7 +52,7 @@ Location: `packages/contracts/src/agent_os_contracts/`
 | `authority.py` | authority, policy and approval-facing contracts |
 | `evidence.py` | generic evidence/artifact contracts |
 | `outcome.py` | ExpectedOutcome and ObservedOutcome |
-| `provider.py` | provider/model/credential reference contracts |
+| `provider.py` | provider/model/credential references plus typed terminal Session/Turn and assistant/tool-message bindings |
 | `resource.py` | budgets and resource constraints |
 | `domain.py` | generic domain-pack boundary contracts |
 | `materialization.py` | closed DomainCandidate, external evaluation receipt, promotion-decision and inert optional-prior contracts plus provenance, representation patches and content digests |
@@ -73,9 +73,12 @@ Location: `packages/os_core/src/agent_os_core/`
 | `persistence.py` | SQLite/local persistence implementation |
 | `postgres.py` | PostgreSQL persistence path |
 | `execution.py` | run coordination, effects, retry/recovery and evaluator flow |
+| `agent_loop.py` | governed multi-turn terminal provider/tool loop; no static WorkflowGraph semantic change |
+| `action_pipeline.py` | shared typed action construction and policy/permit/broker/receipt path |
 | `recovery.py` | event-derived recovery projection; no physical exactly-once or long-horizon superiority inference |
 | `capability.py` | capability registry/broker and typed invocation |
-| `provider.py` | provider adapters and bounded model proposal path |
+| `provider.py` | provider adapters, structured terminal tool schemas and bounded model proposal path |
+| `proposal_engine.py` | static-graph proposal engine plus shared provider-execution receipt construction |
 | `governance.py` | policy/disposer, correction authority and minimal local-effect guard protocol |
 | `materialization.py` | Task/Run/scope/C7-bound DomainCandidate sealing and listing service |
 | `materialization_persistence.py` | isolated SQLite candidate store with transactional version, idempotency and parent-CAS semantics |
@@ -104,7 +107,11 @@ The public Product Track path must pass through these state/authority contracts.
 
 ### `apps/cli/`
 
-Local Product Track command entry. CLI behavior must use the same application/state/authority services as HTTP; a CLI-only bypass is invalid.
+Local Product Track command entry. CLI behavior must use the same
+application/state/authority services as HTTP; a CLI-only bypass is invalid.
+`python -m apps.cli chat` is the local governed terminal loop and `chat -p` is its
+fail-closed non-interactive mode. Current claim level and missing live-provider/review
+gates remain in `docs/CURRENT_STATE.yaml`.
 
 ### `domain_packs/developer_agent/`
 
@@ -115,6 +122,7 @@ The first local developer path. It is not a universal coding-agent claim or a su
 | Path | Purpose |
 |---|---|
 | `tests/product/test_spine0_golden_path.py` | durable developer path, interruption/recovery and outcome behavior |
+| `tests/product/test_terminal_chat_loop.py` | multi-turn TOOL feedback, terminal CLI/REPL, approval/C7 non-bypass, provider receipts, failing-test repair and workspace/subprocess boundary checks |
 | `tests/product/test_e2_long_horizon_recovery.py` | bounded local wait/rebind/compensation/C7 composition-root acceptance |
 | `tests/product/test_public_long_horizon_negative_paths.py` | HTTP/CLI persistence, idempotency, scope, late-signal and replan-budget negative paths |
 | `tests/product/test_rebind_partial_evidence_regression.py` | authoritative evidence filtering after an authorized suffix rebind |
@@ -137,6 +145,7 @@ The first local developer path. It is not a universal coding-agent claim or a su
 | `docs/product/PM-ADM-P2-EXTERNAL-EVALUATION-RECEIPTS-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P2 |
 | `docs/product/PM-ADM-P3-PROMOTION-AND-OPTIONAL-PRIOR-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P3 infrastructure; production V1 is all-DEFER and has no activation authority |
 | `docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P4 immutable configuration/reference binding; no activation authority |
+| `docs/product/TERMINAL-AGENT-CLI-BENCHMARK-2026-07-26.md` | dated Hermes/OpenClaw/Pi comparison, adopted design constraints and explicit non-parity boundary |
 | `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md` | SPINE-0 architecture authority |
 | `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml` | migration plan/map; not execution authority |
 | `product_evals/spine_e2e_1/` through `product_evals/spine_e2e_4/` | preserved successor instruments; E2E-1/2/3 are immutable INVALID and E2E-4 is one bounded frozen local same-boot PASS |

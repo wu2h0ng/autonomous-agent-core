@@ -103,8 +103,11 @@ from .provider import (
     ProviderDecisionRequest,
     ProviderRequest,
     ProviderResponse,
+    SessionRef,
+    ProviderToolCall,
     ProviderToolProposal,
     ProviderUsage,
+    TurnId,
     provider_execution_receipt_digest,
 )
 from .protocol_ingress import (
@@ -451,8 +454,11 @@ __all__ = [
     "ProviderRelevancePolicy",
     "ProviderRequest",
     "ProviderResponse",
+    "SessionRef",
+    "ProviderToolCall",
     "ProviderToolProposal",
     "ProviderUsage",
+    "TurnId",
     "provider_execution_receipt_digest",
     "PriorEvaluationSource",
     "ProjectionEpistemicStatus",
