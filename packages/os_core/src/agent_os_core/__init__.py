@@ -195,6 +195,7 @@ from .execution import (
     RunCoordinator,
 )
 from .errors import RunExecutionError, UnsupportedNodeError, WorkerInterrupted
+from .execution_profile import ExecutionProfileError, ExecutionProfilePort
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService, ValidatedTestReport
 from .task_configuration import (
@@ -473,6 +474,8 @@ __all__ = [
     "NonInteractiveDenyGateway",
     "TurnResult",
     "DeterministicOutcomeEvaluator",
+    "ExecutionProfileError",
+    "ExecutionProfilePort",
     "RunCoordinator",
     "RunExecutionError",
     "WorkerInterrupted",
