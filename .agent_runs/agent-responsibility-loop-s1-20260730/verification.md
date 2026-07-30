@@ -128,3 +128,36 @@ passed
 
 This remains `FOUNDATION_NOT_APPROVED` until a new exact-head independent
 review returns `TECHNICAL_APPROVE_FOUNDATION`.
+
+Fourth exact-head review at `8b4066c` returned
+`TECHNICAL_REVISE_FOUNDATION`, with `P0=0 / P1=1 / P2=1`. The exact verdict is
+preserved in `independent-foundation-rereview-3.md`.
+
+Fourth remediation adds stable scope to rebind audit linkage and validates
+receipt, link and audit cardinality bidirectionally. It also records a
+content-bound cycle-settlement reservation and compares it against the bridge
+before HCW measurement. Isolated deletion of either authoritative projection
+now fails closed.
+
+Post-remediation evidence:
+
+```text
+pytest tests/product/test_responsibility_loop.py -q
+36 passed
+
+pytest responsibility_loop + mandate_outcome_portfolio
+  + mandate_responsibility_store + mandate_active_perception
+115 passed
+
+ruff check responsibility_loop.py test_responsibility_loop.py
+All checks passed
+
+pyright responsibility_loop.py test_responsibility_loop.py
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+This remains `FOUNDATION_NOT_APPROVED` pending a new exact-head independent
+review.

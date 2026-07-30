@@ -275,6 +275,7 @@ class SQLiteResponsibilityLoopStore:
                 );
                 CREATE TABLE IF NOT EXISTS responsibility_loop_audit (
                     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lease_scope_id TEXT NOT NULL,
                     binding_digest TEXT NOT NULL,
                     event_type TEXT NOT NULL,
                     process_instance_id TEXT NOT NULL,
@@ -293,7 +294,8 @@ class SQLiteResponsibilityLoopStore:
                 );
                 CREATE TABLE IF NOT EXISTS responsibility_loop_audit_rebind_receipts (
                     audit_event_id INTEGER PRIMARY KEY,
-                    receipt_digest TEXT NOT NULL UNIQUE
+                    receipt_digest TEXT NOT NULL UNIQUE,
+                    lease_scope_id TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS responsibility_loop_checkpoints_v2 (
                     checkpoint_digest TEXT PRIMARY KEY,
@@ -379,6 +381,17 @@ class SQLiteResponsibilityLoopStore:
                     PRIMARY KEY (binding_digest, cycle_id),
                     UNIQUE (settlement_id)
                 );
+                CREATE TABLE IF NOT EXISTS responsibility_cycle_settlement_reservations (
+                    reservation_digest TEXT PRIMARY KEY,
+                    binding_digest TEXT NOT NULL,
+                    cycle_id TEXT NOT NULL,
+                    cycle_receipt_digest TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    settlement_id TEXT NOT NULL,
+                    settlement_digest TEXT NOT NULL,
+                    UNIQUE (binding_digest, cycle_id),
+                    UNIQUE (settlement_id)
+                );
                 """
             )
 
@@ -439,9 +452,16 @@ class SQLiteResponsibilityLoopStore:
             event_type = "LOOP_LEASE_TAKEOVER" if takeover else "LOOP_LEASE_ACQUIRED"
             connection.execute(
                 "INSERT INTO responsibility_loop_audit "
-                "(binding_digest,event_type,process_instance_id,fencing_token,occurred_at) "
-                "VALUES (?,?,?,?,?)",
-                (binding.digest, event_type, process_instance_id, token, _stamp(now)),
+                "(lease_scope_id,binding_digest,event_type,process_instance_id,"
+                "fencing_token,occurred_at) VALUES (?,?,?,?,?,?)",
+                (
+                    binding.lease_scope_id,
+                    binding.digest,
+                    event_type,
+                    process_instance_id,
+                    token,
+                    _stamp(now),
+                ),
             )
         return ResponsibilityLoopLease(
             binding.digest, process_instance_id, token, now, expires_at, takeover
@@ -508,9 +528,10 @@ class SQLiteResponsibilityLoopStore:
             )
             audit_cursor = connection.execute(
                 "INSERT INTO responsibility_loop_audit "
-                "(binding_digest,event_type,process_instance_id,fencing_token,occurred_at) "
-                "VALUES (?,?,?,?,?)",
+                "(lease_scope_id,binding_digest,event_type,process_instance_id,"
+                "fencing_token,occurred_at) VALUES (?,?,?,?,?,?)",
                 (
+                    previous.lease_scope_id,
                     replacement.digest,
                     "LOOP_BINDING_REBOUND",
                     actor_principal_id,
@@ -521,8 +542,12 @@ class SQLiteResponsibilityLoopStore:
             if audit_cursor.lastrowid is None:
                 raise ResponsibilityLoopError("rebind audit insert did not return an id")
             connection.execute(
-                "INSERT INTO responsibility_loop_audit_rebind_receipts VALUES (?,?)",
-                (int(audit_cursor.lastrowid), receipt_digest),
+                "INSERT INTO responsibility_loop_audit_rebind_receipts VALUES (?,?,?)",
+                (
+                    int(audit_cursor.lastrowid),
+                    receipt_digest,
+                    previous.lease_scope_id,
+                ),
             )
 
     def _assert_fence(
@@ -631,7 +656,7 @@ class SQLiteResponsibilityLoopStore:
                   ON ar.receipt_digest = r.receipt_digest
                 JOIN responsibility_loop_audit AS a
                   ON a.event_id = ar.audit_event_id
-                WHERE r.lease_scope_id=?
+                WHERE ar.lease_scope_id=?
                 ORDER BY a.event_id
                 """,
                 (binding.lease_scope_id,),
@@ -643,7 +668,26 @@ class SQLiteResponsibilityLoopStore:
                     (binding.lease_scope_id,),
                 ).fetchone()[0]
             )
-        if receipt_count != len(rows):
+            link_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) "
+                    "FROM responsibility_loop_audit_rebind_receipts "
+                    "WHERE lease_scope_id=?",
+                    (binding.lease_scope_id,),
+                ).fetchone()[0]
+            )
+            audit_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM responsibility_loop_audit "
+                    "WHERE lease_scope_id=? AND event_type='LOOP_BINDING_REBOUND'",
+                    (binding.lease_scope_id,),
+                ).fetchone()[0]
+            )
+        if (
+            receipt_count != len(rows)
+            or link_count != len(rows)
+            or audit_count != len(rows)
+        ):
             raise ResponsibilityLoopBindingDrift(
                 "rebind receipt audit linkage drift"
             )
@@ -676,6 +720,7 @@ class SQLiteResponsibilityLoopStore:
                 or payload["authority_ref"] != row["authority_ref"]
                 or row["audit_binding_digest"]
                 != row["replacement_binding_digest"]
+                or row["lease_scope_id"] != binding.lease_scope_id
                 or row["audit_event_type"] != "LOOP_BINDING_REBOUND"
                 or row["audit_actor"] != row["actor_principal_id"]
                 or _parse(str(row["audit_occurred_at"])) != occurred_at
@@ -1566,6 +1611,30 @@ class SQLiteResponsibilityLoopStore:
                     expected_settlement_digest,
                 ),
             )
+            reservation_payload = {
+                "schema_version": "1.0",
+                "binding_digest": binding.digest,
+                "cycle_id": cycle_id,
+                "cycle_receipt_digest": cycle_receipt_digest,
+                "task_id": task_id,
+                "settlement_id": settlement_id,
+                "settlement_digest": expected_settlement_digest,
+            }
+            reservation_digest = content_digest(reservation_payload)
+            connection.execute(
+                "INSERT OR IGNORE INTO "
+                "responsibility_cycle_settlement_reservations "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    reservation_digest,
+                    binding.digest,
+                    cycle_id,
+                    cycle_receipt_digest,
+                    task_id,
+                    settlement_id,
+                    expected_settlement_digest,
+                ),
+            )
 
     def _accepted_outcomes(
         self,
@@ -1586,6 +1655,46 @@ class SQLiteResponsibilityLoopStore:
                 (binding.digest, cycle_id),
             ).fetchone()[0]
         )
+        reservations = connection.execute(
+            "SELECT * FROM responsibility_cycle_settlement_reservations "
+            "WHERE binding_digest=? AND cycle_id=?",
+            (binding.digest, cycle_id),
+        ).fetchall()
+        if bridge_count != len(reservations):
+            raise ResponsibilityLoopBindingDrift(
+                "cycle settlement reservation drift"
+            )
+        for reservation in reservations:
+            expected_reservation = content_digest(
+                {
+                    "schema_version": "1.0",
+                    "binding_digest": str(reservation["binding_digest"]),
+                    "cycle_id": str(reservation["cycle_id"]),
+                    "cycle_receipt_digest": str(
+                        reservation["cycle_receipt_digest"]
+                    ),
+                    "task_id": str(reservation["task_id"]),
+                    "settlement_id": str(reservation["settlement_id"]),
+                    "settlement_digest": str(reservation["settlement_digest"]),
+                }
+            )
+            bridge = connection.execute(
+                "SELECT * FROM responsibility_cycle_settlements_v2 "
+                "WHERE binding_digest=? AND cycle_id=?",
+                (binding.digest, cycle_id),
+            ).fetchone()
+            if (
+                expected_reservation != reservation["reservation_digest"]
+                or bridge is None
+                or bridge["cycle_receipt_digest"]
+                != reservation["cycle_receipt_digest"]
+                or bridge["task_id"] != reservation["task_id"]
+                or bridge["settlement_id"] != reservation["settlement_id"]
+                or bridge["settlement_digest"] != reservation["settlement_digest"]
+            ):
+                raise ResponsibilityLoopBindingDrift(
+                    "cycle settlement reservation content drift"
+                )
         rows = connection.execute(
             """
             SELECT s.payload, s.record_digest, b.settlement_digest,

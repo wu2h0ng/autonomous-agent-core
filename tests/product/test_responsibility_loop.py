@@ -746,6 +746,14 @@ def test_inactive_scope_requires_explicit_binding_rebind(tmp_path: Path) -> None
         )
     with pytest.raises(ResponsibilityLoopBindingDrift):
         store.list_rebind_receipts(changed)
+    with sqlite3.connect(tmp_path / "agent-os.sqlite3") as connection:
+        connection.execute(
+            "UPDATE responsibility_loop_rebind_receipts SET authority_ref=?",
+            ("approval:rebind-1",),
+        )
+        connection.execute("DELETE FROM responsibility_loop_rebind_receipts")
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.list_rebind_receipts(changed)
     rebound = store.acquire_lease(changed, process_instance_id="process:B", now=NOW)
     assert rebound.fencing_token == 2
     assert store.latest_checkpoint(changed) is None
@@ -1240,6 +1248,65 @@ def test_hcw_measurement_revalidates_bound_truth_after_tamper(
                 f"WHERE {id_column}=?",
                 (json.dumps(payload), digest, row[0]),
             )
+
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.measure_hcw(
+            binding,
+            cycle_id="cycle:1",
+            evaluator_root_id=evaluator.evaluator_root_id,
+            measured_at=NOW,
+        )
+
+
+def test_hcw_measurement_rejects_deleted_cycle_settlement_bridge(
+    tmp_path: Path,
+) -> None:
+    """Deleting an accepted-outcome bridge cannot silently reduce truth to zero."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    checkpoint = store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    cycle_receipt = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    settlement_digest = _insert_verified_settlement(
+        database,
+        binding,
+        settlement_id="settlement:cycle-1",
+        task_id="task:1",
+    )
+    store.bind_cycle_settlement(
+        binding,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        settlement_id="settlement:cycle-1",
+        expected_settlement_digest=settlement_digest,
+        cycle_receipt_digest=cycle_receipt.receipt_digest,
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM responsibility_cycle_settlements_v2")
 
     with pytest.raises(ResponsibilityLoopBindingDrift):
         store.measure_hcw(
