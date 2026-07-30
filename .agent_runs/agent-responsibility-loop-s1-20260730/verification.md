@@ -285,6 +285,37 @@ The approval is branch-contained and local-controlled. It does not erase the
 non-green repository-wide suite, authorize release, establish automatic wake,
 bind SELFDEV execution, prove HCW reduction or support an autonomy claim.
 
+## Main integration
+
+The approved branch was integrated by no-ff merge receipt
+`1f78937076ca76699c91a5447218e108e3d41146` and pushed to `origin/main`.
+An isolated integration worktree based on the prior `origin/main` ran:
+
+```text
+uv run --extra product-test pytest <responsibility/controller/CLI/
+long-horizon/portfolio/responsibility-store/API files> -q
+122 passed
+
+ruff check <integrated responsibility/CLI scope>
+All checks passed
+
+pyright <changed source files>
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+The first integration test invocation omitted the `product-test` extra and
+failed collection because the fresh venv lacked Pydantic. It was an invocation
+error before code execution; the corrected canonical command above passed
+without changing code or acceptance criteria.
+
+A broader Pyright call reproduced one pre-existing
+`WorkflowGraph/dag_v1` schema-version override error outside the changed scope.
+It remains explicit debt and is not counted as a green repository-wide type
+check.
+
 ## Controller and unique Agent Work surface candidate
 
 The Controller/CLI candidate was verified after the foundation approval. The

@@ -15,12 +15,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-07-30T22:20:00+08:00"
+updated: "2026-07-30T22:25:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/agent-responsibility-loop-20260730 (isolated worktree; based on reviewed Agent CLI head 27f1643)"
-status: "Agent OS main contains the previously approved read-only Mandate responsibility projection and bounded Active Perception. Branch codex/agent-responsibility-loop-20260730 now contains an independently approved local controlled Responsibility Slice at exact head d0b942ba6b79161e0a6a69437e0ac8fe1a3b184d: one Agent Work surface, persistent responsibility selection, Outcome/Help settlement, fenced effect custody, cross-process SQLite recovery, truthful manual-wake status, typed SELFDEV-not-bound, external correction and HCW receipt plumbing. Verdict TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2. It is NOT_MERGED / NOT_RELEASED. The last repository-wide run on the prior candidate was non-green at 2616 passed, 1 skipped, 27 failed; targeted changed-path and adjacent suites are green, but no full-suite-green claim is made. No resident daemon, SELFDEV execution, production authentication, HCW reduction, sustained responsibility, general intelligence or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS main at merge receipt 1f78937076ca76699c91a5447218e108e3d41146 now integrates the independently approved local controlled Responsibility Slice whose reviewed code head is d0b942ba6b79161e0a6a69437e0ac8fe1a3b184d: one Agent Work surface, persistent responsibility selection, Outcome/Help settlement, fenced effect custody, cross-process SQLite recovery, truthful manual-wake status, typed SELFDEV-not-bound, external correction and HCW receipt plumbing. Integration verification is 122 passed, Ruff clean, changed-scope Pyright 0 and diff-check clean. Verdict TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2. It is NOT_RELEASED. The last repository-wide run on the prior candidate was non-green at 2616 passed, 1 skipped, 27 failed; no full-suite-green claim is made. No resident daemon, SELFDEV execution, production authentication, HCW reduction, sustained responsibility, general intelligence or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -42,7 +42,7 @@ identity:
 current_phase:
   product:
     label: "durable RATIFIED Mandate input, bounded active perception, read-only responsibility view, and an independently approved branch-contained local Responsibility Slice; SELFDEV execution and automatic wake remain incomplete"
-    status: "MAIN_INTEGRATED_READ_ONLY_PROJECTION_THROUGH_3C7F524 / BRANCH_CONTAINED_RESPONSIBILITY_SLICE_APPROVED_AT_D0B942B / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_RESPONSIBILITY_SLICE_AT_MERGE_1F78937 / REVIEWED_CODE_D0B942B / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 has an approved public qualification scaffold plus external-closure audit only; no B1-B5 acceptance, freeze or result run"
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
@@ -146,7 +146,7 @@ verified_capabilities:
       durable_review: ".agent_runs/mandate-responsibility-view-20260718/messages.jsonl"
     boundary: "This is an explicit-link read projection and measurement machine only. It does not own a continuing Outcome Portfolio, form goals, settle commitments, activate Tasks, grant capabilities, execute effects, prove reduced Founder cognitive load, establish sustained responsibility, freeze/run a value comparison, or support an autonomy claim."
   responsibility_loop_persistence_foundation:
-    status: "BRANCH_CONTAINED_IMPLEMENTED_TESTED / TECHNICAL_APPROVE_FOUNDATION / NOT_PRODUCT_LOOP_COMPLETE / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_AS_PART_OF_RESPONSIBILITY_SLICE / TECHNICAL_APPROVE_FOUNDATION / NOT_RELEASED"
     requirement_class: "P/A"
     user_result: "A future Mandate-scoped continuing Work controller has a fail-closed SQLite foundation for single-owner leases, takeover fences, effect reservations and receipts, restart checkpoints, cycle-to-outcome truth and HCW measurement provenance."
     real_entry_points:
@@ -171,7 +171,7 @@ verified_capabilities:
       durable_review: ".agent_runs/agent-responsibility-loop-s1-20260730/independent-foundation-approval.md"
     boundary: "Foundation only. ResponsibilityLoopController, agent run/status/answer/correct/resume, responsibility admission, Outcome/Help application integration and a real A-to-B-to-A CLI fixture are not implemented. No merge, release, HCW reduction, sustained responsibility, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
   responsibility_work_slice:
-    status: "BRANCH_CONTAINED_IMPLEMENTED_TESTED / TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED / TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / NOT_RELEASED"
     requirement_class: "P/A"
     user_result: "A local operator can run one Mandate-scoped foreground Agent Work loop across real process restarts without restating responsibility, receive typed Help, correct active work, and inspect honest responsibility/effect/HCW status."
     real_entry_points:
@@ -190,6 +190,7 @@ verified_capabilities:
     dated_verification:
       date: "2026-07-30"
       exact_head: "d0b942ba6b79161e0a6a69437e0ac8fe1a3b184d"
+      main_merge_receipt: "1f78937076ca76699c91a5447218e108e3d41146"
       independent_review: "TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2"
       targeted: "70 responsibility/controller/CLI passed"
       adjacent: "64 responsibility-store/portfolio/long-horizon passed; writer combined suite 122 passed"
@@ -375,10 +376,10 @@ research_ledger:
 active_work:
   - id: "P-AGENT-RESPONSIBILITY-LOOP-1"
     track: "product"
-    status: "FOUNDER_APPROVED_DESIGN / INDEPENDENT_SPEC_APPROVE / BRANCH_CONTAINED_IMPLEMENTED_TESTED / TECHNICAL_APPROVE_RESPONSIBILITY_SLICE_AT_D0B942B / P0_0_P1_0_P2_2 / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TECHNICAL_APPROVE_RESPONSIBILITY_SLICE_AT_D0B942B / P0_0_P1_0_P2_2 / NOT_RELEASED"
     purpose: "One foreground Agent CLI Work loop maintains Mandate-scoped responsibility across cycles and restarts, settles Outcome/Help, records HCW and preserves C7/no-self-approval."
-    boundary: "Exact implementation approval is local controlled only at d0b942b. Slice 1 excludes resident daemon/automatic wake, SELFDEV execution, BlueprintGap evolution, production authentication, HCW reduction, merge, activation and release. Tool-window Ctrl-C can leave the Task runtime lease until its five-minute TTL."
-    evidence: "Spec R3 SPEC_APPROVE P0=0/P1=0. Foundation ddb021b TECHNICAL_APPROVE_FOUNDATION. Complete slice d0b942b TECHNICAL_APPROVE_RESPONSIBILITY_SLICE P0=0/P1=0/P2=2; reviewer ran 70 responsibility/controller/CLI and 64 adjacent tests plus Ruff/Pyright/diff-check."
+    boundary: "Exact implementation approval is local controlled only at d0b942b and main merge receipt is 1f78937. Slice 1 excludes resident daemon/automatic wake, SELFDEV execution, BlueprintGap evolution, production authentication, HCW reduction, activation and release. Tool-window Ctrl-C can leave the Task runtime lease until its five-minute TTL."
+    evidence: "Spec R3 SPEC_APPROVE P0=0/P1=0. Foundation ddb021b TECHNICAL_APPROVE_FOUNDATION. Complete slice d0b942b TECHNICAL_APPROVE_RESPONSIBILITY_SLICE P0=0/P1=0/P2=2; independent integration worktree at 1f78937 passed 122 targeted/adjacent tests, Ruff, changed-scope Pyright and diff-check."
     source:
       - "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md"
       - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-2026-07-30.md"
@@ -388,7 +389,7 @@ active_work:
       - ".agent_runs/agent-responsibility-loop-s1-20260730/independent-controller-approval.md"
   - id: "P-AGENT-CLI-V0"
     track: "product"
-    status: "IMPLEMENTED_LOCAL / TARGETED_TESTED / LIVE_PROVIDER_GREEN / INDEPENDENT_REVIEW_APPROVE_WITH_BASELINE_DEBT / REVIEW_DEBT_REMEDIATED_LOCAL / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TARGETED_TESTED / LIVE_PROVIDER_GREEN / INDEPENDENT_REVIEW_APPROVE_WITH_BASELINE_DEBT / REVIEW_DEBT_REMEDIATED / NOT_RELEASED"
     purpose: "Single Agent OS terminal entry under Mandate with governed SE organ (AgentLoop/PolicyKernel), durable resume; coding is organ not product name."
     boundary: "Clean worktree only. No MCP/sub-agent/TUI/Data Agent organ. No synthetic permits. No usable-alpha, Autonomy, or release claim. Review debt remediated locally: -p AutoApproveGateway (tier<3), session.v1 database bind, resume rejects non-resumable/halted runs."
     evidence: "Independent review APPROVE_WITH_BASELINE_DEBT at 083f0c4; remediation tests terminal+v0+p1+stream+review_debt => 48 passed; DeepSeek live green via harness"
@@ -404,7 +405,7 @@ active_work:
       - "packages/os_core/src/agent_os_core/agent_loop.py"
   - id: "P-AGENT-CLI-P1"
     track: "product"
-    status: "IMPLEMENTED_LOCAL / TARGETED_TESTED / NOT_REVIEWED / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TARGETED_TESTED / NOT_INDEPENDENTLY_REVIEWED_AS_OWN_SLICE / NOT_RELEASED"
     purpose: "AGENTS.md discovery/injection into Agent CLI system prompt and trusted shell profile for bounded git/lint/test commands."
     boundary: "Exact-string shell allowlist only; symlink/outside-workspace AGENTS.md fail closed; no arbitrary shell or release claim."
     evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py tests/product/test_agent_cli_p1.py -q"
@@ -415,7 +416,7 @@ active_work:
       - "tests/product/test_agent_cli_p1.py"
   - id: "P-AGENT-CLI-STREAM"
     track: "product"
-    status: "IMPLEMENTED_LOCAL / TARGETED_TESTED / NOT_REVIEWED / NOT_MERGED / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TARGETED_TESTED / NOT_INDEPENDENTLY_REVIEWED_AS_OWN_SLICE / NOT_RELEASED"
     purpose: "Provider SSE streaming to Agent CLI with governed binding/receipt preservation and clean KeyboardInterrupt correction halt."
     boundary: "Worktree-only slice; no MCP/TUI; non-stream complete() unchanged; --no-stream debug flag; no release claim."
     evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py tests/product/test_agent_cli_p1.py tests/product/test_agent_cli_stream.py -q => 40 passed; ruff clean; live SSE not re-verified"
@@ -719,7 +720,7 @@ recently_completed:
 
 blockers:
   product:
-    - "The local Responsibility Slice owns a bounded foreground Outcome/Commitment settlement cycle on an approved branch, but it is not merged and has no resident watcher, automatic wake, SELFDEV execution or measured HCW reduction. It therefore does not close sustained responsibility or the full Mandate-driven SRL."
+    - "The main-integrated local Responsibility Slice owns a bounded foreground Outcome/Commitment settlement cycle, but it has no resident watcher, automatic wake, SELFDEV execution or measured HCW reduction. It therefore does not close sustained responsibility or the full Mandate-driven SRL."
     - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
@@ -735,7 +736,7 @@ blockers:
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "Responsibility Slice exact head d0b942b is independently approved but not merged. The last repository-wide run on the prior candidate was 2616 passed/1 skipped/27 failed; dated fixture expiry, frozen-source/environment drift and ledger contamination remain explicit, so full-suite-green is false."
+    - "Responsibility Slice reviewed code head d0b942b is integrated on main at merge receipt 1f78937. The last repository-wide run on the prior candidate was 2616 passed/1 skipped/27 failed; dated fixture expiry, frozen-source/environment drift and ledger contamination remain explicit, so full-suite-green is false."
     - "The responsibility-view code through reviewed head 3c7f524 is integrated on main but not released. Repository-wide Product+product_eval remains non-green at 2504 passed/1 skipped/7 failed; five failures reproduce on the no-feature baseline and two elapsed/order-sensitive tests pass targeted, but the debt must not be called green."
     - "Task 7 is integrated on main. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
     - "Actor transport c72375a remains an approved isolated Research candidate. W1/W2 direct adaptation and independent scorer/freezer custody remain unimplemented."
