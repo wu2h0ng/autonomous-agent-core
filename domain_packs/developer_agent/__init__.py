@@ -4,6 +4,10 @@ from datetime import datetime, timezone
 
 from agent_os_contracts import DomainPackManifest
 
+from .workspace_capability import DeveloperWorkspaceAdapter
+
+WorkspaceSandbox = DeveloperWorkspaceAdapter
+
 
 def manifest(now: datetime | None = None) -> DomainPackManifest:
     return DomainPackManifest(

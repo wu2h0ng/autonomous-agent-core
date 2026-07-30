@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -183,3 +185,129 @@ def test_broker_rejects_stale_epoch_before_port_execution() -> None:
         CapabilityBroker(port, correction).invoke(action, permit)
 
     assert port.execute_count == 0
+
+
+def workspace_action_and_permit(
+    correction: CorrectionAuthority,
+    capability_id: str,
+    arguments: dict[str, object],
+    *,
+    idempotency_key: str = "idempotency:workspace",
+) -> tuple[ActionContract, ActionPermit]:
+    now = datetime.now(timezone.utc)
+    epochs = correction.snapshot("task:workspace", "run:workspace", capability_id)
+    action = ActionContract(
+        action_id="action:workspace",
+        task_id="task:workspace",
+        run_id="run:workspace",
+        node_id="node:workspace",
+        principal_id="principal:workspace",
+        tenant_id="tenant:workspace",
+        workspace_id="workspace:workspace",
+        capability_id=capability_id,
+        capability_version="1",
+        arguments_json=json.dumps(arguments),
+        risk_tier=0,
+        idempotency_key=idempotency_key,
+        estimated_budget=ResourceBudget(
+            max_cost_usd=Decimal("0"),
+            max_duration_seconds=1,
+            max_provider_tokens=0,
+            max_tool_calls=1,
+        ),
+        policy_version="policy-1",
+        observed_correction_epochs=epochs,
+        expected_outcome_id="expected:workspace",
+        candidate_envelope_id="envelope:workspace",
+        created_at=now,
+    )
+    permit = ActionPermit(
+        permit_id="permit:workspace",
+        action_id=action.action_id,
+        action_digest=action.action_digest(),
+        principal_id=action.principal_id,
+        tenant_id=action.tenant_id,
+        workspace_id=action.workspace_id,
+        policy_decision_id="decision:workspace",
+        grant_id="grant:workspace",
+        correction_epochs=epochs,
+        lease_fence=0,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    return action, permit
+
+
+def test_developer_adapter_dispatches_read_through_broker(tmp_path: Path) -> None:
+    from domain_packs.developer_agent import DeveloperWorkspaceAdapter
+
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    adapter = DeveloperWorkspaceAdapter(tmp_path)
+    correction = CorrectionAuthority()
+    action, permit = workspace_action_and_permit(
+        correction,
+        "workspace.read",
+        {"path": "fixture.txt"},
+    )
+
+    result = CapabilityBroker(adapter, correction).invoke(action, permit)
+
+    assert result.receipt.status is ReceiptStatus.SUCCEEDED
+    assert result.receipt.connector_id == "workspace.read"
+    assert result.output["content"] == "before\n"
+
+
+def test_developer_adapter_specs_match_capability_ids(tmp_path: Path) -> None:
+    from domain_packs.developer_agent import DeveloperWorkspaceAdapter
+
+    adapter = DeveloperWorkspaceAdapter(tmp_path)
+
+    assert tuple(sorted(adapter.specs())) == (
+        "artifact.write",
+        "workspace.apply_patch",
+        "workspace.read",
+        "workspace.run_tests",
+    )
+    assert tuple(sorted(adapter.specs(include_internal=True))) == (
+        "artifact.write",
+        "workspace.apply_patch",
+        "workspace.compensate_patch",
+        "workspace.read",
+        "workspace.run_tests",
+    )
+
+
+def test_agent_core_does_not_import_developer_adapter() -> None:
+    root = Path(__file__).parents[2] / "packages" / "os_core" / "src" / "agent_os_core"
+    offenders = [
+        path
+        for path in root.glob("*.py")
+        if "domain_packs.developer_agent" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
+def test_capability_core_has_no_workspace_concrete_type() -> None:
+    root = Path(__file__).parents[2] / "packages" / "os_core" / "src" / "agent_os_core"
+    capability_source = (root / "capability.py").read_text(encoding="utf-8")
+    exports_source = (root / "__init__.py").read_text(encoding="utf-8")
+
+    assert "class WorkspaceSandbox" not in capability_source
+    assert '"WorkspaceSandbox"' not in exports_source
+
+
+def test_only_broker_dispatches_the_capability_port() -> None:
+    repo = Path(__file__).parents[2]
+    capability_source = (
+        repo / "packages/os_core/src/agent_os_core/capability.py"
+    ).read_text(encoding="utf-8")
+    execution_source = (
+        repo / "packages/os_core/src/agent_os_core/execution.py"
+    ).read_text(encoding="utf-8")
+    app_source = (repo / "apps/api_server/app.py").read_text(encoding="utf-8")
+
+    assert capability_source.count("self.connector.execute(action)") == 1
+    assert "self.sandbox.execute" not in execution_source
+    assert "self.capabilities.execute" not in execution_source
+    assert "self.sandbox.execute" not in app_source
+    assert "self.capabilities.execute" not in app_source
