@@ -674,6 +674,7 @@ def test_completed_tool_artifact_remains_active_evidence_after_rebind(
     runner = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         app.policy,
@@ -731,6 +732,7 @@ def test_rebind_clears_invalidated_action_projection_and_approval(
     runner = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         app.policy,
@@ -787,6 +789,7 @@ def test_rebind_clears_old_action_for_preserved_but_uncompleted_node(
     runner = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         app.policy,

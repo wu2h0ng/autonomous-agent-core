@@ -38,8 +38,28 @@ class DeveloperRepositoryPatchProfile:
             or context.get("prompt")
             or "Produce the requested repository patch."
         )
+        acceptance_criteria = str(context.get("acceptance_criteria") or "")
+        selfdev_envelope = context.get("selfdev_execution_envelope")
+        selfdev_contract = ""
+        if isinstance(selfdev_envelope, dict):
+            prohibited = ", ".join(
+                str(value)
+                for value in selfdev_envelope.get("prohibited_effects", ())
+            )
+            selfdev_contract = (
+                "SELFDEV persisted execution envelope:\n"
+                f"Exact base HEAD: {selfdev_envelope.get('repository_head', '')}\n"
+                f"Isolated branch: {selfdev_envelope.get('isolated_branch', '')}\n"
+                f"Allowed write path: {selfdev_envelope.get('allowed_write_path', '')}\n"
+                f"Verifier: {selfdev_envelope.get('verifier_command', '')}\n"
+                f"Rollback: {selfdev_envelope.get('rollback_strategy', '')}\n"
+                f"Prohibited effects: {prohibited}.\n"
+            )
         prompt = (
             f"Repository task: {goal}\n"
+            "Acceptance criteria:\n"
+            f"{acceptance_criteria}\n"
+            f"{selfdev_contract}"
             f"Target path: {target_path}\n"
             f"Current SHA-256: {read_output.get('sha256', '')}\n"
             "Current file content follows:\n"
@@ -128,7 +148,18 @@ class DeveloperRepositoryPatchProfile:
             command = (
                 context.get("test_command") or context.get("command") or "python -m pytest"
             )
-            return {"command": str(command)}
+            arguments: dict[str, Any] = {"command": str(command)}
+            selfdev_envelope = context.get("selfdev_execution_envelope")
+            if isinstance(selfdev_envelope, dict):
+                target_paths = selfdev_envelope.get("allowed_write_paths")
+                if isinstance(target_paths, tuple):
+                    target_paths = list(target_paths)
+                arguments["selfdev_verification_snapshot"] = {
+                    "repository_head": selfdev_envelope.get("repository_head"),
+                    "target_path": selfdev_envelope.get("allowed_write_path"),
+                    "target_paths": target_paths,
+                }
+            return arguments
         explicit = context.get(capability_id)
         if isinstance(explicit, dict):
             return dict(explicit)

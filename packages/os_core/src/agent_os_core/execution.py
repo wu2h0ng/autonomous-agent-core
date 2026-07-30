@@ -20,13 +20,9 @@ from agent_os_contracts import (
     PolicyVerdict,
     PrincipalIdentity,
     PrincipalRole,
-    ProviderMessage,
-    ProviderMessageRole,
     ProviderExecutionReceipt,
     ProviderProfile,
-    ProviderRequest,
     ProviderFailure,
-    ProviderToolProposal,
     ReceiptStatus,
     ResourceBudget,
     RunPlanRebound,
@@ -49,6 +45,7 @@ from .errors import (
     UnsupportedNodeError,
     WorkerInterrupted,
 )
+from .execution_profile import ExecutionProfileError, ExecutionProfilePort
 from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .provider import ProviderPort
 from .task_service import (
@@ -184,7 +181,8 @@ class RunCoordinator:
     def __init__(
         self,
         task_service: TaskService,
-        sandbox: CapabilityPort,
+        capabilities: CapabilityPort,
+        execution_profile: ExecutionProfilePort,
         provider: ProviderPort,
         provider_profile: ProviderProfile,
         policy: PolicyKernel,
@@ -195,9 +193,10 @@ class RunCoordinator:
         compensation_grant: CapabilityGrant | None = None,
     ) -> None:
         self.tasks = task_service
-        self.sandbox = sandbox
+        self.capabilities = capabilities
+        self.execution_profile = execution_profile
         self.tasks.bind_correction_reader(correction)
-        self.broker = CapabilityBroker(sandbox, correction)
+        self.broker = CapabilityBroker(capabilities, correction)
         self.actions = ActionPipeline(
             task_service,
             self.broker,
@@ -324,6 +323,14 @@ class RunCoordinator:
                     context[workflow_node.capability] = restored_output
             if aggregate.goal is not None:
                 context.setdefault("goal", aggregate.goal.statement)
+            if aggregate.commitment is not None:
+                context.setdefault(
+                    "acceptance_criteria",
+                    "\n".join(
+                        f"- {criterion}"
+                        for criterion in aggregate.commitment.acceptance_criteria
+                    ),
+                )
             completed_nodes = self._completed_nodes(task_id)
             restored_evidence = context.get("evidence_refs", ())
             evidence: list[str] = (
@@ -331,19 +338,25 @@ class RunCoordinator:
                 if isinstance(restored_evidence, (tuple, list))
                 else []
             )
-            test_exit_codes = {
-                node.node_id: exit_code
-                for node in aggregate.workflow.nodes
-                if node.capability == "workspace.run_tests"
-                and (exit_code := _strict_exit_code(context.get(node.node_id)))
-                is not None
-            }
+            test_exit_codes: dict[str, int] = {}
+            for test_node in aggregate.workflow.nodes:
+                if test_node.capability != "workspace.run_tests":
+                    continue
+                try:
+                    restored_exit_code = self.execution_profile.verification_exit_code(
+                        {"workspace.run_tests": context.get(test_node.node_id)}
+                    )
+                except ExecutionProfileError as exc:
+                    raise RunExecutionError(str(exc)) from exc
+                if restored_exit_code is not None:
+                    test_exit_codes[test_node.node_id] = restored_exit_code
             observed_outcome = aggregate.observed_outcome
             envelope = CandidateGenerationEnvelope(
                 envelope_id=f"envelope-{uuid4()}", task_id=task_id, run_id=run.run_id,
                 tenant_id=run.tenant_id, workspace_id=run.workspace_id,
-                generator_id="developer-golden-path", generator_version="1",
-                allowed_capability_ids=tuple(sorted(self.sandbox.specs())),
+                generator_id=self.execution_profile.generator_id,
+                generator_version=self.execution_profile.generator_version,
+                allowed_capability_ids=tuple(sorted(self.capabilities.specs())),
                 resource_budget=aggregate.commitment.budget,
                 candidate_ids=tuple(node.node_id for node in aggregate.workflow.nodes),
                 has_abstain=True, has_ask=True, has_no_action=True, created_at=datetime.now(timezone.utc),
@@ -418,7 +431,13 @@ class RunCoordinator:
                                 correlation_id=run.run_id,
                             )
                 elif node.kind is NodeKind.TOOL:
-                    arguments = self._tool_arguments(node.capability or "", context)
+                    try:
+                        arguments = self.execution_profile.tool_arguments(
+                            node.capability or "",
+                            context,
+                        )
+                    except ExecutionProfileError as exc:
+                        raise RunExecutionError(str(exc)) from exc
                     result = self._call_tool(
                         task_id, run.run_id, node.node_id, node.capability or "", principal,
                         arguments,
@@ -435,7 +454,12 @@ class RunCoordinator:
                     evidence.extend(str(item) for item in result.receipt.output_artifact_ids)
                     context["evidence_refs"] = tuple(evidence)
                     if node.capability == "workspace.run_tests":
-                        exit_code = _strict_exit_code(result.output)
+                        try:
+                            exit_code = self.execution_profile.verification_exit_code(
+                                {"workspace.run_tests": result.output}
+                            )
+                        except ExecutionProfileError as exc:
+                            raise RunExecutionError(str(exc)) from exc
                         if exit_code is not None:
                             test_exit_codes[node.node_id] = exit_code
                 elif node.kind is NodeKind.EVALUATION:
@@ -1066,7 +1090,7 @@ class RunCoordinator:
                 started,
             )
             try:
-                capability = self.sandbox.specs(include_internal=True).get(
+                capability = self.capabilities.specs(include_internal=True).get(
                     "workspace.compensate_patch"
                 )
                 self.tasks.append_event(
@@ -1257,54 +1281,19 @@ class RunCoordinator:
             ):
                 raise RunExecutionError("provider profile invocation binding mismatch")
             invocation_binding_digest = invocation_binding.digest()
-        target_path = str(context.get("target_path") or context.get("path") or "")
-        read_output = context.get("workspace.read") or context.get("read")
-        if not target_path or not isinstance(read_output, dict):
-            raise RunExecutionError("provider requires a target path and completed workspace.read")
         if aggregate.commitment is None:
             raise RunExecutionError("provider requires a canonical Commitment")
-        current_content = str(read_output.get("content", ""))
-        goal = str(context.get("goal") or context.get("prompt") or "Produce the requested repository patch.")
-        acceptance_criteria = "\n".join(
-            f"- {criterion}" for criterion in aggregate.commitment.acceptance_criteria
-        )
-        selfdev_envelope = context.get("selfdev_execution_envelope")
-        selfdev_contract = ""
-        if isinstance(selfdev_envelope, dict):
-            prohibited = ", ".join(
-                str(value)
-                for value in selfdev_envelope.get("prohibited_effects", ())
+        try:
+            request = self.execution_profile.build_provider_request(
+                task_id=task_id,
+                run_id=run_id,
+                provider_profile=self.provider_profile,
+                provider_capability=capability,
+                context=context,
+                now=datetime.now(timezone.utc),
             )
-            selfdev_contract = (
-                "SELFDEV persisted execution envelope:\n"
-                f"Exact base HEAD: {selfdev_envelope.get('repository_head', '')}\n"
-                f"Isolated branch: {selfdev_envelope.get('isolated_branch', '')}\n"
-                f"Allowed write path: {selfdev_envelope.get('allowed_write_path', '')}\n"
-                f"Verifier: {selfdev_envelope.get('verifier_command', '')}\n"
-                f"Rollback: {selfdev_envelope.get('rollback_strategy', '')}\n"
-                f"Prohibited effects: {prohibited}.\n"
-            )
-        prompt = (
-            f"Repository task: {goal}\n"
-            "Acceptance criteria:\n"
-            f"{acceptance_criteria}\n"
-            f"{selfdev_contract}"
-            f"Target path: {target_path}\n"
-            f"Current SHA-256: {read_output.get('sha256', '')}\n"
-            "Current file content follows:\n"
-            f"---BEGIN FILE---\n{current_content[:20000]}\n---END FILE---\n"
-            "Propose the complete replacement content by calling only the "
-            "workspace.apply_patch tool. Include path and content. Do not call any "
-            "other capability and do not claim that the patch was applied."
-        )
-        request = ProviderRequest(
-            request_id=f"request-{uuid4()}", task_id=task_id, run_id=run_id,
-            provider_profile_id=self.provider_profile.profile_id,
-            messages=(ProviderMessage(role=ProviderMessageRole.USER, content=prompt),),
-            allowed_capability_ids=("workspace.apply_patch",),
-            timeout_seconds=self.provider_profile.request_timeout_seconds,
-            created_at=datetime.now(timezone.utc),
-        )
+        except ExecutionProfileError as exc:
+            raise RunExecutionError(str(exc)) from exc
         pre_correction_epochs = None
         if snapshot is not None:
             pre_correction_epochs = self.correction.snapshot(
@@ -1323,45 +1312,14 @@ class RunCoordinator:
             response.invocation_binding_digest != invocation_binding_digest
         ):
             raise RunExecutionError("provider response invocation binding mismatch")
-        proposals = list(response.tool_proposals)
-        if proposals and (
-            len(proposals) != 1
-            or proposals[0].capability_id != "workspace.apply_patch"
-        ):
-            raise RunExecutionError(
-                "provider returned an ambiguous or unauthorized tool proposal"
+        try:
+            proposals = self.execution_profile.bind_provider_response(
+                response,
+                context=context,
             )
-        if not proposals:
-            fallback = self._parse_patch_json(response.text)
-            if fallback is not None:
-                proposals = [
-                    ProviderToolProposal(
-                        proposal_id=f"proposal-{uuid4()}",
-                        capability_id="workspace.apply_patch",
-                        arguments_json=json.dumps(fallback),
-                    )
-                ]
-        if len(proposals) != 1:
-            raise RunExecutionError("provider must return exactly one workspace.apply_patch proposal")
-        raw_arguments = json.loads(proposals[0].arguments_json)
-        if not isinstance(raw_arguments, dict):
-            raise RunExecutionError("provider patch arguments must be an object")
-        if set(raw_arguments) != {"path", "content"}:
-            raise RunExecutionError(
-                "provider patch arguments must contain only path and content"
-            )
-        proposed_path = str(raw_arguments.get("path", ""))
-        proposed_content = raw_arguments.get("content")
-        if proposed_path != target_path:
-            raise RunExecutionError("provider proposal path does not match the reviewed target")
-        if not isinstance(proposed_content, str):
-            raise RunExecutionError("provider proposal requires complete string content")
-        raw_arguments["expected_sha256"] = str(read_output.get("sha256", ""))
-        bound_proposal = ProviderToolProposal(
-            proposal_id=proposals[0].proposal_id,
-            capability_id="workspace.apply_patch",
-            arguments_json=json.dumps(raw_arguments),
-        )
+        except ExecutionProfileError as exc:
+            raise RunExecutionError(str(exc)) from exc
+        bound_proposal = proposals[0]
         provider_output = {
             "text": response.text,
             "tool_proposals": [bound_proposal.model_dump(mode="json")],
@@ -1464,8 +1422,11 @@ class RunCoordinator:
             )
         if not isinstance(args, dict):
             args = {"value": args}
-        if capability_id == "workspace.apply_patch" and not isinstance(proposed_action, ActionContract):
-            raise RunExecutionError("workspace.apply_patch requires a provider-bound ActionContract")
+        if (
+            self.execution_profile.requires_provider_bound_action(capability_id)
+            and not isinstance(proposed_action, ActionContract)
+        ):
+            raise RunExecutionError(f"{capability_id} requires a provider-bound ActionContract")
         action_was_proposed = isinstance(proposed_action, ActionContract)
         action = proposed_action if action_was_proposed else self._build_action(
             task_id=task_id,
@@ -1494,7 +1455,7 @@ class RunCoordinator:
         return self.actions.execute(
             action,
             principal,
-            capability_spec=self.sandbox.specs().get(capability_id),
+            capability_spec=self.capabilities.specs().get(capability_id),
             approval=approval,
             record_artifacts=True,
             execution_fence=execution_fence,
@@ -1525,51 +1486,6 @@ class RunCoordinator:
             envelope_id=envelope_id,
             risk_tier=risk_tier,
         )
-
-    @staticmethod
-    def _parse_patch_json(text: str) -> dict[str, Any] | None:
-        stripped = text.strip()
-        if stripped.startswith("```"):
-            lines = stripped.splitlines()
-            stripped = "\n".join(lines[1:-1]).strip()
-        try:
-            value = json.loads(stripped)
-        except json.JSONDecodeError:
-            start = stripped.find("{")
-            end = stripped.rfind("}")
-            if start < 0 or end <= start:
-                return None
-            try:
-                value = json.loads(stripped[start : end + 1])
-            except json.JSONDecodeError:
-                return None
-        return value if isinstance(value, dict) else None
-
-    @staticmethod
-    def _tool_arguments(capability_id: str, context: dict[str, Any]) -> dict[str, Any]:
-        if capability_id == "workspace.read":
-            path = context.get("target_path") or context.get("path")
-            if not isinstance(path, str) or not path:
-                raise RunExecutionError("workspace.read requires target_path")
-            return {"path": path}
-        if capability_id == "workspace.run_tests":
-            command = context.get("test_command") or context.get("command") or "python -m pytest"
-            arguments: dict[str, Any] = {"command": str(command)}
-            selfdev_envelope = context.get("selfdev_execution_envelope")
-            if isinstance(selfdev_envelope, dict):
-                target_paths = selfdev_envelope.get("allowed_write_paths")
-                if isinstance(target_paths, tuple):
-                    target_paths = list(target_paths)
-                arguments["selfdev_verification_snapshot"] = {
-                    "repository_head": selfdev_envelope.get("repository_head"),
-                    "target_path": selfdev_envelope.get("allowed_write_path"),
-                    "target_paths": target_paths,
-                }
-            return arguments
-        explicit = context.get(capability_id)
-        if isinstance(explicit, dict):
-            return dict(explicit)
-        raise RunExecutionError(f"no typed arguments available for {capability_id}")
 
     def _restore_context(self, task_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
         context = dict(inputs)

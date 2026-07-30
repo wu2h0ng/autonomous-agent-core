@@ -311,3 +311,75 @@ def test_only_broker_dispatches_the_capability_port() -> None:
     assert "self.capabilities.execute" not in execution_source
     assert "self.sandbox.execute" not in app_source
     assert "self.capabilities.execute" not in app_source
+
+
+def test_execution_core_has_no_workspace_concrete_type_or_patch_prompt() -> None:
+    root = Path(__file__).parents[2] / "packages" / "os_core" / "src" / "agent_os_core"
+    execution_source = (root / "execution.py").read_text(encoding="utf-8")
+
+    assert "WorkspaceSandbox" not in execution_source
+    assert "Repository task:" not in execution_source
+    assert "workspace.apply_patch tool" not in execution_source
+    assert "def _parse_patch_json" not in execution_source
+    assert "def _tool_arguments" not in execution_source
+
+
+class MinimalExecutionProfile:
+    generator_id = "minimal-profile"
+    generator_version = "1"
+
+    def build_provider_request(self, **kwargs: object) -> object:
+        raise NotImplementedError
+
+    def bind_provider_response(self, response: object, **kwargs: object) -> tuple[()]:
+        return ()
+
+    def tool_arguments(
+        self,
+        capability_id: str,
+        context: dict[str, object],
+    ) -> dict[str, object]:
+        return {}
+
+    def requires_provider_bound_action(self, capability_id: str) -> bool:
+        return False
+
+    def verification_exit_code(self, context: dict[str, object]) -> int | None:
+        return None
+
+
+def test_run_coordinator_constructs_with_generic_ports_only(tmp_path: Path) -> None:
+    from agent_os_contracts import ProviderProfile
+    from agent_os_core import (
+        DeterministicProvider,
+        PolicyKernel,
+        RunCoordinator,
+        SQLiteTaskEventStore,
+        TaskService,
+    )
+
+    correction = CorrectionAuthority()
+    now = datetime.now(timezone.utc)
+    runner = RunCoordinator(
+        TaskService(SQLiteTaskEventStore(tmp_path / "state.sqlite3")),
+        SpyCapabilityPort(),
+        MinimalExecutionProfile(),
+        DeterministicProvider(),
+        ProviderProfile(
+            profile_id="provider-profile:boundary",
+            provider_id="deterministic",
+            model_id="deterministic-v1",
+            endpoint_class="test",
+            credential_ref_id="credential:boundary",
+            capabilities=("chat",),
+            max_context_tokens=16000,
+            request_timeout_seconds=60,
+            created_at=now,
+        ),
+        PolicyKernel(correction),
+        correction,
+        {},
+    )
+
+    assert runner.execution_profile.generator_id == "minimal-profile"
+    assert isinstance(runner.broker, CapabilityBroker)

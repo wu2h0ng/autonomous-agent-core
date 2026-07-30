@@ -696,6 +696,7 @@ def test_manual_compensation_rejects_active_run_without_failure_context(
     runner = RunCoordinator(
         restarted.tasks,
         restarted.sandbox,
+        restarted.execution_profile,
         restarted.provider,
         restarted.provider_profile,
         restarted.policy,
@@ -731,6 +732,7 @@ def test_worker_role_cannot_request_manual_compensation(tmp_path: Path) -> None:
     runner = RunCoordinator(
         restarted.tasks,
         restarted.sandbox,
+        restarted.execution_profile,
         restarted.provider,
         restarted.provider_profile,
         restarted.policy,
@@ -778,6 +780,7 @@ def test_c7_halt_requires_principal_resume_before_manual_compensation(
     runner = RunCoordinator(
         restarted.tasks,
         restarted.sandbox,
+        restarted.execution_profile,
         restarted.provider,
         restarted.provider_profile,
         restarted.policy,
@@ -1033,6 +1036,7 @@ def test_missing_later_patch_binding_stops_reverse_compensation(
     runner = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         app.policy,
