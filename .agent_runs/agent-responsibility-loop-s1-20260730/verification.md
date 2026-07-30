@@ -274,6 +274,17 @@ through the canonical TaskService rather than a separate external ingress
 process. No resident daemon, automatic wake or production authentication claim
 is made.
 
+## Second exact-head approval
+
+Independent review at
+`d0b942ba6b79161e0a6a69437e0ac8fe1a3b184d` returned
+`TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2`.
+The durable verdict is `independent-controller-approval.md`.
+
+The approval is branch-contained and local-controlled. It does not erase the
+non-green repository-wide suite, authorize release, establish automatic wake,
+bind SELFDEV execution, prove HCW reduction or support an autonomy claim.
+
 ## Controller and unique Agent Work surface candidate
 
 The Controller/CLI candidate was verified after the foundation approval. The
