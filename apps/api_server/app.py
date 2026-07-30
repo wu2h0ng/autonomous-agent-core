@@ -117,7 +117,7 @@ from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import (
     DeveloperRepositoryPatchProfile,
-    WorkspaceSandbox,
+    DeveloperWorkspaceAdapter,
     manifest as developer_agent_manifest,
 )
 
@@ -321,7 +321,7 @@ class AgentOSApplication:
             MandateActivePerceptionService | None
         ) = None
         self._mandate_steward: MandateSteward | None = None
-        self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
+        self.sandbox = DeveloperWorkspaceAdapter(workspace, idempotency_store=self.store)
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
@@ -655,7 +655,7 @@ class AgentOSApplication:
         ):
             raise PermissionError("workspace path is outside the local allowlist")
         with self._configuration_lock:
-            self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
+            self.sandbox = DeveloperWorkspaceAdapter(root, idempotency_store=self.store)
             self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
             rebuilt_grants = self._build_grants()
             self.grants.clear()

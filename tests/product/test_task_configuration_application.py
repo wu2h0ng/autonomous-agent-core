@@ -97,6 +97,24 @@ def _commit(app: AgentOSApplication, suffix: str = "1") -> str:
     return task.task_id
 
 
+def test_application_composes_developer_capability_adapters(tmp_path) -> None:
+    from domain_packs.developer_agent import (
+        DeveloperRepositoryPatchProfile,
+        DeveloperWorkspaceAdapter,
+    )
+
+    app = AgentOSApplication(database=tmp_path / "compose.sqlite3", workspace=tmp_path)
+
+    assert isinstance(app.sandbox, DeveloperWorkspaceAdapter)
+    assert isinstance(app.execution_profile, DeveloperRepositoryPatchProfile)
+    assert tuple(sorted(app.sandbox.specs())) == (
+        "artifact.write",
+        "workspace.apply_patch",
+        "workspace.read",
+        "workspace.run_tests",
+    )
+
+
 def test_application_seal_get_list_and_restart_exact_snapshot(tmp_path) -> None:
     database = tmp_path / "configuration.sqlite3"
     app = AgentOSApplication(database=database, workspace=tmp_path)
