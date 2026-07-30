@@ -1,0 +1,51 @@
+{
+  "agents": [
+    {
+      "agent_id": "codex-reviewer-codemap",
+      "role": "read-only integration archaeologist",
+      "status": "active"
+    },
+    {
+      "agent_id": "codex-reviewer-tests",
+      "role": "read-only adversarial test designer",
+      "status": "active"
+    },
+    {
+      "agent_id": "codex-reviewer-arch",
+      "role": "read-only authority and scope skeptic",
+      "status": "active"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "P-AGENT-RESPONSIBILITY-LOOP-1-CODEMAP",
+      "title": "Map existing runtime integration seams",
+      "agent_id": "codex-reviewer-codemap",
+      "depends_on": [],
+      "status": "in_progress",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md"
+      ]
+    },
+    {
+      "task_id": "P-AGENT-RESPONSIBILITY-LOOP-1-TESTS",
+      "title": "Derive bypass-detecting RED tests",
+      "agent_id": "codex-reviewer-tests",
+      "depends_on": [],
+      "status": "in_progress",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md"
+      ]
+    },
+    {
+      "task_id": "P-AGENT-RESPONSIBILITY-LOOP-1-ARCH",
+      "title": "Attack authority boundaries and scope",
+      "agent_id": "codex-reviewer-arch",
+      "depends_on": [],
+      "status": "in_progress",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md"
+      ]
+    }
+  ]
+}
