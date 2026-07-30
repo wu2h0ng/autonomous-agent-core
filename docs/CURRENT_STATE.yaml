@@ -10,14 +10,16 @@ live_pins:
     - "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1 (typed SrlHelpResponse + settle auto-cancel)"
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
+  approved_designs:
+    - "P-AGENT-RESPONSIBILITY-LOOP-1 design at 5036ab7; Kimi R3 SPEC_APPROVE; design only, implementation not started"
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-07-27T15:00:00+08:00"
+updated: "2026-07-30T18:55:07+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/agent-cli-v0-20260727 (worktree; origin/main tip retained as merge base)"
+branch: "codex/agent-responsibility-loop-20260730 (isolated worktree; based on reviewed Agent CLI head 27f1643)"
 status: "Agent CLI V0+P1+streaming on branch codex/agent-cli-v0-20260727: IMPLEMENTED_LOCAL / TARGETED_TESTED / LIVE_PROVIDER_GREEN / INDEPENDENT_REVIEW_APPROVE_WITH_BASELINE_DEBT / REVIEW_DEBT_REMEDIATED_LOCAL ( -p AutoApproveGateway tier<3; session.v1 database bind; resume rejects halted/terminal runs; pytest suite 48 passed ); NOT_MERGED / NOT_RELEASED. Agent OS main still includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
@@ -320,6 +322,17 @@ research_ledger:
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
 active_work:
+  - id: "P-AGENT-RESPONSIBILITY-LOOP-1"
+    track: "product"
+    status: "FOUNDER_APPROVED_DESIGN / INDEPENDENT_SPEC_APPROVE / IMPLEMENTATION_NOT_STARTED / NOT_MERGED / NOT_RELEASED"
+    purpose: "One foreground Agent CLI Work loop maintains Mandate-scoped responsibility across cycles and restarts, settles Outcome/Help, records HCW and preserves C7/no-self-approval."
+    boundary: "Design approval only at exact reviewed head 5036ab7 and design SHA-256 f9e564cf4cb55da454568bebdc30212b68d144ad0e155bd39b5a217a05b654d7. Slice 1 excludes SELFDEV execution, BlueprintGap evolution, daemon, internal-version baseline, merge, activation and release."
+    evidence: "Kimi Code CLI 0.29.1 / kimi-code/k3 R3 read-only SPEC_APPROVE with P0=0/P1=0; Claude primary attempt failed 401 revoked OAuth and is not credited as reviewer."
+    source:
+      - "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md"
+      - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-2026-07-30.md"
+      - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-R2-2026-07-30.md"
+      - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-R3-2026-07-30.md"
   - id: "P-AGENT-CLI-V0"
     track: "product"
     status: "IMPLEMENTED_LOCAL / TARGETED_TESTED / LIVE_PROVIDER_GREEN / INDEPENDENT_REVIEW_APPROVE_WITH_BASELINE_DEBT / REVIEW_DEBT_REMEDIATED_LOCAL / NOT_MERGED / NOT_RELEASED"
@@ -693,9 +706,9 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
+    action: "Implement only P-AGENT-RESPONSIBILITY-LOOP-1 from exact approved design 5036ab7: first failing bypass/recovery tests, then loop lease/fence, deterministic Slice-1 admission, Outcome/Help settlement, HCW/cycle receipts and checkpoint recovery. Keep SELFDEV and BlueprintGap routes denied."
   - priority: 2
-    action: "Next Product Outcome Portfolio slice: operator-visible settlement/Help surface or VERIFIED evidence-bound settle path only if it reduces Founder cognitive load; keep claim ceiling. No ADM/UCM/AWL/CLS breadth."
+    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
   - priority: 3
     action: "Workflow RState evaluate≠admit is merged; PARK CAS/HSM/UI/provider run. Do not reopen unbound research freeze paths."
   - priority: 4
