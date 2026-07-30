@@ -57,3 +57,40 @@ three failing test modules also produced 18 failures; the exact membership is
 time/order-sensitive because those tests contain expired fixed timestamps and
 existing policy/golden-path debt. This is explicit baseline debt, not a green
 full-suite claim.
+
+Second exact-head re-review at `b9bfa79` returned
+`TECHNICAL_REVISE_FOUNDATION` with `P0=0 / P1=4 / P2=1`. The exact verdict is
+preserved in `independent-foundation-rereview.md`.
+
+Second remediation used failing attack tests before implementation:
+
+- mutated APPLIED effect `task_id` and `intent_digest`;
+- takeover fence sealing a prior-owner checkpoint;
+- response-lost retry of a committed cycle receipt;
+- `NOT_MET -> SETTLED_MET` semantic forgery;
+- cross-workspace canonical portfolio substitution.
+
+Post-remediation evidence:
+
+```text
+pytest tests/product/test_responsibility_loop.py -q
+28 passed
+
+pytest responsibility_loop + mandate_outcome_portfolio
+  + mandate_responsibility_store + mandate_active_perception
+107 passed
+
+ruff check responsibility_loop.py test_responsibility_loop.py
+All checks passed
+
+pyright responsibility_loop.py test_responsibility_loop.py
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+The remediation also records explicit rebind provenance with previous and
+replacement binding digests, actor, reason, authority reference and trusted
+time. These results are not a technical approval; a new exact-head independent
+review is still required.

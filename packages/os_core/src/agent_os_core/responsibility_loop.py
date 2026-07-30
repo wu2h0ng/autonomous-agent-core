@@ -10,7 +10,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Iterator, Mapping
 
-from agent_os_contracts import content_digest
+from agent_os_contracts import (
+    OutcomePortfolio,
+    OutcomeStatus,
+    PersistentCommitment,
+    PersistentCommitmentState,
+    SettlementRecord,
+    content_digest,
+)
 
 
 class ResponsibilityLoopError(RuntimeError):
@@ -262,6 +269,16 @@ class SQLiteResponsibilityLoopStore:
                     fencing_token INTEGER NOT NULL,
                     occurred_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS responsibility_loop_rebind_receipts (
+                    receipt_digest TEXT PRIMARY KEY,
+                    lease_scope_id TEXT NOT NULL,
+                    previous_binding_digest TEXT NOT NULL,
+                    replacement_binding_digest TEXT NOT NULL,
+                    actor_principal_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    authority_ref TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS responsibility_loop_checkpoints_v2 (
                     checkpoint_digest TEXT PRIMARY KEY,
                     lease_scope_id TEXT NOT NULL,
@@ -404,7 +421,13 @@ class SQLiteResponsibilityLoopStore:
         self,
         previous: ResponsibilityLoopBinding,
         replacement: ResponsibilityLoopBinding,
+        *,
+        actor_principal_id: str,
+        reason: str,
+        authority_ref: str,
     ) -> None:
+        if not actor_principal_id or not reason or not authority_ref:
+            raise ValueError("rebind provenance fields must be non-empty")
         if previous.lease_scope_id != replacement.lease_scope_id:
             raise ResponsibilityLoopBindingDrift("lease scope identity cannot change")
         with self._effect_lock(), self._connect() as connection:
@@ -427,6 +450,32 @@ class SQLiteResponsibilityLoopStore:
                     previous.lease_scope_id,
                 ),
             )
+            occurred_at = _utc(self._clock())
+            receipt_payload = {
+                "schema_version": "1.0",
+                "lease_scope_id": previous.lease_scope_id,
+                "previous_binding_digest": previous.digest,
+                "replacement_binding_digest": replacement.digest,
+                "actor_principal_id": actor_principal_id,
+                "reason": reason,
+                "authority_ref": authority_ref,
+                "occurred_at": occurred_at,
+            }
+            receipt_digest = content_digest(receipt_payload)
+            connection.execute(
+                "INSERT INTO responsibility_loop_rebind_receipts "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    receipt_digest,
+                    previous.lease_scope_id,
+                    previous.digest,
+                    replacement.digest,
+                    actor_principal_id,
+                    reason,
+                    authority_ref,
+                    json.dumps(receipt_payload, default=str, sort_keys=True),
+                ),
+            )
             connection.execute(
                 "INSERT INTO responsibility_loop_audit "
                 "(binding_digest,event_type,process_instance_id,fencing_token,occurred_at) "
@@ -434,9 +483,9 @@ class SQLiteResponsibilityLoopStore:
                 (
                     replacement.digest,
                     "LOOP_BINDING_REBOUND",
-                    "external-rebind",
+                    actor_principal_id,
                     int(row["fencing_token"]),
-                    _stamp(_utc(self._clock())),
+                    _stamp(occurred_at),
                 ),
             )
 
@@ -700,15 +749,60 @@ class SQLiteResponsibilityLoopStore:
             }
         )
 
-    def _effect_from_row(self, row: sqlite3.Row) -> ResponsibilityEffectRecord:
+    def _effect_from_row(
+        self,
+        row: sqlite3.Row,
+        binding: ResponsibilityLoopBinding,
+        *,
+        cycle_id: str,
+        task_id: str,
+        operation_slot: str,
+        intent_digest: str,
+    ) -> ResponsibilityEffectRecord:
+        actual_identity = {
+            "cycle_id": str(row["cycle_id"]),
+            "task_id": str(row["task_id"]),
+            "operation_slot": str(row["operation_slot"]),
+            "intent_digest": str(row["intent_digest"]),
+        }
+        expected_identity = {
+            "cycle_id": cycle_id,
+            "task_id": task_id,
+            "operation_slot": operation_slot,
+            "intent_digest": intent_digest,
+        }
+        expected_key = self._effect_key(
+            binding,
+            actual_identity["cycle_id"],
+            actual_identity["task_id"],
+            actual_identity["operation_slot"],
+            actual_identity["intent_digest"],
+        )
+        if actual_identity != expected_identity or row["effect_key"] != expected_key:
+            raise ResponsibilityLoopBindingDrift("effect ledger identity drift")
         receipt_digest = (
             str(row["effect_receipt_digest"]) if row["effect_receipt_digest"] else None
         )
         receipt_json = row["effect_receipt_json"]
         if receipt_digest is not None:
-            if receipt_json is None or content_digest(
-                json.loads(str(receipt_json))
-            ) != receipt_digest:
+            receipt_envelope = (
+                json.loads(str(receipt_json)) if receipt_json is not None else None
+            )
+            if (
+                not isinstance(receipt_envelope, dict)
+                or set(receipt_envelope)
+                != {"effect_key", "intent_digest", "adapter_receipt"}
+                or receipt_envelope["effect_key"] != expected_key
+                or receipt_envelope["intent_digest"] != intent_digest
+                or not isinstance(receipt_envelope["adapter_receipt"], dict)
+                or set(receipt_envelope["adapter_receipt"])
+                != {"receipt_id", "resource_ref", "evidence_digest"}
+                or not all(
+                    isinstance(value, str) and value
+                    for value in receipt_envelope["adapter_receipt"].values()
+                )
+                or content_digest(receipt_envelope) != receipt_digest
+            ):
                 raise ResponsibilityLoopBindingDrift("effect receipt digest drift")
         if row["status"] == "APPLIED" and receipt_digest is None:
             raise ResponsibilityLoopBindingDrift("APPLIED effect lacks a receipt")
@@ -770,7 +864,14 @@ class SQLiteResponsibilityLoopStore:
                     (key,),
                 ).fetchone()
             assert row is not None
-            return self._effect_from_row(row)
+            return self._effect_from_row(
+                row,
+                binding,
+                cycle_id=cycle_id,
+                task_id=task_id,
+                operation_slot=operation_slot,
+                intent_digest=intent_digest,
+            )
 
     def execute_effect(
         self,
@@ -796,7 +897,14 @@ class SQLiteResponsibilityLoopStore:
                 "SELECT * FROM responsibility_loop_effects_v2 WHERE effect_key=?", (key,)
             ).fetchone()
             if row is not None:
-                existing = self._effect_from_row(row)
+                existing = self._effect_from_row(
+                    row,
+                    binding,
+                    cycle_id=cycle_id,
+                    task_id=task_id,
+                    operation_slot=operation_slot,
+                    intent_digest=intent_digest,
+                )
                 connection.commit()
                 if existing.status != "APPLIED":
                     raise ResponsibilityLoopEffectUnknown(
@@ -880,7 +988,14 @@ class SQLiteResponsibilityLoopStore:
                 "SELECT * FROM responsibility_loop_effects_v2 WHERE effect_key=?", (key,)
             ).fetchone()
             assert row is not None
-            return self._effect_from_row(row)
+            return self._effect_from_row(
+                row,
+                binding,
+                cycle_id=cycle_id,
+                task_id=task_id,
+                operation_slot=operation_slot,
+                intent_digest=intent_digest,
+            )
 
     def ensure_hcw_evaluator_root(self, root: HcwEvaluatorRoot) -> None:
         payload = json.dumps(asdict(root), sort_keys=True)
@@ -953,10 +1068,46 @@ class SQLiteResponsibilityLoopStore:
         run_id: str,
         checkpoint_digest: str,
     ) -> ResponsibilityCycleReceipt:
-        sealed_at = _utc(self._clock())
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._assert_fence(connection, binding, lease, sealed_at)
+            checked_at = _utc(self._clock())
+            self._assert_fence(connection, binding, lease, checked_at)
+            existing = connection.execute(
+                "SELECT * FROM responsibility_cycle_receipts "
+                "WHERE binding_digest=? AND cycle_id=?",
+                (binding.digest, cycle_id),
+            ).fetchone()
+            if existing is not None:
+                existing_payload = json.loads(str(existing["payload"]))
+                if (
+                    existing_payload.get("schema_version") != "1.0"
+                    or existing_payload.get("binding_digest") != binding.digest
+                    or existing_payload.get("cycle_id") != cycle_id
+                    or existing_payload.get("task_id") != task_id
+                    or existing_payload.get("run_id") != run_id
+                    or existing_payload.get("checkpoint_digest")
+                    != checkpoint_digest
+                    or existing_payload.get("fencing_token") != lease.fencing_token
+                ):
+                    raise ResponsibilityLoopBindingDrift("cycle receipt was rebound")
+                sealed_at = _parse(str(existing_payload["sealed_at"]))
+                if (
+                    content_digest({**existing_payload, "sealed_at": sealed_at})
+                    != existing["receipt_digest"]
+                ):
+                    raise ResponsibilityLoopBindingDrift(
+                        "cycle receipt content digest drift"
+                    )
+                return ResponsibilityCycleReceipt(
+                    str(existing["receipt_digest"]),
+                    binding.digest,
+                    cycle_id,
+                    task_id,
+                    run_id,
+                    checkpoint_digest,
+                    lease.fencing_token,
+                    sealed_at,
+                )
             head = connection.execute(
                 "SELECT checkpoint_digest FROM responsibility_loop_checkpoint_heads "
                 "WHERE lease_scope_id=? AND binding_digest=?",
@@ -967,7 +1118,7 @@ class SQLiteResponsibilityLoopStore:
                     "cycle receipt requires the canonical checkpoint head"
                 )
             checkpoint = connection.execute(
-                "SELECT payload FROM responsibility_loop_checkpoints_v2 "
+                "SELECT * FROM responsibility_loop_checkpoints_v2 "
                 "WHERE checkpoint_digest=?",
                 (checkpoint_digest,),
             ).fetchone()
@@ -975,12 +1126,32 @@ class SQLiteResponsibilityLoopStore:
                 raise ResponsibilityLoopBindingDrift("cycle checkpoint is missing")
             checkpoint_payload = json.loads(str(checkpoint["payload"]))
             if (
+                checkpoint_payload.get("schema_version") != "1.0"
+                or checkpoint_payload.get("binding_digest") != binding.digest
+                or checkpoint["binding_digest"] != binding.digest
+                or checkpoint["lease_scope_id"] != binding.lease_scope_id
+                or checkpoint_payload.get("fencing_token") != lease.fencing_token
+                or checkpoint["fencing_token"] != lease.fencing_token
+            ):
+                raise ResponsibilityLoopStaleFence(
+                    "cycle checkpoint was not written under the active fence"
+                )
+            checkpoint_expected = content_digest(
+                {
+                    **checkpoint_payload,
+                    "recorded_at": _parse(str(checkpoint_payload["recorded_at"])),
+                }
+            )
+            if checkpoint_expected != checkpoint_digest:
+                raise ResponsibilityLoopBindingDrift("cycle checkpoint digest drift")
+            if (
                 checkpoint_payload.get("active_task_id") != task_id
                 or checkpoint_payload.get("active_run_id") != run_id
             ):
                 raise ResponsibilityLoopBindingDrift(
                     "cycle task/run does not match the checkpoint"
                 )
+            sealed_at = checked_at
             payload = {
                 "schema_version": "1.0",
                 "binding_digest": binding.digest,
@@ -992,28 +1163,19 @@ class SQLiteResponsibilityLoopStore:
                 "sealed_at": sealed_at,
             }
             digest = content_digest(payload)
-            existing = connection.execute(
-                "SELECT * FROM responsibility_cycle_receipts "
-                "WHERE binding_digest=? AND cycle_id=?",
-                (binding.digest, cycle_id),
-            ).fetchone()
-            if existing is not None:
-                if existing["receipt_digest"] != digest:
-                    raise ResponsibilityLoopBindingDrift("cycle receipt was rebound")
-            else:
-                connection.execute(
-                    "INSERT INTO responsibility_cycle_receipts VALUES (?,?,?,?,?,?,?,?)",
-                    (
-                        digest,
-                        binding.digest,
-                        cycle_id,
-                        task_id,
-                        run_id,
-                        checkpoint_digest,
-                        lease.fencing_token,
-                        json.dumps(payload, default=str, sort_keys=True),
-                    ),
-                )
+            connection.execute(
+                "INSERT INTO responsibility_cycle_receipts VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    digest,
+                    binding.digest,
+                    cycle_id,
+                    task_id,
+                    run_id,
+                    checkpoint_digest,
+                    lease.fencing_token,
+                    json.dumps(payload, default=str, sort_keys=True),
+                ),
+            )
         return ResponsibilityCycleReceipt(
             digest,
             binding.digest,
@@ -1072,17 +1234,90 @@ class SQLiteResponsibilityLoopStore:
             if row is None:
                 raise ResponsibilityLoopBindingDrift("settlement is missing")
             payload = json.loads(str(row["payload"]))
+            try:
+                settlement = SettlementRecord.model_validate(payload)
+            except Exception as exc:
+                raise ResponsibilityLoopBindingDrift(
+                    "settlement contract validation failed"
+                ) from exc
             stored_digest = str(row["record_digest"])
             unsigned_payload = dict(payload)
             unsigned_payload.pop("record_digest", None)
+            expected_state = {
+                OutcomeStatus.VERIFIED: PersistentCommitmentState.SETTLED_MET,
+                OutcomeStatus.NOT_MET: PersistentCommitmentState.SETTLED_NOT_MET,
+                OutcomeStatus.INVALID: PersistentCommitmentState.INVALID,
+                OutcomeStatus.UNRESOLVED: PersistentCommitmentState.INVALID,
+            }[settlement.observed_status]
             if (
                 stored_digest != expected_settlement_digest
-                or payload.get("record_digest") != stored_digest
+                or settlement.record_digest != stored_digest
                 or content_digest(unsigned_payload) != stored_digest
-                or payload.get("mandate_id") != binding.mandate_id
-                or payload.get("task_id") != task_id
+                or settlement.mandate_id != binding.mandate_id
+                or settlement.task_id != task_id
+                or settlement.resulting_state is not expected_state
             ):
                 raise ResponsibilityLoopBindingDrift("settlement binding drift")
+            scope_row = connection.execute(
+                """
+                SELECT c.payload AS commitment_payload,
+                       c.record_digest AS commitment_digest,
+                       p.payload AS portfolio_payload,
+                       p.record_digest AS portfolio_digest
+                FROM mandate_persistent_commitments AS c
+                JOIN mandate_outcome_portfolios AS p
+                  ON p.portfolio_id = c.portfolio_id
+                WHERE c.commitment_record_id=? AND c.portfolio_id=?
+                """,
+                (settlement.commitment_record_id, settlement.portfolio_id),
+            ).fetchone()
+            if scope_row is None:
+                raise ResponsibilityLoopBindingDrift(
+                    "canonical commitment/portfolio scope is missing"
+                )
+            try:
+                commitment = PersistentCommitment.model_validate_json(
+                    str(scope_row["commitment_payload"])
+                )
+                portfolio = OutcomePortfolio.model_validate_json(
+                    str(scope_row["portfolio_payload"])
+                )
+            except Exception as exc:
+                raise ResponsibilityLoopBindingDrift(
+                    "canonical commitment/portfolio contract validation failed"
+                ) from exc
+            commitment_unsigned = commitment.model_dump(
+                mode="python", exclude={"record_digest"}, exclude_none=True
+            )
+            portfolio_unsigned = portfolio.model_dump(
+                mode="python", exclude={"record_digest"}, exclude_none=True
+            )
+            if (
+                commitment.record_digest != scope_row["commitment_digest"]
+                or content_digest(commitment_unsigned) != commitment.record_digest
+                or portfolio.record_digest != scope_row["portfolio_digest"]
+                or content_digest(portfolio_unsigned) != portfolio.record_digest
+                or commitment.portfolio_id != portfolio.portfolio_id
+                or commitment.commitment_record_id
+                != settlement.commitment_record_id
+                or commitment.task_id != settlement.task_id
+                or commitment.expected_outcome_digest
+                != settlement.expected_outcome_digest
+                or commitment.state is not settlement.resulting_state
+                or commitment.mandate_id != binding.mandate_id
+                or commitment.principal_id != binding.principal_id
+                or commitment.tenant_id != binding.tenant_id
+                or commitment.workspace_id != binding.workspace_id
+                or portfolio.mandate_id != binding.mandate_id
+                or portfolio.principal_id != binding.principal_id
+                or portfolio.tenant_id != binding.tenant_id
+                or portfolio.workspace_id != binding.workspace_id
+                or commitment.correction_epoch != binding.correction_epoch
+                or portfolio.correction_epoch != binding.correction_epoch
+            ):
+                raise ResponsibilityLoopBindingDrift(
+                    "canonical commitment/portfolio scope drift"
+                )
             existing = connection.execute(
                 "SELECT * FROM responsibility_cycle_settlements_v2 "
                 "WHERE binding_digest=? AND cycle_id=?",
@@ -1133,10 +1368,19 @@ class SQLiteResponsibilityLoopStore:
             return 0
         rows = connection.execute(
             """
-            SELECT s.payload, s.record_digest, b.settlement_digest
+            SELECT s.payload, s.record_digest, b.settlement_digest,
+                   c.payload AS commitment_payload,
+                   c.record_digest AS commitment_digest,
+                   p.payload AS portfolio_payload,
+                   p.record_digest AS portfolio_digest
             FROM responsibility_cycle_settlements_v2 AS b
             JOIN mandate_outcome_settlements AS s
               ON s.settlement_id = b.settlement_id
+            JOIN mandate_persistent_commitments AS c
+              ON c.commitment_record_id = s.commitment_record_id
+             AND c.portfolio_id = s.portfolio_id
+            JOIN mandate_outcome_portfolios AS p
+              ON p.portfolio_id = c.portfolio_id
             WHERE b.binding_digest = ? AND b.cycle_id = ?
             """,
             (binding.digest, cycle_id),
@@ -1144,19 +1388,59 @@ class SQLiteResponsibilityLoopStore:
         accepted = 0
         for row in rows:
             payload = json.loads(str(row["payload"]))
+            try:
+                settlement = SettlementRecord.model_validate(payload)
+                commitment = PersistentCommitment.model_validate_json(
+                    str(row["commitment_payload"])
+                )
+                portfolio = OutcomePortfolio.model_validate_json(
+                    str(row["portfolio_payload"])
+                )
+            except Exception as exc:
+                raise ResponsibilityLoopBindingDrift(
+                    "outcome truth contract validation failed"
+                ) from exc
             stored_digest = str(row["record_digest"])
-            payload_digest = str(payload.get("record_digest", ""))
             unsigned_payload = dict(payload)
             unsigned_payload.pop("record_digest", None)
+            expected_state = {
+                OutcomeStatus.VERIFIED: PersistentCommitmentState.SETTLED_MET,
+                OutcomeStatus.NOT_MET: PersistentCommitmentState.SETTLED_NOT_MET,
+                OutcomeStatus.INVALID: PersistentCommitmentState.INVALID,
+                OutcomeStatus.UNRESOLVED: PersistentCommitmentState.INVALID,
+            }[settlement.observed_status]
+            commitment_unsigned = commitment.model_dump(
+                mode="python", exclude={"record_digest"}, exclude_none=True
+            )
+            portfolio_unsigned = portfolio.model_dump(
+                mode="python", exclude={"record_digest"}, exclude_none=True
+            )
             if (
-                stored_digest != payload_digest
+                stored_digest != settlement.record_digest
                 or stored_digest != row["settlement_digest"]
                 or content_digest(unsigned_payload) != stored_digest
+                or settlement.mandate_id != binding.mandate_id
+                or settlement.resulting_state is not expected_state
+                or commitment.record_digest != row["commitment_digest"]
+                or content_digest(commitment_unsigned) != commitment.record_digest
+                or portfolio.record_digest != row["portfolio_digest"]
+                or content_digest(portfolio_unsigned) != portfolio.record_digest
+                or commitment.commitment_record_id
+                != settlement.commitment_record_id
+                or commitment.portfolio_id != settlement.portfolio_id
+                or commitment.task_id != settlement.task_id
+                or commitment.state is not settlement.resulting_state
+                or commitment.mandate_id != binding.mandate_id
+                or commitment.principal_id != binding.principal_id
+                or commitment.tenant_id != binding.tenant_id
+                or commitment.workspace_id != binding.workspace_id
+                or portfolio.mandate_id != binding.mandate_id
+                or portfolio.principal_id != binding.principal_id
+                or portfolio.tenant_id != binding.tenant_id
+                or portfolio.workspace_id != binding.workspace_id
             ):
                 raise ResponsibilityLoopBindingDrift("settlement digest drift")
-            if (
-                payload.get("resulting_state") == "SETTLED_MET"
-            ):
+            if settlement.resulting_state is PersistentCommitmentState.SETTLED_MET:
                 accepted += 1
         return accepted
 

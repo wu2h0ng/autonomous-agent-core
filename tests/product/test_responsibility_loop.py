@@ -24,7 +24,12 @@ from agent_os_core.responsibility_loop import (
     ResponsibilityLoopStaleFence,
     SQLiteResponsibilityLoopStore,
 )
-from agent_os_contracts import SettlementRecord, content_digest
+from agent_os_contracts import (
+    OutcomePortfolio,
+    PersistentCommitment,
+    SettlementRecord,
+    content_digest,
+)
 
 
 NOW = datetime(2026, 7, 30, 11, 0, tzinfo=timezone.utc)
@@ -67,6 +72,54 @@ def _insert_verified_settlement(
     settlement_id: str,
     task_id: str,
 ) -> str:
+    portfolio_payload = {
+        "schema_version": "1.0",
+        "portfolio_id": "portfolio:1",
+        "principal_id": binding.principal_id,
+        "tenant_id": binding.tenant_id,
+        "workspace_id": binding.workspace_id,
+        "mandate_id": binding.mandate_id,
+        "desired_outcomes": ["outcome:1"],
+        "workspace_record_digest": "1" * 64,
+        "operational_mandate_ref_digest": "2" * 64,
+        "correction_epoch": binding.correction_epoch,
+        "created_by": binding.principal_id,
+        "created_at": NOW,
+        "command_digest": "3" * 64,
+        "task_activation_authorized": False,
+        "capability_grant_authorized": False,
+        "external_effects_authorized": False,
+    }
+    portfolio_digest = content_digest(portfolio_payload)
+    portfolio = OutcomePortfolio.model_validate(
+        {**portfolio_payload, "record_digest": portfolio_digest}
+    )
+    commitment_payload = {
+        "schema_version": "1.0",
+        "commitment_record_id": f"commitment:{task_id}",
+        "portfolio_id": portfolio.portfolio_id,
+        "principal_id": binding.principal_id,
+        "tenant_id": binding.tenant_id,
+        "workspace_id": binding.workspace_id,
+        "mandate_id": binding.mandate_id,
+        "task_id": task_id,
+        "commitment_digest": "4" * 64,
+        "expected_outcome_digest": "d" * 64,
+        "state": "SETTLED_MET",
+        "workspace_record_digest": portfolio.workspace_record_digest,
+        "operational_mandate_ref_digest": portfolio.operational_mandate_ref_digest,
+        "correction_epoch": binding.correction_epoch,
+        "attached_by": binding.principal_id,
+        "attached_at": NOW,
+        "command_digest": "5" * 64,
+        "task_activation_authorized": False,
+        "capability_grant_authorized": False,
+        "external_effects_authorized": False,
+    }
+    commitment_digest = content_digest(commitment_payload)
+    commitment = PersistentCommitment.model_validate(
+        {**commitment_payload, "record_digest": commitment_digest}
+    )
     settlement_payload = {
         "schema_version": "1.0",
         "settlement_id": settlement_id,
@@ -90,16 +143,59 @@ def _insert_verified_settlement(
         {**settlement_payload, "record_digest": record_digest}
     )
     with sqlite3.connect(database) as connection:
-        connection.execute(
+        connection.executescript(
             """
+            CREATE TABLE IF NOT EXISTS mandate_outcome_portfolios (
+                portfolio_id TEXT PRIMARY KEY,
+                mandate_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                principal_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                record_digest TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS mandate_persistent_commitments (
+                commitment_record_id TEXT PRIMARY KEY,
+                portfolio_id TEXT NOT NULL,
+                mandate_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                record_digest TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS mandate_outcome_settlements (
                 settlement_id TEXT PRIMARY KEY,
                 commitment_record_id TEXT NOT NULL,
                 portfolio_id TEXT NOT NULL,
                 payload TEXT NOT NULL,
                 record_digest TEXT NOT NULL
-            )
+            );
             """
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO mandate_outcome_portfolios VALUES (?,?,?,?,?,?,?)",
+            (
+                portfolio.portfolio_id,
+                portfolio.mandate_id,
+                portfolio.tenant_id,
+                portfolio.workspace_id,
+                portfolio.principal_id,
+                portfolio.model_dump_json(),
+                portfolio.record_digest,
+            ),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO mandate_persistent_commitments "
+            "VALUES (?,?,?,?,?,?,?)",
+            (
+                commitment.commitment_record_id,
+                commitment.portfolio_id,
+                commitment.mandate_id,
+                commitment.task_id,
+                commitment.state.value,
+                commitment.model_dump_json(),
+                commitment.record_digest,
+            ),
         )
         connection.execute(
             "INSERT INTO mandate_outcome_settlements VALUES (?,?,?,?,?)",
@@ -455,6 +551,46 @@ def test_effect_crossing_trusted_clock_ttl_cannot_be_marked_applied(
         )
 
 
+@pytest.mark.parametrize("tampered_field", ["task_id", "intent_digest"])
+def test_applied_effect_replay_rejects_ledger_identity_tampering(
+    tmp_path: Path,
+    tampered_field: str,
+) -> None:
+    """A self-consistent receipt cannot authenticate a mutated effect ledger row."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    store.execute_effect(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        operation_slot="workspace-edit:1",
+        intent_digest="d" * 64,
+        effect=_effect_receipt,
+        executed_at=NOW,
+    )
+    replacement = "task:tampered" if tampered_field == "task_id" else "e" * 64
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            f"UPDATE responsibility_loop_effects_v2 SET {tampered_field}=?",
+            (replacement,),
+        )
+
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.execute_effect(
+            binding,
+            lease,
+            cycle_id="cycle:1",
+            task_id="task:1",
+            operation_slot="workspace-edit:1",
+            intent_digest="d" * 64,
+            effect=lambda: pytest.fail("APPLIED effect must not execute again"),
+            executed_at=NOW,
+        )
+
+
 def test_real_process_can_take_over_while_prior_effect_becomes_unknown(
     tmp_path: Path,
 ) -> None:
@@ -532,8 +668,29 @@ def test_inactive_scope_requires_explicit_binding_rebind(tmp_path: Path) -> None
 
     with pytest.raises(ResponsibilityLoopError):
         store.acquire_lease(changed, process_instance_id="process:B", now=NOW)
-    store.rebind_inactive_scope(original, changed)
-    assert store.list_audit_events(changed)[-1].event_type == "LOOP_BINDING_REBOUND"
+    store.rebind_inactive_scope(
+        original,
+        changed,
+        actor_principal_id="founder:1",
+        reason="approved correction epoch transition",
+        authority_ref="approval:rebind-1",
+    )
+    audit = store.list_audit_events(changed)[-1]
+    assert audit.event_type == "LOOP_BINDING_REBOUND"
+    assert audit.process_instance_id == "founder:1"
+    with sqlite3.connect(tmp_path / "agent-os.sqlite3") as connection:
+        receipt = connection.execute(
+            "SELECT previous_binding_digest, replacement_binding_digest, "
+            "actor_principal_id, reason, authority_ref "
+            "FROM responsibility_loop_rebind_receipts"
+        ).fetchone()
+    assert receipt == (
+        original.digest,
+        changed.digest,
+        "founder:1",
+        "approved correction epoch transition",
+        "approval:rebind-1",
+    )
     rebound = store.acquire_lease(changed, process_instance_id="process:B", now=NOW)
     assert rebound.fencing_token == 2
     assert store.latest_checkpoint(changed) is None
@@ -558,7 +715,13 @@ def test_rebind_cannot_change_logical_key_and_replay_unknown_effect(
         prepared_at=NOW,
     )
     store.release_lease(original, lease, released_at=NOW)
-    store.rebind_inactive_scope(original, changed)
+    store.rebind_inactive_scope(
+        original,
+        changed,
+        actor_principal_id="founder:1",
+        reason="approved repository transition",
+        authority_ref="approval:rebind-2",
+    )
     rebound = store.acquire_lease(changed, process_instance_id="process:B", now=NOW)
     repeated: list[str] = []
 
@@ -719,6 +882,76 @@ def test_checkpoint_head_is_not_selected_by_wall_clock_order(
         expected_prior_digest=first.checkpoint_digest,
     )
     assert store.latest_checkpoint(binding) == second
+
+
+def test_takeover_fence_cannot_seal_prior_owner_checkpoint(tmp_path: Path) -> None:
+    """A recovery owner must checkpoint under its own fence before sealing a cycle."""
+    clock = MutableClock(NOW)
+    store = SQLiteResponsibilityLoopStore(tmp_path / "agent-os.sqlite3", clock=clock)
+    binding = replace(_binding(tmp_path), lease_ttl_seconds=1)
+    first_lease = store.acquire_lease(
+        binding, process_instance_id="process:A", now=NOW
+    )
+    checkpoint = store.write_checkpoint(
+        binding,
+        first_lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    clock.now = NOW + timedelta(seconds=2)
+    takeover = store.acquire_lease(
+        binding, process_instance_id="process:B", now=clock.now
+    )
+
+    with pytest.raises(ResponsibilityLoopStaleFence):
+        store.seal_cycle_receipt(
+            binding,
+            takeover,
+            cycle_id="cycle:1",
+            task_id="task:1",
+            run_id="run:1",
+            checkpoint_digest=checkpoint.checkpoint_digest,
+        )
+
+
+def test_cycle_receipt_retry_returns_committed_receipt(tmp_path: Path) -> None:
+    """A response-lost retry must be idempotent across trusted-clock movement."""
+    clock = MutableClock(NOW)
+    store = SQLiteResponsibilityLoopStore(tmp_path / "agent-os.sqlite3", clock=clock)
+    binding = _binding(tmp_path)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    checkpoint = store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    first = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    clock.now = NOW + timedelta(seconds=1)
+    replay = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    assert replay == first
 
 
 def test_hcw_receipt_uses_durable_events_and_accepted_outcome_denominator(
@@ -915,6 +1148,129 @@ def test_cycle_settlement_binding_recomputes_canonical_record_digest(
             task_id="task:1",
             settlement_id="settlement:tampered",
             expected_settlement_digest=digest,
+            cycle_receipt_digest=cycle_receipt.receipt_digest,
+        )
+
+
+def test_cycle_settlement_rejects_not_met_record_disguised_as_met(
+    tmp_path: Path,
+) -> None:
+    """A syntactically valid but semantically impossible settlement is not accepted."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    checkpoint = store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    cycle_receipt = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    digest = _insert_verified_settlement(
+        database,
+        binding,
+        settlement_id="settlement:false-met",
+        task_id="task:1",
+    )
+    with sqlite3.connect(database) as connection:
+        payload = json.loads(
+            connection.execute(
+                "SELECT payload FROM mandate_outcome_settlements "
+                "WHERE settlement_id='settlement:false-met'"
+            ).fetchone()[0]
+        )
+        payload["observed_status"] = "NOT_MET"
+        unsigned = dict(payload)
+        unsigned.pop("record_digest", None)
+        replacement_digest = content_digest(unsigned)
+        payload["record_digest"] = replacement_digest
+        connection.execute(
+            "UPDATE mandate_outcome_settlements SET payload=?, record_digest=? "
+            "WHERE settlement_id='settlement:false-met'",
+            (json.dumps(payload), replacement_digest),
+        )
+
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.bind_cycle_settlement(
+            binding,
+            cycle_id="cycle:1",
+            task_id="task:1",
+            settlement_id="settlement:false-met",
+            expected_settlement_digest=replacement_digest,
+            cycle_receipt_digest=cycle_receipt.receipt_digest,
+        )
+    assert digest != replacement_digest
+
+
+def test_cycle_settlement_rejects_cross_workspace_portfolio_scope(
+    tmp_path: Path,
+) -> None:
+    """A settlement from another workspace cannot enter this binding's HCW truth."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    checkpoint = store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    cycle_receipt = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    settlement_digest = _insert_verified_settlement(
+        database,
+        binding,
+        settlement_id="settlement:foreign-workspace",
+        task_id="task:1",
+    )
+    with sqlite3.connect(database) as connection:
+        payload = json.loads(
+            connection.execute(
+                "SELECT payload FROM mandate_outcome_portfolios "
+                "WHERE portfolio_id='portfolio:1'"
+            ).fetchone()[0]
+        )
+        payload["workspace_id"] = "workspace:foreign"
+        unsigned = dict(payload)
+        unsigned.pop("record_digest", None)
+        digest = content_digest(unsigned)
+        payload["record_digest"] = digest
+        connection.execute(
+            "UPDATE mandate_outcome_portfolios SET workspace_id=?, payload=?, "
+            "record_digest=? WHERE portfolio_id='portfolio:1'",
+            ("workspace:foreign", json.dumps(payload), digest),
+        )
+
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.bind_cycle_settlement(
+            binding,
+            cycle_id="cycle:1",
+            task_id="task:1",
+            settlement_id="settlement:foreign-workspace",
+            expected_settlement_digest=settlement_digest,
             cycle_receipt_digest=cycle_receipt.receipt_digest,
         )
 
