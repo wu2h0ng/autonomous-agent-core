@@ -1,0 +1,39 @@
+{
+  "instance_id": "sympy__sympy-13551",
+  "repo": "sympy/sympy",
+  "base_commit": "9476425b9e34363c2d9ac38e9f04aa75ae54a775",
+  "image_tag": "selfdev2-dryrun-sympy:v1",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "sympy/concrete/tests/test_products.py::test_issue_13546"
+  ],
+  "p2p_resolved": [
+    "sympy/concrete/tests/test_products.py::test_multiple_products",
+    "sympy/concrete/tests/test_products.py::test_special_products",
+    "sympy/concrete/tests/test_products.py::test__eval_product",
+    "sympy/concrete/tests/test_products.py::test_product_pow",
+    "sympy/concrete/tests/test_products.py::test_infinite_product",
+    "sympy/concrete/tests/test_products.py::test_Product_is_convergent",
+    "sympy/concrete/tests/test_products.py::test_issue_9983"
+  ],
+  "p2p_dropped_unresolved": [
+    "test_karr_convention",
+    "test_karr_proposition_2a",
+    "test_karr_proposition_2b",
+    "test_simple_products",
+    "test_rational_products",
+    "test_conjugate_transpose",
+    "test_simplify",
+    "test_change_index",
+    "test_reorder",
+    "test_reverse_order"
+  ],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "38097377580bca103a8621ecee1835aa2cd026a9fbbc0902d5944c5fa918cfd4",
+  "duration_s": 7.4
+}

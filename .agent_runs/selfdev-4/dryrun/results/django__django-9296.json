@@ -1,0 +1,42 @@
+{
+  "instance_id": "django__django-9296",
+  "repo": "django/django",
+  "base_commit": "84322a29ce9b0940335f8ab3d60e55192bef1e50",
+  "image_tag": "selfdev2-dryrun-django:py39",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "tests/pagination/tests.py::PaginationTests::test_paginator_iteration"
+  ],
+  "p2p_resolved": [
+    "tests/pagination/tests.py::PaginationTests::test_count_does_not_silence_attribute_error",
+    "tests/pagination/tests.py::PaginationTests::test_count_does_not_silence_type_error",
+    "tests/pagination/tests.py::PaginationTests::test_float_integer_page",
+    "tests/pagination/tests.py::PaginationTests::test_get_page",
+    "tests/pagination/tests.py::PaginationTests::test_get_page_empty_object_list_and_allow_empty_first_page_false",
+    "tests/pagination/tests.py::PaginationTests::test_get_page_hook",
+    "tests/pagination/tests.py::PaginationTests::test_invalid_page_number",
+    "tests/pagination/tests.py::PaginationTests::test_no_content_allow_empty_first_page",
+    "tests/pagination/tests.py::PaginationTests::test_page_indexes",
+    "tests/pagination/tests.py::PaginationTests::test_page_range_iterator",
+    "tests/pagination/tests.py::PaginationTests::test_page_sequence",
+    "tests/pagination/tests.py::PaginationTests::test_paginate_misc_classes",
+    "tests/pagination/tests.py::PaginationTests::test_paginator",
+    "tests/pagination/tests.py::ModelPaginationTests::test_first_page",
+    "tests/pagination/tests.py::ModelPaginationTests::test_last_page",
+    "tests/pagination/tests.py::ModelPaginationTests::test_page_getitem",
+    "tests/pagination/tests.py::ModelPaginationTests::test_paginating_empty_queryset_does_not_warn",
+    "tests/pagination/tests.py::ModelPaginationTests::test_paginating_unordered_object_list_raises_warning",
+    "tests/pagination/tests.py::ModelPaginationTests::test_paginating_unordered_queryset_raises_warning"
+  ],
+  "p2p_dropped_unresolved": [
+    "Paginator.get_page() with an empty object_list."
+  ],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "3458878906d95c5af9e2adcbaf5ad196acda764fad0b2c9fe78991108fe52876",
+  "duration_s": 11.5
+}

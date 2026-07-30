@@ -1,0 +1,47 @@
+{
+  "base_commit": "0df94ff7097961e92fd7812036a24b145bc13ca8",
+  "batch": "S4",
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "duration_s": 11.7,
+  "error": "",
+  "evidence_digest": "55d972a821cfd9be832c17a52ed3a886175594836fff5017a3aa8c0689c45b33",
+  "excluded": false,
+  "f2p_green_at_gold": true,
+  "f2p_red_at_base": true,
+  "f2p_resolved": [
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_coupled_world_slicing"
+  ],
+  "gold_patch_files": 1,
+  "image_tag": "selfdev2-dryrun-astropy:py39",
+  "instance_id": "astropy__astropy-13579",
+  "ok": true,
+  "p2p_dropped_unresolved": [
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_sanitize_slice[item0-4-expected0]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_sanitize_slice[item1-5-expected1]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_sanitize_slice[item2-10-expected2]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_combine_slices[slice10-slice20-expected0]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_combine_slices[slice11-slice21-expected1]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_combine_slices[slice12-slice22-expected2]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_combine_slices[slice13-slice23-expected3]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_combine_slices[slice14-slice24-expected4]",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_combine_slices[slice15-slice25-expected5]"
+  ],
+  "p2p_green_at_gold": true,
+  "p2p_resolved": [
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_invalid_slices",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_ellipsis",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_pixel_to_world_broadcasting",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_world_to_pixel_broadcasting",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_spectral_slice",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_spectral_range",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_celestial_slice",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_celestial_range",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_celestial_range_rot",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_no_array_shape",
+    "astropy/wcs/wcsapi/wrappers/tests/test_sliced_wcs.py::test_ellipsis_none_types"
+  ],
+  "p2p_vacuous": false,
+  "python_version": "python:3.9-slim-bookworm",
+  "repo": "astropy/astropy",
+  "test_patch_files": 1
+}

@@ -1,0 +1,24 @@
+{
+  "instance_id": "django__django-11066",
+  "repo": "django/django",
+  "base_commit": "4b45b6c8e4d7c9701a332e80d3b1c84209dc36e2",
+  "image_tag": "selfdev2-dryrun-django:py39",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "tests/contenttypes_tests/test_operations.py::ContentTypeOperationsTests::test_existing_content_type_rename_other_database"
+  ],
+  "p2p_resolved": [
+    "tests/contenttypes_tests/test_operations.py::ContentTypeOperationsTests::test_content_type_rename_conflict",
+    "tests/contenttypes_tests/test_operations.py::ContentTypeOperationsTests::test_existing_content_type_rename",
+    "tests/contenttypes_tests/test_operations.py::ContentTypeOperationsTests::test_missing_content_type_rename_ignore"
+  ],
+  "p2p_dropped_unresolved": [],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "6394a54cb5d0d876ffd00b015f18c3bcf058559c0fba9b32dadb02b26fcaa37a",
+  "duration_s": 7.4
+}

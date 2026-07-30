@@ -1,0 +1,41 @@
+{
+  "instance_id": "pylint-dev__pylint-7277",
+  "repo": "pylint-dev/pylint",
+  "base_commit": "684a1d6aa0a6791e20078bc524f97c8906332390",
+  "image_tag": "selfdev2-dryrun-pylint:v1",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "tests/test_self.py::TestRunTC::test_modify_sys_path"
+  ],
+  "p2p_resolved": [
+    "tests/test_self.py::TestRunTC::test_pkginfo",
+    "tests/test_self.py::TestRunTC::test_all",
+    "tests/test_self.py::TestRunTC::test_no_ext_file",
+    "tests/test_self.py::TestRunTC::test_w0704_ignored",
+    "tests/test_self.py::TestRunTC::test_exit_zero",
+    "tests/test_self.py::TestRunTC::test_nonexistent_config_file",
+    "tests/test_self.py::TestRunTC::test_error_missing_arguments",
+    "tests/test_self.py::TestRunTC::test_no_out_encoding",
+    "tests/test_self.py::TestRunTC::test_parallel_execution",
+    "tests/test_self.py::TestRunTC::test_parallel_execution_missing_arguments",
+    "tests/test_self.py::TestRunTC::test_enable_all_works",
+    "tests/test_self.py::TestRunTC::test_wrong_import_position_when_others_disabled",
+    "tests/test_self.py::TestRunTC::test_import_itself_not_accounted_for_relative_imports",
+    "tests/test_self.py::TestRunTC::test_reject_empty_indent_strings",
+    "tests/test_self.py::TestRunTC::test_json_report_when_file_has_syntax_error",
+    "tests/test_self.py::TestRunTC::test_json_report_when_file_is_missing",
+    "tests/test_self.py::TestRunTC::test_json_report_does_not_escape_quotes",
+    "tests/test_self.py::TestRunTC::test_information_category_disabled_by_default",
+    "tests/test_self.py::TestRunTC::test_error_mode_shows_no_score",
+    "tests/test_self.py::TestRunTC::test_evaluation_score_shown_by_default"
+  ],
+  "p2p_dropped_unresolved": [],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "c70f2f7ccf018702c0e8b5a8e8e58b0d17b9d037ec6ffd8add80e721d4ddd859",
+  "duration_s": 5.6
+}

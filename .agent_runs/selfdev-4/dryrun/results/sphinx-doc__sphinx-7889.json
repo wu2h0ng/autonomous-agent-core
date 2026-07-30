@@ -1,0 +1,31 @@
+{
+  "base_commit": "ec9af606c6cfa515f946d74da9b51574f2f9b16f",
+  "batch": "S4",
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "duration_s": 3.0,
+  "error": "",
+  "evidence_digest": "2291ae19bf0de2467ff7d5f51da1d250bd67e38e4f7ddbd7964eb1b5fb83b3e9",
+  "excluded": false,
+  "f2p_green_at_gold": true,
+  "f2p_red_at_base": true,
+  "f2p_resolved": [
+    "tests/test_ext_autodoc_mock.py::test_MockObject"
+  ],
+  "gold_patch_files": 1,
+  "image_tag": "selfdev2-dryrun-sphinx3x:py39",
+  "instance_id": "sphinx-doc__sphinx-7889",
+  "ok": true,
+  "p2p_dropped_unresolved": [],
+  "p2p_green_at_gold": true,
+  "p2p_resolved": [
+    "tests/test_ext_autodoc_mock.py::test_MockModule",
+    "tests/test_ext_autodoc_mock.py::test_mock",
+    "tests/test_ext_autodoc_mock.py::test_mock_does_not_follow_upper_modules",
+    "tests/test_ext_autodoc_mock.py::test_abc_MockObject",
+    "tests/test_ext_autodoc_mock.py::test_mock_decorator"
+  ],
+  "p2p_vacuous": false,
+  "python_version": "python:3.9-slim",
+  "repo": "sphinx-doc/sphinx",
+  "test_patch_files": 1
+}

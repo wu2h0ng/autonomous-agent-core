@@ -1,7 +1,7 @@
 {
   "schema": "selfdev-4-subset-selection.v1",
   "seed": 20260726,
-  "rule": "random.Random(seed).shuffle over 17 instance_ids sorted lexicographically; first 12 = main, last 5 = reserve; caps: django 4, sympy 3, sphinx 3, others 2; pool = 13 new S4 dry-run validations + 5 SELFDEV-2 reserve tasks (unconsumed); pytest capped to [5809(new), 5631(reserve)]",
+  "rule": "random.Random(seed).shuffle over 17 instance_ids sorted lexicographically; first 12 = main, last 5 = reserve; caps: django 4, sympy 3, sphinx 3, others 2; pool = 13 new S4 dry-run validations + 4 SELFDEV-2 reserve tasks drawn in (5 reserve tasks were eligible and unconsumed; pytest-7490 dropped by the declared pytest cap of [5809 new, 5631 reserve])",
   "tasks": [
     {
       "instance_id": "django__django-9296",

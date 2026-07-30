@@ -1,0 +1,32 @@
+{
+  "instance_id": "django__django-10999",
+  "repo": "django/django",
+  "base_commit": "36300ef336e3f130a0dadc1143163ff3d23dc843",
+  "image_tag": "selfdev2-dryrun-django:py39",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_negative",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_parse_postgresql_format"
+  ],
+  "p2p_resolved": [
+    "tests/utils_tests/test_dateparse.py::DateParseTests::test_parse_date",
+    "tests/utils_tests/test_dateparse.py::DateParseTests::test_parse_datetime",
+    "tests/utils_tests/test_dateparse.py::DateParseTests::test_parse_time",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_days",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_fractions_of_seconds",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_hours_minutes_seconds",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_iso_8601",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_minutes_seconds",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_parse_python_format",
+    "tests/utils_tests/test_dateparse.py::DurationParseTests::test_seconds"
+  ],
+  "p2p_dropped_unresolved": [],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "cd826faaa2ec7370c8b6319ed7fc8fb13ca513ed23ce33ea8ba72f9d805ae1e4",
+  "duration_s": 8.3
+}

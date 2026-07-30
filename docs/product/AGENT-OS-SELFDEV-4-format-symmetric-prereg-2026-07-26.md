@@ -1,9 +1,8 @@
 # AGENT-OS-SELFDEV-4 — Format-Symmetric Benchmark Round Prereg (DRAFT)
 
-> Status: `DRAFT` — §1-§3, §5-§10 complete; §4 (frozen subset) is filled only
-> after gold env validation dry-runs complete. No result-bearing run until
-> independent review accepts and the freeze commit records the exact-content
-> manifest.
+> Status: `DRAFT` — all sections complete including the frozen subset (§4).
+> No result-bearing run until independent review accepts and the freeze
+> commit records the exact-content manifest.
 > Date: 2026-07-26. Builder: kimi-cli session.
 > Governing documents: ADR-0056, ADR-0058 (Accepted, diff channel implemented
 > at 090f8f2), SELFDEV-2/SELFDEV-3 prergs and adjudications.

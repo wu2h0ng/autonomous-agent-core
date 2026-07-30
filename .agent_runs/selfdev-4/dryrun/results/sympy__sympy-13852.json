@@ -1,0 +1,25 @@
+{
+  "instance_id": "sympy__sympy-13852",
+  "repo": "sympy/sympy",
+  "base_commit": "c935e1d106743efd5bf0705fbeedbd18fadff4dc",
+  "image_tag": "selfdev2-dryrun-sympy:v1",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "sympy/functions/special/tests/test_zeta_functions.py::test_polylog_values"
+  ],
+  "p2p_resolved": [
+    "sympy/functions/special/tests/test_zeta_functions.py::test_zeta_eval",
+    "sympy/functions/special/tests/test_zeta_functions.py::test_dirichlet_eta_eval",
+    "sympy/functions/special/tests/test_zeta_functions.py::test_stieltjes",
+    "sympy/functions/special/tests/test_zeta_functions.py::test_stieltjes_evalf"
+  ],
+  "p2p_dropped_unresolved": [],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "8b80c9f4e95d53ff4b6212091b7cb554dcb3edcf4ad981bf7e81d498dc6ccd09",
+  "duration_s": 5.3
+}

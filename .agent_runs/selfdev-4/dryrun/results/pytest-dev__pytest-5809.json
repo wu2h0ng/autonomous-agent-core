@@ -1,0 +1,24 @@
+{
+  "instance_id": "pytest-dev__pytest-5809",
+  "repo": "pytest-dev/pytest",
+  "base_commit": "8aba863a634f40560e25055d179220f0eefabe9a",
+  "image_tag": "selfdev2-dryrun-pytest:v1",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "testing/test_pastebin.py::TestPaste::test_create_new_paste"
+  ],
+  "p2p_resolved": [
+    "testing/test_pastebin.py::TestPasteCapture::test_failed",
+    "testing/test_pastebin.py::TestPasteCapture::test_all",
+    "testing/test_pastebin.py::TestPasteCapture::test_non_ascii_paste_text"
+  ],
+  "p2p_dropped_unresolved": [],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "df8925ec1af12baba906f06819eab91b6d03499a76c486a7c9af98c1ebce4c32",
+  "duration_s": 2.0
+}

@@ -1,0 +1,43 @@
+{
+  "base_commit": "68aa4fb29e7dfe521749e1e14f750d7afabb3481",
+  "batch": "S4",
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "duration_s": 4.6,
+  "error": "",
+  "evidence_digest": "8b7cbdb1cf706f8620728b74d9b4a0c2feb247f8f5ffcead18a0d60b8f00ed17",
+  "excluded": false,
+  "f2p_green_at_gold": true,
+  "f2p_red_at_base": true,
+  "f2p_resolved": [
+    "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_and_type_aliases"
+  ],
+  "gold_patch_files": 1,
+  "image_tag": "selfdev2-dryrun-sphinx3x:py39",
+  "instance_id": "sphinx-doc__sphinx-8459",
+  "ok": true,
+  "p2p_dropped_unresolved": [],
+  "p2p_green_at_gold": true,
+  "p2p_resolved": [
+    "tests/test_ext_autodoc_configs.py::test_autoclass_content_class",
+    "tests/test_ext_autodoc_configs.py::test_autoclass_content_init",
+    "tests/test_ext_autodoc_configs.py::test_autoclass_content_both",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_inherit_docstrings",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_docstring_signature",
+    "tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_class",
+    "tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_init",
+    "tests/test_ext_autodoc_configs.py::test_autoclass_content_and_docstring_signature_both",
+    "tests/test_ext_autodoc_configs.py::test_mocked_module_imports",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_signature",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_none_for_overload",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_typehints_description_for_invalid_node",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_type_aliases",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_default_options",
+    "tests/test_ext_autodoc_configs.py::test_autodoc_default_options_with_values"
+  ],
+  "p2p_vacuous": false,
+  "python_version": "python:3.9-slim",
+  "repo": "sphinx-doc/sphinx",
+  "test_patch_files": 1
+}

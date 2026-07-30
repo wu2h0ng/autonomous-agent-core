@@ -1,0 +1,41 @@
+{
+  "instance_id": "django__django-10880",
+  "repo": "django/django",
+  "base_commit": "838e432e3e5519c5383d12018e6c78f8ec7833c1",
+  "image_tag": "selfdev2-dryrun-django:py39",
+  "python_version": "3.9",
+  "ok": true,
+  "f2p_red_at_base": true,
+  "f2p_green_at_gold": true,
+  "p2p_green_at_gold": true,
+  "f2p_resolved": [
+    "tests/aggregation/tests.py::AggregateTestCase::test_count_distinct_expression"
+  ],
+  "p2p_resolved": [
+    "tests/aggregation/tests.py::AggregateTestCase::test_add_implementation",
+    "tests/aggregation/tests.py::AggregateTestCase::test_aggregate_alias",
+    "tests/aggregation/tests.py::AggregateTestCase::test_aggregate_annotation",
+    "tests/aggregation/tests.py::AggregateTestCase::test_aggregate_in_order_by",
+    "tests/aggregation/tests.py::AggregateTestCase::test_aggregate_multi_join",
+    "tests/aggregation/tests.py::AggregateTestCase::test_aggregate_over_complex_annotation",
+    "tests/aggregation/tests.py::AggregateTestCase::test_aggregation_expressions",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_basic",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_defer",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_defer_select_related",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_m2m",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_ordering",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_over_annotate",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_values",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_values_aggregate",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotate_values_list",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotated_aggregate_over_annotated_aggregate",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotation",
+    "tests/aggregation/tests.py::AggregateTestCase::test_annotation_expressions",
+    "tests/aggregation/tests.py::AggregateTestCase::test_arguments_must_be_expressions"
+  ],
+  "p2p_dropped_unresolved": [],
+  "p2p_vacuous": false,
+  "detail": "base f2p exit=1 red=True; gold f2p exit=0 green=True; gold p2p exit=0 green=True; ok=True",
+  "evidence_digest": "7d48ab8429c0f4c3d3afeab5fb7f353cbd493032ef7e0f38ba3bcea6c580c71b",
+  "duration_s": 12.0
+}
