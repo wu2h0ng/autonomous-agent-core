@@ -11,9 +11,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TypeVar
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agent_os_contracts import (
     EdgeSpec,
@@ -54,21 +55,24 @@ D7 = "7" * 64
 D8 = "8" * 64
 
 
-def _round_trip(model: object) -> object:
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+def _round_trip(model: ModelT) -> ModelT:
     payload = json.loads(
         json.dumps(
-            model.model_dump(mode="json"),  # type: ignore[attr-defined]
+            model.model_dump(mode="json"),
             sort_keys=True,
         )
     )
-    return type(model).model_validate(payload)  # type: ignore[attr-defined]
+    return type(model).model_validate(payload)
 
 
-def _assert_version_drift_rejected(model: object) -> None:
-    payload = model.model_dump(mode="json")  # type: ignore[attr-defined]
+def _assert_version_drift_rejected(model: BaseModel) -> None:
+    payload = model.model_dump(mode="json")
     payload["schema_version"] = "2.0"
     with pytest.raises(ValidationError):
-        type(model).model_validate(payload)  # type: ignore[attr-defined]
+        type(model).model_validate(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +147,7 @@ def test_environment_model_snapshot_round_trip() -> None:
 def test_environment_model_snapshot_digest_deterministic() -> None:
     snapshot = _environment_snapshot()
     assert snapshot.canonical_digest() == content_digest(snapshot)
-    assert _round_trip(snapshot).canonical_digest() == snapshot.canonical_digest()  # type: ignore[attr-defined]
+    assert _round_trip(snapshot).canonical_digest() == snapshot.canonical_digest()
 
 
 def test_environment_model_snapshot_rejects_version_drift() -> None:
@@ -216,7 +220,9 @@ def _belief_record(**overrides: object) -> BeliefRecord:
 
 
 def test_belief_record_round_trip() -> None:
-    record = _belief_record(status=BeliefStatus.CONTESTED, conflicting_belief_ids=("belief-2",))
+    record = _belief_record(
+        status=BeliefStatus.CONTESTED, conflicting_belief_ids=("belief-2",)
+    )
     assert _round_trip(record) == record
 
 
@@ -290,7 +296,7 @@ def test_belief_patch_round_trip() -> None:
 def test_belief_patch_digest_deterministic() -> None:
     patch = _belief_patch()
     assert patch.canonical_digest() == content_digest(patch)
-    assert _round_trip(patch).canonical_digest() == patch.canonical_digest()  # type: ignore[attr-defined]
+    assert _round_trip(patch).canonical_digest() == patch.canonical_digest()
 
 
 def test_belief_patch_rejects_version_drift() -> None:
@@ -299,7 +305,12 @@ def test_belief_patch_rejects_version_drift() -> None:
 
 def test_belief_patch_requires_fields() -> None:
     payload = _belief_patch().model_dump(mode="json")
-    for field in ("patch_id", "base_snapshot_digest", "base_snapshot_version", "operations"):
+    for field in (
+        "patch_id",
+        "base_snapshot_digest",
+        "base_snapshot_version",
+        "operations",
+    ):
         missing = {key: value for key, value in payload.items() if key != field}
         with pytest.raises(ValidationError):
             BeliefPatch.model_validate(missing)
@@ -411,7 +422,7 @@ def test_evaluation_contract_round_trip() -> None:
 def test_evaluation_contract_digest_deterministic() -> None:
     contract = _evaluation_contract()
     assert contract.canonical_digest() == content_digest(contract)
-    assert _round_trip(contract).canonical_digest() == contract.canonical_digest()  # type: ignore[attr-defined]
+    assert _round_trip(contract).canonical_digest() == contract.canonical_digest()
 
 
 def test_evaluation_contract_rejects_version_drift() -> None:
@@ -581,7 +592,7 @@ def test_procedure_candidate_round_trip() -> None:
 
 def test_procedure_candidate_digest_deterministic() -> None:
     candidate = _procedure_candidate()
-    assert _round_trip(candidate).candidate_digest == candidate.candidate_digest  # type: ignore[attr-defined]
+    assert _round_trip(candidate).candidate_digest == candidate.candidate_digest
 
 
 def test_procedure_candidate_rejects_version_drift() -> None:
@@ -664,7 +675,7 @@ def test_rollback_receipt_round_trip() -> None:
 
 def test_rollback_receipt_digest_deterministic() -> None:
     receipt = _rollback_receipt()
-    assert _round_trip(receipt).rollback_digest == receipt.rollback_digest  # type: ignore[attr-defined]
+    assert _round_trip(receipt).rollback_digest == receipt.rollback_digest
 
 
 def test_rollback_receipt_rejects_version_drift() -> None:

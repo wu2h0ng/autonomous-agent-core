@@ -216,3 +216,52 @@ class EvaluationReceipt(ContractModel):
         if self.receipt_digest != self.canonical_digest():
             raise ValueError("receipt_digest does not match canonical receipt")
         return self
+
+
+class EvaluationBaseline(ContractModel):
+    baseline_id: NonEmptyStr
+    artifact_ref: NonEmptyStr
+    baseline_digest: Sha256Digest
+
+
+class EvaluationContract(ContractModel):
+    """Frozen case set, metrics, baselines, oracle boundary and evaluator
+    identity for one evaluation.
+
+    Named consumer: evaluation runner.
+    Fail-closed: no result if the contract digest, evaluator identity or
+    held-out isolation (``hidden_set`` manifest) differs from what the runner
+    was given.
+    """
+
+    contract_id: NonEmptyStr
+    contract_version: int = Field(ge=1)
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    case_set_ref: NonEmptyStr
+    case_set_digest: Sha256Digest
+    metric_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    baselines: tuple[EvaluationBaseline, ...] = Field(min_length=1)
+    oracle_boundary: NonEmptyStr
+    evaluator_identity: EvaluatorIdentity
+    hidden_set: HiddenSetManifest
+    frozen_at: UtcDateTime
+
+    @field_validator("metric_ids", mode="after")
+    @classmethod
+    def _normalize_metric_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+    @field_validator("baselines", mode="after")
+    @classmethod
+    def _unique_baselines(
+        cls,
+        values: tuple[EvaluationBaseline, ...],
+    ) -> tuple[EvaluationBaseline, ...]:
+        baseline_ids = tuple(baseline.baseline_id for baseline in values)
+        if len(baseline_ids) != len(set(baseline_ids)):
+            raise ValueError("evaluation baselines must be unique")
+        return values
+
+    def canonical_digest(self) -> Sha256Digest:
+        return content_digest(self)
