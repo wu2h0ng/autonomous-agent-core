@@ -113,9 +113,11 @@ class BeliefPatch(ContractModel):
     """Typed add/revise/invalidate proposal against a base belief snapshot.
 
     Named consumer: independent state updater.
-    Fail-closed: base-version drift is rejected by the consumer against the
-    pinned ``base_snapshot_digest``/``base_snapshot_version``; ungrounded
-    mutation is rejected (every operation requires ``grounding_refs``).
+    Contract-enforced: every operation requires ``grounding_refs``
+    (ungrounded mutation is rejected) and operation ids are unique.
+    Consumer-enforced: base-version drift is rejected by the state updater
+    against the pinned ``base_snapshot_digest``/``base_snapshot_version``,
+    not by this contract.
     """
 
     patch_id: NonEmptyStr

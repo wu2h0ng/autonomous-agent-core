@@ -44,10 +44,12 @@ class EnvironmentModelSnapshot(ContractModel):
     and uncertainty.
 
     Named consumer: work compiler / evaluator.
-    Fail-closed: stale scope (``valid_until`` elapsed or before
-    ``captured_at``), unknown provenance (empty ``sources`` or coverage of
-    undeclared entities) and incompatible schema (``schema_version`` drift)
-    are rejected.
+    Contract-enforced: ``valid_until`` must be after ``captured_at``,
+    provenance must be declared (non-empty ``sources``, coverage limited to
+    declared entities) and ``schema_version`` drift is rejected.
+    Consumer-enforced: wall-clock staleness (``valid_until`` elapsed
+    relative to now) is rejected by the work compiler / evaluator, not by
+    this contract.
     """
 
     snapshot_id: NonEmptyStr
