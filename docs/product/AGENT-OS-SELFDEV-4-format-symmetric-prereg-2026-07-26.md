@@ -68,23 +68,54 @@ Consequences); the subset keeps the ≤19,000-byte gold-file bound.
   (baseline a1 → chain a1 → baseline a2 → chain a2 per task); workspace
   restored to pinned base before EVERY attempt; no early stopping.
 
-## 4. Frozen subset (FILLED AT FREEZE — placeholder)
+## 4. Frozen subset (FROZEN at freeze commit)
 
-- Source: the 162-entry candidate pool (`.agent_runs/selfdev-2/dataset/`),
-  MINUS the 17 tasks consumed by SELFDEV-2/3, MINUS parametrized/unresolvable
-  f2p ids; 130 candidates across 8 repos remain.
-- Selection rule (declared): seeded RNG (seed recorded in manifest);
-  stratified cap 2 per repo EXCEPT django/sympy/sphinx cap 3 (their
-  candidate stocks are 84/20/15; without the exception the 8-repo cap
-  structurally tops at 16 < 17); N=12 main + 5 reserve; drawn ONLY from the
-  gold-validation-passing pool (§8).
-- Per-task manifest fields: as SELFDEV-2 §4 (commits, issue hash, gold file
-  path/bytes/lines ≤19000, resolved f2p/p2p node ids, image tag,
-  interpreter, verifier timeout, min output tokens, gold-validation
-  evidence digest, p2p_vacuous flag).
+- Selection (executed 2026-07-28): seed `20260726`,
+  `random.Random(seed).shuffle` over the 17 instance_ids sorted
+  lexicographically; first 12 = main, last 5 = reserve; caps: django 4,
+  sympy 3, sphinx 3, others 2. Machine-readable selection:
+  `.agent_runs/selfdev-4/selection.json` (pins every field: commits, issue
+  hash, gold file path/bytes/lines, resolved f2p/p2p node ids,
+  p2p_dropped_unresolved, image tag, interpreter, verifier timeout, min
+  output tokens 8192, gold-validation evidence digest, origin, workspace
+  path/head). Pool: 13 new S4 dry-run validations + 4 SELFDEV-2 reserve
+  tasks (unconsumed; pytest-7490 dropped by the pytest cap, declared).
+  No vacuous-p2p tasks in this subset.
+- Workspaces: materialized at `.agent_runs/selfdev-4/workspaces/<instance_id>`
+  (gitignored), all 17 verified `HEAD == pinned base_commit` AND clean
+  `git status --porcelain` at freeze time (SELFDEV-3 freeze precondition,
+  recorded in the freeze commit message).
 - Reserve swaps: only before the round's first provider call; each swap a
-  declared, recorded, re-hashed manifest event; post-first-call swaps
-  forbidden (task-level INVALID then counts toward kill criterion 1).
+  declared, recorded, re-hashed manifest event. Post-first-call swaps are
+  forbidden; a round-time task failure records task-level INVALID and counts
+  toward kill criterion 1.
+
+### Main set (12)
+
+| instance_id | repo | gold file | bytes | f2p | p2p | origin |
+|---|---|---|---|---|---|---|
+| django__django-10880 | django/django | django/db/models/aggregates.py | 5868 | 1 | 20 | S4 |
+| django__django-11066 | django/django | django/contrib/contenttypes/management/__init__.py | 4857 | 1 | 3 | S4 |
+| sympy__sympy-13551 | sympy/sympy | sympy/concrete/products.py | 15452 | 1 | 7 | S4 |
+| sympy__sympy-13852 | sympy/sympy | sympy/functions/special/zeta_functions.py | 17502 | 1 | 4 | S4 |
+| sphinx-doc__sphinx-8459 | sphinx-doc/sphinx | sphinx/ext/autodoc/typehints.py | 4816 | 1 | 17 | S4 |
+| astropy__astropy-13579 | astropy/astropy | astropy/wcs/wcsapi/wrappers/sliced_wcs.py | 11481 | 1 | 11 | S4 |
+| pytest-dev__pytest-5809 | pytest-dev/pytest | src/_pytest/pastebin.py | 3701 | 1 | 3 | S4 |
+| pylint-dev__pylint-7277 | pylint-dev/pylint | pylint/__init__.py | 3330 | 1 | 20 | S4 |
+| sympy__sympy-12419 | sympy/sympy | sympy/matrices/expressions/matexpr.py | 14874 | 1 | 13 | E1-reserve |
+| astropy__astropy-14182 | astropy/astropy | astropy/io/ascii/rst.py | 1649 | 1 | 9 | E1-reserve |
+| scikit-learn__scikit-learn-13328 | scikit-learn/scikit-learn | sklearn/linear_model/huber.py | 11056 | 1 | 9 | E1-reserve |
+| pytest-dev__pytest-5631 | pytest-dev/pytest | src/_pytest/compat.py | 9930 | 1 | 15 | E1-reserve |
+
+### Reserve (5)
+
+| instance_id | repo | gold file | bytes | f2p | p2p |
+|---|---|---|---|---|---|
+| django__django-9296 | django/django | django/core/paginator.py | 5985 | 1 | 19 |
+| django__django-10999 | django/django | django/utils/dateparse.py | 4708 | 2 | 10 |
+| sphinx-doc__sphinx-7889 | sphinx-doc/sphinx | sphinx/ext/autodoc/mock.py | 4536 | 1 | 5 |
+| sphinx-doc__sphinx-9658 | sphinx-doc/sphinx | sphinx/ext/autodoc/mock.py | 5592 | 1 | 20 |
+| scikit-learn__scikit-learn-25747 | scikit-learn/scikit-learn | sklearn/utils/_set_output.py | 8890 | 1 | 14 |
 
 ## 5. Environment freeze
 
