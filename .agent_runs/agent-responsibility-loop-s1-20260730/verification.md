@@ -162,6 +162,53 @@ passed
 This remains `FOUNDATION_NOT_APPROVED` pending a new exact-head independent
 review.
 
+## Controller and unique Agent Work surface candidate
+
+The Controller/CLI candidate was verified after the foundation approval. The
+first combined command used a nonexistent historical filename
+`tests/product/test_long_horizon_runtime.py`; the Controller/CLI portion had
+already completed with `55 passed`, but that command exited `4`. The adjacent
+suite was rerun with the actual long-horizon module names.
+
+```text
+PYTHONPATH=packages/contracts/src:packages/os_core/src:. \
+uv run --extra product-test pytest \
+  tests/product/test_responsibility_controller.py \
+  tests/product/test_responsibility_loop.py \
+  tests/product/test_agent_cli_v0.py -q
+56 passed
+```
+
+The 56 include bypass checks for both AgentLoop and RunCoordinator: a stale
+responsibility fence raised at `before_tool_effect` produces no action receipt
+and no workspace mutation.
+
+```text
+PYTHONPATH=packages/contracts/src:packages/os_core/src:. \
+uv run --extra product-test pytest \
+  tests/product/test_mandate_outcome_portfolio.py \
+  tests/product/test_mandate_responsibility_store.py \
+  tests/product/test_mandate_active_perception.py \
+  tests/product/test_long_horizon_execution.py \
+  tests/product/test_long_horizon_compensation.py -q
+113 passed
+```
+
+```text
+uv run ruff check <11 changed source/test files>
+All checks passed
+
+uv run pyright <11 changed source/test files>
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+This evidence creates only a review candidate. It does not yet close the
+cross-process A-to-B-to-A fixture, Ctrl-C recovery, HCW receipt integration,
+SELFDEV route denial, exact-head independent review, merge or release gates.
+
 Sixth exact-head review at
 `ddb021bead18151f3e97f8e8467473a89c068508` returned
 `TECHNICAL_APPROVE_FOUNDATION` with `P0=0 / P1=0 / P2=0`. The durable verdict

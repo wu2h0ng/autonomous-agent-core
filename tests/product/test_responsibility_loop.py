@@ -982,6 +982,47 @@ def test_checkpoint_restores_from_sqlite_without_session_projection(
     assert restored.next_transition == "HELP_RESPONSE"
 
 
+def test_checkpoint_restores_exact_responsibility_identity_across_processes(
+    tmp_path: Path,
+) -> None:
+    """Task/run alone cannot prove that Process B resumed the selected responsibility."""
+    database = tmp_path / "agent-os.sqlite3"
+    binding = _binding(tmp_path)
+    clock = MutableClock(NOW)
+    first_store = SQLiteResponsibilityLoopStore(database, clock=clock)
+    lease = first_store.acquire_lease(
+        binding, process_instance_id="process:A", now=NOW
+    )
+
+    written = first_store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.WAITING_EVENT,
+        active_cycle_id="cycle:responsibility-1",
+        active_link_id="mandate-task-link:1",
+        active_commitment_record_id="persistent-commitment:1",
+        responsibility_projection_digest="c" * 64,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=7,
+        next_transition="HELP_RESPONSE",
+        recorded_at=NOW,
+    )
+
+    restored = SQLiteResponsibilityLoopStore(
+        database, clock=clock
+    ).latest_checkpoint(binding)
+    assert restored == written
+    assert restored is not None
+    assert restored.active_cycle_id == "cycle:responsibility-1"
+    assert restored.active_link_id == "mandate-task-link:1"
+    assert (
+        restored.active_commitment_record_id
+        == "persistent-commitment:1"
+    )
+    assert restored.responsibility_projection_digest == "c" * 64
+
+
 def test_checkpoint_rejects_event_sequence_rollback(tmp_path: Path) -> None:
     """A later timestamp must not make an older responsibility state authoritative."""
     store = SQLiteResponsibilityLoopStore(
@@ -1125,6 +1166,26 @@ def test_takeover_fence_cannot_seal_prior_owner_checkpoint(tmp_path: Path) -> No
             run_id="run:1",
             checkpoint_digest=checkpoint.checkpoint_digest,
         )
+
+
+def test_active_lease_assertion_rejects_stale_process_after_takeover(
+    tmp_path: Path,
+) -> None:
+    clock = MutableClock(NOW)
+    store = SQLiteResponsibilityLoopStore(tmp_path / "agent-os.sqlite3", clock=clock)
+    binding = replace(_binding(tmp_path), lease_ttl_seconds=1)
+    first_lease = store.acquire_lease(
+        binding, process_instance_id="process:A", now=NOW
+    )
+    store.assert_active_lease(binding, first_lease)
+
+    clock.now = NOW + timedelta(seconds=2)
+    second_lease = store.acquire_lease(
+        binding, process_instance_id="process:B", now=clock.now
+    )
+    store.assert_active_lease(binding, second_lease)
+    with pytest.raises(ResponsibilityLoopStaleFence):
+        store.assert_active_lease(binding, first_lease)
 
 
 def test_cycle_receipt_retry_returns_committed_receipt(tmp_path: Path) -> None:

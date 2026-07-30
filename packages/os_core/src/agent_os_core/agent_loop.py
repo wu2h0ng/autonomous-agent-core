@@ -173,6 +173,7 @@ class AgentLoop:
         gateway: ConfirmationGateway,
         config: AgentLoopConfig | None = None,
         on_text_delta: Callable[[str], None] | None = None,
+        execution_fence: Callable[[str], None] | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -184,6 +185,7 @@ class AgentLoop:
         self._gateway = gateway
         self._config = config or AgentLoopConfig()
         self._on_text_delta = on_text_delta
+        self._execution_fence = execution_fence
         self._broker = CapabilityBroker(sandbox, correction)
         self._actions = ActionPipeline(
             tasks, self._broker, policy, correction, grants
@@ -204,6 +206,10 @@ class AgentLoop:
         if not messages:
             return
         self._history = list(messages)
+
+    def _assert_execution_fence(self, phase: str) -> None:
+        if self._execution_fence is not None:
+            self._execution_fence(phase)
 
     def run_turn(self, session: ChatSession, user_input: str) -> TurnResult:
         turn_id = TurnId(
@@ -227,6 +233,7 @@ class AgentLoop:
             correlation_id=session.run_id,
         )
         result = self._drive(session, turn_id)
+        self._assert_execution_fence("before_turn_commit")
         self._tasks.append_event(
             session.task_id,
             TaskEventType.SESSION_TURN_COMPLETED,
@@ -363,6 +370,7 @@ class AgentLoop:
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
+            self._assert_execution_fence("before_provider")
             if self._config.stream:
                 response = self._provider.complete_streaming(
                     request, on_text_delta=self._on_text_delta
@@ -403,6 +411,7 @@ class AgentLoop:
                     raise RunExecutionError(
                         "chat provider correction epoch changed during invocation"
                     )
+                self._assert_execution_fence("before_provider_commit")
                 node_id = f"{turn_id.turn_id}-step-{step + 1}"
                 receipt = build_provider_execution_receipt(
                     source_event_id=f"event-{uuid4()}",
@@ -477,6 +486,7 @@ class AgentLoop:
                 )
             if risk_tier >= 3:
                 approval = self._build_approval(action)
+        self._assert_execution_fence("before_tool_effect")
         try:
             result = self._actions.execute(
                 action,
@@ -490,6 +500,7 @@ class AgentLoop:
                 proposal,
                 {"error": f"{type(exc).__name__}: {exc}"},
             )
+        self._assert_execution_fence("after_tool_effect")
         output = result.output
         truncated = _truncate_json(output)
         return self._tool_message(proposal, truncated)

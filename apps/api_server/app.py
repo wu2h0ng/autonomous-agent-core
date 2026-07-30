@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -1265,6 +1265,7 @@ class AgentOSApplication:
         configuration_snapshot_id: str | None = None,
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
+        execution_fence: Callable[[str], None] | None = None,
     ):
         forbidden_configuration_inputs = {
             "configuration_snapshot",
@@ -1337,6 +1338,7 @@ class AgentOSApplication:
             inputs,
             stop_after_node=stop_after_node,
             recover_stale_lease=recover_stale_lease,
+            execution_fence=execution_fence,
         )
 
     def open_chat_session(

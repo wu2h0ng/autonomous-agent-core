@@ -133,6 +133,11 @@ class ResponsibilityLoopCheckpoint:
     last_event_sequence: int
     next_transition: str
     recorded_at: datetime
+    active_cycle_id: str | None = None
+    active_link_id: str | None = None
+    active_commitment_record_id: str | None = None
+    responsibility_projection_digest: str | None = None
+    active_help_request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -721,6 +726,17 @@ class SQLiteResponsibilityLoopStore:
             lease.takeover,
         )
 
+    def assert_active_lease(
+        self,
+        binding: ResponsibilityLoopBinding,
+        lease: ResponsibilityLoopLease,
+    ) -> None:
+        """Fail closed unless this exact process/fence still owns a live lease."""
+        checked_at = _utc(self._clock())
+        with self._effect_lock(), self._connect() as connection:
+            connection.execute("BEGIN")
+            self._assert_fence(connection, binding, lease, checked_at)
+
     def release_lease(
         self,
         binding: ResponsibilityLoopBinding,
@@ -871,6 +887,11 @@ class SQLiteResponsibilityLoopStore:
         state: ResponsibilityCycleState,
         active_task_id: str | None,
         active_run_id: str | None,
+        active_cycle_id: str | None = None,
+        active_link_id: str | None = None,
+        active_commitment_record_id: str | None = None,
+        responsibility_projection_digest: str | None = None,
+        active_help_request_id: str | None = None,
         last_event_sequence: int,
         next_transition: str,
         recorded_at: datetime,
@@ -878,11 +899,41 @@ class SQLiteResponsibilityLoopStore:
     ) -> ResponsibilityLoopCheckpoint:
         del recorded_at
         recorded_at = _utc(self._clock())
+        responsibility_identity = (
+            active_cycle_id,
+            active_link_id,
+            active_commitment_record_id,
+            responsibility_projection_digest,
+        )
+        if any(value is not None for value in responsibility_identity):
+            if not all(
+                isinstance(value, str) and bool(value.strip())
+                for value in responsibility_identity
+            ):
+                raise ResponsibilityLoopError(
+                    "checkpoint responsibility identity must be complete"
+                )
+            if (
+                responsibility_projection_digest is None
+                or len(responsibility_projection_digest) != 64
+            ):
+                raise ResponsibilityLoopError(
+                    "checkpoint responsibility projection digest is invalid"
+                )
+        if active_help_request_id is not None and not active_help_request_id.strip():
+            raise ResponsibilityLoopError(
+                "checkpoint active Help request id is invalid"
+            )
         payload = {
-            "schema_version": "1.0",
+            "schema_version": "1.2",
             "binding_digest": binding.digest,
             "fencing_token": lease.fencing_token,
             "state": state.value,
+            "active_cycle_id": active_cycle_id,
+            "active_link_id": active_link_id,
+            "active_commitment_record_id": active_commitment_record_id,
+            "responsibility_projection_digest": responsibility_projection_digest,
+            "active_help_request_id": active_help_request_id,
             "active_task_id": active_task_id,
             "active_run_id": active_run_id,
             "last_event_sequence": last_event_sequence,
@@ -959,15 +1010,20 @@ class SQLiteResponsibilityLoopStore:
                         "checkpoint head compare-and-swap failed"
                     )
         return ResponsibilityLoopCheckpoint(
-            digest,
-            binding.digest,
-            lease.fencing_token,
-            state,
-            active_task_id,
-            active_run_id,
-            last_event_sequence,
-            next_transition,
-            recorded_at,
+            checkpoint_digest=digest,
+            binding_digest=binding.digest,
+            fencing_token=lease.fencing_token,
+            state=state,
+            active_task_id=active_task_id,
+            active_run_id=active_run_id,
+            last_event_sequence=last_event_sequence,
+            next_transition=next_transition,
+            recorded_at=recorded_at,
+            active_cycle_id=active_cycle_id,
+            active_link_id=active_link_id,
+            active_commitment_record_id=active_commitment_record_id,
+            responsibility_projection_digest=responsibility_projection_digest,
+            active_help_request_id=active_help_request_id,
         )
 
     def latest_checkpoint(
@@ -979,7 +1035,7 @@ class SQLiteResponsibilityLoopStore:
                 (binding.lease_scope_id,),
             ).fetchone()
             if lease_row is None:
-                raise ResponsibilityLoopBindingDrift("lease scope is missing")
+                return None
             self._assert_binding(lease_row, binding)
             head = connection.execute(
                 "SELECT checkpoint_digest FROM responsibility_loop_checkpoint_heads "
@@ -996,23 +1052,58 @@ class SQLiteResponsibilityLoopStore:
         if row is None:
             raise ResponsibilityLoopBindingDrift("checkpoint head target is missing")
         payload = json.loads(str(row["payload"]))
-        if payload.get("schema_version") != "1.0":
+        if payload.get("schema_version") not in {"1.0", "1.1", "1.2"}:
             raise ResponsibilityLoopBindingDrift("unsupported checkpoint schema")
         expected = content_digest(
             {**payload, "recorded_at": _parse(str(payload["recorded_at"]))}
         )
         if expected != row["checkpoint_digest"]:
             raise ResponsibilityLoopBindingDrift("checkpoint digest drift")
+        identity = (
+            payload.get("active_cycle_id"),
+            payload.get("active_link_id"),
+            payload.get("active_commitment_record_id"),
+            payload.get("responsibility_projection_digest"),
+        )
+        if any(value is not None for value in identity) and not all(
+            isinstance(value, str) and bool(value.strip()) for value in identity
+        ):
+            raise ResponsibilityLoopBindingDrift(
+                "checkpoint responsibility identity is incomplete"
+            )
+        projection_digest = payload.get("responsibility_projection_digest")
+        if projection_digest is not None and len(str(projection_digest)) != 64:
+            raise ResponsibilityLoopBindingDrift(
+                "checkpoint responsibility projection digest is invalid"
+            )
+        active_help_request_id = payload.get("active_help_request_id")
+        if (
+            active_help_request_id is not None
+            and (
+                not isinstance(active_help_request_id, str)
+                or not active_help_request_id.strip()
+            )
+        ):
+            raise ResponsibilityLoopBindingDrift(
+                "checkpoint active Help request id is invalid"
+            )
         return ResponsibilityLoopCheckpoint(
-            str(row["checkpoint_digest"]),
-            binding.digest,
-            int(payload["fencing_token"]),
-            ResponsibilityCycleState(payload["state"]),
-            payload["active_task_id"],
-            payload["active_run_id"],
-            int(payload["last_event_sequence"]),
-            str(payload["next_transition"]),
-            _parse(str(payload["recorded_at"])),
+            checkpoint_digest=str(row["checkpoint_digest"]),
+            binding_digest=binding.digest,
+            fencing_token=int(payload["fencing_token"]),
+            state=ResponsibilityCycleState(payload["state"]),
+            active_task_id=payload["active_task_id"],
+            active_run_id=payload["active_run_id"],
+            last_event_sequence=int(payload["last_event_sequence"]),
+            next_transition=str(payload["next_transition"]),
+            recorded_at=_parse(str(payload["recorded_at"])),
+            active_cycle_id=payload.get("active_cycle_id"),
+            active_link_id=payload.get("active_link_id"),
+            active_commitment_record_id=payload.get(
+                "active_commitment_record_id"
+            ),
+            responsibility_projection_digest=projection_digest,
+            active_help_request_id=active_help_request_id,
         )
 
     def _effect_key(
@@ -1505,7 +1596,8 @@ class SQLiteResponsibilityLoopStore:
                 raise ResponsibilityLoopBindingDrift("cycle checkpoint is missing")
             checkpoint_payload = json.loads(str(checkpoint["payload"]))
             if (
-                checkpoint_payload.get("schema_version") != "1.0"
+                checkpoint_payload.get("schema_version")
+                not in {"1.0", "1.1", "1.2"}
                 or checkpoint_payload.get("binding_digest") != binding.digest
                 or checkpoint["binding_digest"] != binding.digest
                 or checkpoint["lease_scope_id"] != binding.lease_scope_id

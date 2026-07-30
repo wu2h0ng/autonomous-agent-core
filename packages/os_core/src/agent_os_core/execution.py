@@ -42,7 +42,12 @@ from agent_os_contracts import (
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
-from .errors import ConcurrentWriteError
+from .errors import (
+    ConcurrentWriteError,
+    RunExecutionError,
+    UnsupportedNodeError,
+    WorkerInterrupted,
+)
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
 from .provider import ProviderPort
 from .task_service import (
@@ -59,10 +64,6 @@ def _strict_exit_code(output: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
-
-
-from .errors import RunExecutionError, UnsupportedNodeError, WaitingForApproval, WorkerInterrupted
-
 
 class DeterministicOutcomeEvaluator:
     """Evaluator consumes tool evidence, never provider narration."""
@@ -211,12 +212,18 @@ class RunCoordinator:
         *,
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
+        execution_fence: Callable[[str], None] | None = None,
     ):
+        def assert_execution_fence(phase: str) -> None:
+            if execution_fence is not None:
+                execution_fence(phase)
+
         inputs = inputs or {}
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None or aggregate.workflow is None or aggregate.commitment is None or aggregate.expected_outcome is None:
             raise RunExecutionError("task is not committed and started")
         run = aggregate.run
+        assert_execution_fence("before_run_execution")
         lease_fence = 0
         owner: str | None = None
         acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
@@ -335,6 +342,7 @@ class RunCoordinator:
         for node in self._ordered_nodes(aggregate.workflow):
             if node.node_id in completed_nodes:
                 continue
+            assert_execution_fence(f"before_node:{node.node_id}")
             try:
                 self.tasks.append_event(task_id, TaskEventType.NODE_STARTED, {"node_id": node.node_id}, correlation_id=run.run_id)
             except Exception:
@@ -350,7 +358,9 @@ class RunCoordinator:
                         node.node_id,
                         provider_event_id,
                         context,
+                        execution_fence=execution_fence,
                     )
+                    assert_execution_fence("before_provider_projection")
                     context[node.node_id] = provider_output
                     if provider_receipt is None:
                         self.tasks.append_event(
@@ -404,6 +414,7 @@ class RunCoordinator:
                         aggregate.approval,
                         node.risk_tier,
                         context.get(f"action:{node.capability}"),
+                        execution_fence=execution_fence,
                     )
                     context[node.node_id] = result.output
                     context[node.capability or node.node_id] = result.output
@@ -414,6 +425,7 @@ class RunCoordinator:
                         if exit_code is not None:
                             test_exit_codes[node.node_id] = exit_code
                 elif node.kind is NodeKind.EVALUATION:
+                    assert_execution_fence("before_outcome_evaluation")
                     test_exit_code = next(
                         (code for code in test_exit_codes.values() if code != 0),
                         0 if test_exit_codes else None,
@@ -484,6 +496,7 @@ class RunCoordinator:
                         self._release_lease(run.run_id, owner)
                         return self.tasks.get_task(task_id)
                 elif node.kind is NodeKind.WAIT_EVENT:
+                    assert_execution_fence("before_wait_registration")
                     waiting = self.tasks.register_wait(task_id, node)
                     self._release_lease(run.run_id, owner)
                     return waiting
@@ -495,6 +508,7 @@ class RunCoordinator:
                 payload: dict[str, Any] = {"node_id": node.node_id}
                 if isinstance(output, dict):
                     payload["output"] = output
+                assert_execution_fence(f"before_node_commit:{node.node_id}")
                 self.tasks.append_event(task_id, TaskEventType.NODE_COMPLETED, payload, correlation_id=run.run_id)
                 if stop_after_node == node.node_id:
                     raise WorkerInterrupted(f"worker interrupted after node {node.node_id}")
@@ -518,6 +532,7 @@ class RunCoordinator:
             self._release_lease(run.run_id, owner)
             raise RunExecutionError("workflow completed without an evaluation node")
         try:
+            assert_execution_fence("before_run_finalization")
             observed_outcome = self._revalidate_outcome_before_finalization(
                 task_id,
                 observed_outcome,
@@ -1018,6 +1033,8 @@ class RunCoordinator:
         node_id: str,
         source_event_id: str,
         context: dict[str, Any],
+        *,
+        execution_fence: Callable[[str], None] | None = None,
     ) -> tuple[dict[str, Any], ProviderExecutionReceipt | None]:
         aggregate = self.tasks.get_task(task_id)
         snapshot = aggregate.configuration_snapshot
@@ -1091,6 +1108,8 @@ class RunCoordinator:
             )
             if self.correction.halted(task_id, run_id, capability):
                 raise RunExecutionError("provider invocation is correction halted")
+        if execution_fence is not None:
+            execution_fence("before_provider")
         response = self.provider.complete(request)
         if isinstance(response, ProviderFailure):
             raise RunExecutionError(f"provider {response.code.value}: {response.safe_message}")
@@ -1201,6 +1220,8 @@ class RunCoordinator:
                 raise RunExecutionError(
                     "provider correction epoch changed during invocation"
                 )
+            if execution_fence is not None:
+                execution_fence("before_provider_commit")
             receipt_payload["post_correction_epochs"] = (
                 post_correction_epochs.model_dump(mode="json")
             )
@@ -1216,7 +1237,22 @@ class RunCoordinator:
             )
         return provider_output, receipt
 
-    def _call_tool(self, task_id: str, run_id: str, node_id: str, capability_id: str, principal: PrincipalIdentity, args: Any, expected: ExpectedOutcome, envelope_id: str, approval: Any = None, risk_tier: int = 0, proposed_action: Any = None) -> CapabilityResult:
+    def _call_tool(
+        self,
+        task_id: str,
+        run_id: str,
+        node_id: str,
+        capability_id: str,
+        principal: PrincipalIdentity,
+        args: Any,
+        expected: ExpectedOutcome,
+        envelope_id: str,
+        approval: Any = None,
+        risk_tier: int = 0,
+        proposed_action: Any = None,
+        *,
+        execution_fence: Callable[[str], None] | None = None,
+    ) -> CapabilityResult:
         if capability_id == "workspace.compensate_patch":
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
@@ -1274,7 +1310,11 @@ class RunCoordinator:
         current_fence = getattr(self.tasks._event_store, "lease_fence", lambda _run_id: lease_fence)(run_id)
         if current_fence != permit.lease_fence:
             raise PermissionError("stale worker lease")
+        if execution_fence is not None:
+            execution_fence("before_tool_effect")
         result = self.broker.invoke(action, permit)
+        if execution_fence is not None:
+            execution_fence("before_tool_effect_commit")
         self.tasks._record_action_receipt(
             task_id,
             action=action,

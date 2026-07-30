@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from agent_os_contracts import ProviderMessageRole, ProviderToolProposal, TaskEventType
 from agent_os_core import (
+    AgentLoop,
+    AgentLoopConfig,
     AutoApproveGateway,
     DeterministicProvider,
     NonInteractiveDenyGateway,
@@ -18,8 +20,10 @@ from agent_os_core import (
 from agent_os_core.agent_cli import AgentCLIError, event_types
 from agent_os_core.capability import CapabilityDenied, WorkspaceSandbox
 from agent_os_core.mandate_terminal import mandate_status
+from agent_os_core.responsibility_loop import ResponsibilityLoopStaleFence
 
 from apps.api_server.app import AgentOSApplication
+from apps.cli.__main__ import main as cli_main
 
 
 def _proposal(call_id: str, capability_id: str, arguments: dict) -> ProviderToolProposal:
@@ -188,6 +192,58 @@ def test_policy_kernel_events_after_tool_turn(tmp_path: Path) -> None:
     assert TaskEventType.POLICY_DECIDED in events
 
 
+def test_stale_responsibility_fence_stops_before_next_tool_effect(
+    tmp_path: Path,
+) -> None:
+    app = _agent_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "mutated",
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+    session, _ = app.open_chat_session("fenced edit", AutoApproveGateway())
+    phases: list[str] = []
+
+    def assert_current(phase: str) -> None:
+        phases.append(phase)
+        if phase == "before_tool_effect":
+            raise ResponsibilityLoopStaleFence("Process B owns the loop")
+
+    loop = AgentLoop(
+        tasks=app.tasks,
+        provider=app.provider,
+        provider_profile=app.provider_profile,
+        policy=app.policy,
+        correction=app.correction,
+        sandbox=app.sandbox,
+        grants=dict(app.grants),
+        principal=app.principal,
+        gateway=AutoApproveGateway(),
+        config=AgentLoopConfig(stream=False),
+        execution_fence=assert_current,
+    )
+
+    with pytest.raises(ResponsibilityLoopStaleFence, match="Process B"):
+        loop.run_turn(session, "change the fixture")
+    assert "before_provider" in phases
+    assert "before_provider_commit" in phases
+    assert "before_tool_effect" in phases
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
 def test_resume_rejects_mandate_or_workspace_mismatch(tmp_path: Path) -> None:
     app = _agent_app(tmp_path, scripted=(("first", ()),))
     run_agent_cli(
@@ -258,3 +314,16 @@ def test_agent_repl_status_command(tmp_path: Path) -> None:
     )
     assert "mandate:local-terminal" in stdout.getvalue()
     assert "agent_session" in stdout.getvalue()
+
+
+def test_default_help_exposes_one_agent_work_surface_without_internal_organs(
+    capsys,
+) -> None:
+    with pytest.raises(SystemExit) as exited:
+        cli_main(["agent-os", "--help"])
+    assert exited.value.code == 0
+    output = capsys.readouterr().out
+    assert "run/status/answer/correct/resume" in output
+    assert "selfdev" not in output
+    assert "responsibility-controller" not in output
+    assert "agent-run" not in output
