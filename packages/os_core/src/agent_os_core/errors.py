@@ -151,3 +151,20 @@ class TaskConfigurationNotBound(TaskConfigurationError):
 
 class TaskConfigurationDrift(TaskConfigurationError):
     pass
+
+
+class RunExecutionError(AgentOSCoreError):
+    pass
+
+
+class WorkerInterrupted(RunExecutionError):
+    """Test/worker crash boundary; durable event state remains resumable."""
+    pass
+
+
+class WaitingForApproval(RunExecutionError):
+    pass
+
+
+class UnsupportedNodeError(RunExecutionError):
+    pass

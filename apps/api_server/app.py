@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -39,18 +39,22 @@ from agent_os_contracts import (
     MandateObservationAuthorizationCommand,
     MandateTaskLinkCommand,
     MandateTaskLinkRevocationCommand,
+    NodeKind,
+    NodeSpec,
     ObservationBindingDescriptor,
     OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
     ProviderProfile,
     ProviderFailure,
+    ProviderInvocationBinding,
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
     ProtocolIngressReceipt,
     ResourceBudget,
     RunStatus,
+    SessionRef,
     TaskConfigurationSnapshot,
     TaskConfigurationSnapshotCommand,
     TaskEventType,
@@ -58,9 +62,16 @@ from agent_os_contracts import (
     TaskStatus,
     TrajectoryProjection,
     WorkflowGraph,
+    content_digest,
 )
 from agent_os_core import (
+    AgentLoop,
+    AgentLoopConfig,
+    CHAT_CAPABILITY_IDS,
+    CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
+    ChatSession,
+    ConfirmationGateway,
     CandidateEvaluationScopeMismatch,
     CandidatePromotionScopeMismatch,
     Clock,
@@ -100,6 +111,7 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
+from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
@@ -326,13 +338,9 @@ class AgentOSApplication:
             clock=self._clock,
         )
         self.policy = PolicyKernel(self.correction)
-        live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
-        live_model = os.environ.get("AGENT_OS_PROVIDER_MODEL", "gpt-4o-mini")
+        live_base_url, live_model, credential_key = self._resolve_live_provider_env()
         live_model_revision_digest = os.environ.get(
             "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
-        )
-        credential_key = os.environ.get(
-            "AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY"
         )
         credential_ref = CredentialRef(
             credential_ref_id="credential:default",
@@ -359,6 +367,21 @@ class AgentOSApplication:
             request_timeout_seconds=60,
             created_at=built_in_profile_created_at,
         )
+        deterministic_binding = ProviderInvocationBinding(
+            provider_profile=self.provider_profile,
+            provider_id=self.provider_profile.provider_id,
+            endpoint_class=self.provider_profile.endpoint_class,
+            credential_ref_id=self.provider_profile.credential_ref_id,
+            credential_ref_digest=content_digest(credential_ref),
+            max_context_tokens=self.provider_profile.max_context_tokens,
+            adapter_kind="deterministic",
+            transport="in-process",
+            base_url="in-process:deterministic",
+            endpoint_path="/complete",
+            model_id=self.provider_profile.model_id,
+            request_timeout_seconds=self.provider_profile.request_timeout_seconds,
+            temperature=Decimal("0"),
+        )
         self.provider = (
             OpenAICompatibleProvider(
                 base_url=live_base_url,
@@ -369,7 +392,10 @@ class AgentOSApplication:
                 provider_profile=self.provider_profile,
             )
             if live_base_url
-            else DeterministicProvider(text="provider proposal accepted")
+            else DeterministicProvider(
+                text="provider proposal accepted",
+                invocation_binding=deterministic_binding,
+            )
         )
         self.provider_configured = bool(live_base_url)
         self.grants = self._build_grants(now)
@@ -406,6 +432,7 @@ class AgentOSApplication:
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or self._clock()
+        specs = self.sandbox.specs(issued)
         grants = {
             capability_id: CapabilityGrant(
                 grant_id=f"grant:{capability_id}",
@@ -414,7 +441,7 @@ class AgentOSApplication:
                 workspace_id=self.principal.workspace_id,
                 capability_id=capability_id,
                 capability_version="1",
-                max_risk_tier=1,
+                max_risk_tier=spec.risk_tier,
                 budget_limit=ResourceBudget(
                     max_cost_usd=Decimal("10"),
                     max_duration_seconds=3600,
@@ -426,7 +453,7 @@ class AgentOSApplication:
                 granted_at=issued,
                 expires_at=issued + timedelta(days=30),
             )
-            for capability_id in self.sandbox.specs(issued)
+            for capability_id, spec in specs.items()
         }
         self.evaluation_grant = (
             self._evaluation_grant_override or self._build_evaluation_grant(issued)
@@ -610,6 +637,70 @@ class AgentOSApplication:
             self.grants.clear()
             self.grants.update(rebuilt_grants)
         return self.workspace_status()
+
+    @staticmethod
+    def _normalize_provider_base_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        base = value.strip().rstrip("/")
+        if not base:
+            return None
+        if base.endswith("/chat/completions"):
+            base = base[: -len("/chat/completions")]
+        return base or None
+
+    @classmethod
+    def _resolve_live_provider_env(cls) -> tuple[str | None, str, str]:
+        """Resolve live provider base_url, model, and credential env var name.
+
+        Precedence:
+        1. Explicit AGENT_OS_PROVIDER_* overrides
+        2. AGENT_OS_PROVIDER_PROFILE=<kimi|openai|anthropic|deepseek>
+        3. Legacy OPENAI_API_URL / OPENAI_BASE_URL / OPENAI_MODEL / OPENAI_API_KEY
+        """
+        profile = os.environ.get("AGENT_OS_PROVIDER_PROFILE", "").strip().lower()
+        explicit_base = cls._normalize_provider_base_url(
+            os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
+        )
+        explicit_model = (os.environ.get("AGENT_OS_PROVIDER_MODEL") or "").strip()
+        explicit_key_env = (
+            os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV") or ""
+        ).strip()
+
+        profile_prefix = {
+            "kimi": "KIMI",
+            "openai": "OPENAI",
+            "anthropic": "ANTHROPIC",
+            "deepseek": "DEEPSEEK",
+        }.get(profile)
+
+        profile_base = None
+        profile_model = ""
+        profile_key_env = ""
+        if profile_prefix is not None:
+            profile_base = cls._normalize_provider_base_url(
+                os.environ.get(f"{profile_prefix}_BASE_URL")
+                or os.environ.get(f"{profile_prefix}_API_URL")
+            )
+            profile_model = (
+                os.environ.get(f"{profile_prefix}_MODEL") or ""
+            ).strip()
+            profile_key_env = f"{profile_prefix}_API_KEY"
+            profile_temp = os.environ.get(f"{profile_prefix}_TEMPERATURE")
+            if profile_temp and not os.environ.get("AGENT_OS_PROVIDER_TEMPERATURE"):
+                os.environ["AGENT_OS_PROVIDER_TEMPERATURE"] = profile_temp
+
+        legacy_base = cls._normalize_provider_base_url(
+            os.environ.get("OPENAI_API_URL") or os.environ.get("OPENAI_BASE_URL")
+        )
+        legacy_model = (os.environ.get("OPENAI_MODEL") or "").strip()
+
+        live_base_url = explicit_base or profile_base or legacy_base
+        live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
+        credential_key = (
+            explicit_key_env or profile_key_env or "OPENAI_API_KEY"
+        )
+        return live_base_url, live_model, credential_key
 
     def provider_status(self) -> dict[str, Any]:
         return {
@@ -1175,6 +1266,8 @@ class AgentOSApplication:
         configuration_snapshot_id: str | None = None,
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         forbidden_configuration_inputs = {
             "configuration_snapshot",
@@ -1247,7 +1340,148 @@ class AgentOSApplication:
             inputs,
             stop_after_node=stop_after_node,
             recover_stale_lease=recover_stale_lease,
+            execution_fence=execution_fence,
+            effect_custody=effect_custody,
         )
+
+    def open_chat_session(
+        self,
+        statement: str,
+        gateway: ConfirmationGateway,
+        *,
+        loop_config: AgentLoopConfig | None = None,
+    ) -> tuple[ChatSession, AgentLoop]:
+        """Open a governed terminal chat session (task + run) and its loop."""
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before opening a chat session"
+            )
+        now = self._clock()
+        goal_id = f"goal:chat:{uuid4().hex[:12]}"
+        task = self.create_task(
+            {
+                "goal_id": goal_id,
+                "tenant_id": self.principal.tenant_id,
+                "workspace_id": self.principal.workspace_id,
+                "created_by": self.principal.principal_id,
+                "created_at": now,
+                "statement": statement,
+            }
+        )
+        workflow = WorkflowGraph(
+            workflow_id=f"workflow:chat:{task.task_id}",
+            version=1,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            created_by=self.principal.principal_id,
+            created_at=now,
+            policy_version=self.policy.policy_version,
+            evaluator_refs=("evaluator:pytest:1",),
+            nodes=(NodeSpec(node_id="done", kind=NodeKind.TERMINAL),),
+            edges=(),
+        )
+        self.commit_task(
+            task.task_id,
+            {
+                "commitment": {
+                    "commitment_id": f"commitment:chat:{task.task_id}",
+                    "task_id": task.task_id,
+                    "goal_id": goal_id,
+                    "tenant_id": self.principal.tenant_id,
+                    "workspace_id": self.principal.workspace_id,
+                    "accepted_by": self.principal.principal_id,
+                    "accepted_at": now,
+                    "deliverables": ["interactive chat session outcome"],
+                    "acceptance_criteria": ["user request addressed"],
+                    "authority_scopes": [
+                        "workspace:read",
+                        "workspace:write",
+                        TASK_CONFIGURATION_CAPABILITY,
+                    ],
+                    "budget": {
+                        "max_cost_usd": "10",
+                        "max_duration_seconds": 28800,
+                        "max_provider_tokens": 500000,
+                        "max_tool_calls": 500,
+                    },
+                    "risk_tier": 1,
+                    "exit_conditions": ["session closed"],
+                    "expires_at": now + timedelta(hours=8),
+                },
+                "workflow": workflow.model_dump(mode="json"),
+                "expected_outcome": {
+                    "expected_outcome_id": f"expected:chat:{task.task_id}",
+                    "task_id": task.task_id,
+                    "tenant_id": self.principal.tenant_id,
+                    "workspace_id": self.principal.workspace_id,
+                    "evaluator_type": "pytest",
+                    "evaluator_version": "1",
+                    "evidence_requirements": ["test-report"],
+                    "failure_semantics": ["non-zero exit"],
+                    "threshold": 1,
+                    "observation_window_seconds": 28800,
+                    "frozen_at": now,
+                },
+            },
+        )
+        snapshot = self.seal_task_configuration(task.task_id, {})
+        aggregate = self.start_run(task.task_id, snapshot.snapshot_id)
+        if (
+            aggregate.run is None
+            or aggregate.expected_outcome is None
+            or aggregate.commitment is None
+        ):
+            raise RuntimeError("chat session run failed to start")
+        session = ChatSession(
+            ref=SessionRef(
+                session_id=f"session-{uuid4()}",
+                task_id=task.task_id,
+                run_id=aggregate.run.run_id,
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+            ),
+            envelope_id=f"envelope-{uuid4()}",
+            expected=aggregate.expected_outcome,
+        )
+        grants = dict(self.grants)
+        for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
+            grant = grants.get(capability_id)
+            if grant is None:
+                raise RuntimeError(f"chat capability is not granted: {capability_id}")
+            if grant.max_risk_tier < max_tier:
+                raise RuntimeError(
+                    f"chat capability risk tier is not granted: {capability_id}"
+                )
+        chat_grants = {
+            capability_id: grants[capability_id]
+            for capability_id in CHAT_CAPABILITY_IDS
+        }
+        loop = AgentLoop(
+            tasks=self.tasks,
+            provider=self.provider,
+            provider_profile=self.provider_profile,
+            policy=self.policy,
+            correction=self.correction,
+            sandbox=self.sandbox,
+            grants=chat_grants,
+            principal=self.principal,
+            gateway=gateway,
+            config=loop_config,
+        )
+        self.tasks.append_event(
+            task.task_id,
+            TaskEventType.CANDIDATES_GENERATED,
+            {
+                "envelope": {
+                    "envelope_id": session.envelope_id,
+                    "generator_id": "terminal-chat-loop",
+                    "generator_version": "1",
+                    "allowed_capability_ids": sorted(CHAT_CAPABILITY_IDS),
+                }
+            },
+            correlation_id=session.run_id,
+        )
+        return session, loop
 
     def pause_task(self, task_id: str):
         return self.tasks.update_run_status(

@@ -93,8 +93,11 @@ from .provider import (
     ProviderDecisionRequest,
     ProviderRequest,
     ProviderResponse,
+    SessionRef,
+    ProviderToolCall,
     ProviderToolProposal,
     ProviderUsage,
+    TurnId,
     provider_execution_receipt_digest,
 )
 from .protocol_ingress import (
@@ -132,6 +135,7 @@ from .responsibility import (
     ResponsibilityAttentionReason,
     ResponsibilityItem,
     ResponsibilityItemState,
+    ResponsibilityWorkRoute,
 )
 from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
 from .situated import (
@@ -392,6 +396,7 @@ __all__ = [
     "PersistentCommitment",
     "PersistentCommitmentAttachCommand",
     "PersistentCommitmentState",
+    "ResponsibilityWorkRoute",
     "SettlementCommand",
     "SettlementRecord",
     "ObservationBindingDescriptor",
@@ -432,8 +437,11 @@ __all__ = [
     "ProviderRelevancePolicy",
     "ProviderRequest",
     "ProviderResponse",
+    "SessionRef",
+    "ProviderToolCall",
     "ProviderToolProposal",
     "ProviderUsage",
+    "TurnId",
     "provider_execution_receipt_digest",
     "PriorEvaluationSource",
     "ProjectionEpistemicStatus",

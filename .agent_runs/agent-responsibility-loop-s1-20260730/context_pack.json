@@ -1,0 +1,25 @@
+{
+  "run_id": "agent-responsibility-loop-s1-20260730",
+  "repository": "autonomous-agent-core",
+  "branch": "codex/agent-responsibility-loop-20260730",
+  "writer": "codex-primary",
+  "reviewers": [
+    "read-only-code-map",
+    "read-only-test-adversary",
+    "read-only-architecture-skeptic"
+  ],
+  "approved_design_head": "5036ab7ffd6e919d92d66fdd91815523e18b76af",
+  "approved_design_sha256": "f9e564cf4cb55da454568bebdc30212b68d144ad0e155bd39b5a217a05b654d7",
+  "design_path": "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md",
+  "current_state_path": "docs/CURRENT_STATE.yaml",
+  "write_scope": [
+    "apps/cli",
+    "packages/os_core/src/agent_os_core",
+    "tests/product",
+    ".agent_runs/agent-responsibility-loop-s1-20260730",
+    "docs/CURRENT_STATE.yaml",
+    "docs/product"
+  ],
+  "claim_ceiling": "IMPLEMENTED_TESTED_LOCAL_SLICE_ONLY",
+  "release_authorized": false
+}

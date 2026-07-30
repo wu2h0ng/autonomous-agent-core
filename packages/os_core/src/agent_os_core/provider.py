@@ -17,6 +17,8 @@ from agent_os_contracts import (
     ProviderFailure,
     ProviderDecisionRequest,
     ProviderInvocationBinding,
+    ProviderMessage,
+    ProviderMessageRole,
     ProviderProfile,
     ProviderRequest,
     ProviderResponse,
@@ -24,6 +26,68 @@ from agent_os_contracts import (
     ProviderUsage,
     content_digest,
 )
+
+
+_WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
+    "workspace.read": {
+        "type": "object",
+        "properties": {"path": {"type": "string", "minLength": 1}},
+        "required": ["path"],
+        "additionalProperties": False,
+    },
+    "workspace.search": {
+        "type": "object",
+        "properties": {
+            "mode": {"type": "string", "enum": ["ls", "glob", "grep"]},
+            "path": {"type": "string"},
+            "pattern": {"type": "string"},
+        },
+        "required": ["mode"],
+        "additionalProperties": False,
+    },
+    "workspace.edit": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "old_string": {"type": "string", "minLength": 1},
+            "new_string": {"type": "string"},
+            "expected_sha256": {"type": "string"},
+        },
+        "required": ["path", "old_string", "new_string"],
+        "additionalProperties": False,
+    },
+    "workspace.apply_patch": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "content": {"type": "string"},
+            "expected_sha256": {"type": "string"},
+        },
+        "required": ["path", "content"],
+        "additionalProperties": False,
+    },
+    "workspace.run_tests": {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "enum": ["pytest", "python -m pytest", "python3 -m pytest"],
+            },
+            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+    "workspace.shell": {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "minLength": 1},
+            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+}
 
 
 class CredentialUnavailable(PermissionError):
@@ -55,6 +119,18 @@ class ProviderPort(ABC):
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
         raise NotImplementedError
 
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        """Default: non-streaming complete; subclasses may stream deltas."""
+        result = self.complete(request)
+        if on_text_delta is not None and isinstance(result, ProviderResponse) and result.text:
+            on_text_delta(result.text)
+        return result
+
     def decide(
         self, request: ProviderDecisionRequest
     ) -> ProviderResponse | ProviderFailure:
@@ -69,12 +145,14 @@ class DeterministicProvider(ProviderPort):
         text: str = "provider-ok",
         tool_proposals: tuple[ProviderToolProposal, ...] = (),
         invocation_binding: ProviderInvocationBinding | None = None,
+        scripted: tuple[tuple[str, tuple[ProviderToolProposal, ...]], ...] = (),
     ) -> None:
         self.text = text
         self.tool_proposals = tool_proposals
         self.requests: list[ProviderRequest] = []
         self.decision_requests: list[ProviderDecisionRequest] = []
         self._invocation_binding = invocation_binding
+        self._scripted = list(scripted)
 
     @property
     def invocation_binding(self) -> ProviderInvocationBinding:
@@ -85,6 +163,19 @@ class DeterministicProvider(ProviderPort):
     def complete(self, request: ProviderRequest) -> ProviderResponse:
         self.requests.append(request)
         return self._response(request)
+
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse:
+        response = self.complete(request)
+        if on_text_delta is not None and response.text:
+            chunk_size = 8
+            for offset in range(0, len(response.text), chunk_size):
+                on_text_delta(response.text[offset : offset + chunk_size])
+        return response
 
     def decide(
         self, request: ProviderDecisionRequest
@@ -113,20 +204,24 @@ class DeterministicProvider(ProviderPort):
     def _response(
         self, request: ProviderRequest | ProviderDecisionRequest
     ) -> ProviderResponse:
+        if self._scripted:
+            text, tool_proposals = self._scripted.pop(0)
+        else:
+            text, tool_proposals = self.text, self.tool_proposals
         return ProviderResponse(
             response_id=f"response-{uuid4()}",
             request_id=request.request_id,
-            text=self.text,
-            tool_proposals=self.tool_proposals,
+            text=text,
+            tool_proposals=tool_proposals,
             usage=ProviderUsage(
                 input_tokens=sum(
                     len(message.content.split()) for message in request.messages
                 ),
-                output_tokens=len(self.text.split()),
+                output_tokens=len(text.split()),
                 total_tokens=sum(
                     len(message.content.split()) for message in request.messages
                 )
-                + len(self.text.split()),
+                + len(text.split()),
                 estimated_cost_usd=Decimal("0"),
             ),
             finish_reason="stop",
@@ -234,6 +329,19 @@ class OpenAICompatibleProvider(ProviderPort):
             request, allowed_capability_ids=request.allowed_capability_ids
         )
 
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        return self._invoke(
+            request,
+            allowed_capability_ids=request.allowed_capability_ids,
+            stream=True,
+            on_text_delta=on_text_delta,
+        )
+
     def decide(
         self, request: ProviderDecisionRequest
     ) -> ProviderResponse | ProviderFailure:
@@ -262,6 +370,8 @@ class OpenAICompatibleProvider(ProviderPort):
         request: ProviderRequest | ProviderDecisionRequest,
         *,
         allowed_capability_ids: tuple[str, ...],
+        stream: bool = False,
+        on_text_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         try:
             invocation = self._invocation_binding
@@ -296,27 +406,18 @@ class OpenAICompatibleProvider(ProviderPort):
             body = {
                 "model": model_id,
                 "messages": [
-                    {"role": message.role.value.lower(), "content": message.content}
-                    for message in request.messages
+                    _serialize_message(message) for message in request.messages
                 ],
                 "temperature": temperature,
             }
             if allowed_capability_ids:
                 body["tools"] = [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": capability_id.replace(".", "__"),
-                            "description": f"Invoke typed capability {capability_id}",
-                            "parameters": {
-                                "type": "object",
-                                "additionalProperties": True,
-                            },
-                        },
-                    }
+                    _tool_definition(capability_id)
                     for capability_id in allowed_capability_ids
                 ]
                 body["tool_choice"] = "auto"
+            if stream:
+                body["stream"] = True
             encoded = json.dumps(body).encode("utf-8")
             http_request = urllib.request.Request(
                 f"{base_url}{endpoint_path}",
@@ -331,6 +432,12 @@ class OpenAICompatibleProvider(ProviderPort):
                 http_request,
                 timeout=min(runtime_timeout_seconds, request.timeout_seconds),
             ) as response:  # type: ignore[call-arg]
+                if stream:
+                    return self._parse_sse_stream(
+                        response,
+                        request=request,
+                        on_text_delta=on_text_delta,
+                    )
                 payload = json.loads(response.read().decode("utf-8"))
             choice = payload["choices"][0]
             message = choice["message"]
@@ -401,6 +508,94 @@ class OpenAICompatibleProvider(ProviderPort):
                 True,
             )
 
+    def _parse_sse_stream(
+        self,
+        response: object,
+        *,
+        request: ProviderRequest | ProviderDecisionRequest,
+        on_text_delta: Callable[[str], None] | None,
+    ) -> ProviderResponse:
+        text_parts: list[str] = []
+        tool_calls: dict[int, dict[str, str]] = {}
+        response_id = f"response-{uuid4()}"
+        finish_reason = "stop"
+        readline = getattr(response, "readline", None)
+        while True:
+            raw_line = readline() if callable(readline) else b""
+            if raw_line in (b"", ""):
+                break
+            if isinstance(raw_line, bytes):
+                line = raw_line.decode("utf-8")
+            else:
+                line = str(raw_line)
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("data:"):
+                data = line[5:].strip()
+            else:
+                data = line
+            if data == "[DONE]":
+                break
+            try:
+                payload = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            response_id = str(payload.get("id") or response_id)
+            choices = payload.get("choices") or []
+            if not choices:
+                continue
+            choice = choices[0]
+            finish_reason = str(choice.get("finish_reason") or finish_reason)
+            delta = choice.get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(str(content))
+                if on_text_delta is not None:
+                    on_text_delta(str(content))
+            for tool_delta in delta.get("tool_calls") or []:
+                index = int(tool_delta.get("index", 0))
+                bucket = tool_calls.setdefault(
+                    index,
+                    {"id": "", "name": "", "arguments": ""},
+                )
+                if tool_delta.get("id"):
+                    bucket["id"] = str(tool_delta["id"])
+                function = tool_delta.get("function") or {}
+                if function.get("name"):
+                    bucket["name"] = str(function["name"])
+                if function.get("arguments"):
+                    bucket["arguments"] += str(function["arguments"])
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=item["id"] or f"proposal-{uuid4()}",
+                capability_id=item["name"].replace("__", "."),
+                arguments_json=item["arguments"] or "{}",
+            )
+            for _, item in sorted(tool_calls.items())
+            if item["name"]
+        )
+        text_out = "".join(text_parts)
+        return ProviderResponse(
+            response_id=response_id,
+            request_id=request.request_id,
+            text=text_out,
+            tool_proposals=proposals,
+            usage=ProviderUsage(
+                input_tokens=0,
+                output_tokens=len(text_out.split()),
+                total_tokens=len(text_out.split()),
+                estimated_cost_usd=Decimal("0"),
+            ),
+            finish_reason=finish_reason or "stop",
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
+        )
+
     @staticmethod
     def _proposal(item: dict[str, object]) -> ProviderToolProposal:
         function = item.get("function")
@@ -427,3 +622,50 @@ class OpenAICompatibleProvider(ProviderPort):
             safe_message=message,
             occurred_at=datetime.now(timezone.utc),
         )
+
+
+def _serialize_message(message: ProviderMessage) -> dict[str, object]:
+    """Map a typed ProviderMessage onto the OpenAI chat message wire shape."""
+    if message.role is ProviderMessageRole.TOOL:
+        return {
+            "role": "tool",
+            "tool_call_id": message.tool_call_id,
+            "content": message.content,
+        }
+    if message.role is ProviderMessageRole.ASSISTANT:
+        body: dict[str, object] = {
+            "role": "assistant",
+            "content": message.content or None,
+        }
+        if message.tool_calls:
+            body["tool_calls"] = [
+                {
+                    "id": tool_call.tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.capability_id.replace(".", "__"),
+                        "arguments": tool_call.arguments_json,
+                    },
+                }
+                for tool_call in message.tool_calls
+            ]
+        return body
+    return {"role": message.role.value.lower(), "content": message.content}
+
+
+def _tool_definition(capability_id: str) -> dict[str, object]:
+    parameters = _WORKSPACE_TOOL_PARAMETERS.get(
+        capability_id,
+        {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    )
+    return {
+        "type": "function",
+        "function": {
+            "name": capability_id.replace(".", "__"),
+            "description": f"Propose typed capability {capability_id}",
+            "parameters": parameters,
+        },
+    }

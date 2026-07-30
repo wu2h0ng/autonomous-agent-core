@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -21,7 +23,7 @@ from agent_os_contracts import (
     SideEffectGuarantee,
 )
 
-from .governance import CorrectionAuthority
+from .governance import CorrectionReadPort
 
 
 class CapabilityDenied(PermissionError):
@@ -34,10 +36,29 @@ class CapabilityResult:
     output: dict[str, object]
 
 
+class CapabilityPort(Protocol):
+    """Generic capability dispatch interface. Core depends on this, not on WorkspaceSandbox."""
+
+    def invoke(
+        self,
+        action: ActionContract,
+        permit: ActionPermit,
+        correction: CorrectionReadPort,
+        attempt: int = 1,
+    ) -> CapabilityResult: ...
+
+    def specs(
+        self,
+        now: datetime | None = None,
+        *,
+        include_internal: bool = False,
+    ) -> dict[str, CapabilitySpec]: ...
+
+
 class CapabilityBroker:
     """The only execution boundary for typed capability actions."""
 
-    def __init__(self, connector: WorkspaceSandbox, correction: CorrectionAuthority) -> None:
+    def __init__(self, connector: CapabilityPort, correction: CorrectionReadPort) -> None:
         self.connector = connector
         self.correction = correction
 
@@ -48,14 +69,23 @@ class CapabilityBroker:
 
 
 class WorkspaceSandbox:
-    """Allowlisted repository capabilities on a disposable, path-confined workspace."""
+    """Allowlisted repository capabilities on a disposable, path-confined workspace.
+    Implements CapabilityPort for generic Core consumption."""
 
-    def __init__(self, root: str | Path, artifacts: str | Path | None = None, idempotency_store: object | None = None) -> None:
+    def __init__(self, root: str | Path, artifacts: str | Path | None = None, idempotency_store: object | None = None, shell_allowlist: tuple[str, ...] | None = None) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = Path(artifacts or self.root / ".agent-os-artifacts").resolve()
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self._idempotency_store = idempotency_store
+        self._shell_allowlist = (
+            tuple(shell_allowlist)
+            if shell_allowlist is not None
+            else ("pytest", "python -m pytest", "python3 -m pytest")
+        )
+
+    def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None:
+        self._shell_allowlist = tuple(allowlist)
 
     def specs(
         self,
@@ -84,12 +114,27 @@ class WorkspaceSandbox:
             "workspace.apply_patch": CapabilitySpec(
                 capability_id="workspace.apply_patch", version="1", display_name="Apply unified patch",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=True, **common,
+                cancellation_supported=True, compensation_supported=True, **{**common, "risk_tier": 2},
             ),
             "workspace.run_tests": CapabilitySpec(
                 capability_id="workspace.run_tests", version="1", display_name="Run allowlisted tests",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
                 cancellation_supported=True, compensation_supported=False, **common,
+            ),
+            "workspace.edit": CapabilitySpec(
+                capability_id="workspace.edit", version="1", display_name="Exact string replacement edit",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=True, **{**common, "risk_tier": 2},
+            ),
+            "workspace.search": CapabilitySpec(
+                capability_id="workspace.search", version="1", display_name="Search workspace (glob/grep/ls)",
+                side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **common,
+            ),
+            "workspace.shell": CapabilitySpec(
+                capability_id="workspace.shell", version="1", display_name="Run allowlisted shell command",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **{**common, "risk_tier": 3},
             ),
             "artifact.write": CapabilitySpec(
                 capability_id="artifact.write", version="1", display_name="Write content-addressed artifact",
@@ -110,7 +155,7 @@ class WorkspaceSandbox:
             )
         return specs
 
-    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionAuthority, attempt: int = 1) -> CapabilityResult:
+    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("permit does not match action")
         if permit.expires_at <= datetime.now(timezone.utc):
@@ -134,7 +179,7 @@ class WorkspaceSandbox:
             intent_fingerprint,
         )
         if stored is not None:
-            if action.capability_id == "workspace.apply_patch":
+            if action.capability_id in {"workspace.apply_patch", "workspace.edit"}:
                 self._validate_cached_patch_effect(args, stored)
             elif action.capability_id == "workspace.compensate_patch":
                 self._validate_cached_compensation_effect(args, stored)
@@ -160,7 +205,7 @@ class WorkspaceSandbox:
                 )
                 error_code = "error:none"
             except Exception as exc:
-                output = {"error": type(exc).__name__}
+                output = {"error": f"{type(exc).__name__}: {exc}"}
                 status = ReceiptStatus.FAILED
                 error_code = type(exc).__name__
         receipt = ActionReceipt(
@@ -228,6 +273,12 @@ class WorkspaceSandbox:
             return {"path": str(path.relative_to(self.root)), "content": content, "sha256": _sha256(content.encode())}
         if capability_id == "workspace.apply_patch":
             return self._apply_patch(args, action_key)
+        if capability_id == "workspace.edit":
+            return self._edit(args, action_key)
+        if capability_id == "workspace.search":
+            return self._search(args)
+        if capability_id == "workspace.shell":
+            return self._shell(args, action_key)
         if capability_id == "workspace.compensate_patch":
             return self._compensate_patch(args)
         if capability_id == "workspace.run_tests":
@@ -259,16 +310,24 @@ class WorkspaceSandbox:
     def _safe_path(self, value: str) -> Path:
         if not value or value.startswith("/") or "\\" in value:
             raise CapabilityDenied("path must be a relative workspace path")
-        if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
-            raise CapabilityDenied("workspace artifact state is reserved")
+        first = Path(value).parts[0] if Path(value).parts else ""
+        if first in {".agent-os-artifacts", ".agent_os"}:
+            raise CapabilityDenied("workspace agent state is reserved")
         raw = self.root / value
-        if any(part.is_symlink() for part in (self.root, *raw.parents) if part.exists()):
+        if any(
+            part.is_symlink()
+            for part in (self.root, *raw.parents, raw)
+            if part.exists() or part.is_symlink()
+        ):
             raise CapabilityDenied("symlink paths are forbidden")
         candidate = raw.resolve()
         if candidate != self.root and self.root not in candidate.parents:
             raise CapabilityDenied("path escapes workspace")
         if candidate == self.artifacts or self.artifacts in candidate.parents:
-            raise CapabilityDenied("workspace artifact state is reserved")
+            raise CapabilityDenied("workspace agent state is reserved")
+        agent_os_dir = (self.root / ".agent_os").resolve()
+        if candidate == agent_os_dir or agent_os_dir in candidate.parents:
+            raise CapabilityDenied("workspace agent state is reserved")
         return candidate
 
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
@@ -603,6 +662,164 @@ class WorkspaceSandbox:
         finally:
             temp_path.unlink(missing_ok=True)
 
+    def _edit(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        relative_path = str(args.get("path", ""))
+        path = self._safe_path(relative_path)
+        if not path.is_file():
+            raise FileNotFoundError(relative_path)
+        old_string = str(args.get("old_string", ""))
+        new_string = str(args.get("new_string", ""))
+        if not old_string:
+            raise CapabilityDenied("workspace.edit requires a non-empty old_string")
+        if old_string == new_string:
+            raise CapabilityDenied("workspace.edit old_string and new_string are identical")
+        content = path.read_text(encoding="utf-8")
+        occurrences = content.count(old_string)
+        if occurrences != 1:
+            raise CapabilityDenied(
+                f"workspace.edit old_string must match exactly once (found {occurrences})"
+            )
+        patch_args: dict[str, object] = {
+            "path": relative_path,
+            "content": content.replace(old_string, new_string, 1),
+        }
+        if args.get("expected_sha256") is not None:
+            patch_args["expected_sha256"] = args["expected_sha256"]
+        return self._apply_patch(patch_args, action_key)
+
+    _SEARCH_SKIP_DIRS = frozenset(
+        {".git", ".agent-os-artifacts", ".agent_os", "node_modules", "__pycache__", ".venv"}
+    )
+    _SEARCH_MAX_RESULTS = 200
+    _SEARCH_MAX_OUTPUT_CHARS = 20000
+
+    def _search(self, args: dict[str, object]) -> dict[str, object]:
+        mode = str(args.get("mode", ""))
+        base_value = str(args.get("path", "") or ".")
+        base = self.root if base_value == "." else self._safe_path(base_value)
+        if mode == "ls":
+            if not base.is_dir():
+                raise FileNotFoundError(base_value)
+            entries = sorted(
+                entry.name + ("/" if entry.is_dir() else "")
+                for entry in base.iterdir()
+                if entry.name not in self._SEARCH_SKIP_DIRS
+            )
+            truncated = len(entries) > self._SEARCH_MAX_RESULTS
+            return {
+                "mode": "ls",
+                "entries": entries[: self._SEARCH_MAX_RESULTS],
+                "truncated": truncated,
+            }
+        if mode == "glob":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                raise CapabilityDenied("workspace.search glob requires a pattern")
+            matches: list[str] = []
+            for candidate in sorted(self.root.rglob("*")):
+                if (
+                    any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
+                    or not self._is_safe_search_candidate(candidate)
+                ):
+                    continue
+                relative = str(candidate.relative_to(self.root))
+                if fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(
+                    candidate.name, pattern
+                ):
+                    matches.append(relative + ("/" if candidate.is_dir() else ""))
+                if len(matches) >= self._SEARCH_MAX_RESULTS:
+                    break
+            truncated = len(matches) >= self._SEARCH_MAX_RESULTS
+            return {"mode": "glob", "matches": matches, "truncated": truncated}
+        if mode == "grep":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                raise CapabilityDenied("workspace.search grep requires a pattern")
+            try:
+                regex = re.compile(pattern)
+            except re.error as exc:
+                raise CapabilityDenied(f"invalid grep pattern: {exc}") from exc
+            matches = []
+            scanned = 0
+            truncated = False
+            for candidate in sorted(base.rglob("*") if base.is_dir() else [base]):
+                if (
+                    any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
+                    or not self._is_safe_search_candidate(candidate)
+                ):
+                    continue
+                if not candidate.is_file() or candidate.stat().st_size > 1_000_000:
+                    continue
+                scanned += 1
+                if scanned > 1000:
+                    truncated = True
+                    break
+                try:
+                    text = candidate.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    continue
+                for lineno, line in enumerate(text.splitlines(), start=1):
+                    if regex.search(line):
+                        matches.append(
+                            f"{candidate.relative_to(self.root)}:{lineno}:{line[:500]}"
+                        )
+                        if len(matches) >= self._SEARCH_MAX_RESULTS:
+                            truncated = True
+                            break
+                if truncated:
+                    break
+            output = matches
+            total = 0
+            for index, line in enumerate(matches):
+                total += len(line) + 1
+                if total > self._SEARCH_MAX_OUTPUT_CHARS:
+                    output = matches[:index]
+                    truncated = True
+                    break
+            return {"mode": "grep", "matches": output, "truncated": truncated}
+        raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
+
+    def _is_safe_search_candidate(self, candidate: Path) -> bool:
+        if candidate.is_symlink():
+            return False
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            return False
+        if resolved != self.root and self.root not in resolved.parents:
+            return False
+        return resolved != self.artifacts and self.artifacts not in resolved.parents
+
+    def _shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        command = " ".join(str(args.get("command", "")).split())
+        if command not in self._shell_allowlist:
+            raise CapabilityDenied("command is not in the shell allowlist")
+        timeout = min(int(str(args.get("timeout_seconds", 120))), 300)
+        result = subprocess.run(
+            command.split(), cwd=self.root, capture_output=True, text=True,
+            timeout=timeout, check=False, env=_subprocess_env(),
+        )
+        report = {
+            "schema_version": "shell-report.v1",
+            "action_key_sha256": _sha256(action_key.encode("utf-8")),
+            "command": command,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+        output = _canonical_json_bytes(report)
+        digest = _sha256(output)
+        artifact = self.artifacts / digest
+        if not artifact.exists():
+            artifact.write_bytes(output)
+        return {
+            "exit_code": result.returncode,
+            "stdout": result.stdout[-4000:],
+            "stderr": result.stderr[-4000:],
+            "artifact_ids": (f"artifact:{digest}",),
+            "digest": digest,
+        }
+
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
         allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
@@ -611,7 +828,7 @@ class WorkspaceSandbox:
         timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
         result = subprocess.run(
             command.split(), cwd=self.root, capture_output=True, text=True,
-            timeout=timeout, check=False, env={**os.environ, "NO_COLOR": "1"},
+            timeout=timeout, check=False, env=_subprocess_env(),
         )
         report = {
             "schema_version": "test-report.v1",
@@ -631,6 +848,31 @@ class WorkspaceSandbox:
 
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _subprocess_env() -> dict[str, str]:
+    allowed = {
+        "CI",
+        "COLORTERM",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "PATH",
+        "PYTHONPATH",
+        "SYSTEMROOT",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "VIRTUAL_ENV",
+        "WINDIR",
+    }
+    environment = {
+        key: value for key, value in os.environ.items() if key in allowed
+    }
+    environment["NO_COLOR"] = "1"
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
 
 
 def _canonical_json_bytes(value: object) -> bytes:

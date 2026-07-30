@@ -27,6 +27,10 @@ def _require_exact_false(value: Any) -> Literal[False]:
 
 class OutcomePortfolioCreateCommand(ContractModel):
     reason: NonEmptyStr | None = None
+    authority_credential_digest: Sha256Digest | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
 
 
 class OutcomePortfolio(ContractModel):
@@ -42,6 +46,10 @@ class OutcomePortfolio(ContractModel):
     created_by: NonEmptyStr
     created_at: UtcDateTime
     reason: NonEmptyStr | None = None
+    authority_credential_digest: Sha256Digest | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     command_digest: Sha256Digest
     record_digest: Sha256Digest
     task_activation_authorized: Literal[False] = False

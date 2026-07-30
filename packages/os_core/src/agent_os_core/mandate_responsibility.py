@@ -1066,7 +1066,11 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             raise MandateResponsibilityPersistenceConflict(
                 "durable responsibility link is malformed"
             ) from None
-        reconstructed = MandateTaskLinkCommand(task_id=link.task_id, reason=link.reason)
+        reconstructed = MandateTaskLinkCommand(
+            task_id=link.task_id,
+            reason=link.reason,
+            work_route=link.work_route,
+        )
         payload = link.model_dump(mode="json", exclude={"record_digest"})
         if (
             content_digest(payload) != link.record_digest
@@ -1283,8 +1287,7 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
                     "command_digest": command_digest,
                 }
             )
-            link = self._seal_link(
-                {
+            link_payload = {
                     "association_id": association_id,
                     "link_id": f"mandate-task-link:{link_identity_digest}",
                     "principal_id": workspace.mandate.principal_id,
@@ -1304,8 +1307,10 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
                     "task_activation_authorized": False,
                     "capability_grant_authorized": False,
                     "external_effects_authorized": False,
-                }
-            )
+            }
+            if command.work_route.value != "ORDINARY_TASK":
+                link_payload["work_route"] = command.work_route
+            link = self._seal_link(link_payload)
             connection.execute(
                 f"INSERT INTO {self._LINK_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (

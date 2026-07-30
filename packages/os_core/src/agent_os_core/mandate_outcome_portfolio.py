@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_os_contracts import (
+    MandateTaskLink,
     ObservedOutcome,
     OutcomePortfolio,
     OutcomePortfolioCreateCommand,
@@ -199,7 +200,9 @@ class SQLiteMandateOutcomePortfolioStore:
             "AND mandate_id = ? AND task_id = ? ORDER BY rowid",
             (principal_id, tenant_id, workspace_id, mandate_id, task_id),
         ).fetchall()
-        links = tuple(self._authority._decode_link(row) for row in link_rows)
+        links: list[MandateTaskLink] = [
+            self._authority._decode_link(row) for row in link_rows
+        ]
         if not links:
             help_deferred.append({
                 "mandate_id": mandate_id, "portfolio_id": portfolio_id,
@@ -212,14 +215,16 @@ class SQLiteMandateOutcomePortfolioStore:
             )
         revocations = self._authority._validated_revocations_for_links(
             connection,
-            links,
+            tuple(links),
             principal_id=principal_id,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             mandate_id=mandate_id,
         )
         revoked = {revocation.link_id for revocation in revocations}
-        active = tuple(link for link in links if link.link_id not in revoked)
+        active: list[MandateTaskLink] = [
+            link for link in links if link.link_id not in revoked
+        ]
         if not active:
             help_deferred.append({
                 "mandate_id": mandate_id, "portfolio_id": portfolio_id,
@@ -335,6 +340,10 @@ class SQLiteMandateOutcomePortfolioStore:
             }
             if command.reason is not None:
                 payload["reason"] = command.reason
+            if command.authority_credential_digest is not None:
+                payload["authority_credential_digest"] = (
+                    command.authority_credential_digest
+                )
             record_digest = content_digest({"schema_version": "1.0", **payload})
             portfolio = OutcomePortfolio.model_validate(
                 {**payload, "record_digest": record_digest}
@@ -870,7 +879,7 @@ class SQLiteMandateOutcomePortfolioStore:
         gap_kind: OutcomePortfolioHelpGap,
         details: str,
         connection: sqlite3.Connection | None = None,
-    ) -> None:
+    ) -> OutcomePortfolioHelpRequest:
         now = self._clock()
         help_id = _outcome_portfolio_help_request_id(
             mandate_id, portfolio_id, task_id, gap_kind, details,
@@ -944,9 +953,98 @@ class SQLiteMandateOutcomePortfolioStore:
             )
             if owns_connection:
                 conn.commit()
+            return help_req
         finally:
             if owns_connection:
                 conn.close()
+
+    def request_missing_outcome_help(
+        self,
+        commitment_record_id: str,
+        mandate_id: str,
+        actor: PrincipalIdentity,
+    ) -> OutcomePortfolioHelpRequest:
+        """Emit one typed gap after revalidating the canonical open responsibility."""
+        if self._task_reader is None:
+            raise MandateOutcomePortfolioDenied("task reader is required")
+        now = self._clock()
+        connection = self._connect()
+        help_deferred: list[dict[str, object]] = []
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            workspace, workspace_digest, operational, operational_digest = (
+                self._read_authority(
+                    connection,
+                    mandate_id,
+                    actor,
+                    require_admin=True,
+                    require_active=True,
+                    now=now,
+                )
+            )
+            portfolio = self._require_portfolio(
+                connection,
+                mandate_id,
+                actor,
+                workspace_digest,
+                operational_digest,
+                help_deferred=help_deferred,
+            )
+            row = connection.execute(
+                f"SELECT * FROM {self._COMMITMENT_TABLE} "
+                "WHERE commitment_record_id = ?",
+                (commitment_record_id,),
+            ).fetchone()
+            if row is None:
+                raise MandateOutcomePortfolioNotFound(
+                    f"Persistent commitment not found: {commitment_record_id}"
+                )
+            commitment = PersistentCommitment.model_validate_json(
+                str(row["payload"])
+            )
+            if (
+                commitment.portfolio_id != portfolio.portfolio_id
+                or commitment.mandate_id != mandate_id
+                or commitment.state is not PersistentCommitmentState.OPEN
+            ):
+                raise MandateOutcomePortfolioDenied(
+                    "missing-outcome Help requires an open Mandate commitment"
+                )
+            self._require_active_task_link(
+                connection,
+                mandate_id=mandate_id,
+                task_id=commitment.task_id,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=actor.tenant_id,
+                workspace_id=actor.workspace_id,
+                workspace_digest=workspace_digest,
+                operational_digest=operational_digest,
+                correction_epoch=operational.correction_epoch,
+                portfolio_id=portfolio.portfolio_id,
+                actor=actor,
+                help_deferred=help_deferred,
+            )
+            if self._task_reader.current_outcome(commitment.task_id) is not None:
+                raise MandateOutcomePortfolioConflict(
+                    "current ObservedOutcome exists; missing-outcome Help is invalid"
+                )
+            help_request = self._emit_help_request(
+                mandate_id=mandate_id,
+                portfolio_id=portfolio.portfolio_id,
+                task_id=commitment.task_id,
+                actor=actor,
+                gap_kind=OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME,
+                details="Task current ObservedOutcome is required",
+                connection=connection,
+            )
+            connection.commit()
+            return help_request
+        except Exception:
+            connection.rollback()
+            self._flush_help_deferred(help_deferred)
+            raise
+        finally:
+            connection.close()
 
     def list_help_requests(
         self,
