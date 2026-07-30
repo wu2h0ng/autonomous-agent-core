@@ -591,6 +591,50 @@ def test_applied_effect_replay_rejects_ledger_identity_tampering(
         )
 
 
+@pytest.mark.parametrize("corruption", ["rename", "delete"])
+def test_applied_effect_key_corruption_cannot_create_second_reservation(
+    tmp_path: Path,
+    corruption: str,
+) -> None:
+    """Key corruption cannot make an applied identity look new."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    calls: list[str] = []
+    store.execute_effect(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        operation_slot="workspace-edit:1",
+        intent_digest="d" * 64,
+        effect=lambda: (calls.append("first"), _effect_receipt())[1],
+        executed_at=NOW,
+    )
+    with sqlite3.connect(database) as connection:
+        if corruption == "rename":
+            connection.execute(
+                "UPDATE responsibility_loop_effects_v2 SET effect_key=?",
+                ("f" * 64,),
+            )
+        else:
+            connection.execute("DELETE FROM responsibility_loop_effects_v2")
+
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.execute_effect(
+            binding,
+            lease,
+            cycle_id="cycle:1",
+            task_id="task:1",
+            operation_slot="workspace-edit:1",
+            intent_digest="d" * 64,
+            effect=lambda: (calls.append("duplicate"), _effect_receipt("second"))[1],
+            executed_at=NOW,
+        )
+    assert calls == ["first"]
+
+
 def test_real_process_can_take_over_while_prior_effect_becomes_unknown(
     tmp_path: Path,
 ) -> None:
@@ -691,6 +735,17 @@ def test_inactive_scope_requires_explicit_binding_rebind(tmp_path: Path) -> None
         "approved correction epoch transition",
         "approval:rebind-1",
     )
+    verified_receipts = store.list_rebind_receipts(changed)
+    assert len(verified_receipts) == 1
+    assert verified_receipts[0].previous_binding_digest == original.digest
+    assert verified_receipts[0].replacement_binding_digest == changed.digest
+    with sqlite3.connect(tmp_path / "agent-os.sqlite3") as connection:
+        connection.execute(
+            "UPDATE responsibility_loop_rebind_receipts SET authority_ref=?",
+            ("approval:tampered",),
+        )
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.list_rebind_receipts(changed)
     rebound = store.acquire_lease(changed, process_instance_id="process:B", now=NOW)
     assert rebound.fencing_token == 2
     assert store.latest_checkpoint(changed) is None
@@ -1093,6 +1148,106 @@ def test_hcw_counts_only_explicitly_bound_canonical_cycle_settlement(
         measured_at=NOW,
     )
     assert receipt.accepted_outcome_count == 1
+
+
+@pytest.mark.parametrize(
+    ("table", "assignment"),
+    [
+        ("mandate_persistent_commitments", "correction_epoch"),
+        ("mandate_persistent_commitments", "expected_outcome_digest"),
+        ("mandate_outcome_portfolios", "correction_epoch"),
+        ("responsibility_cycle_settlements_v2", "task_id"),
+        ("responsibility_cycle_settlements_v2", "cycle_receipt_digest"),
+    ],
+)
+def test_hcw_measurement_revalidates_bound_truth_after_tamper(
+    tmp_path: Path,
+    table: str,
+    assignment: str,
+) -> None:
+    """Bind-time validity cannot authorize a later-mutated denominator."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
+    checkpoint = store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id="task:1",
+        active_run_id="run:1",
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    cycle_receipt = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        run_id="run:1",
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    settlement_digest = _insert_verified_settlement(
+        database,
+        binding,
+        settlement_id="settlement:cycle-1",
+        task_id="task:1",
+    )
+    store.bind_cycle_settlement(
+        binding,
+        cycle_id="cycle:1",
+        task_id="task:1",
+        settlement_id="settlement:cycle-1",
+        expected_settlement_digest=settlement_digest,
+        cycle_receipt_digest=cycle_receipt.receipt_digest,
+    )
+    with sqlite3.connect(database) as connection:
+        if table == "responsibility_cycle_settlements_v2":
+            value = (
+                "task:tampered"
+                if assignment == "task_id"
+                else "receipt:tampered"
+            )
+            connection.execute(
+                f"UPDATE {table} SET {assignment}=?",
+                (value,),
+            )
+        else:
+            id_column = (
+                "commitment_record_id"
+                if table == "mandate_persistent_commitments"
+                else "portfolio_id"
+            )
+            row = connection.execute(
+                f"SELECT {id_column}, payload FROM {table}"
+            ).fetchone()
+            payload = json.loads(row[1])
+            payload[assignment] = 1 if assignment == "correction_epoch" else "9" * 64
+            unsigned = dict(payload)
+            unsigned.pop("record_digest", None)
+            digest = content_digest(unsigned)
+            payload["record_digest"] = digest
+            connection.execute(
+                f"UPDATE {table} SET payload=?, record_digest=? "
+                f"WHERE {id_column}=?",
+                (json.dumps(payload), digest, row[0]),
+            )
+
+    with pytest.raises(ResponsibilityLoopBindingDrift):
+        store.measure_hcw(
+            binding,
+            cycle_id="cycle:1",
+            evaluator_root_id=evaluator.evaluator_root_id,
+            measured_at=NOW,
+        )
 
 
 def test_cycle_settlement_binding_recomputes_canonical_record_digest(

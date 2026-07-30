@@ -111,6 +111,18 @@ class ResponsibilityLoopAuditEvent:
 
 
 @dataclass(frozen=True)
+class ResponsibilityLoopRebindReceipt:
+    receipt_digest: str
+    lease_scope_id: str
+    previous_binding_digest: str
+    replacement_binding_digest: str
+    actor_principal_id: str
+    reason: str
+    authority_ref: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True)
 class ResponsibilityLoopCheckpoint:
     checkpoint_digest: str
     binding_digest: str
@@ -279,6 +291,10 @@ class SQLiteResponsibilityLoopStore:
                     authority_ref TEXT NOT NULL,
                     payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS responsibility_loop_audit_rebind_receipts (
+                    audit_event_id INTEGER PRIMARY KEY,
+                    receipt_digest TEXT NOT NULL UNIQUE
+                );
                 CREATE TABLE IF NOT EXISTS responsibility_loop_checkpoints_v2 (
                     checkpoint_digest TEXT PRIMARY KEY,
                     lease_scope_id TEXT NOT NULL,
@@ -306,6 +322,20 @@ class SQLiteResponsibilityLoopStore:
                     applied_at TEXT,
                     effect_receipt_json TEXT,
                     effect_receipt_digest TEXT
+                );
+                CREATE TABLE IF NOT EXISTS responsibility_loop_effect_identities (
+                    identity_digest TEXT PRIMARY KEY,
+                    effect_key TEXT NOT NULL UNIQUE,
+                    lease_scope_id TEXT NOT NULL,
+                    mandate_id TEXT NOT NULL,
+                    cycle_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    operation_slot TEXT NOT NULL,
+                    intent_digest TEXT NOT NULL,
+                    UNIQUE (
+                        lease_scope_id, mandate_id, cycle_id, task_id,
+                        operation_slot, intent_digest
+                    )
                 );
                 CREATE TABLE IF NOT EXISTS hcw_evaluator_roots (
                     evaluator_root_id TEXT PRIMARY KEY,
@@ -476,7 +506,7 @@ class SQLiteResponsibilityLoopStore:
                     json.dumps(receipt_payload, default=str, sort_keys=True),
                 ),
             )
-            connection.execute(
+            audit_cursor = connection.execute(
                 "INSERT INTO responsibility_loop_audit "
                 "(binding_digest,event_type,process_instance_id,fencing_token,occurred_at) "
                 "VALUES (?,?,?,?,?)",
@@ -487,6 +517,12 @@ class SQLiteResponsibilityLoopStore:
                     int(row["fencing_token"]),
                     _stamp(occurred_at),
                 ),
+            )
+            if audit_cursor.lastrowid is None:
+                raise ResponsibilityLoopError("rebind audit insert did not return an id")
+            connection.execute(
+                "INSERT INTO responsibility_loop_audit_rebind_receipts VALUES (?,?)",
+                (int(audit_cursor.lastrowid), receipt_digest),
             )
 
     def _assert_fence(
@@ -577,6 +613,89 @@ class SQLiteResponsibilityLoopStore:
             )
             for row in rows
         ]
+
+    def list_rebind_receipts(
+        self,
+        binding: ResponsibilityLoopBinding,
+    ) -> list[ResponsibilityLoopRebindReceipt]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT r.*, a.event_id AS audit_event_id,
+                       a.binding_digest AS audit_binding_digest,
+                       a.event_type AS audit_event_type,
+                       a.process_instance_id AS audit_actor,
+                       a.occurred_at AS audit_occurred_at
+                FROM responsibility_loop_rebind_receipts AS r
+                JOIN responsibility_loop_audit_rebind_receipts AS ar
+                  ON ar.receipt_digest = r.receipt_digest
+                JOIN responsibility_loop_audit AS a
+                  ON a.event_id = ar.audit_event_id
+                WHERE r.lease_scope_id=?
+                ORDER BY a.event_id
+                """,
+                (binding.lease_scope_id,),
+            ).fetchall()
+            receipt_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM responsibility_loop_rebind_receipts "
+                    "WHERE lease_scope_id=?",
+                    (binding.lease_scope_id,),
+                ).fetchone()[0]
+            )
+        if receipt_count != len(rows):
+            raise ResponsibilityLoopBindingDrift(
+                "rebind receipt audit linkage drift"
+            )
+        receipts: list[ResponsibilityLoopRebindReceipt] = []
+        for row in rows:
+            payload = json.loads(str(row["payload"]))
+            occurred_at = _parse(str(payload["occurred_at"]))
+            if (
+                set(payload)
+                != {
+                    "schema_version",
+                    "lease_scope_id",
+                    "previous_binding_digest",
+                    "replacement_binding_digest",
+                    "actor_principal_id",
+                    "reason",
+                    "authority_ref",
+                    "occurred_at",
+                }
+                or payload["schema_version"] != "1.0"
+                or content_digest({**payload, "occurred_at": occurred_at})
+                != row["receipt_digest"]
+                or payload["lease_scope_id"] != row["lease_scope_id"]
+                or payload["previous_binding_digest"]
+                != row["previous_binding_digest"]
+                or payload["replacement_binding_digest"]
+                != row["replacement_binding_digest"]
+                or payload["actor_principal_id"] != row["actor_principal_id"]
+                or payload["reason"] != row["reason"]
+                or payload["authority_ref"] != row["authority_ref"]
+                or row["audit_binding_digest"]
+                != row["replacement_binding_digest"]
+                or row["audit_event_type"] != "LOOP_BINDING_REBOUND"
+                or row["audit_actor"] != row["actor_principal_id"]
+                or _parse(str(row["audit_occurred_at"])) != occurred_at
+            ):
+                raise ResponsibilityLoopBindingDrift(
+                    "rebind receipt provenance drift"
+                )
+            receipts.append(
+                ResponsibilityLoopRebindReceipt(
+                    str(row["receipt_digest"]),
+                    str(row["lease_scope_id"]),
+                    str(row["previous_binding_digest"]),
+                    str(row["replacement_binding_digest"]),
+                    str(row["actor_principal_id"]),
+                    str(row["reason"]),
+                    str(row["authority_ref"]),
+                    occurred_at,
+                )
+            )
+        return receipts
 
     def write_checkpoint(
         self,
@@ -819,6 +938,78 @@ class SQLiteResponsibilityLoopStore:
             receipt_digest,
         )
 
+    def _effect_row_for_identity(
+        self,
+        connection: sqlite3.Connection,
+        binding: ResponsibilityLoopBinding,
+        *,
+        cycle_id: str,
+        task_id: str,
+        operation_slot: str,
+        intent_digest: str,
+    ) -> tuple[str, sqlite3.Row | None]:
+        key = self._effect_key(
+            binding, cycle_id, task_id, operation_slot, intent_digest
+        )
+        reservation = connection.execute(
+            "SELECT * FROM responsibility_loop_effect_identities "
+            "WHERE identity_digest=?",
+            (key,),
+        ).fetchone()
+        row = connection.execute(
+            "SELECT * FROM responsibility_loop_effects_v2 WHERE effect_key=?",
+            (key,),
+        ).fetchone()
+        if reservation is None:
+            if row is not None:
+                raise ResponsibilityLoopBindingDrift(
+                    "effect row lacks its identity reservation"
+                )
+            return key, None
+        if (
+            reservation["effect_key"] != key
+            or reservation["lease_scope_id"] != binding.lease_scope_id
+            or reservation["mandate_id"] != binding.mandate_id
+            or reservation["cycle_id"] != cycle_id
+            or reservation["task_id"] != task_id
+            or reservation["operation_slot"] != operation_slot
+            or reservation["intent_digest"] != intent_digest
+        ):
+            raise ResponsibilityLoopBindingDrift(
+                "effect identity reservation drift"
+            )
+        if row is None:
+            raise ResponsibilityLoopBindingDrift(
+                "effect identity reservation target is missing"
+            )
+        return key, row
+
+    def _reserve_effect_identity(
+        self,
+        connection: sqlite3.Connection,
+        binding: ResponsibilityLoopBinding,
+        *,
+        key: str,
+        cycle_id: str,
+        task_id: str,
+        operation_slot: str,
+        intent_digest: str,
+    ) -> None:
+        connection.execute(
+            "INSERT INTO responsibility_loop_effect_identities "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (
+                key,
+                key,
+                binding.lease_scope_id,
+                binding.mandate_id,
+                cycle_id,
+                task_id,
+                operation_slot,
+                intent_digest,
+            ),
+        )
+
     def prepare_effect(
         self,
         binding: ResponsibilityLoopBinding,
@@ -832,16 +1023,27 @@ class SQLiteResponsibilityLoopStore:
     ) -> ResponsibilityEffectRecord:
         del prepared_at
         prepared_at = _utc(self._clock())
-        key = self._effect_key(
-            binding, cycle_id, task_id, operation_slot, intent_digest
-        )
         with self._effect_lock(), self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._assert_fence(connection, binding, lease, prepared_at)
-            row = connection.execute(
-                "SELECT * FROM responsibility_loop_effects_v2 WHERE effect_key=?", (key,)
-            ).fetchone()
+            key, row = self._effect_row_for_identity(
+                connection,
+                binding,
+                cycle_id=cycle_id,
+                task_id=task_id,
+                operation_slot=operation_slot,
+                intent_digest=intent_digest,
+            )
             if row is None:
+                self._reserve_effect_identity(
+                    connection,
+                    binding,
+                    key=key,
+                    cycle_id=cycle_id,
+                    task_id=task_id,
+                    operation_slot=operation_slot,
+                    intent_digest=intent_digest,
+                )
                 connection.execute(
                     "INSERT INTO responsibility_loop_effects_v2 "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -887,15 +1089,17 @@ class SQLiteResponsibilityLoopStore:
     ) -> ResponsibilityEffectRecord:
         del executed_at
         executed_at = _utc(self._clock())
-        key = self._effect_key(
-            binding, cycle_id, task_id, operation_slot, intent_digest
-        )
         with self._effect_lock(), self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._assert_fence(connection, binding, lease, executed_at)
-            row = connection.execute(
-                "SELECT * FROM responsibility_loop_effects_v2 WHERE effect_key=?", (key,)
-            ).fetchone()
+            key, row = self._effect_row_for_identity(
+                connection,
+                binding,
+                cycle_id=cycle_id,
+                task_id=task_id,
+                operation_slot=operation_slot,
+                intent_digest=intent_digest,
+            )
             if row is not None:
                 existing = self._effect_from_row(
                     row,
@@ -911,6 +1115,15 @@ class SQLiteResponsibilityLoopStore:
                         "effect outcome is not APPLIED; reconciliation required"
                     )
                 return existing
+            self._reserve_effect_identity(
+                connection,
+                binding,
+                key=key,
+                cycle_id=cycle_id,
+                task_id=task_id,
+                operation_slot=operation_slot,
+                intent_digest=intent_digest,
+            )
             connection.execute(
                 "INSERT INTO responsibility_loop_effects_v2 "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -1366,14 +1579,38 @@ class SQLiteResponsibilityLoopStore:
         ).fetchone()
         if table is None:
             return 0
+        bridge_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM responsibility_cycle_settlements_v2 "
+                "WHERE binding_digest=? AND cycle_id=?",
+                (binding.digest, cycle_id),
+            ).fetchone()[0]
+        )
         rows = connection.execute(
             """
             SELECT s.payload, s.record_digest, b.settlement_digest,
+                   b.task_id AS bridge_task_id,
+                   b.cycle_receipt_digest AS bridge_receipt_digest,
+                   b.settlement_id AS bridge_settlement_id,
+                   r.payload AS cycle_receipt_payload,
+                   r.receipt_digest AS cycle_receipt_digest,
                    c.payload AS commitment_payload,
                    c.record_digest AS commitment_digest,
+                   c.commitment_record_id AS commitment_row_id,
+                   c.portfolio_id AS commitment_row_portfolio_id,
+                   c.mandate_id AS commitment_row_mandate_id,
+                   c.task_id AS commitment_row_task_id,
+                   c.state AS commitment_row_state,
                    p.payload AS portfolio_payload,
-                   p.record_digest AS portfolio_digest
+                   p.record_digest AS portfolio_digest,
+                   p.portfolio_id AS portfolio_row_id,
+                   p.mandate_id AS portfolio_row_mandate_id,
+                   p.tenant_id AS portfolio_row_tenant_id,
+                   p.workspace_id AS portfolio_row_workspace_id,
+                   p.principal_id AS portfolio_row_principal_id
             FROM responsibility_cycle_settlements_v2 AS b
+            JOIN responsibility_cycle_receipts AS r
+              ON r.receipt_digest = b.cycle_receipt_digest
             JOIN mandate_outcome_settlements AS s
               ON s.settlement_id = b.settlement_id
             JOIN mandate_persistent_commitments AS c
@@ -1385,6 +1622,10 @@ class SQLiteResponsibilityLoopStore:
             """,
             (binding.digest, cycle_id),
         ).fetchall()
+        if bridge_count != len(rows):
+            raise ResponsibilityLoopBindingDrift(
+                "cycle outcome truth linkage drift"
+            )
         accepted = 0
         for row in rows:
             payload = json.loads(str(row["payload"]))
@@ -1395,6 +1636,9 @@ class SQLiteResponsibilityLoopStore:
                 )
                 portfolio = OutcomePortfolio.model_validate_json(
                     str(row["portfolio_payload"])
+                )
+                cycle_receipt_payload = json.loads(
+                    str(row["cycle_receipt_payload"])
                 )
             except Exception as exc:
                 raise ResponsibilityLoopBindingDrift(
@@ -1415,12 +1659,26 @@ class SQLiteResponsibilityLoopStore:
             portfolio_unsigned = portfolio.model_dump(
                 mode="python", exclude={"record_digest"}, exclude_none=True
             )
+            cycle_receipt_expected = content_digest(
+                {
+                    **cycle_receipt_payload,
+                    "sealed_at": _parse(str(cycle_receipt_payload["sealed_at"])),
+                }
+            )
             if (
                 stored_digest != settlement.record_digest
                 or stored_digest != row["settlement_digest"]
                 or content_digest(unsigned_payload) != stored_digest
                 or settlement.mandate_id != binding.mandate_id
                 or settlement.resulting_state is not expected_state
+                or row["bridge_task_id"] != settlement.task_id
+                or row["bridge_settlement_id"] != settlement.settlement_id
+                or row["bridge_receipt_digest"] != row["cycle_receipt_digest"]
+                or cycle_receipt_expected != row["cycle_receipt_digest"]
+                or cycle_receipt_payload.get("schema_version") != "1.0"
+                or cycle_receipt_payload.get("binding_digest") != binding.digest
+                or cycle_receipt_payload.get("cycle_id") != cycle_id
+                or cycle_receipt_payload.get("task_id") != settlement.task_id
                 or commitment.record_digest != row["commitment_digest"]
                 or content_digest(commitment_unsigned) != commitment.record_digest
                 or portfolio.record_digest != row["portfolio_digest"]
@@ -1429,7 +1687,10 @@ class SQLiteResponsibilityLoopStore:
                 != settlement.commitment_record_id
                 or commitment.portfolio_id != settlement.portfolio_id
                 or commitment.task_id != settlement.task_id
+                or commitment.expected_outcome_digest
+                != settlement.expected_outcome_digest
                 or commitment.state is not settlement.resulting_state
+                or commitment.correction_epoch != binding.correction_epoch
                 or commitment.mandate_id != binding.mandate_id
                 or commitment.principal_id != binding.principal_id
                 or commitment.tenant_id != binding.tenant_id
@@ -1438,6 +1699,17 @@ class SQLiteResponsibilityLoopStore:
                 or portfolio.principal_id != binding.principal_id
                 or portfolio.tenant_id != binding.tenant_id
                 or portfolio.workspace_id != binding.workspace_id
+                or portfolio.correction_epoch != binding.correction_epoch
+                or row["commitment_row_id"] != commitment.commitment_record_id
+                or row["commitment_row_portfolio_id"] != commitment.portfolio_id
+                or row["commitment_row_mandate_id"] != commitment.mandate_id
+                or row["commitment_row_task_id"] != commitment.task_id
+                or row["commitment_row_state"] != commitment.state.value
+                or row["portfolio_row_id"] != portfolio.portfolio_id
+                or row["portfolio_row_mandate_id"] != portfolio.mandate_id
+                or row["portfolio_row_tenant_id"] != portfolio.tenant_id
+                or row["portfolio_row_workspace_id"] != portfolio.workspace_id
+                or row["portfolio_row_principal_id"] != portfolio.principal_id
             ):
                 raise ResponsibilityLoopBindingDrift("settlement digest drift")
             if settlement.resulting_state is PersistentCommitmentState.SETTLED_MET:

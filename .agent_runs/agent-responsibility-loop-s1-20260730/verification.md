@@ -94,3 +94,37 @@ The remediation also records explicit rebind provenance with previous and
 replacement binding digests, actor, reason, authority reference and trusted
 time. These results are not a technical approval; a new exact-head independent
 review is still required.
+
+Third exact-head review at `5d53811` again returned
+`TECHNICAL_REVISE_FOUNDATION`, with `P0=0 / P1=2 / P2=1`. The exact verdict is
+preserved in `independent-foundation-rereview-2.md`.
+
+Third remediation added failing attacks for primary-key rename/delete and five
+post-bind outcome-truth mutations. The implementation now uses a stable
+companion effect identity reservation, revalidates the full
+cycle-receipt/bridge/settlement/commitment/portfolio chain at measurement, and
+provides a typed validating read path for rebind receipts bound to audit event
+ids.
+
+Post-remediation evidence:
+
+```text
+pytest tests/product/test_responsibility_loop.py -q
+35 passed
+
+pytest responsibility_loop + mandate_outcome_portfolio
+  + mandate_responsibility_store + mandate_active_perception
+114 passed
+
+ruff check responsibility_loop.py test_responsibility_loop.py
+All checks passed
+
+pyright responsibility_loop.py test_responsibility_loop.py
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+This remains `FOUNDATION_NOT_APPROVED` until a new exact-head independent
+review returns `TECHNICAL_APPROVE_FOUNDATION`.
