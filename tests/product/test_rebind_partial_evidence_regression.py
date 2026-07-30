@@ -291,7 +291,7 @@ def test_rebind_removes_partial_artifact_evidence_and_keeps_completed_prefix(
         app.correction,
         app.grants,
     )
-    restored = runner._restore_context(task_id, _inputs())
+    restored = runner._context.restore(task_id, _inputs())
     restored_evidence = restored.get("evidence_refs", ())
 
     assert prefix_artifact_id in restored_evidence

@@ -41,8 +41,10 @@ from .evidence import (
 from .evaluator import (
     EvaluationArtifactRole,
     EvaluationConsumptionEntry,
+    EvaluationContract,
     EvaluationFailureCode,
     EvaluationReceipt,
+    EvaluationResultReceipt,
     EvaluationScore,
     EvaluatorIdentity,
     EvaluatorInput,
@@ -55,6 +57,14 @@ from .evaluator import (
     RubricRef,
     Uncertainty,
 )
+from .belief import BeliefPatch, BeliefRecord
+from .candidate import (
+    OutcomeAttributionCandidate,
+    ProcedureCandidate,
+    PromotionDecision,
+    RollbackReceipt,
+)
+from .environment import EnvironmentModelSnapshot
 from .materialization import (
     CandidateEvaluationDisposition,
     CandidateEvaluationDraft,
@@ -309,6 +319,13 @@ __all__ = [
     "DomainPriorArtifact",
     "DomainPriorBinding",
     "DomainPriorSelector",
+    "BeliefRecord",
+    "BeliefPatch",
+    "ProcedureCandidate",
+    "OutcomeAttributionCandidate",
+    "PromotionDecision",
+    "RollbackReceipt",
+    "EnvironmentModelSnapshot",
     "CorrectionEpochVector",
     "CorrectionScope",
     "CorrectionSnapshot",
@@ -337,9 +354,11 @@ __all__ = [
     "EvidenceRef",
     "EvidenceSourceKind",
     "EvaluationArtifactRole",
+    "EvaluationContract",
     "EvaluationConsumptionEntry",
     "EvaluationFailureCode",
     "EvaluationReceipt",
+    "EvaluationResultReceipt",
     "EvaluationScore",
     "EvaluatorIdentity",
     "EvaluatorInput",

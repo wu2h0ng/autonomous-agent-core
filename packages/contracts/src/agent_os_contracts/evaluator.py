@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -216,3 +217,30 @@ class EvaluationReceipt(ContractModel):
         if self.receipt_digest != self.canonical_digest():
             raise ValueError("receipt_digest does not match canonical receipt")
         return self
+
+
+class EvaluationContract(ContractModel):
+    """Frozen case set, metrics, baselines, oracle boundary and evaluator identity."""
+
+    contract_id: NonEmptyStr
+    evaluator_id: NonEmptyStr
+    task_id: str
+    frozen_case_digests: tuple[str, ...] = ()
+    metrics: tuple[str, ...] = ()
+    baselines: tuple[str, ...] = ()
+    oracle_boundary: NonEmptyStr
+    held_out_isolation: bool = True
+    frozen_at: UtcDateTime
+
+
+class EvaluationResultReceipt(ContractModel):
+    """Immutable external result bound to candidate and evaluation contract digests."""
+
+    receipt_id: NonEmptyStr
+    evaluation_contract_digest: Sha256Digest
+    candidate_digest: Sha256Digest
+    result: Literal["MET", "NOT_MET", "INCONCLUSIVE", "INVALID"]
+    score: float | None = None
+    evidence_refs: tuple[str, ...] = ()
+    evaluator_identity_digest: Sha256Digest
+    sealed_at: UtcDateTime

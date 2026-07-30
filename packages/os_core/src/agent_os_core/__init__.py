@@ -13,6 +13,9 @@ from .errors import (
     CandidateIdempotencyConflict,
     CandidateProvenanceError,
     CandidateScopeMismatch,
+    RunExecutionError,
+    UnsupportedNodeError,
+    WorkerInterrupted,
     CandidateSealingDenied,
     CommitmentExpiredError,
     ConcurrentWriteError,
@@ -68,6 +71,7 @@ from .governance import (
     POLICY_KERNEL_V1_DIGEST,
     POLICY_KERNEL_V1_SPEC,
     CorrectionAuthority,
+    CorrectionReadPort,
     ExternalPolicyBackend,
     PolicyInput,
     PolicyKernel,
@@ -140,9 +144,6 @@ from .capability import (
 from .execution import (
     DeterministicOutcomeEvaluator,
     RunCoordinator,
-    RunExecutionError,
-    UnsupportedNodeError,
-    WorkerInterrupted,
 )
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService, ValidatedTestReport

@@ -680,7 +680,7 @@ def test_completed_tool_artifact_remains_active_evidence_after_rebind(
         app.correction,
         app.grants,
     )
-    restored = runner._restore_context(task_id, _inputs())
+    restored = runner._context.restore(task_id, _inputs())
 
     assert artifact_id in restored["evidence_refs"]
     result = app.run_task(task_id, _inputs())
@@ -737,7 +737,7 @@ def test_rebind_clears_invalidated_action_projection_and_approval(
         app.correction,
         app.grants,
     )
-    restored = runner._restore_context(task_id, _inputs())
+    restored = runner._context.restore(task_id, _inputs())
 
     assert rebound.approval is None
     with pytest.raises(ValueError, match="no pending provider action"):
@@ -794,7 +794,7 @@ def test_rebind_clears_old_action_for_preserved_but_uncompleted_node(
         app.grants,
     )
 
-    restored = runner._restore_context(task_id, _inputs())
+    restored = runner._context.restore(task_id, _inputs())
 
     assert "action:workspace.apply_patch" not in restored
     assert "workspace.apply_patch" not in restored
