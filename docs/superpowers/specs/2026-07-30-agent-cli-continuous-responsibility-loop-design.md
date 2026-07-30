@@ -380,6 +380,22 @@ process cannot commit after Process B takes custody. Administrative read-only
 commands and `agent answer` may operate without owning the execution lease, but
 cannot select or execute work.
 
+The lease record binds an opaque process-instance ID, fencing token,
+`heartbeat_at`, `expires_at` and a configuration-bound TTL. The owner refreshes
+the heartbeat in a short SQLite transaction during execution and
+`WAITING_EVENT`; heartbeat refresh never authorizes work. A clean stop,
+correction halt or handled interrupt releases the lease only when instance ID
+and fencing token still match.
+
+After an unclean exit, Process B may acquire only after `expires_at`. It does so
+in one transaction that verifies the stale heartbeat, increments the fencing
+token and writes a `LOOP_LEASE_TAKEOVER` audit event before restoring the
+checkpoint. An unexpired lease cannot be stolen automatically or by model
+request; it remains `BLOCKED_LOOP_LEASE`. If Process A resumes after takeover,
+its next heartbeat, admission or effect commit fails the fencing check. Effect
+idempotency keys remain required, so takeover cannot convert an unknown prior
+effect into a duplicate execution.
+
 The checkpoint binds:
 
 - Mandate/version/digest;
@@ -459,6 +475,10 @@ The first slice requires bypass-detecting tests:
     stale fencing token cannot commit an effect after Process B restores.
 14. Every `WAITING_EVENT` wake source resumes from the durable projection, while
     an unlisted event cannot authorize work.
+15. Clean exit releases only the matching lease; an unclean exit leaves it
+    unavailable until TTL expiry; after expiry Process B atomically increments
+    the fence, records takeover and restores, while stale Process A cannot
+    heartbeat, admit or commit.
 
 Targeted tests, Ruff, Pyright, diff checks and a clean isolated-worktree
 verification are required. Repository-wide pre-existing failures remain
