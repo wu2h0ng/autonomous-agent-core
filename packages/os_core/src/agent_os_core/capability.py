@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,27 +38,29 @@ class CapabilityResult:
     output: dict[str, object]
 
 
+@dataclass(frozen=True)
+class CapabilityEffect:
+    status: ReceiptStatus
+    output: dict[str, object]
+    error_code: str = "error:none"
+    detail_ref: str = "detail:none"
+
+
 class CapabilityPort(Protocol):
-    """Generic capability dispatch interface. Core depends on this, not on WorkspaceSandbox."""
-
-    def invoke(
-        self,
-        action: ActionContract,
-        permit: ActionPermit,
-        correction: CorrectionReadPort,
-        attempt: int = 1,
-    ) -> CapabilityResult: ...
-
     def specs(
         self,
         now: datetime | None = None,
         *,
         include_internal: bool = False,
-    ) -> dict[str, CapabilitySpec]: ...
+    ) -> Mapping[str, CapabilitySpec]:
+        raise NotImplementedError
+
+    def execute(self, action: ActionContract) -> CapabilityEffect:
+        raise NotImplementedError
 
 
 class CapabilityBroker:
-    """The only execution boundary for typed capability actions."""
+    """The only production execution boundary for typed capability actions."""
 
     def __init__(self, connector: CapabilityPort, correction: CorrectionReadPort) -> None:
         self.connector = connector
@@ -66,7 +69,31 @@ class CapabilityBroker:
     def invoke(self, action: ActionContract, permit: ActionPermit, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("broker rejected a permit/action digest mismatch")
-        return self.connector.invoke(action, permit, self.correction, attempt=attempt)
+        if permit.expires_at <= datetime.now(timezone.utc):
+            raise CapabilityDenied("permit expired before capability dispatch")
+        if self.correction.halted(action.task_id, action.run_id, action.capability_id):
+            raise CapabilityDenied("correction authority is halted")
+        current_epochs = self.correction.snapshot(
+            action.task_id, action.run_id, action.capability_id
+        )
+        if (
+            current_epochs != permit.correction_epochs
+            or current_epochs != action.observed_correction_epochs
+        ):
+            raise CapabilityDenied("stale correction epoch")
+        effect = self.connector.execute(action)
+        receipt = ActionReceipt(
+            receipt_id=f"receipt-{uuid4()}", action_id=action.action_id,
+            action_digest=action.action_digest(), permit_id=permit.permit_id,
+            tenant_id=action.tenant_id, workspace_id=action.workspace_id,
+            connector_id=action.capability_id, status=effect.status,
+            idempotency_key=action.idempotency_key, attempt=attempt,
+            output_artifact_ids=tuple(str(value) for value in _as_sequence(effect.output.get("artifact_ids", ()))),
+            error_code=effect.error_code,
+            detail_ref=effect.detail_ref,
+            occurred_at=datetime.now(timezone.utc),
+        )
+        return CapabilityResult(receipt=receipt, output=effect.output)
 
 
 class WorkspaceSandbox:
@@ -156,21 +183,7 @@ class WorkspaceSandbox:
             )
         return specs
 
-    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
-        if not permit.matches(action):
-            raise CapabilityDenied("permit does not match action")
-        if permit.expires_at <= datetime.now(timezone.utc):
-            raise CapabilityDenied("permit expired before capability dispatch")
-        if correction.halted(action.task_id, action.run_id, action.capability_id):
-            raise CapabilityDenied("correction authority is halted")
-        current_epochs = correction.snapshot(
-            action.task_id, action.run_id, action.capability_id
-        )
-        if (
-            current_epochs != permit.correction_epochs
-            or current_epochs != action.observed_correction_epochs
-        ):
-            raise CapabilityDenied("stale correction epoch")
+    def execute(self, action: ActionContract) -> CapabilityEffect:
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
             raise CapabilityDenied("capability arguments must be an object")
@@ -209,18 +222,19 @@ class WorkspaceSandbox:
                 output = {"error": f"{type(exc).__name__}: {exc}"}
                 status = ReceiptStatus.FAILED
                 error_code = type(exc).__name__
-        receipt = ActionReceipt(
-            receipt_id=f"receipt-{uuid4()}", action_id=action.action_id,
-            action_digest=action.action_digest(), permit_id=permit.permit_id,
-            tenant_id=action.tenant_id, workspace_id=action.workspace_id,
-            connector_id=action.capability_id, status=status,
-            idempotency_key=action.idempotency_key, attempt=attempt,
-            output_artifact_ids=tuple(str(value) for value in _as_sequence(output.get("artifact_ids", ()))),
+        return CapabilityEffect(
+            status=status,
+            output=output,
             error_code=error_code,
             detail_ref=str(output.get("compensation_ref", "detail:none")),
-            occurred_at=datetime.now(timezone.utc),
         )
-        return CapabilityResult(receipt=receipt, output=output)
+
+    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
+        return CapabilityBroker(self, correction).invoke(
+            action,
+            permit,
+            attempt=attempt,
+        )
 
     def _get_idempotency(
         self,

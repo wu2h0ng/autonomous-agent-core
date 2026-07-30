@@ -141,6 +141,8 @@ from .mandate_responsibility import (
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
+    CapabilityEffect,
+    CapabilityPort,
     CapabilityResult,
     WorkspaceSandbox,
 )
@@ -427,6 +429,8 @@ __all__ = [
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",
+    "CapabilityEffect",
+    "CapabilityPort",
     "CapabilityResult",
     "WorkspaceSandbox",
     "AgentCLIError",
