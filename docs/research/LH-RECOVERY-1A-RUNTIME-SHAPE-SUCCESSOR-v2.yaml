@@ -1,0 +1,28 @@
+{
+  "prereg_id": "LH-RECOVERY-1A-RUNTIME-SHAPE-SUCCESSOR-v2",
+  "status": "TEST_MAINTENANCE_ONLY",
+  "claim_effect": "NO_RESULT_CHANGE / NO_CLAIM_UPGRADE",
+  "schema_version": "lh1a-runtime-shape-successor-v2",
+  "supersedes_runtime_shape_only": "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml",
+  "frozen_parent_sha256": "21db5ab15ffa84a7db07ded2f4a9fee1b8683a8212084993b695101845acfa21",
+  "scope": "live runtime-shape binding only",
+  "tool_capability_registry": "DeveloperWorkspaceAdapter.specs",
+  "capability_source": "domain_packs/developer_agent/workspace_capability.py",
+  "capability_class": "DeveloperWorkspaceAdapter",
+  "capability_ids": [
+    "workspace.read",
+    "workspace.apply_patch",
+    "workspace.run_tests"
+  ],
+  "maintenance_reason": "AWL-2 moved the repository capability implementation from agent_os_core.capability.WorkspaceSandbox to domain_packs.developer_agent.workspace_capability.DeveloperWorkspaceAdapter without changing capability IDs, versions, guards, digests, idempotency or compensation semantics.",
+  "out_of_scope": [
+    "seeds",
+    "population",
+    "gates",
+    "statistics",
+    "baselines",
+    "assignments",
+    "result identity",
+    "verdict"
+  ]
+}
