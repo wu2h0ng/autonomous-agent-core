@@ -225,6 +225,55 @@ This evidence is a local review candidate only. It does not establish HCW
 reduction, continuous daemon operation, SELFDEV execution, release, superiority
 or `Autonomy(S,E,O,V,T)`.
 
+## Exact-head review and second remediation
+
+Independent review of `ddb021b..9471bc5` returned
+`TECHNICAL_REVISE_RESPONSIBILITY_SLICE / P0=0 / P1=5 / P2=2 /
+NOT_MERGE_READY`. The durable review is
+`independent-controller-rereview.md`.
+
+All five P1 findings now have bypass-detecting coverage:
+
+- the portfolio creator binds an Agent Work bearer digest through the existing
+  admin-authorized portfolio creation path; the CLI resolves that canonical
+  creator and verifies the bearer instead of accepting an authority ID;
+- `MandateTaskLink.work_route` is a backward-compatible persisted contract and
+  the real Surface returns typed `SELFDEV_ROUTE_NOT_BOUND`;
+- a tool-window `KeyboardInterrupt` is no longer caught as an ordinary effect
+  exception and reaches Task correction/checkpoint/exit 130;
+- status explicitly reports no resident watcher and only named manual resume
+  triggers;
+- status reconciles APPLIED responsibility receipts against canonical Task
+  `ACTION_RECEIPT_RECORDED` events and counts missing bindings as unknown.
+
+The P2 crash coverage now separately injects failure after cycle receipt,
+settlement binding and HCW measurement. Each restart reuses one settlement,
+cycle identity and HCW identity without re-executing the Task.
+
+```text
+pytest tests/product/test_responsibility_controller.py -q
+20 passed
+
+pytest responsibility loop/controller + Agent CLI + long horizon
+  + Outcome/Help + responsibility store/API
+122 passed
+
+ruff check <changed source/test files>
+All checks passed
+
+pyright <changed source files>
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+The remaining P2 external-signal ingress limitation is explicit: the recovery
+fixture uses real A/B/A CLI processes, but pytest injects the typed signal
+through the canonical TaskService rather than a separate external ingress
+process. No resident daemon, automatic wake or production authentication claim
+is made.
+
 ## Controller and unique Agent Work surface candidate
 
 The Controller/CLI candidate was verified after the foundation approval. The

@@ -29,6 +29,7 @@ from agent_os_core.responsibility_surface import (
     answer_responsibility_help,
     correct_responsibility_work,
     responsibility_status_payload,
+    resolve_agent_work_authority,
     run_responsibility_work,
 )
 from apps.api_server.app import AgentOSApplication
@@ -213,7 +214,11 @@ def _work_applications(
         **principal_values,
         role=PrincipalRole.PRINCIPAL,
     )
-    authority_principal = _work_authority_principal(session)
+    authority_principal = resolve_agent_work_authority(
+        database=Path(args.database),
+        session=session,
+        bearer=os.environ.get("AGENT_OS_AUTHORITY_BEARER", "").strip(),
+    )
     execution_app = AgentOSApplication(
         database=args.database,
         workspace=Path(args.workspace),
@@ -231,39 +236,6 @@ def _work_applications(
             )
         execution_app.provider_configured = True
     return authority_app, execution_app
-
-
-def _work_application(args: argparse.Namespace) -> AgentOSApplication:
-    session = load_attach_session(Path(args.workspace))
-    principal = _work_authority_principal(session)
-    app = AgentOSApplication(
-        database=args.database,
-        workspace=Path(args.workspace),
-        principal=principal,
-    )
-    return app
-
-
-def _work_authority_principal(session) -> PrincipalIdentity:
-    authority_principal_id = os.environ.get(
-        "AGENT_OS_AUTHORITY_PRINCIPAL_ID",
-        "",
-    ).strip()
-    if not authority_principal_id:
-        raise ResponsibilitySurfaceError(
-            "AGENT_OS_AUTHORITY_PRINCIPAL_ID is required for Agent Work"
-        )
-    if authority_principal_id == session.principal_id:
-        raise ResponsibilitySurfaceError(
-            "Agent Work authority must be independent from the Mandate owner"
-        )
-    return PrincipalIdentity(
-        principal_id=authority_principal_id,
-        tenant_id=session.tenant_id,
-        workspace_id=session.workspace_id,
-        role=PrincipalRole.TENANT_ADMIN,
-        authenticated_at=datetime.now(timezone.utc),
-    )
 
 
 def _load_inputs(path: Path | None) -> dict:

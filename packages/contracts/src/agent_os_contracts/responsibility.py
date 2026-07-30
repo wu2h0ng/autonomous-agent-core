@@ -20,6 +20,11 @@ class ResponsibilityItemState(str, Enum):
     TRACKED = "TRACKED"
 
 
+class ResponsibilityWorkRoute(str, Enum):
+    ORDINARY_TASK = "ORDINARY_TASK"
+    SELFDEV = "SELFDEV"
+
+
 class ResponsibilityAttentionReason(str, Enum):
     MANDATE_AUTHORITY_MISSING = "MANDATE_AUTHORITY_MISSING"
     MANDATE_AUTHORITY_MISMATCH = "MANDATE_AUTHORITY_MISMATCH"
@@ -47,6 +52,10 @@ class ResponsibilityAttentionReason(str, Enum):
 class MandateTaskLinkCommand(ContractModel):
     task_id: NonEmptyStr
     reason: NonEmptyStr | None = None
+    work_route: ResponsibilityWorkRoute = Field(
+        default=ResponsibilityWorkRoute.ORDINARY_TASK,
+        exclude_if=lambda value: value is ResponsibilityWorkRoute.ORDINARY_TASK,
+    )
 
 
 class MandateTaskLink(ContractModel):
@@ -64,6 +73,10 @@ class MandateTaskLink(ContractModel):
     linked_by: NonEmptyStr
     linked_at: UtcDateTime
     reason: NonEmptyStr | None = None
+    work_route: ResponsibilityWorkRoute = Field(
+        default=ResponsibilityWorkRoute.ORDINARY_TASK,
+        exclude_if=lambda value: value is ResponsibilityWorkRoute.ORDINARY_TASK,
+    )
     prior_record_digest: Sha256Digest | None = None
     command_digest: Sha256Digest
     record_digest: Sha256Digest

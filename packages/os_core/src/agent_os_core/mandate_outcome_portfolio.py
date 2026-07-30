@@ -340,6 +340,10 @@ class SQLiteMandateOutcomePortfolioStore:
             }
             if command.reason is not None:
                 payload["reason"] = command.reason
+            if command.authority_credential_digest is not None:
+                payload["authority_credential_digest"] = (
+                    command.authority_credential_digest
+                )
             record_digest = content_digest({"schema_version": "1.0", **payload})
             portfolio = OutcomePortfolio.model_validate(
                 {**payload, "record_digest": record_digest}

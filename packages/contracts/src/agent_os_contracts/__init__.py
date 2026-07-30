@@ -135,6 +135,7 @@ from .responsibility import (
     ResponsibilityAttentionReason,
     ResponsibilityItem,
     ResponsibilityItemState,
+    ResponsibilityWorkRoute,
 )
 from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
 from .situated import (
@@ -395,6 +396,7 @@ __all__ = [
     "PersistentCommitment",
     "PersistentCommitmentAttachCommand",
     "PersistentCommitmentState",
+    "ResponsibilityWorkRoute",
     "SettlementCommand",
     "SettlementRecord",
     "ObservationBindingDescriptor",

@@ -16,6 +16,7 @@ from agent_os_contracts import (
     PersistentCommitment,
     PersistentCommitmentState,
     SettlementRecord,
+    TaskEventType,
     content_digest,
 )
 
@@ -789,13 +790,61 @@ class SQLiteResponsibilityLoopStore:
             ).fetchone()
             if lease is not None:
                 self._assert_binding(lease, binding)
-            unknown_effect_count = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM responsibility_loop_effects_v2 "
-                    "WHERE binding_digest=? AND status!='APPLIED'",
-                    (binding.digest,),
-                ).fetchone()[0]
-            )
+            effect_rows = connection.execute(
+                "SELECT * FROM responsibility_loop_effects_v2 "
+                "WHERE binding_digest=?",
+                (binding.digest,),
+            ).fetchall()
+            task_event_table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='task_events'"
+            ).fetchone()
+            applied_without_task_receipt = 0
+            for effect_row in effect_rows:
+                if effect_row["status"] != "APPLIED":
+                    continue
+                try:
+                    envelope = json.loads(
+                        str(effect_row["effect_receipt_json"])
+                    )
+                    adapter_receipt = envelope["adapter_receipt"]
+                    evidence_digest = adapter_receipt["evidence_digest"]
+                except (
+                    json.JSONDecodeError,
+                    KeyError,
+                    TypeError,
+                ):
+                    raise ResponsibilityLoopBindingDrift(
+                        "APPLIED effect receipt is malformed"
+                    ) from None
+                task_receipt_bound = False
+                if task_event_table is not None:
+                    task_events = connection.execute(
+                        "SELECT payload_json FROM task_events "
+                        "WHERE task_id=? AND event_type=?",
+                        (
+                            str(effect_row["task_id"]),
+                            TaskEventType.ACTION_RECEIPT_RECORDED.value,
+                        ),
+                    ).fetchall()
+                    for task_event in task_events:
+                        try:
+                            receipt = json.loads(
+                                str(task_event["payload_json"])
+                            ).get("receipt")
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        if (
+                            isinstance(receipt, dict)
+                            and content_digest(receipt) == evidence_digest
+                        ):
+                            task_receipt_bound = True
+                            break
+                if not task_receipt_bound:
+                    applied_without_task_receipt += 1
+            unknown_effect_count = sum(
+                row["status"] != "APPLIED" for row in effect_rows
+            ) + applied_without_task_receipt
             hcw_row = connection.execute(
                 "SELECT * FROM hcw_measurement_receipts "
                 "WHERE binding_digest=? ORDER BY rowid DESC LIMIT 1",
@@ -844,6 +893,9 @@ class SQLiteResponsibilityLoopStore:
                 ),
             },
             "unknown_effect_count": unknown_effect_count,
+            "applied_without_task_receipt_count": (
+                applied_without_task_receipt
+            ),
             "last_hcw_receipt": last_hcw,
         }
 
@@ -1484,7 +1536,7 @@ class SQLiteResponsibilityLoopStore:
                 "adapter_receipt": receipt,
             }
             receipt_digest = content_digest(receipt_envelope)
-        except BaseException as exc:
+        except Exception as exc:
             with self._connect() as connection:
                 connection.execute(
                     "UPDATE responsibility_loop_effects_v2 SET status='UNKNOWN' "

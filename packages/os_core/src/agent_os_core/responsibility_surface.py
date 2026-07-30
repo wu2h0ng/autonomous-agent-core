@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hmac
 import os
+import sqlite3
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -10,6 +12,8 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     MandateWorkspaceRecord,
+    OutcomePortfolio,
+    PrincipalIdentity,
     PrincipalRole,
     content_digest,
 )
@@ -54,6 +58,80 @@ class ResponsibilitySurfaceContext:
     mandate_id: str
     binding: ResponsibilityLoopBinding
     loop_store: SQLiteResponsibilityLoopStore
+
+
+def resolve_agent_work_authority(
+    *,
+    database: Path,
+    session: Any,
+    bearer: str,
+) -> PrincipalIdentity:
+    """Resolve a credential-bound local authority from canonical portfolio truth."""
+    if not bearer:
+        raise ResponsibilitySurfaceError(
+            "AGENT_OS_AUTHORITY_BEARER is required for Agent Work"
+        )
+    connection = sqlite3.connect(str(Path(database).resolve()))
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            "SELECT * FROM mandate_outcome_portfolios "
+            "WHERE mandate_id=? AND tenant_id=? AND workspace_id=?",
+            (
+                session.mandate_id,
+                session.tenant_id,
+                session.workspace_id,
+            ),
+        ).fetchall()
+    except sqlite3.Error:
+        raise ResponsibilitySurfaceError(
+            "canonical Outcome Portfolio is unavailable for authority resolution"
+        ) from None
+    finally:
+        connection.close()
+    if len(rows) != 1:
+        raise ResponsibilitySurfaceError(
+            "Agent Work requires one canonical Outcome Portfolio authority"
+        )
+    row = rows[0]
+    try:
+        portfolio = OutcomePortfolio.model_validate_json(str(row["payload"]))
+    except Exception:
+        raise ResponsibilitySurfaceError(
+            "canonical Outcome Portfolio authority is malformed"
+        ) from None
+    payload = portfolio.model_dump(mode="json", exclude={"record_digest"})
+    if (
+        content_digest(payload) != portfolio.record_digest
+        or portfolio.record_digest != str(row["record_digest"])
+        or portfolio.portfolio_id != str(row["portfolio_id"])
+        or portfolio.mandate_id != session.mandate_id
+        or portfolio.tenant_id != session.tenant_id
+        or portfolio.workspace_id != session.workspace_id
+        or portfolio.principal_id != session.principal_id
+        or portfolio.created_by == session.principal_id
+        or portfolio.authority_credential_digest is None
+    ):
+        raise ResponsibilitySurfaceError(
+            "canonical Outcome Portfolio authority binding is invalid"
+        )
+    presented_digest = content_digest(
+        {"agent_work_authority_bearer": bearer}
+    )
+    if not hmac.compare_digest(
+        presented_digest,
+        portfolio.authority_credential_digest,
+    ):
+        raise ResponsibilitySurfaceError(
+            "Agent Work authority bearer is invalid"
+        )
+    return PrincipalIdentity(
+        principal_id=portfolio.created_by,
+        tenant_id=portfolio.tenant_id,
+        workspace_id=portfolio.workspace_id,
+        role=PrincipalRole.TENANT_ADMIN,
+        authenticated_at=datetime.now(timezone.utc),
+    )
 
 
 def _repository_head(workspace: Path) -> str:
@@ -249,8 +327,8 @@ def run_responsibility_work(
         loop_store=context.loop_store,
         actor=app.principal,
         execute_task=execute_task,
-        select_route=lambda _item, _commitment: (
-            ResponsibilityOrganRoute.ORDINARY_TASK
+        select_route=lambda item, _commitment: ResponsibilityOrganRoute(
+            item.link.work_route.value
         ),
         hcw_evaluator_root_id=AGENT_WORK_HCW_ROOT.evaluator_root_id,
         clock=lambda: datetime.now(timezone.utc),
@@ -311,12 +389,15 @@ def responsibility_status_payload(
         "portfolio": portfolio.model_dump(mode="json"),
         "checkpoint": asdict(checkpoint) if checkpoint is not None else None,
         "runtime": context.loop_store.runtime_status(context.binding),
-        "wake_sources": [
-            "HELP_RESPONSE",
-            "DUE_SCHEDULE",
-            "EXTERNAL_CORRECTION",
-            "TYPED_OPERATOR_COMMAND",
-        ],
+        "wake_capability": {
+            "resident_watcher_active": False,
+            "automatic_sources": [],
+            "manual_resume_triggers": [
+                "HELP_RESPONSE",
+                "EXTERNAL_SIGNAL",
+                "TYPED_OPERATOR_COMMAND",
+            ],
+        },
         "claim_ceiling": "MANDATE_SCOPED_READ_ONLY_STATUS / NOT_RELEASED",
     }
 

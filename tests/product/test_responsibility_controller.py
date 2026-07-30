@@ -18,6 +18,7 @@ from agent_os_contracts import (
     OutcomeStatus,
     PersistentCommitmentAttachCommand,
     PersistentCommitmentState,
+    ResponsibilityWorkRoute,
     SrlHelpResponseKind,
     TaskEventType,
     content_digest,
@@ -37,6 +38,9 @@ from agent_os_core.responsibility_loop import (
     ResponsibilityLoopStaleFence,
     SQLiteResponsibilityLoopStore,
 )
+from agent_os_core.responsibility_surface import (
+    build_responsibility_surface_context,
+)
 from agent_os_core.mandate_terminal import attach_mandate
 from apps.cli.__main__ import main as cli_main
 from tests.product.test_long_horizon_execution import (
@@ -49,8 +53,15 @@ from tests.product.test_long_horizon_execution import (
 from tests.product.test_mandate_observation_authorization import NOW, _apps, _command
 from tests.product.test_mandate_outcome_portfolio import _budget
 
+AUTHORITY_BEARER = "test-only-agent-work-authority-bearer"
 
-def _verified_responsibility(tmp_path: Path, *, workflow=None):
+
+def _verified_responsibility(
+    tmp_path: Path,
+    *,
+    workflow=None,
+    work_route: ResponsibilityWorkRoute = ResponsibilityWorkRoute.ORDINARY_TASK,
+):
     _prepare_workspace(tmp_path)
     database, owner, admin = _apps(tmp_path)
     owner.provider_configured = True
@@ -103,12 +114,21 @@ def _verified_responsibility(tmp_path: Path, *, workflow=None):
         expected,
     )
     admin.mandate_outcome_portfolio_store.create_portfolio(
-        OutcomePortfolioCreateCommand(reason="controller truth"),
+        OutcomePortfolioCreateCommand(
+            reason="controller truth",
+            authority_credential_digest=content_digest(
+                {"agent_work_authority_bearer": AUTHORITY_BEARER}
+            ),
+        ),
         "mandate:build-agent-os",
         admin.principal,
     )
     admin.mandate_responsibility_store.create_link(
-        MandateTaskLinkCommand(task_id=task.task_id, reason="controller work"),
+        MandateTaskLinkCommand(
+            task_id=task.task_id,
+            reason="controller work",
+            work_route=work_route,
+        ),
         "mandate:build-agent-os",
         admin.principal,
     )
@@ -195,8 +215,8 @@ def _controller(database, owner, admin, tmp_path: Path):
         loop_store=loop_store,
         actor=admin.principal,
         execute_task=execute_task,
-        select_route=lambda _item, _commitment: (
-            ResponsibilityOrganRoute.ORDINARY_TASK
+        select_route=lambda item, _commitment: ResponsibilityOrganRoute(
+            item.link.work_route.value
         ),
         hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
         clock=lambda: NOW,
@@ -343,7 +363,10 @@ def test_controller_records_not_met_without_promoting_it_to_met(
 def test_selfdev_responsibility_is_typed_blocked_without_task_execution(
     tmp_path: Path,
 ) -> None:
-    database, owner, admin, task_id, attached = _verified_responsibility(tmp_path)
+    database, owner, admin, task_id, attached = _verified_responsibility(
+        tmp_path,
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+    )
     binding, loop_store, _ = _controller(database, owner, admin, tmp_path)
     execution_calls: list[str] = []
     controller = ResponsibilityLoopController(
@@ -355,7 +378,9 @@ def test_selfdev_responsibility_is_typed_blocked_without_task_execution(
         execute_task=lambda selected_task_id, *_args: execution_calls.append(
             selected_task_id
         ),
-        select_route=lambda _item, _commitment: ResponsibilityOrganRoute.SELFDEV,
+        select_route=lambda item, _commitment: ResponsibilityOrganRoute(
+            item.link.work_route.value
+        ),
         hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
         clock=lambda: NOW,
     )
@@ -449,6 +474,96 @@ def test_process_b_finishes_cycle_after_crash_following_settlement(
     assert recovered.cycle_id == prior.active_cycle_id
     assert recovered.settlement_id is not None
     assert recovered.cycle_receipt_digest is not None
+
+
+@pytest.mark.parametrize(
+    "crash_method",
+    (
+        "seal_cycle_receipt",
+        "bind_cycle_settlement",
+        "measure_hcw",
+    ),
+)
+def test_process_b_recovers_each_post_settlement_finalization_crash(
+    tmp_path: Path,
+    crash_method: str,
+) -> None:
+    database, owner, admin, task_id, attached = _verified_responsibility(tmp_path)
+    binding, loop_store, controller = _controller(
+        database,
+        owner,
+        admin,
+        tmp_path,
+    )
+    original = getattr(loop_store, crash_method)
+
+    class SimulatedProcessCrash(RuntimeError):
+        pass
+
+    def crash_after_stage(*args, **kwargs):
+        original(*args, **kwargs)
+        raise SimulatedProcessCrash(f"process died after {crash_method}")
+
+    setattr(loop_store, crash_method, crash_after_stage)
+    with pytest.raises(SimulatedProcessCrash):
+        controller.run_once(
+            binding,
+            process_instance_id=f"process:{crash_method}:A",
+        )
+
+    prior = SQLiteResponsibilityLoopStore(
+        database,
+        clock=lambda: NOW,
+    ).latest_checkpoint(binding)
+    assert prior is not None
+    assert prior.active_cycle_id is not None
+    recovered_store = SQLiteResponsibilityLoopStore(database, clock=lambda: NOW)
+    recovered = ResponsibilityLoopController(
+        responsibility_projector=admin.mandate_responsibility,
+        portfolio_store=admin.mandate_outcome_portfolio_store,
+        task_reader=admin.tasks,
+        loop_store=recovered_store,
+        actor=admin.principal,
+        execute_task=lambda *_args: pytest.fail(
+            "post-settlement recovery must not execute the Task twice"
+        ),
+        select_route=lambda item, _commitment: ResponsibilityOrganRoute(
+            item.link.work_route.value
+        ),
+        hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
+        clock=lambda: NOW,
+    ).run_once(
+        binding,
+        process_instance_id=f"process:{crash_method}:B",
+    )
+
+    assert recovered.state in {
+        ResponsibilityControllerState.SETTLED,
+        ResponsibilityControllerState.WAITING_EVENT,
+    }
+    receipt = recovered_store.get_cycle_receipt(
+        binding,
+        prior.active_cycle_id,
+    )
+    assert receipt is not None
+    replayed_hcw = recovered_store.measure_hcw(
+        binding,
+        cycle_id=prior.active_cycle_id,
+        evaluator_root_id="hcw-evaluator:agent-work:v1",
+        measured_at=NOW + timedelta(seconds=1),
+    )
+    assert replayed_hcw.receipt_digest
+    portfolio = admin.mandate_outcome_portfolio_store.get_view(
+        binding.mandate_id,
+        admin.principal,
+    )
+    matching = [
+        settlement
+        for settlement in portfolio.settlements
+        if settlement.commitment_record_id == attached.commitment_record_id
+    ]
+    assert len(matching) == 1
+    assert owner.tasks.current_outcome(task_id) is not None
 
 
 def test_run_coordinator_stale_responsibility_fence_blocks_tool_effect(
@@ -583,6 +698,38 @@ def test_takeover_does_not_repeat_effect_that_became_unknown_after_ttl(
     assert effect_calls == [task_id]
 
 
+def test_status_marks_applied_effect_without_task_receipt_as_unreconciled(
+    tmp_path: Path,
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(tmp_path)
+    binding, loop_store, _ = _controller(database, owner, admin, tmp_path)
+    lease = loop_store.acquire_lease(
+        binding,
+        process_instance_id="process:effect-before-task-receipt",
+        now=NOW,
+    )
+    loop_store.execute_effect(
+        binding,
+        lease,
+        cycle_id="cycle:applied-before-task-receipt",
+        task_id=task_id,
+        operation_slot="read",
+        intent_digest="d" * 64,
+        effect=lambda: {
+            "receipt_id": "receipt:applied-before-task-receipt",
+            "resource_ref": "workspace.read:read-key",
+            "evidence_digest": "e" * 64,
+        },
+        executed_at=NOW,
+    )
+    loop_store.release_lease(binding, lease, released_at=NOW)
+
+    runtime = loop_store.runtime_status(binding)
+
+    assert runtime["unknown_effect_count"] == 1
+    assert runtime["applied_without_task_receipt_count"] == 1
+
+
 def test_missing_outcome_emits_typed_help_without_unauthorized_work(
     tmp_path: Path,
 ) -> None:
@@ -683,8 +830,8 @@ def test_agent_run_uses_canonical_responsibility_instead_of_chat_task(
     inputs_path = _attach_git_workspace(tmp_path, database, owner)
     task_count = len(owner.list_tasks())
     monkeypatch.setenv(
-        "AGENT_OS_AUTHORITY_PRINCIPAL_ID",
-        admin.principal.principal_id,
+        "AGENT_OS_AUTHORITY_BEARER",
+        AUTHORITY_BEARER,
     )
 
     with pytest.raises(SystemExit) as exited:
@@ -735,12 +882,15 @@ def test_agent_run_uses_canonical_responsibility_instead_of_chat_task(
     assert status_payload["runtime"]["lease"]["owned"] is False
     assert status_payload["runtime"]["unknown_effect_count"] == 0
     assert status_payload["runtime"]["last_hcw_receipt"] is not None
-    assert status_payload["wake_sources"] == [
-        "HELP_RESPONSE",
-        "DUE_SCHEDULE",
-        "EXTERNAL_CORRECTION",
-        "TYPED_OPERATOR_COMMAND",
-    ]
+    assert status_payload["wake_capability"] == {
+        "resident_watcher_active": False,
+        "automatic_sources": [],
+        "manual_resume_triggers": [
+            "HELP_RESPONSE",
+            "EXTERNAL_SIGNAL",
+            "TYPED_OPERATOR_COMMAND",
+        ],
+    }
 
     with pytest.raises(SystemExit) as resume_exit:
         cli_main(
@@ -761,6 +911,45 @@ def test_agent_run_uses_canonical_responsibility_instead_of_chat_task(
     assert len(owner.list_tasks()) == task_count
 
 
+def test_agent_work_surface_returns_typed_selfdev_route_not_bound(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        tmp_path,
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+    )
+    inputs_path = _attach_git_workspace(tmp_path, database, owner)
+    monkeypatch.setenv(
+        "AGENT_OS_AUTHORITY_BEARER",
+        AUTHORITY_BEARER,
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        cli_main(
+            [
+                "agent-os",
+                "--database",
+                str(database),
+                "--workspace",
+                str(tmp_path),
+                "agent",
+                "run",
+                "--inputs-json",
+                str(inputs_path),
+                "--offline",
+            ]
+        )
+
+    assert exited.value.code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["terminal_state"] == "BLOCKED"
+    assert payload["cycles"][0]["organ_route"] == "SELFDEV"
+    assert payload["cycles"][0]["block_reason"] == "SELFDEV_ROUTE_NOT_BOUND"
+    assert owner.tasks.current_outcome(task_id) is None
+
+
 def test_real_process_a_to_b_to_a_restores_one_cycle_without_terminal_json(
     tmp_path: Path,
 ) -> None:
@@ -773,9 +962,7 @@ def test_real_process_a_to_b_to_a_restores_one_cycle_without_terminal_json(
     terminal_projection.unlink(missing_ok=True)
     repo_root = Path(__file__).resolve().parents[2]
     environment = dict(os.environ)
-    environment["AGENT_OS_AUTHORITY_PRINCIPAL_ID"] = (
-        admin.principal.principal_id
-    )
+    environment["AGENT_OS_AUTHORITY_BEARER"] = AUTHORITY_BEARER
     environment["PYTHONPATH"] = os.pathsep.join(
         (
             str(repo_root),
@@ -864,13 +1051,45 @@ def test_real_process_a_to_b_to_a_restores_one_cycle_without_terminal_json(
     assert not terminal_projection.exists()
 
 
-def test_agent_run_rejects_attach_session_as_admin_authority(
+def test_agent_run_rejects_missing_authority_bearer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database, owner, _, task_id, _ = _verified_responsibility(tmp_path)
     inputs_path = _attach_git_workspace(tmp_path, database, owner)
-    monkeypatch.delenv("AGENT_OS_AUTHORITY_PRINCIPAL_ID", raising=False)
+    monkeypatch.delenv("AGENT_OS_AUTHORITY_BEARER", raising=False)
+
+    with pytest.raises(SystemExit) as exited:
+        cli_main(
+            [
+                "agent-os",
+                "--database",
+                str(database),
+                "--workspace",
+                str(tmp_path),
+                "agent",
+                "run",
+                "--inputs-json",
+                str(inputs_path),
+                "--offline",
+            ]
+        )
+
+    assert exited.value.code == 2
+    assert owner.tasks.current_outcome(task_id) is None
+
+
+def test_agent_run_rejects_forged_admin_id_with_wrong_bearer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(tmp_path)
+    inputs_path = _attach_git_workspace(tmp_path, database, owner)
+    monkeypatch.setenv(
+        "AGENT_OS_AUTHORITY_PRINCIPAL_ID",
+        admin.principal.principal_id,
+    )
+    monkeypatch.setenv("AGENT_OS_AUTHORITY_BEARER", "wrong-bearer")
 
     with pytest.raises(SystemExit) as exited:
         cli_main(
@@ -902,8 +1121,8 @@ def test_agent_answer_and_correct_use_the_same_checkpointed_cycle(
     )
     inputs_path = _attach_git_workspace(tmp_path, database, owner)
     monkeypatch.setenv(
-        "AGENT_OS_AUTHORITY_PRINCIPAL_ID",
-        admin.principal.principal_id,
+        "AGENT_OS_AUTHORITY_BEARER",
+        AUTHORITY_BEARER,
     )
 
     with pytest.raises(SystemExit) as run_exit:
@@ -981,8 +1200,8 @@ def test_agent_run_interrupt_halts_task_checkpoints_and_exits_130(
     database, owner, admin, task_id, _ = _verified_responsibility(tmp_path)
     inputs_path = _attach_git_workspace(tmp_path, database, owner)
     monkeypatch.setenv(
-        "AGENT_OS_AUTHORITY_PRINCIPAL_ID",
-        admin.principal.principal_id,
+        "AGENT_OS_AUTHORITY_BEARER",
+        AUTHORITY_BEARER,
     )
 
     def interrupt_run(*_args, **_kwargs):
@@ -1021,3 +1240,55 @@ def test_agent_run_interrupt_halts_task_checkpoints_and_exits_130(
         aggregate.run.run_id,
         "provider",
     )
+
+
+def test_agent_run_interrupt_inside_tool_effect_checkpoints_and_exits_130(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(tmp_path)
+    inputs_path = _attach_git_workspace(tmp_path, database, owner)
+    monkeypatch.setenv(
+        "AGENT_OS_AUTHORITY_BEARER",
+        AUTHORITY_BEARER,
+    )
+
+    def interrupt_effect(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "agent_os_core.capability.CapabilityBroker.invoke",
+        interrupt_effect,
+    )
+    with pytest.raises(SystemExit) as exited:
+        cli_main(
+            [
+                "agent-os",
+                "--database",
+                str(database),
+                "--workspace",
+                str(tmp_path),
+                "agent",
+                "run",
+                "--inputs-json",
+                str(inputs_path),
+                "--offline",
+            ]
+        )
+
+    assert exited.value.code == 130
+    aggregate = owner.tasks.get_task(task_id)
+    assert aggregate.run is not None
+    assert owner.correction.halted(
+        task_id,
+        aggregate.run.run_id,
+        "provider",
+    )
+    context = build_responsibility_surface_context(
+        app=admin,
+        execution_app=owner,
+        workspace=tmp_path,
+        database=database,
+    )
+    runtime = context.loop_store.runtime_status(context.binding)
+    assert runtime["unknown_effect_count"] == 1
