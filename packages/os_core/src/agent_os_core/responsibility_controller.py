@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -18,6 +18,7 @@ from agent_os_contracts import (
 from .responsibility_loop import (
     ResponsibilityCycleState,
     ResponsibilityLoopBinding,
+    ResponsibilityLoopStaleFence,
     SQLiteResponsibilityLoopStore,
 )
 
@@ -30,6 +31,15 @@ class ResponsibilityControllerState(str, Enum):
     SETTLED = "SETTLED"
     WAITING_EVENT = "WAITING_EVENT"
     BLOCKED = "BLOCKED"
+
+
+class ResponsibilityOrganRoute(str, Enum):
+    ORDINARY_TASK = "ORDINARY_TASK"
+    SELFDEV = "SELFDEV"
+
+
+class ResponsibilityControllerBlockReason(str, Enum):
+    SELFDEV_ROUTE_NOT_BOUND = "SELFDEV_ROUTE_NOT_BOUND"
 
 
 class ResponsibilityProjectorPort(Protocol):
@@ -68,7 +78,18 @@ class TaskReaderPort(Protocol):
     def current_outcome(self, task_id: str) -> Any: ...
 
 
-TaskExecutionPort = Callable[[str, Callable[[str], None]], None]
+EffectExecutionPort = Callable[
+    [str, str, Callable[[], Mapping[str, str]]],
+    Any,
+]
+TaskExecutionPort = Callable[
+    [str, Callable[[str], None], EffectExecutionPort],
+    None,
+]
+ResponsibilityRouteSelectorPort = Callable[
+    [Any, PersistentCommitment],
+    ResponsibilityOrganRoute,
+]
 
 
 @dataclass(frozen=True)
@@ -83,7 +104,10 @@ class ResponsibilityControllerResult:
     settlement_id: str | None
     help_request_id: str | None
     cycle_receipt_digest: str | None
+    hcw_receipt_digest: str | None
     checkpoint_digest: str
+    organ_route: ResponsibilityOrganRoute | None = None
+    block_reason: ResponsibilityControllerBlockReason | None = None
 
 
 class ResponsibilityLoopController:
@@ -98,6 +122,8 @@ class ResponsibilityLoopController:
         loop_store: SQLiteResponsibilityLoopStore,
         actor: PrincipalIdentity,
         execute_task: TaskExecutionPort,
+        select_route: ResponsibilityRouteSelectorPort,
+        hcw_evaluator_root_id: str,
         clock: Callable[[], datetime],
     ) -> None:
         self._responsibility_projector = responsibility_projector
@@ -106,12 +132,15 @@ class ResponsibilityLoopController:
         self._loop = loop_store
         self._actor = actor
         self._execute_task = execute_task
+        self._select_route = select_route
+        self._hcw_evaluator_root_id = hcw_evaluator_root_id
         self._clock = clock
 
-    def _project_open_responsibility(
+    def _project_responsibility(
         self,
         binding: ResponsibilityLoopBinding,
-    ) -> tuple[Any, PersistentCommitment, Any] | None:
+        prior_checkpoint: Any | None,
+    ) -> tuple[Any, PersistentCommitment, Any, Any | None] | None:
         responsibility = self._responsibility_projector.project(
             binding.mandate_id,
             self._actor,
@@ -120,6 +149,56 @@ class ResponsibilityLoopController:
             binding.mandate_id,
             self._actor,
         )
+        if (
+            prior_checkpoint is not None
+            and prior_checkpoint.active_commitment_record_id is not None
+        ):
+            matching_commitments = [
+                commitment
+                for commitment in portfolio.commitments
+                if commitment.commitment_record_id
+                == prior_checkpoint.active_commitment_record_id
+            ]
+            if len(matching_commitments) != 1:
+                raise ResponsibilityControllerError(
+                    "checkpoint commitment is missing or ambiguous"
+                )
+            commitment = matching_commitments[0]
+            item = next(
+                (
+                    candidate
+                    for candidate in responsibility.items
+                    if candidate.link.task_id == commitment.task_id
+                ),
+                None,
+            )
+            if item is None:
+                raise ResponsibilityControllerError(
+                    "checkpoint responsibility link is no longer active"
+                )
+            matching_settlements = [
+                settlement
+                for settlement in portfolio.settlements
+                if settlement.commitment_record_id
+                == commitment.commitment_record_id
+            ]
+            if len(matching_settlements) > 1:
+                raise ResponsibilityControllerError(
+                    "checkpoint commitment has ambiguous settlements"
+                )
+            if (
+                commitment.state is not PersistentCommitmentState.OPEN
+                and len(matching_settlements) != 1
+            ):
+                raise ResponsibilityControllerError(
+                    "closed checkpoint commitment lacks canonical settlement"
+                )
+            return (
+                responsibility,
+                commitment,
+                item,
+                matching_settlements[0] if matching_settlements else None,
+            )
         open_commitments = sorted(
             (
                 commitment
@@ -141,7 +220,7 @@ class ResponsibilityLoopController:
                 None,
             )
             if item is not None:
-                return responsibility, commitment, item
+                return responsibility, commitment, item, None
         return None
 
     def run_once(
@@ -165,7 +244,10 @@ class ResponsibilityLoopController:
         checkpoint_digest: str | None = None
         try:
             prior_checkpoint = self._loop.latest_checkpoint(binding)
-            projected = self._project_open_responsibility(binding)
+            projected = self._project_responsibility(
+                binding,
+                prior_checkpoint,
+            )
             if projected is None:
                 checkpoint = self._loop.write_checkpoint(
                     binding,
@@ -197,9 +279,10 @@ class ResponsibilityLoopController:
                     settlement_id=None,
                     help_request_id=None,
                     cycle_receipt_digest=None,
+                    hcw_receipt_digest=None,
                     checkpoint_digest=checkpoint.checkpoint_digest,
                 )
-            responsibility, commitment, item = projected
+            responsibility, commitment, item, recovered_settlement = projected
             if item.commitment is None or item.expected_outcome is None:
                 raise ResponsibilityControllerError(
                     "selected responsibility lacks commitment or expected outcome"
@@ -224,6 +307,60 @@ class ResponsibilityLoopController:
                 }
             )
             aggregate = self._tasks.get_task(commitment.task_id)
+            organ_route = self._select_route(item, commitment)
+            if organ_route is ResponsibilityOrganRoute.SELFDEV:
+                blocked_checkpoint = self._loop.write_checkpoint(
+                    binding,
+                    lease,
+                    state=ResponsibilityCycleState.BLOCKED,
+                    active_cycle_id=cycle_id,
+                    active_link_id=item.link.link_id,
+                    active_commitment_record_id=commitment.commitment_record_id,
+                    responsibility_projection_digest=responsibility.view_digest,
+                    active_task_id=commitment.task_id,
+                    active_run_id=(
+                        aggregate.run.run_id
+                        if aggregate.run is not None
+                        else None
+                    ),
+                    last_event_sequence=max(
+                        aggregate.sequence,
+                        (
+                            prior_checkpoint.last_event_sequence
+                            if prior_checkpoint is not None
+                            else 0
+                        ),
+                    ),
+                    next_transition="BIND_SELFDEV_ORGAN",
+                    recorded_at=self._clock(),
+                    expected_prior_digest=(
+                        prior_checkpoint.checkpoint_digest
+                        if prior_checkpoint is not None
+                        else None
+                    ),
+                )
+                return ResponsibilityControllerResult(
+                    state=ResponsibilityControllerState.BLOCKED,
+                    mandate_id=binding.mandate_id,
+                    cycle_id=cycle_id,
+                    link_id=item.link.link_id,
+                    commitment_record_id=commitment.commitment_record_id,
+                    task_id=commitment.task_id,
+                    run_id=(
+                        aggregate.run.run_id
+                        if aggregate.run is not None
+                        else None
+                    ),
+                    settlement_id=None,
+                    help_request_id=None,
+                    cycle_receipt_digest=None,
+                    hcw_receipt_digest=None,
+                    checkpoint_digest=blocked_checkpoint.checkpoint_digest,
+                    organ_route=organ_route,
+                    block_reason=(
+                        ResponsibilityControllerBlockReason.SELFDEV_ROUTE_NOT_BOUND
+                    ),
+                )
             active_run_id = (
                 aggregate.run.run_id if aggregate.run is not None else None
             )
@@ -235,8 +372,6 @@ class ResponsibilityLoopController:
                 if (
                     prior_checkpoint.active_cycle_id != cycle_id
                     or prior_checkpoint.active_link_id != item.link.link_id
-                    or prior_checkpoint.responsibility_projection_digest
-                    != responsibility.view_digest
                 ):
                     raise ResponsibilityControllerError(
                         "restored responsibility identity drift"
@@ -300,9 +435,11 @@ class ResponsibilityLoopController:
                             settlement_id=None,
                             help_request_id=help_request.help_request_id,
                             cycle_receipt_digest=None,
+                            hcw_receipt_digest=None,
                             checkpoint_digest=(
                                 waiting_checkpoint.checkpoint_digest
                             ),
+                            organ_route=organ_route,
                         )
             checkpoint = self._loop.write_checkpoint(
                 binding,
@@ -333,11 +470,35 @@ class ResponsibilityLoopController:
             checkpoint_digest = checkpoint.checkpoint_digest
 
             def assert_current(_phase: str) -> None:
-                self._loop.assert_active_lease(binding, lease)
+                self._loop.heartbeat_lease(
+                    binding,
+                    lease,
+                    heartbeat_at=self._clock(),
+                )
+
+            def execute_effect(
+                operation_slot: str,
+                intent_digest: str,
+                effect: Callable[[], Mapping[str, str]],
+            ) -> Any:
+                return self._loop.execute_effect(
+                    binding,
+                    lease,
+                    cycle_id=cycle_id,
+                    task_id=commitment.task_id,
+                    operation_slot=operation_slot,
+                    intent_digest=intent_digest,
+                    effect=effect,
+                    executed_at=self._clock(),
+                )
 
             outcome = self._tasks.current_outcome(commitment.task_id)
             if outcome is None:
-                self._execute_task(commitment.task_id, assert_current)
+                self._execute_task(
+                    commitment.task_id,
+                    assert_current,
+                    execute_effect,
+                )
                 assert_current("after_task_execution")
                 outcome = self._tasks.current_outcome(commitment.task_id)
             if outcome is None:
@@ -386,22 +547,92 @@ class ResponsibilityLoopController:
                     settlement_id=None,
                     help_request_id=help_request.help_request_id,
                     cycle_receipt_digest=None,
+                    hcw_receipt_digest=None,
                     checkpoint_digest=checkpoint_digest,
+                    organ_route=organ_route,
                 )
-            settlement = self._portfolio_store.settle(
-                SettlementCommand(
-                    commitment_record_id=commitment.commitment_record_id,
-                    expected_outcome_digest=commitment.expected_outcome_digest,
-                    observed_outcome_digest=content_digest(outcome),
-                    observed_status=OutcomeStatus(outcome.status),
-                ),
-                binding.mandate_id,
-                self._actor,
-            )
+            settlement = recovered_settlement
+            if settlement is None:
+                settlement = self._portfolio_store.settle(
+                    SettlementCommand(
+                        commitment_record_id=commitment.commitment_record_id,
+                        expected_outcome_digest=commitment.expected_outcome_digest,
+                        observed_outcome_digest=content_digest(outcome),
+                        observed_status=OutcomeStatus(outcome.status),
+                    ),
+                    binding.mandate_id,
+                    self._actor,
+                )
+            elif (
+                settlement.task_id != commitment.task_id
+                or settlement.expected_outcome_digest
+                != commitment.expected_outcome_digest
+                or settlement.observed_outcome_digest != content_digest(outcome)
+                or settlement.observed_status is not OutcomeStatus(outcome.status)
+            ):
+                raise ResponsibilityControllerError(
+                    "recovered settlement does not match canonical Task outcome"
+                )
             aggregate = self._tasks.get_task(commitment.task_id)
             if aggregate.run is None:
                 raise ResponsibilityControllerError(
                     "settled responsibility has no canonical Run"
+                )
+            existing_cycle_receipt = self._loop.get_cycle_receipt(
+                binding,
+                cycle_id,
+            )
+            if existing_cycle_receipt is not None:
+                if (
+                    existing_cycle_receipt.task_id != commitment.task_id
+                    or existing_cycle_receipt.run_id != aggregate.run.run_id
+                ):
+                    raise ResponsibilityControllerError(
+                        "recovered cycle receipt does not match canonical Task/Run"
+                    )
+                self._loop.bind_cycle_settlement(
+                    binding,
+                    cycle_id=cycle_id,
+                    task_id=commitment.task_id,
+                    settlement_id=settlement.settlement_id,
+                    expected_settlement_digest=settlement.record_digest,
+                    cycle_receipt_digest=(
+                        existing_cycle_receipt.receipt_digest
+                    ),
+                )
+                hcw_receipt = self._loop.measure_hcw(
+                    binding,
+                    cycle_id=cycle_id,
+                    evaluator_root_id=self._hcw_evaluator_root_id,
+                    measured_at=self._clock(),
+                )
+                neutral_checkpoint = self._loop.write_checkpoint(
+                    binding,
+                    lease,
+                    state=ResponsibilityCycleState.WAITING_EVENT,
+                    active_task_id=None,
+                    active_run_id=None,
+                    last_event_sequence=aggregate.sequence,
+                    next_transition="PROJECT_RESPONSIBILITIES",
+                    recorded_at=self._clock(),
+                    expected_prior_digest=checkpoint_digest,
+                )
+                return ResponsibilityControllerResult(
+                    state=ResponsibilityControllerState.WAITING_EVENT,
+                    mandate_id=binding.mandate_id,
+                    cycle_id=None,
+                    link_id=None,
+                    commitment_record_id=None,
+                    task_id=None,
+                    run_id=None,
+                    settlement_id=None,
+                    help_request_id=None,
+                    cycle_receipt_digest=None,
+                    hcw_receipt_digest=hcw_receipt.receipt_digest,
+                    checkpoint_digest=(
+                        neutral_checkpoint.checkpoint_digest
+                    ),
+                    organ_route=organ_route,
                 )
             final_checkpoint = self._loop.write_checkpoint(
                 binding,
@@ -435,6 +666,12 @@ class ResponsibilityLoopController:
                 expected_settlement_digest=settlement.record_digest,
                 cycle_receipt_digest=cycle_receipt.receipt_digest,
             )
+            hcw_receipt = self._loop.measure_hcw(
+                binding,
+                cycle_id=cycle_id,
+                evaluator_root_id=self._hcw_evaluator_root_id,
+                measured_at=self._clock(),
+            )
             return ResponsibilityControllerResult(
                 state=ResponsibilityControllerState.SETTLED,
                 mandate_id=binding.mandate_id,
@@ -446,11 +683,18 @@ class ResponsibilityLoopController:
                 settlement_id=settlement.settlement_id,
                 help_request_id=None,
                 cycle_receipt_digest=cycle_receipt.receipt_digest,
+                hcw_receipt_digest=hcw_receipt.receipt_digest,
                 checkpoint_digest=checkpoint_digest,
+                organ_route=organ_route,
             )
         finally:
-            self._loop.release_lease(
-                binding,
-                lease,
-                released_at=self._clock(),
-            )
+            try:
+                self._loop.release_lease(
+                    binding,
+                    lease,
+                    released_at=self._clock(),
+                )
+            except ResponsibilityLoopStaleFence:
+                # Cleanup cannot overwrite the original stale/UNKNOWN failure.
+                # A later owner already controls the durable lease row.
+                pass

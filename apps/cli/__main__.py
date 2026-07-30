@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -212,10 +213,7 @@ def _work_applications(
         **principal_values,
         role=PrincipalRole.PRINCIPAL,
     )
-    authority_principal = PrincipalIdentity(
-        **principal_values,
-        role=PrincipalRole.TENANT_ADMIN,
-    )
+    authority_principal = _work_authority_principal(session)
     execution_app = AgentOSApplication(
         database=args.database,
         workspace=Path(args.workspace),
@@ -237,19 +235,35 @@ def _work_applications(
 
 def _work_application(args: argparse.Namespace) -> AgentOSApplication:
     session = load_attach_session(Path(args.workspace))
-    principal = PrincipalIdentity(
-        principal_id=session.principal_id,
-        tenant_id=session.tenant_id,
-        workspace_id=session.workspace_id,
-        role=PrincipalRole.TENANT_ADMIN,
-        authenticated_at=datetime.now(timezone.utc),
-    )
+    principal = _work_authority_principal(session)
     app = AgentOSApplication(
         database=args.database,
         workspace=Path(args.workspace),
         principal=principal,
     )
     return app
+
+
+def _work_authority_principal(session) -> PrincipalIdentity:
+    authority_principal_id = os.environ.get(
+        "AGENT_OS_AUTHORITY_PRINCIPAL_ID",
+        "",
+    ).strip()
+    if not authority_principal_id:
+        raise ResponsibilitySurfaceError(
+            "AGENT_OS_AUTHORITY_PRINCIPAL_ID is required for Agent Work"
+        )
+    if authority_principal_id == session.principal_id:
+        raise ResponsibilitySurfaceError(
+            "Agent Work authority must be independent from the Mandate owner"
+        )
+    return PrincipalIdentity(
+        principal_id=authority_principal_id,
+        tenant_id=session.tenant_id,
+        workspace_id=session.workspace_id,
+        role=PrincipalRole.TENANT_ADMIN,
+        authenticated_at=datetime.now(timezone.utc),
+    )
 
 
 def _load_inputs(path: Path | None) -> dict:
@@ -263,22 +277,35 @@ def _load_inputs(path: Path | None) -> dict:
 
 def _agent_work_run(args: argparse.Namespace, *, resume: bool) -> int:
     app, execution_app = _work_applications(args)
-    payload = run_responsibility_work(
-        app=app,
-        execution_app=execution_app,
-        workspace=Path(args.workspace),
-        database=Path(args.database),
-        inputs=_load_inputs(args.inputs_json),
-        resume=resume,
-        max_cycles=args.max_cycles,
-    )
+    try:
+        payload = run_responsibility_work(
+            app=app,
+            execution_app=execution_app,
+            workspace=Path(args.workspace),
+            database=Path(args.database),
+            inputs=_load_inputs(args.inputs_json),
+            resume=resume,
+            max_cycles=args.max_cycles,
+        )
+    except KeyboardInterrupt:
+        payload = correct_responsibility_work(
+            app=app,
+            execution_app=execution_app,
+            workspace=Path(args.workspace),
+            database=Path(args.database),
+            reason="operator interrupted Agent Work",
+        )
+        print(json.dumps(payload, indent=2, default=str))
+        return 130
     print(json.dumps(payload, indent=2, default=str))
     return 0
 
 
 def _agent_work_status(args: argparse.Namespace) -> int:
+    app, execution_app = _work_applications(args)
     payload = responsibility_status_payload(
-        app=_work_application(args),
+        app=app,
+        execution_app=execution_app,
         workspace=Path(args.workspace),
         database=Path(args.database),
     )
@@ -287,8 +314,10 @@ def _agent_work_status(args: argparse.Namespace) -> int:
 
 
 def _agent_work_answer(args: argparse.Namespace) -> int:
+    app, execution_app = _work_applications(args)
     payload = answer_responsibility_help(
-        app=_work_application(args),
+        app=app,
+        execution_app=execution_app,
         workspace=Path(args.workspace),
         database=Path(args.database),
         help_request_id=args.help_request_id,

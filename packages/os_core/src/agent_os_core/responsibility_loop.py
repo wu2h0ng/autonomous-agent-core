@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from agent_os_contracts import (
     OutcomePortfolio,
@@ -775,6 +775,77 @@ class SQLiteResponsibilityLoopStore:
             )
             for row in rows
         ]
+
+    def runtime_status(
+        self,
+        binding: ResponsibilityLoopBinding,
+    ) -> dict[str, Any]:
+        checked_at = _utc(self._clock())
+        with self._connect() as connection:
+            lease = connection.execute(
+                "SELECT * FROM responsibility_loop_leases_v2 "
+                "WHERE lease_scope_id=?",
+                (binding.lease_scope_id,),
+            ).fetchone()
+            if lease is not None:
+                self._assert_binding(lease, binding)
+            unknown_effect_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM responsibility_loop_effects_v2 "
+                    "WHERE binding_digest=? AND status!='APPLIED'",
+                    (binding.digest,),
+                ).fetchone()[0]
+            )
+            hcw_row = connection.execute(
+                "SELECT * FROM hcw_measurement_receipts "
+                "WHERE binding_digest=? ORDER BY rowid DESC LIMIT 1",
+                (binding.digest,),
+            ).fetchone()
+        last_hcw = None
+        if hcw_row is not None:
+            try:
+                payload = json.loads(str(hcw_row["payload"]))
+                measured_at = _parse(str(payload.get("measured_at")))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                raise ResponsibilityLoopBindingDrift(
+                    "HCW status receipt is malformed"
+                ) from None
+            if (
+                content_digest({**payload, "measured_at": measured_at})
+                != hcw_row["receipt_digest"]
+            ):
+                raise ResponsibilityLoopBindingDrift(
+                    "HCW status receipt digest drift"
+                )
+            last_hcw = {
+                "receipt_digest": str(hcw_row["receipt_digest"]),
+                **payload,
+            }
+        return {
+            "lease": {
+                "owned": bool(
+                    lease is not None
+                    and lease["process_instance_id"] is not None
+                    and _parse(str(lease["expires_at"])) > checked_at
+                ),
+                "process_instance_id": (
+                    str(lease["process_instance_id"])
+                    if lease is not None
+                    and lease["process_instance_id"] is not None
+                    else None
+                ),
+                "fencing_token": (
+                    int(lease["fencing_token"])
+                    if lease is not None
+                    else None
+                ),
+                "expires_at": (
+                    str(lease["expires_at"]) if lease is not None else None
+                ),
+            },
+            "unknown_effect_count": unknown_effect_count,
+            "last_hcw_receipt": last_hcw,
+        }
 
     def list_rebind_receipts(
         self,
@@ -1658,6 +1729,56 @@ class SQLiteResponsibilityLoopStore:
             sealed_at,
         )
 
+    def get_cycle_receipt(
+        self,
+        binding: ResponsibilityLoopBinding,
+        cycle_id: str,
+    ) -> ResponsibilityCycleReceipt | None:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM responsibility_cycle_receipts "
+                "WHERE binding_digest=? AND cycle_id=?",
+                (binding.digest, cycle_id),
+            ).fetchall()
+        if len(rows) > 1:
+            raise ResponsibilityLoopBindingDrift(
+                "responsibility cycle receipt is ambiguous"
+            )
+        if not rows:
+            return None
+        row = rows[0]
+        try:
+            payload = json.loads(str(row["payload"]))
+            sealed_at = _parse(str(payload.get("sealed_at")))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            raise ResponsibilityLoopBindingDrift(
+                "responsibility cycle receipt is malformed"
+            ) from None
+        if (
+            payload.get("schema_version") != "1.0"
+            or payload.get("binding_digest") != binding.digest
+            or payload.get("cycle_id") != cycle_id
+            or payload.get("task_id") != row["task_id"]
+            or payload.get("run_id") != row["run_id"]
+            or payload.get("checkpoint_digest") != row["checkpoint_digest"]
+            or payload.get("fencing_token") != row["fencing_token"]
+            or content_digest({**payload, "sealed_at": sealed_at})
+            != row["receipt_digest"]
+        ):
+            raise ResponsibilityLoopBindingDrift(
+                "responsibility cycle receipt digest drift"
+            )
+        return ResponsibilityCycleReceipt(
+            str(row["receipt_digest"]),
+            binding.digest,
+            cycle_id,
+            str(row["task_id"]),
+            str(row["run_id"]),
+            str(row["checkpoint_digest"]),
+            int(row["fencing_token"]),
+            sealed_at,
+        )
+
     def bind_cycle_settlement(
         self,
         binding: ResponsibilityLoopBinding,
@@ -2059,6 +2180,25 @@ class SQLiteResponsibilityLoopStore:
             root = HcwEvaluatorRoot(**root_payload)
             if root.digest != root_row["root_digest"]:
                 raise HcwEvaluatorRootDrift("HCW evaluator root digest drift")
+            existing_rows = connection.execute(
+                "SELECT * FROM hcw_measurement_receipts "
+                "WHERE binding_digest=? AND cycle_id=?",
+                (binding.digest, cycle_id),
+            ).fetchall()
+            matching_existing = [
+                (row, json.loads(str(row["payload"])))
+                for row in existing_rows
+                if json.loads(str(row["payload"])).get("evaluator_root_id")
+                == evaluator_root_id
+            ]
+            if len(matching_existing) > 1:
+                raise HcwEvaluatorRootDrift(
+                    "HCW cycle has ambiguous evaluator receipts"
+                )
+            if matching_existing:
+                measured_at = _parse(
+                    str(matching_existing[0][1]["measured_at"])
+                )
             rows = connection.execute(
                 "SELECT kind FROM operator_work_events "
                 "WHERE binding_digest=? AND cycle_id=?",
@@ -2095,15 +2235,27 @@ class SQLiteResponsibilityLoopStore:
                 "measured_at": measured_at,
             }
             digest = content_digest(payload)
-            connection.execute(
-                "INSERT OR IGNORE INTO hcw_measurement_receipts VALUES (?,?,?,?)",
-                (
-                    digest,
-                    binding.digest,
-                    cycle_id,
-                    json.dumps(payload, default=str, sort_keys=True),
-                ),
-            )
+            encoded_payload = json.dumps(payload, default=str, sort_keys=True)
+            if matching_existing:
+                existing_row, existing_payload = matching_existing[0]
+                if (
+                    str(existing_row["receipt_digest"]) != digest
+                    or json.dumps(existing_payload, sort_keys=True)
+                    != encoded_payload
+                ):
+                    raise HcwEvaluatorRootDrift(
+                        "HCW cycle receipt drifted after measurement"
+                    )
+            else:
+                connection.execute(
+                    "INSERT INTO hcw_measurement_receipts VALUES (?,?,?,?)",
+                    (
+                        digest,
+                        binding.digest,
+                        cycle_id,
+                        encoded_payload,
+                    ),
+                )
         return HcwMeasurementReceipt(
             digest,
             binding.digest,

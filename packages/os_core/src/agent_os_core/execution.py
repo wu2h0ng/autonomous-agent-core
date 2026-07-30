@@ -56,6 +56,11 @@ from .task_service import (
     expected_outcome_contract_error,
 )
 
+EffectCustodyPort = Callable[
+    [str, str, Callable[[], CapabilityResult]],
+    CapabilityResult,
+]
+
 
 def _strict_exit_code(output: object) -> int | None:
     if not isinstance(output, dict):
@@ -213,6 +218,7 @@ class RunCoordinator:
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
         execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         def assert_execution_fence(phase: str) -> None:
             if execution_fence is not None:
@@ -415,6 +421,7 @@ class RunCoordinator:
                         node.risk_tier,
                         context.get(f"action:{node.capability}"),
                         execution_fence=execution_fence,
+                        effect_custody=effect_custody,
                     )
                     context[node.node_id] = result.output
                     context[node.capability or node.node_id] = result.output
@@ -515,14 +522,21 @@ class RunCoordinator:
             except WorkerInterrupted:
                 raise
             except Exception as exc:
+                failure_commit_allowed = True
+                if execution_fence is not None:
+                    try:
+                        execution_fence("before_failure_commit")
+                    except Exception:
+                        failure_commit_allowed = False
                 try:
-                    self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
-                    self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
-                    self._attempt_automatic_compensation(
-                        task_id,
-                        principal,
-                        held_lease_fence=lease_fence,
-                    )
+                    if failure_commit_allowed:
+                        self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
+                        self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
+                        self._attempt_automatic_compensation(
+                            task_id,
+                            principal,
+                            held_lease_fence=lease_fence,
+                        )
                 finally:
                     self._release_lease(run.run_id, owner)
                 raise RunExecutionError(
@@ -1252,6 +1266,7 @@ class RunCoordinator:
         proposed_action: Any = None,
         *,
         execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ) -> CapabilityResult:
         if capability_id == "workspace.compensate_patch":
             raise RunExecutionError(
@@ -1312,7 +1327,15 @@ class RunCoordinator:
             raise PermissionError("stale worker lease")
         if execution_fence is not None:
             execution_fence("before_tool_effect")
-        result = self.broker.invoke(action, permit)
+
+        def invoke() -> CapabilityResult:
+            return self.broker.invoke(action, permit)
+
+        result = (
+            effect_custody(node_id, action.action_digest(), invoke)
+            if effect_custody is not None
+            else invoke()
+        )
         if execution_fence is not None:
             execution_fence("before_tool_effect_commit")
         self.tasks._record_action_receipt(

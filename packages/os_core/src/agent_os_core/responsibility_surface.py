@@ -10,19 +10,38 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     MandateWorkspaceRecord,
+    PrincipalRole,
     content_digest,
 )
 
+from .capability import CapabilityResult
 from .mandate_terminal import load_attach_session, mandate_status
 from .responsibility_controller import (
     ResponsibilityControllerState,
     ResponsibilityLoopController,
+    ResponsibilityOrganRoute,
 )
 from .responsibility_loop import (
+    HcwEvaluatorRoot,
     ResponsibilityCycleState,
     OperatorWorkEventKind,
     ResponsibilityLoopBinding,
+    ResponsibilityLoopEffectUnknown,
     SQLiteResponsibilityLoopStore,
+)
+
+AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
+    evaluator_root_id="hcw-evaluator:agent-work:v1",
+    measurement_policy_digest=content_digest(
+        {
+            "policy": "agent-work-hcw",
+            "version": 1,
+            "idle_cutoff_seconds": 60,
+            "missing_active_time": "HCW_INSUFFICIENT_DATA",
+        }
+    ),
+    capture_surface="agent-cli",
+    idle_cutoff_seconds=60,
 )
 
 
@@ -69,26 +88,44 @@ def build_responsibility_surface_context(
         )
     mandate_status(workspace=workspace, session=session)
     workspace_record = MandateWorkspaceRecord.model_validate(
-        app.get_mandate_workspace_record(session.mandate_id)
+        (
+            execution_app.get_mandate_workspace_record(session.mandate_id)
+            if execution_app is not None
+            else app.mandate_workspace.get_for_authorization(
+                session.mandate_id,
+                app.principal,
+            )
+        )
     )
     owner_principal_id = workspace_record.mandate.principal_id
     execution = execution_app or app
     if (
         session.principal_id != owner_principal_id
-        or app.principal.principal_id != owner_principal_id
-        or execution.principal.principal_id != owner_principal_id
+        or app.principal.role is not PrincipalRole.TENANT_ADMIN
+        or app.principal.principal_id == owner_principal_id
         or app.principal.tenant_id != session.tenant_id
         or app.principal.workspace_id != session.workspace_id
+    ):
+        raise ResponsibilitySurfaceError(
+            "Agent Work requires an independent same-scope authority principal"
+        )
+    if execution_app is not None and (
+        execution.principal.role is not PrincipalRole.PRINCIPAL
+        or execution.principal.principal_id != owner_principal_id
         or execution.principal.tenant_id != session.tenant_id
         or execution.principal.workspace_id != session.workspace_id
     ):
         raise ResponsibilitySurfaceError(
-            "terminal attach, canonical Mandate owner and application principal differ"
+            "execution principal does not match the canonical Mandate owner"
         )
     portfolio = app.mandate_outcome_portfolio_store.get_view(
         session.mandate_id,
         app.principal,
     )
+    if portfolio.portfolio.created_by != app.principal.principal_id:
+        raise ResponsibilitySurfaceError(
+            "Agent Work authority does not match the canonical portfolio creator"
+        )
     configuration_digest = content_digest(
         {
             "provider_profile": execution.provider_profile,
@@ -115,19 +152,27 @@ def build_responsibility_surface_context(
         configuration_digest=configuration_digest,
         lease_ttl_seconds=lease_ttl_seconds,
     )
+    loop_store = SQLiteResponsibilityLoopStore(
+        database,
+        clock=lambda: datetime.now(timezone.utc),
+    )
+    loop_store.ensure_hcw_evaluator_root(AGENT_WORK_HCW_ROOT)
     return ResponsibilitySurfaceContext(
         mandate_id=session.mandate_id,
         binding=binding,
-        loop_store=SQLiteResponsibilityLoopStore(
-            database,
-            clock=lambda: datetime.now(timezone.utc),
-        ),
+        loop_store=loop_store,
     )
 
 
 def _result_payload(result: Any) -> dict[str, Any]:
     payload = asdict(result)
     payload["state"] = result.state.value
+    payload["organ_route"] = (
+        result.organ_route.value if result.organ_route is not None else None
+    )
+    payload["block_reason"] = (
+        result.block_reason.value if result.block_reason is not None else None
+    )
     return payload
 
 
@@ -155,12 +200,45 @@ def run_responsibility_work(
             "agent resume requires an existing responsibility checkpoint"
         )
 
-    def execute_task(task_id: str, assert_current) -> None:
+    def execute_task(task_id: str, assert_current, execute_effect) -> None:
         assert_current("before_existing_task")
+
+        def effect_custody(
+            operation_slot: str,
+            intent_digest: str,
+            effect,
+        ) -> CapabilityResult:
+            captured: list[CapabilityResult] = []
+
+            def invoke_with_receipt() -> dict[str, str]:
+                result = effect()
+                captured.append(result)
+                receipt = result.receipt
+                return {
+                    "receipt_id": receipt.receipt_id,
+                    "resource_ref": (
+                        f"{receipt.connector_id}:{receipt.idempotency_key}"
+                    ),
+                    "evidence_digest": content_digest(receipt),
+                }
+
+            execute_effect(
+                operation_slot,
+                intent_digest,
+                invoke_with_receipt,
+            )
+            if not captured:
+                raise ResponsibilityLoopEffectUnknown(
+                    "responsibility effect is APPLIED without a Task receipt; "
+                    "reconciliation is required"
+                )
+            return captured[0]
+
         execution_app.run_task(
             task_id,
             inputs,
             execution_fence=assert_current,
+            effect_custody=effect_custody,
         )
         assert_current("after_existing_task")
 
@@ -171,6 +249,10 @@ def run_responsibility_work(
         loop_store=context.loop_store,
         actor=app.principal,
         execute_task=execute_task,
+        select_route=lambda _item, _commitment: (
+            ResponsibilityOrganRoute.ORDINARY_TASK
+        ),
+        hcw_evaluator_root_id=AGENT_WORK_HCW_ROOT.evaluator_root_id,
         clock=lambda: datetime.now(timezone.utc),
     )
     results: list[dict[str, Any]] = []
@@ -202,11 +284,13 @@ def run_responsibility_work(
 def responsibility_status_payload(
     *,
     app: Any,
+    execution_app: Any,
     workspace: Path,
     database: Path,
 ) -> dict[str, Any]:
     context = build_responsibility_surface_context(
         app=app,
+        execution_app=execution_app,
         workspace=workspace,
         database=database,
     )
@@ -226,6 +310,13 @@ def responsibility_status_payload(
         "responsibility": responsibility.model_dump(mode="json"),
         "portfolio": portfolio.model_dump(mode="json"),
         "checkpoint": asdict(checkpoint) if checkpoint is not None else None,
+        "runtime": context.loop_store.runtime_status(context.binding),
+        "wake_sources": [
+            "HELP_RESPONSE",
+            "DUE_SCHEDULE",
+            "EXTERNAL_CORRECTION",
+            "TYPED_OPERATOR_COMMAND",
+        ],
         "claim_ceiling": "MANDATE_SCOPED_READ_ONLY_STATUS / NOT_RELEASED",
     }
 
@@ -233,6 +324,7 @@ def responsibility_status_payload(
 def answer_responsibility_help(
     *,
     app: Any,
+    execution_app: Any,
     workspace: Path,
     database: Path,
     help_request_id: str,
@@ -240,6 +332,7 @@ def answer_responsibility_help(
 ) -> dict[str, Any]:
     context = build_responsibility_surface_context(
         app=app,
+        execution_app=execution_app,
         workspace=workspace,
         database=database,
     )
@@ -295,10 +388,18 @@ def correct_responsibility_work(
         prior is None
         or prior.active_cycle_id is None
         or prior.active_task_id is None
-        or prior.active_run_id is None
     ):
         raise ResponsibilitySurfaceError(
-            "agent correct requires an active checkpointed Task/Run"
+            "agent correct requires an active checkpointed Task"
+        )
+    current = execution_app.tasks.get_task(prior.active_task_id)
+    active_run_id = (
+        prior.active_run_id
+        or (current.run.run_id if current.run is not None else None)
+    )
+    if active_run_id is None:
+        raise ResponsibilitySurfaceError(
+            "agent correct requires a canonical active Run"
         )
     lease = context.loop_store.acquire_lease(
         context.binding,
@@ -319,7 +420,7 @@ def correct_responsibility_work(
             ),
             active_help_request_id=prior.active_help_request_id,
             active_task_id=prior.active_task_id,
-            active_run_id=prior.active_run_id,
+            active_run_id=active_run_id,
             last_event_sequence=max(
                 prior.last_event_sequence,
                 aggregate.sequence,
@@ -340,14 +441,14 @@ def correct_responsibility_work(
             kind=OperatorWorkEventKind.CORRECTION,
             cycle_id=prior.active_cycle_id,
             task_id=prior.active_task_id,
-            run_id=prior.active_run_id,
+            run_id=active_run_id,
             occurred_at=datetime.now(timezone.utc),
         )
         return {
             "entry": "agent correct",
             "mandate_id": context.mandate_id,
             "task_id": prior.active_task_id,
-            "run_id": prior.active_run_id,
+            "run_id": active_run_id,
             "checkpoint_digest": stopped.checkpoint_digest,
             "operator_event_id": event_id,
             "state": ResponsibilityCycleState.STOPPED.value,

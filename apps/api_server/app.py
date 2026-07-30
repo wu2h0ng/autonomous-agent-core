@@ -111,6 +111,7 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
+from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
@@ -1266,6 +1267,7 @@ class AgentOSApplication:
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
         execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         forbidden_configuration_inputs = {
             "configuration_snapshot",
@@ -1339,6 +1341,7 @@ class AgentOSApplication:
             stop_after_node=stop_after_node,
             recover_stale_lease=recover_stale_lease,
             execution_fence=execution_fence,
+            effect_custody=effect_custody,
         )
 
     def open_chat_session(

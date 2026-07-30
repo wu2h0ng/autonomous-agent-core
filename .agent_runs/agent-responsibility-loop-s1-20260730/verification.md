@@ -162,6 +162,69 @@ passed
 This remains `FOUNDATION_NOT_APPROVED` pending a new exact-head independent
 review.
 
+## Controller/CLI remediation candidate — 2026-07-30
+
+The prior controller review returned
+`TECHNICAL_REVISE_RESPONSIBILITY_SLICE / NOT_MERGE_READY`. The accepted
+findings were converted into bypass-detecting tests and remediated before a new
+exact-head review:
+
+- lease heartbeat at every execution fence;
+- Task tool effects execute through responsibility custody and become
+  `UNKNOWN` when takeover occurs after the external callback;
+- settlement, cycle receipt, settlement binding and HCW finalization are
+  restart-idempotent;
+- HCW uses one immutable evaluator root and idempotent measurement identity;
+- terminal attach no longer self-creates the Mandate owner as `TENANT_ADMIN`;
+- Ctrl-C invokes external Task correction and exits 130;
+- status projects lease, unknown effects, HCW and named wake sources;
+- SELFDEV is a typed `SELFDEV_ROUTE_NOT_BOUND` route with no execution;
+- a real OS-subprocess A-to-B-to-A fixture restores one cycle from SQLite
+  without `.agent_os/terminal_session.json`.
+
+Verification:
+
+```text
+pytest tests/product/test_responsibility_controller.py -q
+13 passed
+
+pytest responsibility_loop + responsibility_controller + agent_cli_v0
+  + long_horizon_execution + mandate_outcome_portfolio
+  + mandate_outcome_portfolio_help_api
+96 passed
+
+ruff check <7 changed source/test files>
+All checks passed
+
+pyright <6 changed source files>
+0 errors, 0 warnings, 0 informations
+
+git diff --check
+passed
+```
+
+Repository-wide Product + product_eval:
+
+```text
+2616 passed, 1 skipped, 27 failed
+```
+
+The full suite is explicitly not green. Sixteen provider-trajectory failures
+share expired dated fixture commitments on the current date. Other failures
+include frozen source-byte/provider-bank/environment drift and formal-ledger
+contamination. The two failures that traverse the changed shared execution path
+were rerun in isolation and passed:
+
+```text
+test_developer_golden_path_real_read_patch_tests_and_outcome
+test_correction_after_permit_blocks_actual_dispatch
+2 passed
+```
+
+This evidence is a local review candidate only. It does not establish HCW
+reduction, continuous daemon operation, SELFDEV execution, release, superiority
+or `Autonomy(S,E,O,V,T)`.
+
 ## Controller and unique Agent Work surface candidate
 
 The Controller/CLI candidate was verified after the foundation approval. The
