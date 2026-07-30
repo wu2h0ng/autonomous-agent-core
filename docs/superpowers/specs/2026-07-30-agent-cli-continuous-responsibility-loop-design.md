@@ -1,6 +1,6 @@
 # Agent CLI Continuous Responsibility and Self-Development Loop
 
-> Status: `FOUNDER_APPROVED_DESIGN / IMPLEMENTATION_NOT_STARTED`
+> Status: `FOUNDER_APPROVED_DESIGN / INDEPENDENT_REVIEW_REVISE / IMPLEMENTATION_NOT_STARTED`
 > Date: 2026-07-30
 > Owner: Founder / CTO
 > Primary class: `P`
@@ -31,19 +31,26 @@ physics. It does not create another product shell.
 
 ## 2. Decisions
 
-1. **Agent CLI is the only product Agent Surface.** Mandate, SELFDEV,
-   Outcome/Help, HCW measurement and external-agent comparison are internal
-   organs or administrative evidence surfaces.
+1. **Agent OS remains one logical Agent Surface; Agent CLI is its only direct
+   terminal Work entry for this slice.** Existing Ask-mode and read-only HTTP/UI
+   projections remain product channels of the same Agent Surface. Mandate,
+   SELFDEV, Outcome/Help, HCW measurement and external-agent comparison are
+   internal organs or administrative evidence surfaces, not additional agents
+   or product identities.
 2. **V1 runs as a foreground bounded resident loop.** `agent run` checkpoints
    after every responsibility cycle. `agent resume` restores it after process
    exit. No daemon, desktop supervisor or second workflow engine is added.
-3. **There is no Founder-operated baseline mode.** Relative comparisons use
-   external agent challengers at selected claim or promotion gates and do not
-   consume Founder task time.
-4. **The product is blueprint-gap driven.** When a ratified gap remains open,
-   the system may select work or generate a self-development candidate. It may
-   not lower the gate, close the gap, expand authority or promote its own
-   candidate.
+3. **There is no Founder-operated or internal-version baseline mode.** Per the
+   dated Founder decision in this design, relative comparisons use external
+   agent challengers at selected claim or promotion gates and do not consume
+   Founder task time. This is a route decision, not evidence of superiority;
+   until the product blueprint's older mandatory-baseline wording is reconciled
+   by the same authority, relative HCW or capability claims remain blocked.
+4. **Slice 3 makes product evolution blueprint-gap driven.** Slice 1 selects
+   only already-ratified Persistent Commitments, linked Tasks, due schedules and
+   open Help. Once Slice 3 admits machine-readable gaps, an open ratified gap may
+   drive work or a self-development candidate. The system may not lower the
+   gate, close the gap, expand authority or promote its own candidate.
 5. **Only one responsibility item executes per cycle.** Parallel internal work
    requires a later explicit design. V1 does not hide concurrency, ownership or
    authority races behind a multi-agent abstraction.
@@ -83,8 +90,7 @@ agent run
       -> MandateWorkspace / attached authority
       -> MandateResponsibilityProjector
       -> OutcomePortfolio / PersistentCommitments
-      -> BlueprintGapReader
-      -> MandateSteward proposal
+      -> ResponsibilitySourceProjector
       -> deterministic WorkAdmission
           -> AgentLoop organ
           -> SELFDEV organ
@@ -100,9 +106,15 @@ agent run
 replace TaskService, PolicyKernel, CapabilityBroker, the correction authority,
 the Outcome Portfolio or the SELFDEV verifier.
 
+`ResponsibilitySourceProjector` is a narrow application seam, not a new
+authority object. In Slice 1 it projects only Persistent Commitments, linked
+Tasks, due schedules and open Help. Slice 3 may extend it with ratified
+`BlueprintGap` records. It is deliberately not named `MandateSteward`, avoiding
+collision with the existing Data Agent ingress facade.
+
 ## 5. Product command surface
 
-The default help presents only:
+The default terminal Work help presents only:
 
 ```text
 agent run
@@ -127,8 +139,11 @@ Existing `task-*`, `mandate-*` and future `selfdev-*` commands remain
 administrative/debug surfaces. They are excluded from default product help and
 product navigation. They cannot bypass the same stores or authority checks.
 
-Equivalent slash commands may exist inside the interactive process, but they
-must call the same application functions.
+The existing `agent` chat REPL remains the Ask-mode terminal entry. It may
+escalate into the same Work application functions, but it may not start a second
+responsibility controller for an already leased Mandate/workspace. Equivalent
+slash commands may exist inside the interactive process, but they must call the
+same application functions and obey the same loop lease.
 
 ## 6. Responsibility cycle
 
@@ -136,15 +151,14 @@ Each cycle is atomic at the responsibility-selection level:
 
 1. Load the attached Mandate, principal, correction epoch and latest valid
    checkpoint.
-2. Project Persistent Commitments, linked Tasks, schedules, outcomes, failures,
-   approvals, open Help and blueprint gaps.
+2. Project Persistent Commitments, linked Tasks, due schedules, outcomes,
+   failures, approvals and open Help. Slice 3 additionally projects ratified
+   blueprint gaps.
 3. Produce a `ResponsibilityWorkProposal` for one responsibility item.
 4. Apply deterministic admission:
    - Mandate and scope match;
    - authority and correction epoch are current;
-   - a named outcome/verifier and live consumer exist;
-   - the hypothesis has remaining budget;
-   - no negative-map or `PARK` rule forbids the route;
+   - a named outcome/verifier exists for ordinary Slice 1 work;
    - rollback or compensation is available for effects;
    - the proposal cannot modify its evaluator, gate or authority root.
 5. Route the admitted item:
@@ -161,6 +175,11 @@ Each cycle is atomic at the responsibility-selection level:
 No model-generated text can directly create authority, close a gap, settle an
 outcome, approve an action or promote a candidate.
 
+Slice 3 extends admission only for an `ImprovementEpisode`: the ratified gap
+must have a live consumer, its hypothesis must have remaining frozen budget, and
+no negative-map or `PARK` rule may forbid the route. Those rules are not
+dependencies of Slice 1.
+
 ## 7. Blueprint gap and self-development model
 
 ### 7.1 BlueprintGap
@@ -169,7 +188,8 @@ A later product slice introduces a Founder-ratified machine-readable gap record:
 
 ```text
 gap_id
-mountain: M1 | M2 | M3 | HCW | PRODUCT_LOOP
+mountain: M1 | M2 | M3
+product_pressure: HCW | PRODUCT_LOOP | NONE
 statement
 current_evidence_refs
 acceptance_gate_ref
@@ -180,6 +200,11 @@ budget
 negative_map_refs
 status
 ```
+
+`M1`, `M2` and `M3` are the three mountains defined by the parent authority
+`../docs/GOAL-BLUEPRINT.md`: general cognition/world modelling, long-horizon
+responsible action and governed continual evolution. `HCW` and `PRODUCT_LOOP`
+are product-pressure labels, not additional mountains.
 
 Statuses are:
 
@@ -228,8 +253,8 @@ The organ selectively ports the stable canonical SELFDEV behavior:
 - comparison and promotion receipts where required.
 
 SELFDEV cannot write `main`, `master` or release branches, change C7, change its
-own acceptance gate, approve itself or activate a new Runtime version in the
-same cycle.
+own acceptance gate, change HCW telemetry or its measurement policy, approve
+itself or activate a new Runtime version in the same cycle.
 
 W1/W2 in-envelope cognitive and strategy state may update directly with
 provenance and rollback. Code, procedure, algorithm, model and persistent
@@ -253,6 +278,14 @@ The challenger assignment binds the same:
 - permissions and tools;
 - time, token and cost budget;
 - outcome verifier and failure semantics.
+
+The assignment manifest is frozen before either side runs and is held by an
+external, transcript-safe custody path that is not writable by the evaluated
+Agent OS process. Challenger execution uses an isolated checkout and
+configuration. The receipt declares any state asymmetry: either both sides
+receive the same frozen state projection, or the comparison is explicitly
+classified as stateful-product-versus-cold-start and may not support a
+model-capability claim.
 
 Available local external agents may include Codex, Kimi, Claude or another
 explicitly identified coding agent. The receipt records provider, model,
@@ -282,7 +315,13 @@ timestamp. V1 records:
 - Help burden;
 - correction/recovery burden;
 - result-interpretation burden;
+- operator intervention minutes per accepted outcome;
 - event refs and measurement-policy digest.
+
+The HCW event schema, measurement policy and telemetry implementation are part
+of the externally governed evaluator root. The running agent and
+`SelfDevelopmentOrgan` cannot modify them. A policy change requires a new
+externally authorized version and cannot rescore an earlier episode in place.
 
 The system does not estimate HCW from model prose and does not require manual
 minute entry. Missing or ambiguous telemetry yields `HCW_INSUFFICIENT_DATA`, not
@@ -302,12 +341,25 @@ a favorable estimate.
 - **External challenger unavailable:** record the failure and suppress relative
   claims.
 - **No admissible responsibility:** enter `WAITING_EVENT`; do not fabricate work.
+- **Loop lease held by another live process:** do not select or execute work;
+  project `BLOCKED_LOOP_LEASE`.
+- **Stale fencing token at admission or effect commit:** reject the transition,
+  record `BLOCKED_STALE_FENCE` and require a fresh projection.
 - **Irreducible information, authority or judgment gap:** emit typed Help and
   continue only explicitly declared continuable work.
 - **Ctrl-C:** write correction halt and checkpoint before returning exit code
   130.
 
 Every terminal state is projected by `agent status`.
+
+`WAITING_EVENT` has four legal wake sources: a typed operator command on the
+foreground input, a newly persisted `HelpResponse`, a due schedule tick, or an
+external correction/revocation event. While waiting, the controller performs
+only a bounded, configuration-bound SQLite projection refresh; it makes no
+provider call and creates no work. `agent status` exposes the wait reason, legal
+wake sources and next scheduled refresh. Process signals other than the handled
+interrupt exit through the recovery protocol and do not themselves authorize a
+new cycle.
 
 ## 11. Persistence and recovery
 
@@ -321,16 +373,30 @@ The application database owns:
 - responsibility cycle receipts and checkpoints;
 - later BlueprintGap and ImprovementEpisode records.
 
+One durable loop lease exists per Mandate/workspace. Acquiring it yields a
+monotonically increasing fencing token. Admission and every effect commit must
+match the current token; a restored process receives a new token, so a stale
+process cannot commit after Process B takes custody. Administrative read-only
+commands and `agent answer` may operate without owning the execution lease, but
+cannot select or execute work.
+
 The checkpoint binds:
 
 - Mandate/version/digest;
 - principal, tenant and workspace;
 - correction epoch;
+- loop lease and fencing token;
 - repository root and head;
 - active responsibility, episode, task and run;
 - last completed durable event sequence;
 - configuration/provider/grant digests;
+- responsibility schema version;
 - next legal transition.
+
+An unknown or incompatible schema version fails closed as
+`BLOCKED_SCHEMA_VERSION` and is projected by `agent status`. Migrations run
+outside an active responsibility cycle, preserve the prior checkpoint until
+commit and never reinterpret a terminal outcome.
 
 A session transcript is an optional projection. Recovery must succeed from the
 database and evidence ledgers without asking the Founder to restate Mandate,
@@ -381,12 +447,18 @@ The first slice requires bypass-detecting tests:
 7. NOT_MET, INVALID, UNRESOLVED and UNKNOWN outcomes cannot settle it as met.
 8. HCW receipts contain only durable operator events under the frozen
    measurement policy.
-9. A model proposal cannot close a blueprint gap, approve an action, expand a
-   permission or promote a candidate.
+9. A model proposal cannot settle an outcome, approve an action, expand a
+   permission or promote a candidate. Slice 3 adds the blueprint-gap close
+   denial test.
 10. Ctrl-C records correction and a recoverable checkpoint.
-11. Default product help exposes one Agent Surface and hides internal organs.
+11. Default terminal Work help exposes one direct Work entry and hides internal
+    organs without demoting Ask-mode or read-only HTTP/UI projections.
 12. Returning constants or bypassing PolicyKernel, permit, outcome evidence,
     Help validation or C7 makes the suite fail.
+13. Two concurrent loop processes cannot execute the same responsibility; a
+    stale fencing token cannot commit an effect after Process B restores.
+14. Every `WAITING_EVENT` wake source resumes from the durable projection, while
+    an unlisted event cannot authorize work.
 
 Targeted tests, Ruff, Pyright, diff checks and a clean isolated-worktree
 verification are required. Repository-wide pre-existing failures remain
