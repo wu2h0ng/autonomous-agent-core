@@ -9,6 +9,13 @@ from .workspace_capability import DeveloperWorkspaceAdapter
 
 WorkspaceSandbox = DeveloperWorkspaceAdapter
 
+__all__ = [
+    "DeveloperRepositoryPatchProfile",
+    "DeveloperWorkspaceAdapter",
+    "WorkspaceSandbox",
+    "manifest",
+]
+
 
 def manifest(now: datetime | None = None) -> DomainPackManifest:
     return DomainPackManifest(

@@ -60,19 +60,34 @@ class DeveloperWorkspaceAdapter:
         )
         specs = {
             "workspace.read": CapabilitySpec(
-                capability_id="workspace.read", version="1", display_name="Read workspace file",
-                side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=False, **common,
+                capability_id="workspace.read",
+                version="1",
+                display_name="Read workspace file",
+                side_effect_guarantee=SideEffectGuarantee.READ_ONLY,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **common,
             ),
             "workspace.apply_patch": CapabilitySpec(
-                capability_id="workspace.apply_patch", version="1", display_name="Apply unified patch",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=True, **common,
+                capability_id="workspace.apply_patch",
+                version="1",
+                display_name="Apply unified patch",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=True,
+                **common,
             ),
             "workspace.run_tests": CapabilitySpec(
-                capability_id="workspace.run_tests", version="1", display_name="Run allowlisted tests",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=False, **common,
+                capability_id="workspace.run_tests",
+                version="1",
+                display_name="Run allowlisted tests",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **common,
             ),
             "workspace.edit": CapabilitySpec(
                 capability_id="workspace.edit", version="1", display_name="Exact string replacement edit",
@@ -90,9 +105,14 @@ class DeveloperWorkspaceAdapter:
                 cancellation_supported=True, compensation_supported=False, **{**common, "risk_tier": 3},
             ),
             "artifact.write": CapabilitySpec(
-                capability_id="artifact.write", version="1", display_name="Write content-addressed artifact",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=False, **common,
+                capability_id="artifact.write",
+                version="1",
+                display_name="Write content-addressed artifact",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **common,
             ),
         }
         if include_internal:
@@ -131,7 +151,9 @@ class DeveloperWorkspaceAdapter:
             error_code = "error:none"
         else:
             try:
-                output = self._dispatch(action.capability_id, args, action.idempotency_key)
+                output = self._dispatch(
+                    action.capability_id, args, action.idempotency_key
+                )
                 self._put_idempotency(
                     action.idempotency_key,
                     intent_fingerprint,
@@ -168,7 +190,9 @@ class DeveloperWorkspaceAdapter:
         if not isinstance(stored, dict):
             raise CapabilityDenied("invalid idempotency record")
         if stored.get("intent_fingerprint") != intent_fingerprint:
-            raise CapabilityDenied("idempotency key reused for a different action intent")
+            raise CapabilityDenied(
+                "idempotency key reused for a different action intent"
+            )
         output = stored.get("output")
         if not isinstance(output, dict):
             raise CapabilityDenied("invalid idempotency output record")
@@ -197,13 +221,19 @@ class DeveloperWorkspaceAdapter:
             if inserted is False:
                 self._get_idempotency(key, intent_fingerprint)
 
-    def _dispatch(self, capability_id: str, args: dict[str, object], action_key: str) -> dict[str, object]:
+    def _dispatch(
+        self, capability_id: str, args: dict[str, object], action_key: str
+    ) -> dict[str, object]:
         if capability_id == "workspace.read":
             path = self._safe_path(str(args.get("path", "")))
             if not path.is_file():
                 raise FileNotFoundError(str(args.get("path")))
             content = path.read_text(encoding="utf-8")
-            return {"path": str(path.relative_to(self.root)), "content": content, "sha256": _sha256(content.encode())}
+            return {
+                "path": str(path.relative_to(self.root)),
+                "content": content,
+                "sha256": _sha256(content.encode()),
+            }
         if capability_id == "workspace.apply_patch":
             return self._apply_patch(args, action_key)
         if capability_id == "workspace.edit":
@@ -246,7 +276,9 @@ class DeveloperWorkspaceAdapter:
         if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
             raise CapabilityDenied("workspace artifact state is reserved")
         raw = self.root / value
-        if any(part.is_symlink() for part in (self.root, *raw.parents) if part.exists()):
+        if any(
+            part.is_symlink() for part in (self.root, *raw.parents) if part.exists()
+        ):
             raise CapabilityDenied("symlink paths are forbidden")
         candidate = raw.resolve()
         if candidate != self.root and self.root not in candidate.parents:
@@ -255,7 +287,9 @@ class DeveloperWorkspaceAdapter:
             raise CapabilityDenied("workspace artifact state is reserved")
         return candidate
 
-    def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+    def _apply_patch(
+        self, args: dict[str, object], action_key: str
+    ) -> dict[str, object]:
         path = self._safe_path(str(args.get("path", "")))
         content = str(args.get("content", ""))
         content_bytes = content.encode("utf-8")
@@ -265,17 +299,19 @@ class DeveloperWorkspaceAdapter:
         snapshot_dir = self.artifacts / "compensation" / key_digest
         applied_sha256 = _sha256(content_bytes)
         if snapshot_dir.exists():
-            manifest, manifest_sha256, state, _ = self._load_snapshot(
-                compensation_ref
-            )
+            manifest, manifest_sha256, state, _ = self._load_snapshot(compensation_ref)
             if state == "COMPENSATED":
-                raise CapabilityDenied("patch was already compensated and cannot replay")
+                raise CapabilityDenied(
+                    "patch was already compensated and cannot replay"
+                )
             if manifest["action_key_sha256"] != key_digest:
                 raise CapabilityDenied("snapshot action key binding mismatch")
             if manifest["relative_path"] != relative_path:
                 raise CapabilityDenied("snapshot path binding mismatch")
             if manifest["applied_sha256"] != applied_sha256:
-                raise CapabilityDenied("idempotency key reused for different patch content")
+                raise CapabilityDenied(
+                    "idempotency key reused for different patch content"
+                )
             current_matches_applied = (
                 path.exists() and _sha256(path.read_bytes()) == applied_sha256
             )
@@ -575,7 +611,9 @@ class DeveloperWorkspaceAdapter:
     @staticmethod
     def _atomic_write(path: Path, value: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, raw_temp = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+        descriptor, raw_temp = tempfile.mkstemp(
+            prefix=f".{path.name}-", dir=path.parent
+        )
         temp_path = Path(raw_temp)
         try:
             with os.fdopen(descriptor, "wb") as handle:
@@ -776,7 +814,11 @@ class DeveloperWorkspaceAdapter:
         artifact = self.artifacts / digest
         if not artifact.exists():
             artifact.write_bytes(output)
-        return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
+        return {
+            "exit_code": result.returncode,
+            "artifact_ids": (f"artifact:{digest}",),
+            "digest": digest,
+        }
 
     def _run_selfdev_tests_in_mirror(
         self,

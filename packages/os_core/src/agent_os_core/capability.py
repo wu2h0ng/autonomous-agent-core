@@ -55,7 +55,9 @@ class CapabilityBroker:
         self.connector = connector
         self.correction = correction
 
-    def invoke(self, action: ActionContract, permit: ActionPermit, attempt: int = 1) -> CapabilityResult:
+    def invoke(
+        self, action: ActionContract, permit: ActionPermit, attempt: int = 1
+    ) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("broker rejected a permit/action digest mismatch")
         if permit.expires_at <= datetime.now(timezone.utc):
@@ -72,12 +74,20 @@ class CapabilityBroker:
             raise CapabilityDenied("stale correction epoch")
         effect = self.connector.execute(action)
         receipt = ActionReceipt(
-            receipt_id=f"receipt-{uuid4()}", action_id=action.action_id,
-            action_digest=action.action_digest(), permit_id=permit.permit_id,
-            tenant_id=action.tenant_id, workspace_id=action.workspace_id,
-            connector_id=action.capability_id, status=effect.status,
-            idempotency_key=action.idempotency_key, attempt=attempt,
-            output_artifact_ids=tuple(str(value) for value in _as_sequence(effect.output.get("artifact_ids", ()))),
+            receipt_id=f"receipt-{uuid4()}",
+            action_id=action.action_id,
+            action_digest=action.action_digest(),
+            permit_id=permit.permit_id,
+            tenant_id=action.tenant_id,
+            workspace_id=action.workspace_id,
+            connector_id=action.capability_id,
+            status=effect.status,
+            idempotency_key=action.idempotency_key,
+            attempt=attempt,
+            output_artifact_ids=tuple(
+                str(value)
+                for value in _as_sequence(effect.output.get("artifact_ids", ()))
+            ),
             error_code=effect.error_code,
             detail_ref=effect.detail_ref,
             occurred_at=datetime.now(timezone.utc),

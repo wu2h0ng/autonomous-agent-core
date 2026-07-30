@@ -88,8 +88,7 @@ class DeveloperRepositoryPatchProfile:
         target_path, read_output = _reviewed_target(context)
         proposals = list(response.tool_proposals)
         if proposals and (
-            len(proposals) != 1
-            or proposals[0].capability_id != "workspace.apply_patch"
+            len(proposals) != 1 or proposals[0].capability_id != "workspace.apply_patch"
         ):
             raise ExecutionProfileError(
                 "provider returned an ambiguous or unauthorized tool proposal"
@@ -146,7 +145,9 @@ class DeveloperRepositoryPatchProfile:
             return {"path": path}
         if capability_id == "workspace.run_tests":
             command = (
-                context.get("test_command") or context.get("command") or "python -m pytest"
+                context.get("test_command")
+                or context.get("command")
+                or "python -m pytest"
             )
             arguments: dict[str, Any] = {"command": str(command)}
             selfdev_envelope = context.get("selfdev_execution_envelope")
@@ -163,9 +164,7 @@ class DeveloperRepositoryPatchProfile:
         explicit = context.get(capability_id)
         if isinstance(explicit, dict):
             return dict(explicit)
-        raise ExecutionProfileError(
-            f"no typed arguments available for {capability_id}"
-        )
+        raise ExecutionProfileError(f"no typed arguments available for {capability_id}")
 
     def requires_provider_bound_action(self, capability_id: str) -> bool:
         return capability_id == "workspace.apply_patch"

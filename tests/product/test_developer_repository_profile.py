@@ -42,7 +42,9 @@ def profile_context() -> dict[str, object]:
     }
 
 
-def proposal(arguments: dict[str, object], *, proposal_id: str = "proposal:1") -> ProviderToolProposal:
+def proposal(
+    arguments: dict[str, object], *, proposal_id: str = "proposal:1"
+) -> ProviderToolProposal:
     return ProviderToolProposal(
         proposal_id=proposal_id,
         capability_id="workspace.apply_patch",
@@ -141,9 +143,7 @@ def test_build_provider_request_requires_read_output() -> None:
 def test_bind_provider_response_binds_single_patch_proposal() -> None:
     profile = DeveloperRepositoryPatchProfile()
     response = response_with(
-        tool_proposals=(
-            proposal({"path": "fixture.txt", "content": "after\n"}),
-        ),
+        tool_proposals=(proposal({"path": "fixture.txt", "content": "after\n"}),),
     )
 
     bound = profile.bind_provider_response(response, context=profile_context())
@@ -162,7 +162,9 @@ def test_bind_provider_response_rejects_two_proposals() -> None:
     response = response_with(
         tool_proposals=(
             proposal({"path": "fixture.txt", "content": "after\n"}),
-            proposal({"path": "fixture.txt", "content": "again\n"}, proposal_id="proposal:2"),
+            proposal(
+                {"path": "fixture.txt", "content": "again\n"}, proposal_id="proposal:2"
+            ),
         ),
     )
 
@@ -210,9 +212,7 @@ def test_bind_provider_response_rejects_extra_argument_keys() -> None:
 def test_bind_provider_response_rejects_path_mismatch() -> None:
     profile = DeveloperRepositoryPatchProfile()
     response = response_with(
-        tool_proposals=(
-            proposal({"path": "other.txt", "content": "after\n"}),
-        ),
+        tool_proposals=(proposal({"path": "other.txt", "content": "after\n"}),),
     )
 
     with pytest.raises(
@@ -225,9 +225,7 @@ def test_bind_provider_response_rejects_path_mismatch() -> None:
 def test_bind_provider_response_rejects_non_string_content() -> None:
     profile = DeveloperRepositoryPatchProfile()
     response = response_with(
-        tool_proposals=(
-            proposal({"path": "fixture.txt", "content": 42}),
-        ),
+        tool_proposals=(proposal({"path": "fixture.txt", "content": 42}),),
     )
 
     with pytest.raises(
@@ -291,9 +289,9 @@ def test_tool_arguments_for_workspace_run_tests() -> None:
 def test_tool_arguments_for_explicit_and_unknown_capability() -> None:
     profile = DeveloperRepositoryPatchProfile()
 
-    assert profile.tool_arguments("artifact.write", {"artifact.write": {"content": "x"}}) == {
-        "content": "x"
-    }
+    assert profile.tool_arguments(
+        "artifact.write", {"artifact.write": {"content": "x"}}
+    ) == {"content": "x"}
     with pytest.raises(
         ExecutionProfileError,
         match="no typed arguments available for artifact.write",
@@ -317,10 +315,20 @@ def test_requires_provider_bound_action_only_for_apply_patch() -> None:
 def test_verification_exit_code_strict_extraction() -> None:
     profile = DeveloperRepositoryPatchProfile()
 
-    assert profile.verification_exit_code({"workspace.run_tests": {"exit_code": 0}}) == 0
-    assert profile.verification_exit_code({"workspace.run_tests": {"exit_code": 2}}) == 2
-    assert profile.verification_exit_code({"workspace.run_tests": {"exit_code": True}}) is None
-    assert profile.verification_exit_code({"workspace.run_tests": {"exit_code": "0"}}) is None
+    assert (
+        profile.verification_exit_code({"workspace.run_tests": {"exit_code": 0}}) == 0
+    )
+    assert (
+        profile.verification_exit_code({"workspace.run_tests": {"exit_code": 2}}) == 2
+    )
+    assert (
+        profile.verification_exit_code({"workspace.run_tests": {"exit_code": True}})
+        is None
+    )
+    assert (
+        profile.verification_exit_code({"workspace.run_tests": {"exit_code": "0"}})
+        is None
+    )
     assert profile.verification_exit_code({"workspace.run_tests": {}}) is None
     assert profile.verification_exit_code({"workspace.run_tests": "report"}) is None
     assert profile.verification_exit_code({}) is None

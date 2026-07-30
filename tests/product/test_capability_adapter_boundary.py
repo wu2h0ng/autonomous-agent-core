@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,6 +13,10 @@ from agent_os_contracts import (
     ActionContract,
     ActionPermit,
     CapabilitySpec,
+    ProviderProfile,
+    ProviderRequest,
+    ProviderResponse,
+    ProviderToolProposal,
     ReceiptStatus,
     ResourceBudget,
 )
@@ -328,28 +334,41 @@ class MinimalExecutionProfile:
     generator_id = "minimal-profile"
     generator_version = "1"
 
-    def build_provider_request(self, **kwargs: object) -> object:
+    def build_provider_request(
+        self,
+        *,
+        task_id: str,
+        run_id: str,
+        provider_profile: ProviderProfile,
+        provider_capability: str,
+        context: Mapping[str, Any],
+        now: datetime,
+    ) -> ProviderRequest:
         raise NotImplementedError
 
-    def bind_provider_response(self, response: object, **kwargs: object) -> tuple[()]:
+    def bind_provider_response(
+        self,
+        response: ProviderResponse,
+        *,
+        context: Mapping[str, Any],
+    ) -> tuple[ProviderToolProposal, ...]:
         return ()
 
     def tool_arguments(
         self,
         capability_id: str,
-        context: dict[str, object],
-    ) -> dict[str, object]:
+        context: Mapping[str, Any],
+    ) -> dict[str, Any]:
         return {}
 
     def requires_provider_bound_action(self, capability_id: str) -> bool:
         return False
 
-    def verification_exit_code(self, context: dict[str, object]) -> int | None:
+    def verification_exit_code(self, context: Mapping[str, Any]) -> int | None:
         return None
 
 
 def test_run_coordinator_constructs_with_generic_ports_only(tmp_path: Path) -> None:
-    from agent_os_contracts import ProviderProfile
     from agent_os_core import (
         DeterministicProvider,
         PolicyKernel,
