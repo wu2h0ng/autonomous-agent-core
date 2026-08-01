@@ -1,7 +1,7 @@
 schema_version: 2
 
 live_pins:
-  origin_main_code_receipt: "6180c458919526aff8bde5467d1108116a7de912"
+  origin_main_code_receipt: "3a70592ddee2e24af94f2da52903a5d73386b10d"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
@@ -15,12 +15,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-01T15:30:34+08:00"
+updated: "2026-08-01T18:10:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main (integration worktree)"
-status: "Agent OS origin/main at 6180c458919526aff8bde5467d1108116a7de912 integrates the independently approved precise AgentLoop-to-SELFDEV responsibility bridge whose reviewed code head is 6a68b677bf0db40d13a268f4f77df457addf7c4b. The unique Agent Surface now keeps multi-file precise workspace edits on the same linked Task/Run, binds external exact-action approval at ActionPipeline, records responsibility effect custody before Task receipt, and reconciles or compensates crash windows with stable identities. Independent verdict TECHNICAL_APPROVE / P0=0 / P1=0; reviewer verification is 139 passed plus clean Ruff/diff/worktree. It is NOT_RELEASED. No resident daemon, automatic wake, promotion, measured HCW reduction, sustained responsibility, general intelligence, self-improvement or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS origin/main code receipt 3a70592ddee2e24af94f2da52903a5d73386b10d adds an independently approved installable Agent Surface on top of the precise AgentLoop-to-SELFDEV responsibility bridge. Fresh three-wheel installation from a source-free clean cwd proves that `agent` and `agent-os` route run/status/answer/correct/resume to the Product CLI and that API UI resources ship in the root wheel. Independent verdict TECHNICAL_APPROVE / P0=0 / P1=0; 113 related tests, Ruff, Pyright, lock and diff checks passed. It is NOT_RELEASED. This closes entrypoint packaging only: atomic SELFDEV admission, real live-provider Outcome/Help evidence, HCW time truth, resident wake, promotion, sustained responsibility, general intelligence, self-improvement and Autonomy(S,E,O,V,T) remain unestablished."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -41,8 +41,8 @@ identity:
 
 current_phase:
   product:
-    label: "durable Mandate input, bounded active perception, one persistent Responsibility Surface, and a main-integrated precise AgentLoop-to-SELFDEV responsibility bridge; automatic wake remains incomplete"
-    status: "MAIN_INTEGRATED_AGENTLOOP_SELFDEV_BRIDGE_AT_6180C45 / REVIEWED_CODE_6A68B67 / NOT_RELEASED"
+    label: "durable Mandate input, bounded active perception, one persistent Responsibility Surface, a precise AgentLoop-to-SELFDEV bridge and one installable Agent Surface; atomic SELFDEV admission remains incomplete"
+    status: "MAIN_INTEGRATED_INSTALLABLE_AGENT_SURFACE_AT_3A70592 / TECHNICAL_APPROVE / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 has an approved public qualification scaffold plus external-closure audit only; no B1-B5 acceptance, freeze or result run"
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
@@ -51,6 +51,21 @@ current_phase:
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
 
 verified_capabilities:
+  installable_agent_surface:
+    status: "MAIN_INTEGRATED / TECHNICAL_APPROVE / NOT_RELEASED"
+    requirement_class: "P/E"
+    user_result: "A local operator can install the repository distributions and invoke the single Agent Surface as `agent` or `agent-os` without PYTHONPATH or a source checkout."
+    real_entry_points:
+      - "agent run / status / answer / correct / resume"
+      - "agent-os run / status / answer / correct / resume"
+    dated_verification:
+      date: "2026-08-01"
+      exact_head: "3a70592ddee2e24af94f2da52903a5d73386b10d"
+      independent_review: "TECHNICAL_APPROVE / P0=0 / P1=0"
+      targeted: "113 related Product tests passed independently"
+      fresh_install: "three locally built wheels installed into a fresh venv; clean-cwd imports and 10/10 CLI help routes passed"
+      quality: "Ruff clean; Pyright 0 errors; uv lock --check and diff-check passed; reviewed worktree clean"
+    boundary: "Packaging and argv normalization only. It does not create Mandates, Tasks, commitments, outcomes, SELFDEV admission, provider execution, release or autonomy evidence."
   mandate_workspace_input:
     status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / NOT_RUNTIME_ACTIVE / NOT_RELEASED"
     requirement_class: "P/A"
@@ -750,7 +765,7 @@ recently_completed:
 
 blockers:
   product:
-    - "The main-integrated local SELFDEV responsibility organ closes one macOS single-target provider-patch loop, but it still has no AgentLoop precise multi-edit/effect-custody bridge, resident watcher, automatic wake, promotion path or measured HCW reduction. It therefore does not close a general terminal agent, sustained responsibility or the full Mandate-driven SRL."
+    - "The installable Agent Surface and precise AgentLoop-to-SELFDEV bridge are main-integrated, but an operator still must pre-provision the full durable Task/Run/commitment/outcome/link graph. There is no atomic, idempotent SELFDEV responsibility admission, real live-provider Outcome/Help receipt for this path, trustworthy HCW minutes, resident watcher, automatic wake or promotion path."
     - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
@@ -791,7 +806,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Run the merged precise AgentLoop SELFDEV bridge as the product's continuing responsibility path and capture truthful Outcome/Help/HCW evidence. Compare against an external coding-agent challenger only when making a relative claim; do not restore an internal daily baseline ritual."
+    action: "Implement an atomic restart-safe `admit-selfdev` path that binds an existing active Mandate and portfolio to one exact non-main linked worktree, Task/Run, commitment, expected outcome, workflow and SELFDEV spec; then run one live-provider edit -> exact approval -> resume -> verification chain and capture truthful Outcome/Help/count-only HCW evidence."
   - priority: 2
     action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
   - priority: 3
