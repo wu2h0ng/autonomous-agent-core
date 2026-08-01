@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from agent_os_contracts import (
+    ActionContract,
     CompensationStatus,
     EdgeSpec,
     IdempotencyMode,
@@ -607,6 +608,56 @@ def test_b_not_met_after_restart_compensates_bad_patch(tmp_path: Path) -> None:
     recovery = restarted.recovery_json(task_id)
     assert recovery["outcome_status"] == "NOT_MET"
     assert recovery["compensation_count"] == 1
+
+
+def test_compensation_replays_exact_action_after_effect_before_receipt_crash(
+    tmp_path: Path,
+) -> None:
+    database, task_id = _interrupt_after_bad_patch(tmp_path)
+    restarted = _configured(
+        AgentOSApplication(database=database, workspace=tmp_path),
+        DeterministicProvider(),
+    )
+    crashed = False
+
+    def crash_compensation_after_effect(operation_slot, _intent_digest, effect):
+        nonlocal crashed
+        result = effect()
+        if operation_slot.startswith("compensate:") and not crashed:
+            crashed = True
+            raise RuntimeError("crash after compensation broker effect")
+        return result
+
+    failed = restarted.run_task(
+        task_id,
+        INPUTS,
+        recover_stale_lease=True,
+        effect_custody=crash_compensation_after_effect,
+    )
+    assert failed.run is not None
+    assert failed.run.status is RunStatus.FAILED
+    assert crashed
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
+    assert not any(
+        event.event_type is TaskEventType.ACTION_COMPENSATED
+        for event in restarted.store.read(task_id)
+    )
+
+    restarted.compensate_task(task_id)
+
+    compensation_actions = [
+        ActionContract.model_validate(event.decoded_payload()["action"])
+        for event in restarted.store.read(task_id)
+        if event.event_type is TaskEventType.ACTION_PROPOSED
+        and event.decoded_payload().get("action", {}).get("capability_id")
+        == "workspace.compensate_patch"
+    ]
+    assert len(compensation_actions) == 2
+    assert compensation_actions[0] == compensation_actions[1]
+    assert sum(
+        event.event_type is TaskEventType.ACTION_COMPENSATED
+        for event in restarted.store.read(task_id)
+    ) == 1
 
 
 # ---------------------------------------------------------------------------
