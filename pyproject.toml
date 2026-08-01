@@ -2,7 +2,7 @@
 name = "autonomous-agent-core"
 version = "0.0.1"
 description = "Agent OS dual-track monorepo: product runtime plus evidence-gated autonomous-agent research."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "agent-os-contracts==0.1.0",
     "agent-os-core==0.1.0",
@@ -29,6 +29,9 @@ build-backend = "setuptools.build_meta"
 where = ["src", "."]
 include = ["aac*", "envs*", "apps*", "domain_packs*"]
 exclude = ["packages*", "tests*", "product_evals*", "research*"]
+
+[tool.setuptools.package-data]
+"apps.api_server" = ["*.html"]
 
 [tool.uv.workspace]
 members = ["packages/contracts", "packages/os_core"]
