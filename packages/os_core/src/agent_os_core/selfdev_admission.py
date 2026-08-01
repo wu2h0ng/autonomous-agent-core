@@ -54,10 +54,10 @@ class SelfDevelopmentAdmissionPhase(str, Enum):
     RESERVED = "RESERVED"
     TASK_CREATED = "TASK_CREATED"
     TASK_COMMITTED = "TASK_COMMITTED"
-    LINKED = "LINKED"
-    COMMITMENT_ATTACHED = "COMMITMENT_ATTACHED"
     CONFIGURATION_SEALED = "CONFIGURATION_SEALED"
     RUN_STARTED = "RUN_STARTED"
+    LINKED = "LINKED"
+    COMMITMENT_ATTACHED = "COMMITMENT_ATTACHED"
     ADMITTED = "ADMITTED"
 
 
@@ -85,11 +85,33 @@ def _git(workspace: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _git_status(workspace: Path) -> str:
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(workspace),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_WORKTREE_INVALID",
+            completed.stderr.strip() or "git status failed",
+        )
+    return completed.stdout.rstrip("\n")
+
+
 def _validate_workspace(
     workspace: Path,
     command: SelfDevelopmentAdmissionCommand,
     *,
-    require_clean: bool,
+    allowed_dirty_paths: tuple[str, ...],
 ) -> tuple[str, tuple[str, ...]]:
     workspace = workspace.resolve()
     if not (workspace / ".git").is_file():
@@ -109,13 +131,26 @@ def _validate_workspace(
             "ADMISSION_WORKTREE_DRIFT",
             "isolated branch differs from the frozen SELFDEV spec",
         )
-    status = _git(workspace, "status", "--porcelain=v1", "--untracked-files=all")
-    if require_clean and status:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_WORKTREE_DIRTY",
-            f"linked worktree must be clean at first admission: {status}",
-        )
+    status = _git_status(workspace)
     normalized = tuple(sorted(command.selfdev_spec.allowed_write_paths))
+    if status:
+        dirty_paths = tuple(
+            line[3:].split(" -> ")[-1]
+            for line in status.splitlines()
+            if len(line) >= 4
+        )
+        if not dirty_paths or any(
+            path not in allowed_dirty_paths for path in dirty_paths
+        ):
+            code = (
+                "ADMISSION_WORKTREE_DIRTY"
+                if not allowed_dirty_paths
+                else "ADMISSION_WORKTREE_DRIFT"
+            )
+            raise SelfDevelopmentAdmissionError(
+                code,
+                f"worktree contains writes outside replay allowance: {status}",
+            )
     for relative in normalized:
         candidate = workspace / relative
         if candidate.is_symlink() or not candidate.is_file():
@@ -271,7 +306,7 @@ class SQLiteSelfDevelopmentAdmissionStore:
                 "command_digest TEXT NOT NULL, source_digest TEXT NOT NULL, "
                 "semantic_key TEXT NOT NULL, plan_json TEXT NOT NULL, "
                 "plan_digest TEXT NOT NULL, reservation_digest TEXT NOT NULL, "
-                "phase TEXT NOT NULL, receipt_json TEXT, "
+                "phase TEXT NOT NULL, "
                 "PRIMARY KEY (mandate_id, admission_id), "
                 "UNIQUE (mandate_id, semantic_key))"
             )
@@ -312,11 +347,10 @@ class SQLiteSelfDevelopmentAdmissionStore:
                 self._validate_row(existing)
                 if (
                     str(existing["command_digest"]) != command_digest
-                    or str(existing["source_digest"]) != source_digest
                 ):
                     raise SelfDevelopmentAdmissionError(
                         "ADMISSION_COMMAND_CONFLICT",
-                        "admission_id is already reserved for different command bytes",
+                        "admission_id is already reserved for a different typed command",
                     )
                 connection.commit()
                 return existing, True
@@ -383,8 +417,6 @@ class SQLiteSelfDevelopmentAdmissionStore:
         admission_id: str,
         expected: SelfDevelopmentAdmissionPhase,
         target: SelfDevelopmentAdmissionPhase,
-        *,
-        receipt: SelfDevelopmentAdmissionReceipt | None = None,
     ) -> None:
         if _PHASE_ORDER.index(target) != _PHASE_ORDER.index(expected) + 1:
             raise ValueError("admission phases must advance one step")
@@ -409,13 +441,10 @@ class SQLiteSelfDevelopmentAdmissionStore:
                     "ADMISSION_STATE_DRIFT",
                     f"phase expected {expected.value}, found {current.value}",
                 )
-            receipt_json = (
-                receipt.model_dump_json() if receipt is not None else row["receipt_json"]
-            )
             connection.execute(
-                f"UPDATE {_ADMISSION_TABLE} SET phase=?, receipt_json=? "
+                f"UPDATE {_ADMISSION_TABLE} SET phase=? "
                 "WHERE mandate_id=? AND admission_id=?",
-                (target.value, receipt_json, mandate_id, admission_id),
+                (target.value, mandate_id, admission_id),
             )
             connection.commit()
         except Exception:
@@ -651,16 +680,24 @@ def admit_self_development(
             connection.close()
         if existing is not None:
             existing_store._validate_row(existing)
-            if (
-                str(existing["command_digest"]) != command_digest
-                or str(existing["source_digest"]) != source_digest
-            ):
+            if str(existing["command_digest"]) != command_digest:
                 raise SelfDevelopmentAdmissionError(
                     "ADMISSION_COMMAND_CONFLICT",
-                    "admission_id is already reserved for different command bytes",
+                    "admission_id is already reserved for a different typed command",
                 )
+        existing_phase = (
+            SelfDevelopmentAdmissionPhase(str(existing["phase"]))
+            if existing is not None
+            else None
+        )
         head, write_set = _validate_workspace(
-            workspace, command, require_clean=existing is None
+            workspace,
+            command,
+            allowed_dirty_paths=(
+                tuple(sorted(command.selfdev_spec.allowed_write_paths))
+                if existing_phase is SelfDevelopmentAdmissionPhase.ADMITTED
+                else ()
+            ),
         )
         repository_root_digest = content_digest({"repository_root": str(workspace)})
         semantic_key = content_digest(
@@ -733,17 +770,37 @@ def admit_self_development(
             existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.TASK_CREATED, SelfDevelopmentAdmissionPhase.TASK_COMMITTED)
             phase = SelfDevelopmentAdmissionPhase.TASK_COMMITTED
 
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.TASK_COMMITTED):
+            snapshot = execution_app.seal_task_configuration(task_id, {})
+            if content_digest(snapshot.provider_profile) != provider_profile_digest:
+                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "CONFIGURATION_SEALED: provider profile drift")
+            _phase_hook(phase_hook, "AFTER_CONFIGURATION_SEALED")
+            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.TASK_COMMITTED, SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED)
+            phase = SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED
+
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED):
+            task = execution_app.tasks.get_task(task_id)
+            if task.configuration_snapshot is None:
+                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "RUN_STARTED: configuration snapshot missing")
+            if task.run is None:
+                task = execution_app.start_run(task_id, task.configuration_snapshot.snapshot_id)
+            if task.run is None or task.run.run_id != task.configuration_snapshot.reserved_run_id:
+                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "RUN_STARTED: reserved Run binding drift")
+            _phase_hook(phase_hook, "AFTER_RUN_STARTED")
+            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED, SelfDevelopmentAdmissionPhase.RUN_STARTED)
+            phase = SelfDevelopmentAdmissionPhase.RUN_STARTED
+
         link_command = MandateTaskLinkCommand(
             task_id=task_id,
             reason=f"SELFDEV admission {command.admission_id}",
             work_route=ResponsibilityWorkRoute.SELFDEV,
             selfdev_spec=command.selfdev_spec,
         )
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.TASK_COMMITTED):
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.RUN_STARTED):
             link = app.mandate_responsibility_store.create_link(link_command, authority.mandate_id, app.principal)
             _assert_equal("LINKED", "MandateTaskLink command digest", link.command_digest, content_digest(link_command))
             _phase_hook(phase_hook, "AFTER_LINKED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.TASK_COMMITTED, SelfDevelopmentAdmissionPhase.LINKED)
+            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.RUN_STARTED, SelfDevelopmentAdmissionPhase.LINKED)
             phase = SelfDevelopmentAdmissionPhase.LINKED
 
         attach_command = PersistentCommitmentAttachCommand(
@@ -759,31 +816,17 @@ def admit_self_development(
             existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.LINKED, SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED)
             phase = SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED
 
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED):
-            snapshot = execution_app.seal_task_configuration(task_id, {})
-            if content_digest(snapshot.provider_profile) != provider_profile_digest:
-                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "CONFIGURATION_SEALED: provider profile drift")
-            _phase_hook(phase_hook, "AFTER_CONFIGURATION_SEALED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED, SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED)
-            phase = SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED
-
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED):
-            task = execution_app.tasks.get_task(task_id)
-            if task.configuration_snapshot is None:
-                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "RUN_STARTED: configuration snapshot missing")
-            if task.run is None:
-                task = execution_app.start_run(task_id, task.configuration_snapshot.snapshot_id)
-            if task.run is None or task.run.run_id != task.configuration_snapshot.reserved_run_id:
-                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "RUN_STARTED: reserved Run binding drift")
-            _phase_hook(phase_hook, "AFTER_RUN_STARTED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED, SelfDevelopmentAdmissionPhase.RUN_STARTED)
-            phase = SelfDevelopmentAdmissionPhase.RUN_STARTED
-
         row = existing_store.get(authority.mandate_id, command.admission_id)
-        receipt = _receipt(row=row, plan=plan, app=app, execution_app=execution_app, replayed=replayed)
-        if phase is SelfDevelopmentAdmissionPhase.RUN_STARTED:
+        _receipt(
+            row=row,
+            plan=plan,
+            app=app,
+            execution_app=execution_app,
+            replayed=replayed,
+        )
+        if phase is SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED:
             _phase_hook(phase_hook, "BEFORE_ADMITTED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.RUN_STARTED, SelfDevelopmentAdmissionPhase.ADMITTED, receipt=receipt)
+            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED, SelfDevelopmentAdmissionPhase.ADMITTED)
         elif phase is not SelfDevelopmentAdmissionPhase.ADMITTED:
             raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", f"unexpected final phase {phase.value}")
         _phase_hook(phase_hook, "AFTER_ADMITTED")

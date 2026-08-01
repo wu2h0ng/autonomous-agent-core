@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import sqlite3
 import subprocess
 
 import pytest
@@ -17,6 +19,7 @@ from agent_os_core.mandate_terminal import attach_mandate
 from agent_os_core.provider import DeterministicProvider
 from agent_os_core.selfdev_admission import admit_self_development
 from agent_os_core.selfdev_admission import SelfDevelopmentAdmissionError
+from apps.cli import __main__ as cli_module
 from apps.api_server.app import AgentOSApplication
 from tests.product.test_mandate_observation_authorization import (
     NOW,
@@ -145,6 +148,29 @@ def test_exact_replay_converges_without_execution_side_effects(tmp_path: Path) -
     assert task.observed_outcome is None
     assert isinstance(execution.provider, DeterministicProvider)
     assert execution.provider.decision_requests == []
+    events = execution.tasks._event_store.read(first.task_id)
+    assert not any(
+        event.event_type
+        in {
+            TaskEventType.ACTION_PROPOSED,
+            TaskEventType.APPROVAL_RECORDED,
+            TaskEventType.ACTION_RECEIPT_RECORDED,
+            TaskEventType.OUTCOME_OBSERVED,
+        }
+        for event in events
+    )
+    connection = sqlite3.connect(str(database))
+    try:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        for table in {"hcw_evaluator_roots", "hcw_measurement_receipts"} & tables:
+            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    finally:
+        connection.close()
 
 
 def test_contract_rejects_non_precise_mode() -> None:
@@ -199,6 +225,28 @@ def test_every_cross_store_response_loss_converges(
             database=database,
             command=command,
             phase_hook=crash,
+        )
+
+    interrupted_view = authority.mandate_outcome_portfolio_store.get_view(
+        "mandate:build-agent-os",
+        authority.principal,
+        include_resolved_help=True,
+    )
+    linearized = crash_point in {
+        "AFTER_COMMITMENT_ATTACHED",
+        "BEFORE_ADMITTED",
+        "AFTER_ADMITTED",
+    }
+    assert len(interrupted_view.commitments) == (1 if linearized else 0)
+    if linearized:
+        interrupted_task = execution.tasks.get_task(
+            interrupted_view.commitments[0].task_id
+        )
+        assert interrupted_task.configuration_snapshot is not None
+        assert interrupted_task.run is not None
+        assert (
+            interrupted_task.run.run_id
+            == interrupted_task.configuration_snapshot.reserved_run_id
         )
 
     recovered = admit_self_development(
@@ -340,3 +388,102 @@ def test_replay_detects_worktree_head_drift(tmp_path: Path) -> None:
             command=command,
         )
     assert excinfo.value.code == "ADMISSION_WORKTREE_DRIFT"
+
+
+def test_typed_replay_ignores_json_formatting_provenance(tmp_path: Path) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    first = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+        source_digest="a" * 64,
+    )
+    replay = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+        source_digest="b" * 64,
+    )
+    assert replay.replayed is True
+    assert replay.model_copy(update={"replayed": False}) == first
+
+
+def test_admitted_replay_allows_only_frozen_target_dirtiness(tmp_path: Path) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    receipt = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    target = workspace / command.selfdev_spec.target_path
+    target.write_text("VALUE = False\n", encoding="utf-8")
+
+    replay = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    assert replay.task_id == receipt.task_id
+
+    (workspace / "fixture.txt").write_text("outside write set\n", encoding="utf-8")
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_WORKTREE_DRIFT"
+
+
+def test_agent_cli_admits_typed_json_and_replays_reformatted_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    command_path = tmp_path / "admission.json"
+    command_path.write_text(command.model_dump_json(indent=2), encoding="utf-8")
+    monkeypatch.setattr(
+        cli_module,
+        "_work_applications",
+        lambda _args: (authority, execution),
+    )
+    argv = [
+        "agent-os",
+        "--database",
+        str(database),
+        "--workspace",
+        str(workspace),
+        "agent",
+        "admit-selfdev",
+        str(command_path),
+    ]
+
+    with pytest.raises(SystemExit) as first_exit:
+        cli_module.main(argv)
+    assert first_exit.value.code == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["replayed"] is False
+
+    payload = command.model_dump(mode="json")
+    command_path.write_text(
+        json.dumps(dict(reversed(tuple(payload.items()))), separators=(",", ":")),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit) as replay_exit:
+        cli_module.main(argv)
+    assert replay_exit.value.code == 0
+    replay = json.loads(capsys.readouterr().out)
+    assert replay["replayed"] is True
+    assert replay["task_id"] == first["task_id"]
+    assert replay["run_id"] == first["run_id"]
