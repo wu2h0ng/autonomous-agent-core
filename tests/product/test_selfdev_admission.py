@@ -102,9 +102,7 @@ def _setup(tmp_path: Path):
         selfdev_spec=SelfDevelopmentWorkSpec(
             repository_head=head,
             isolated_branch=branch,
-            target_path=(
-                "packages/os_core/src/agent_os_core/selfdev_fixture.py"
-            ),
+            target_path=("packages/os_core/src/agent_os_core/selfdev_fixture.py"),
             edit_mode="agent_loop_precise",
             verifier_command="pytest",
         ),
@@ -136,9 +134,14 @@ def test_exact_replay_converges_without_execution_side_effects(tmp_path: Path) -
     task = execution.tasks.get_task(first.task_id)
     assert task.run is not None and task.run.run_id == first.run_id
     assert task.configuration_snapshot is not None
-    assert len(authority.mandate_responsibility_store.list_links(
-        first.mandate_id, authority.principal
-    )) == 1
+    assert (
+        len(
+            authority.mandate_responsibility_store.list_links(
+                first.mandate_id, authority.principal
+            )
+        )
+        == 1
+    )
     portfolio = authority.mandate_outcome_portfolio_store.get_view(
         first.mandate_id, authority.principal, include_resolved_help=True
     )
@@ -168,7 +171,9 @@ def test_exact_replay_converges_without_execution_side_effects(tmp_path: Path) -
             ).fetchall()
         }
         for table in {"hcw_evaluator_roots", "hcw_measurement_receipts"} & tables:
-            assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+            assert (
+                connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+            )
     finally:
         connection.close()
 
@@ -315,11 +320,14 @@ def test_different_id_same_active_semantics_conflicts(tmp_path: Path) -> None:
             ),
         )
     assert excinfo.value.code == "ADMISSION_SEMANTIC_DUPLICATE"
-    assert len(
-        authority.mandate_outcome_portfolio_store.get_view(
-            first.mandate_id, authority.principal
-        ).commitments
-    ) == 1
+    assert (
+        len(
+            authority.mandate_outcome_portfolio_store.get_view(
+                first.mandate_id, authority.principal
+            ).commitments
+        )
+        == 1
+    )
 
 
 def test_replay_detects_provider_profile_drift(tmp_path: Path) -> None:
@@ -433,7 +441,9 @@ def test_admitted_replay_allows_only_frozen_target_dirtiness(tmp_path: Path) -> 
     )
     assert replay.task_id == receipt.task_id
 
-    (workspace / "fixture.txt").write_text("outside write set\n", encoding="utf-8")
+    (workspace / "outside\nwrite-set.py").write_text(
+        "outside write set\n", encoding="utf-8"
+    )
     with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
         admit_self_development(
             app=authority,
@@ -443,6 +453,25 @@ def test_admitted_replay_allows_only_frozen_target_dirtiness(tmp_path: Path) -> 
             command=command,
         )
     assert excinfo.value.code == "ADMISSION_WORKTREE_DRIFT"
+
+
+def test_git_marker_symlink_is_not_an_isolated_worktree(tmp_path: Path) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    marker = workspace / ".git"
+    real_marker = workspace / ".git-real"
+    marker.rename(real_marker)
+    marker.symlink_to(real_marker.name)
+
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_WORKTREE_INVALID"
+    assert "SELFDEV_WORKTREE_NOT_ISOLATED" in excinfo.value.details
 
 
 def test_agent_cli_admits_typed_json_and_replays_reformatted_json(

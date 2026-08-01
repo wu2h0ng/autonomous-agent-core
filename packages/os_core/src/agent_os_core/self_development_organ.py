@@ -263,3 +263,26 @@ class SelfDevelopmentOrgan:
                 "workspace Git identity cannot be proven",
             )
         return value
+
+
+def inspect_selfdev_workspace(
+    workspace: Path,
+    spec: SelfDevelopmentWorkSpec,
+) -> set[str]:
+    """Reuse the execution organ's exact identity, target, and -z scope proof."""
+
+    def unreachable_execute(
+        _task_id: str,
+        _inputs: dict[str, Any],
+        _assert_current: Any,
+        _execute_effect: Any,
+    ) -> None:
+        raise AssertionError("workspace inspection cannot execute a Task")
+
+    inspector = SelfDevelopmentOrgan(
+        workspace=workspace,
+        execute_task=unreachable_execute,
+    )
+    inspector._assert_exact_workspace(spec, require_clean=False)
+    inspector._assert_targets_admitted(spec)
+    return inspector._git_status_paths()

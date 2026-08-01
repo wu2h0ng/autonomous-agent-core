@@ -4,7 +4,6 @@ import fcntl
 import hashlib
 import json
 import sqlite3
-import subprocess
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -38,6 +37,10 @@ from .responsibility_surface import (
     ResponsibilitySurfaceError,
     resolve_responsibility_authority_context,
 )
+from .self_development_organ import (
+    SelfDevelopmentOrganBlocked,
+    inspect_selfdev_workspace,
+)
 from .task_configuration import TASK_CONFIGURATION_CAPABILITY
 
 
@@ -70,43 +73,6 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _git(workspace: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", "-C", str(workspace), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_WORKTREE_INVALID",
-            completed.stderr.strip() or f"git {' '.join(args)} failed",
-        )
-    return completed.stdout.strip()
-
-
-def _git_status(workspace: Path) -> str:
-    completed = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(workspace),
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_WORKTREE_INVALID",
-            completed.stderr.strip() or "git status failed",
-        )
-    return completed.stdout.rstrip("\n")
-
-
 def _validate_workspace(
     workspace: Path,
     command: SelfDevelopmentAdmissionCommand,
@@ -114,58 +80,33 @@ def _validate_workspace(
     allowed_dirty_paths: tuple[str, ...],
 ) -> tuple[str, tuple[str, ...]]:
     workspace = workspace.resolve()
-    if not (workspace / ".git").is_file():
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_WORKTREE_INVALID",
-            "workspace must be a linked Git worktree, not a primary checkout",
-        )
-    head = _git(workspace, "rev-parse", "HEAD")
-    branch = _git(workspace, "symbolic-ref", "--quiet", "--short", "HEAD")
-    if head != command.selfdev_spec.repository_head:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_WORKTREE_DRIFT",
-            "repository HEAD differs from the frozen SELFDEV spec",
-        )
-    if branch != command.selfdev_spec.isolated_branch:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_WORKTREE_DRIFT",
-            "isolated branch differs from the frozen SELFDEV spec",
-        )
-    status = _git_status(workspace)
     normalized = tuple(sorted(command.selfdev_spec.allowed_write_paths))
-    if status:
-        dirty_paths = tuple(
-            line[3:].split(" -> ")[-1]
-            for line in status.splitlines()
-            if len(line) >= 4
+    try:
+        dirty_paths = inspect_selfdev_workspace(workspace, command.selfdev_spec)
+    except SelfDevelopmentOrganBlocked as exc:
+        code = (
+            "ADMISSION_WORKTREE_DRIFT"
+            if exc.code
+            in {
+                "SELFDEV_BRANCH_MISMATCH",
+                "SELFDEV_HEAD_MISMATCH",
+                "SELFDEV_WORKTREE_SCOPE_MISMATCH",
+            }
+            else "ADMISSION_WORKTREE_INVALID"
         )
-        if not dirty_paths or any(
-            path not in allowed_dirty_paths for path in dirty_paths
-        ):
-            code = (
-                "ADMISSION_WORKTREE_DIRTY"
-                if not allowed_dirty_paths
-                else "ADMISSION_WORKTREE_DRIFT"
-            )
-            raise SelfDevelopmentAdmissionError(
-                code,
-                f"worktree contains writes outside replay allowance: {status}",
-            )
-    for relative in normalized:
-        candidate = workspace / relative
-        if candidate.is_symlink() or not candidate.is_file():
-            raise SelfDevelopmentAdmissionError(
-                "ADMISSION_WORKTREE_INVALID",
-                f"write target is missing, non-file, or symlink: {relative}",
-            )
-        try:
-            candidate.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            raise SelfDevelopmentAdmissionError(
-                "ADMISSION_WORKTREE_INVALID",
-                f"write target is not readable UTF-8: {relative}",
-            ) from None
-    return head, normalized
+        raise SelfDevelopmentAdmissionError(code, str(exc)) from exc
+    if dirty_paths and not dirty_paths.issubset(allowed_dirty_paths):
+        code = (
+            "ADMISSION_WORKTREE_DIRTY"
+            if not allowed_dirty_paths
+            else "ADMISSION_WORKTREE_DRIFT"
+        )
+        raise SelfDevelopmentAdmissionError(
+            code,
+            "worktree contains writes outside replay allowance: "
+            f"{sorted(dirty_paths)!r}",
+        )
+    return command.selfdev_spec.repository_head, normalized
 
 
 def _identity(kind: str, identity_digest: str) -> str:
@@ -345,9 +286,7 @@ class SQLiteSelfDevelopmentAdmissionStore:
             ).fetchone()
             if existing is not None:
                 self._validate_row(existing)
-                if (
-                    str(existing["command_digest"]) != command_digest
-                ):
+                if str(existing["command_digest"]) != command_digest:
                     raise SelfDevelopmentAdmissionError(
                         "ADMISSION_COMMAND_CONFLICT",
                         "admission_id is already reserved for a different typed command",
@@ -572,21 +511,40 @@ def _receipt(
         selfdev_spec=plan["selfdev_spec"],
     )
     _assert_equal(
-        "ADMITTED", "MandateTaskLink command digest", link.command_digest,
-        content_digest(expected_link_command)
+        "ADMITTED",
+        "MandateTaskLink command digest",
+        link.command_digest,
+        content_digest(expected_link_command),
     )
     portfolio = app.mandate_outcome_portfolio_store.get_view(
         str(plan["mandate_id"]), app.principal, include_resolved_help=True
     )
-    _assert_equal("ADMITTED", "OutcomePortfolio id", portfolio.portfolio.portfolio_id, plan["portfolio_id"])
-    commitments = tuple(item for item in portfolio.commitments if item.task_id == task_id)
+    _assert_equal(
+        "ADMITTED",
+        "OutcomePortfolio id",
+        portfolio.portfolio.portfolio_id,
+        plan["portfolio_id"],
+    )
+    commitments = tuple(
+        item for item in portfolio.commitments if item.task_id == task_id
+    )
     if len(commitments) != 1:
         raise SelfDevelopmentAdmissionError(
             "ADMISSION_STATE_DRIFT", "ADMITTED: exact PersistentCommitment missing"
         )
     persistent = commitments[0]
-    _assert_equal("ADMITTED", "PersistentCommitment commitment digest", persistent.commitment_digest, content_digest(commitment))
-    _assert_equal("ADMITTED", "PersistentCommitment expected digest", persistent.expected_outcome_digest, content_digest(expected))
+    _assert_equal(
+        "ADMITTED",
+        "PersistentCommitment commitment digest",
+        persistent.commitment_digest,
+        content_digest(commitment),
+    )
+    _assert_equal(
+        "ADMITTED",
+        "PersistentCommitment expected digest",
+        persistent.expected_outcome_digest,
+        content_digest(expected),
+    )
     if task.approval is not None or task.observed_outcome is not None:
         raise SelfDevelopmentAdmissionError(
             "ADMISSION_STATE_DRIFT", "ADMITTED: admission created execution truth"
@@ -747,7 +705,9 @@ def admit_self_development(
         expected_outcome = ExpectedOutcome.model_validate(plan["expected_outcome"])
         workflow = WorkflowGraph.model_validate(plan["workflow"])
 
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.RESERVED):
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
+            SelfDevelopmentAdmissionPhase.RESERVED
+        ):
             task = execution_app.tasks.ensure_task(
                 task_id,
                 goal,
@@ -756,38 +716,84 @@ def admit_self_development(
             )
             _assert_equal("TASK_CREATED", "Goal", task.goal, goal)
             _phase_hook(phase_hook, "AFTER_TASK_CREATED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.RESERVED, SelfDevelopmentAdmissionPhase.TASK_CREATED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.RESERVED,
+                SelfDevelopmentAdmissionPhase.TASK_CREATED,
+            )
             phase = SelfDevelopmentAdmissionPhase.TASK_CREATED
 
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.TASK_CREATED):
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
+            SelfDevelopmentAdmissionPhase.TASK_CREATED
+        ):
             task = execution_app.tasks.get_task(task_id)
             if task.status is TaskStatus.DRAFT:
-                task = execution_app.tasks.commit_task(task_id, commitment, workflow, expected_outcome)
+                task = execution_app.tasks.commit_task(
+                    task_id, commitment, workflow, expected_outcome
+                )
             _assert_equal("TASK_COMMITTED", "Commitment", task.commitment, commitment)
-            _assert_equal("TASK_COMMITTED", "ExpectedOutcome", task.expected_outcome, expected_outcome)
+            _assert_equal(
+                "TASK_COMMITTED",
+                "ExpectedOutcome",
+                task.expected_outcome,
+                expected_outcome,
+            )
             _assert_equal("TASK_COMMITTED", "WorkflowGraph", task.workflow, workflow)
             _phase_hook(phase_hook, "AFTER_TASK_COMMITTED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.TASK_CREATED, SelfDevelopmentAdmissionPhase.TASK_COMMITTED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.TASK_CREATED,
+                SelfDevelopmentAdmissionPhase.TASK_COMMITTED,
+            )
             phase = SelfDevelopmentAdmissionPhase.TASK_COMMITTED
 
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.TASK_COMMITTED):
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
+            SelfDevelopmentAdmissionPhase.TASK_COMMITTED
+        ):
             snapshot = execution_app.seal_task_configuration(task_id, {})
             if content_digest(snapshot.provider_profile) != provider_profile_digest:
-                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "CONFIGURATION_SEALED: provider profile drift")
+                raise SelfDevelopmentAdmissionError(
+                    "ADMISSION_STATE_DRIFT",
+                    "CONFIGURATION_SEALED: provider profile drift",
+                )
             _phase_hook(phase_hook, "AFTER_CONFIGURATION_SEALED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.TASK_COMMITTED, SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.TASK_COMMITTED,
+                SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED,
+            )
             phase = SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED
 
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED):
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
+            SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED
+        ):
             task = execution_app.tasks.get_task(task_id)
             if task.configuration_snapshot is None:
-                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "RUN_STARTED: configuration snapshot missing")
+                raise SelfDevelopmentAdmissionError(
+                    "ADMISSION_STATE_DRIFT",
+                    "RUN_STARTED: configuration snapshot missing",
+                )
             if task.run is None:
-                task = execution_app.start_run(task_id, task.configuration_snapshot.snapshot_id)
-            if task.run is None or task.run.run_id != task.configuration_snapshot.reserved_run_id:
-                raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", "RUN_STARTED: reserved Run binding drift")
+                task = execution_app.start_run(
+                    task_id, task.configuration_snapshot.snapshot_id
+                )
+            if (
+                task.run is None
+                or task.run.run_id != task.configuration_snapshot.reserved_run_id
+            ):
+                raise SelfDevelopmentAdmissionError(
+                    "ADMISSION_STATE_DRIFT", "RUN_STARTED: reserved Run binding drift"
+                )
             _phase_hook(phase_hook, "AFTER_RUN_STARTED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED, SelfDevelopmentAdmissionPhase.RUN_STARTED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED,
+                SelfDevelopmentAdmissionPhase.RUN_STARTED,
+            )
             phase = SelfDevelopmentAdmissionPhase.RUN_STARTED
 
         link_command = MandateTaskLinkCommand(
@@ -796,11 +802,25 @@ def admit_self_development(
             work_route=ResponsibilityWorkRoute.SELFDEV,
             selfdev_spec=command.selfdev_spec,
         )
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.RUN_STARTED):
-            link = app.mandate_responsibility_store.create_link(link_command, authority.mandate_id, app.principal)
-            _assert_equal("LINKED", "MandateTaskLink command digest", link.command_digest, content_digest(link_command))
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
+            SelfDevelopmentAdmissionPhase.RUN_STARTED
+        ):
+            link = app.mandate_responsibility_store.create_link(
+                link_command, authority.mandate_id, app.principal
+            )
+            _assert_equal(
+                "LINKED",
+                "MandateTaskLink command digest",
+                link.command_digest,
+                content_digest(link_command),
+            )
             _phase_hook(phase_hook, "AFTER_LINKED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.RUN_STARTED, SelfDevelopmentAdmissionPhase.LINKED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.RUN_STARTED,
+                SelfDevelopmentAdmissionPhase.LINKED,
+            )
             phase = SelfDevelopmentAdmissionPhase.LINKED
 
         attach_command = PersistentCommitmentAttachCommand(
@@ -809,11 +829,25 @@ def admit_self_development(
             expected_outcome_digest=content_digest(expected_outcome),
             reason=f"SELFDEV admission {command.admission_id}",
         )
-        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(SelfDevelopmentAdmissionPhase.LINKED):
-            persistent = app.mandate_outcome_portfolio_store.attach_commitment(attach_command, authority.mandate_id, app.principal)
-            _assert_equal("COMMITMENT_ATTACHED", "commitment digest", persistent.commitment_digest, attach_command.commitment_digest)
+        if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
+            SelfDevelopmentAdmissionPhase.LINKED
+        ):
+            persistent = app.mandate_outcome_portfolio_store.attach_commitment(
+                attach_command, authority.mandate_id, app.principal
+            )
+            _assert_equal(
+                "COMMITMENT_ATTACHED",
+                "commitment digest",
+                persistent.commitment_digest,
+                attach_command.commitment_digest,
+            )
             _phase_hook(phase_hook, "AFTER_COMMITMENT_ATTACHED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.LINKED, SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.LINKED,
+                SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED,
+            )
             phase = SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED
 
         row = existing_store.get(authority.mandate_id, command.admission_id)
@@ -826,9 +860,18 @@ def admit_self_development(
         )
         if phase is SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED:
             _phase_hook(phase_hook, "BEFORE_ADMITTED")
-            existing_store.advance(authority.mandate_id, command.admission_id, SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED, SelfDevelopmentAdmissionPhase.ADMITTED)
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED,
+                SelfDevelopmentAdmissionPhase.ADMITTED,
+            )
         elif phase is not SelfDevelopmentAdmissionPhase.ADMITTED:
-            raise SelfDevelopmentAdmissionError("ADMISSION_STATE_DRIFT", f"unexpected final phase {phase.value}")
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_STATE_DRIFT", f"unexpected final phase {phase.value}"
+            )
         _phase_hook(phase_hook, "AFTER_ADMITTED")
         row = existing_store.get(authority.mandate_id, command.admission_id)
-        return _receipt(row=row, plan=plan, app=app, execution_app=execution_app, replayed=replayed)
+        return _receipt(
+            row=row, plan=plan, app=app, execution_app=execution_app, replayed=replayed
+        )
