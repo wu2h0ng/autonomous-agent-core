@@ -193,6 +193,13 @@ class ResponsibilitySurfaceContext:
     loop_store: SQLiteResponsibilityLoopStore
 
 
+@dataclass(frozen=True)
+class ResponsibilityAuthorityContext:
+    mandate_id: str
+    binding: ResponsibilityLoopBinding
+    portfolio: OutcomePortfolio
+
+
 def resolve_agent_work_authority(
     *,
     database: Path,
@@ -282,14 +289,14 @@ def _repository_head(workspace: Path) -> str:
     return head
 
 
-def build_responsibility_surface_context(
+def resolve_responsibility_authority_context(
     *,
     app: Any,
     execution_app: Any | None = None,
     workspace: Path,
     database: Path,
     lease_ttl_seconds: int = 30,
-) -> ResponsibilitySurfaceContext:
+) -> ResponsibilityAuthorityContext:
     workspace = Path(workspace).resolve()
     database = Path(database).resolve()
     session = load_attach_session(workspace)
@@ -363,14 +370,36 @@ def build_responsibility_surface_context(
         configuration_digest=configuration_digest,
         lease_ttl_seconds=lease_ttl_seconds,
     )
+    return ResponsibilityAuthorityContext(
+        mandate_id=session.mandate_id,
+        binding=binding,
+        portfolio=portfolio.portfolio,
+    )
+
+
+def build_responsibility_surface_context(
+    *,
+    app: Any,
+    execution_app: Any | None = None,
+    workspace: Path,
+    database: Path,
+    lease_ttl_seconds: int = 30,
+) -> ResponsibilitySurfaceContext:
+    authority = resolve_responsibility_authority_context(
+        app=app,
+        execution_app=execution_app,
+        workspace=workspace,
+        database=database,
+        lease_ttl_seconds=lease_ttl_seconds,
+    )
     loop_store = SQLiteResponsibilityLoopStore(
         database,
         clock=lambda: datetime.now(timezone.utc),
     )
     loop_store.ensure_hcw_evaluator_root(AGENT_WORK_HCW_ROOT)
     return ResponsibilitySurfaceContext(
-        mandate_id=session.mandate_id,
-        binding=binding,
+        mandate_id=authority.mandate_id,
+        binding=authority.binding,
         loop_store=loop_store,
     )
 

@@ -202,6 +202,61 @@ class SelfDevelopmentWorkSpec(ContractModel):
         return normalized
 
 
+class SelfDevelopmentAdmissionCommand(ContractModel):
+    """Operator-authored request for one exact, bounded SELFDEV responsibility."""
+
+    admission_id: NonEmptyStr
+    statement: NonEmptyStr
+    deliverables: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    acceptance_criteria: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    selfdev_spec: SelfDevelopmentWorkSpec
+
+    @model_validator(mode="after")
+    def _require_precise_route(self) -> SelfDevelopmentAdmissionCommand:
+        if self.selfdev_spec.edit_mode != "agent_loop_precise":
+            raise ValueError(
+                "SELFDEV admission requires edit_mode=agent_loop_precise"
+            )
+        return self
+
+
+class SelfDevelopmentAdmissionReceipt(ContractModel):
+    """Canonical responsibility graph receipt; replay is response-local truth."""
+
+    admission_id: NonEmptyStr
+    admission_digest: Sha256Digest
+    command_digest: Sha256Digest
+    semantic_key: Sha256Digest
+    mandate_id: NonEmptyStr
+    portfolio_id: NonEmptyStr
+    task_id: NonEmptyStr
+    task_created_event_digest: Sha256Digest
+    commitment_id: NonEmptyStr
+    commitment_digest: Sha256Digest
+    expected_outcome_id: NonEmptyStr
+    expected_outcome_digest: Sha256Digest
+    workflow_id: NonEmptyStr
+    workflow_digest: Sha256Digest
+    link_id: NonEmptyStr
+    link_digest: Sha256Digest
+    persistent_commitment_id: NonEmptyStr
+    persistent_commitment_digest: Sha256Digest
+    snapshot_id: NonEmptyStr
+    snapshot_digest: Sha256Digest
+    run_id: NonEmptyStr
+    work_spec_digest: Sha256Digest
+    replayed: bool
+    provider_executed: Literal[False] = False
+    effect_authorized: Literal[False] = False
+    approval_created: Literal[False] = False
+    outcome_created: Literal[False] = False
+    help_created: Literal[False] = False
+    hcw_measured: Literal[False] = False
+    claim_ceiling: Literal[
+        "SELFDEV_RESPONSIBILITY_ADMISSION / NOT_EXECUTED / NOT_RELEASED"
+    ] = "SELFDEV_RESPONSIBILITY_ADMISSION / NOT_EXECUTED / NOT_RELEASED"
+
+
 def _validate_work_route_spec(
     route: ResponsibilityWorkRoute,
     spec: SelfDevelopmentWorkSpec | None,

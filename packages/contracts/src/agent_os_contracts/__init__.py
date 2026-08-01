@@ -135,6 +135,8 @@ from .responsibility import (
     ResponsibilityAttentionReason,
     ResponsibilityItem,
     ResponsibilityItemState,
+    SelfDevelopmentAdmissionCommand,
+    SelfDevelopmentAdmissionReceipt,
     SelfDevelopmentWorkSpec,
     ResponsibilityWorkRoute,
 )
@@ -474,6 +476,8 @@ __all__ = [
     "ResponsibilityAttentionReason",
     "ResponsibilityItem",
     "ResponsibilityItemState",
+    "SelfDevelopmentAdmissionCommand",
+    "SelfDevelopmentAdmissionReceipt",
     "SelfDevelopmentWorkSpec",
     "RubricRef",
     "Sha256Digest",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -11,6 +12,7 @@ from agent_os_contracts import (
     ActionContract,
     PrincipalIdentity,
     PrincipalRole,
+    SelfDevelopmentAdmissionCommand,
     SrlHelpResponseKind,
 )
 from agent_os_core import AutoApproveGateway, DeterministicProvider
@@ -32,6 +34,7 @@ from agent_os_core.responsibility_surface import (
     resolve_agent_work_authority,
     run_responsibility_work,
 )
+from agent_os_core.selfdev_admission import admit_self_development
 from apps.api_server.app import AgentOSApplication
 
 
@@ -65,6 +68,7 @@ _KNOWN_SUBCOMMANDS = frozenset(
         "agent-answer",
         "agent-correct",
         "agent-resume",
+        "agent-admit-selfdev",
         "chat",
         "task-create",
         "task-show",
@@ -83,7 +87,7 @@ _KNOWN_SUBCOMMANDS = frozenset(
 )
 
 _AGENT_WORK_COMMANDS = frozenset(
-    {"run", "status", "answer", "correct", "resume"}
+    {"run", "status", "answer", "correct", "resume", "admit-selfdev"}
 )
 
 
@@ -322,6 +326,27 @@ def _agent_work_correct(args: argparse.Namespace) -> int:
     return 0
 
 
+def _agent_work_admit_selfdev(args: argparse.Namespace) -> int:
+    raw = args.admission_json.read_bytes()
+    try:
+        command = SelfDevelopmentAdmissionCommand.model_validate_json(raw)
+    except ValueError as exc:
+        raise ResponsibilitySurfaceError(
+            f"invalid SELFDEV admission JSON: {exc}"
+        ) from exc
+    app, execution_app = _work_applications(args)
+    receipt = admit_self_development(
+        app=app,
+        execution_app=execution_app,
+        workspace=Path(args.workspace),
+        database=Path(args.database),
+        command=command,
+        source_digest=hashlib.sha256(raw).hexdigest(),
+    )
+    print(receipt.model_dump_json(indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = _normalize_argv(list(sys.argv if argv is None else argv))
     parser = argparse.ArgumentParser(
@@ -383,6 +408,8 @@ def main(argv: list[str] | None = None) -> None:
     answer.add_argument("--notes", default=None)
     correct = sub.add_parser("agent-correct", help=argparse.SUPPRESS)
     correct.add_argument("reason")
+    admit_selfdev = sub.add_parser("agent-admit-selfdev", help=argparse.SUPPRESS)
+    admit_selfdev.add_argument("admission_json", type=Path)
 
     mandate_bootstrap = sub.add_parser("mandate-bootstrap")
     mandate_bootstrap.add_argument("mandate_json", type=Path)
@@ -449,6 +476,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(_agent_work_answer(args))
         if args.command == "agent-correct":
             raise SystemExit(_agent_work_correct(args))
+        if args.command == "agent-admit-selfdev":
+            raise SystemExit(_agent_work_admit_selfdev(args))
         if args.command == "mandate-bootstrap":
             raise SystemExit(_mandate_bootstrap(args))
         if args.command == "mandate-attach":

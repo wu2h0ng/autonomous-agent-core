@@ -143,6 +143,53 @@ class TaskService:
         self._event_store.append(task_id, expected_sequence=0, drafts=(draft,))
         return self.get_task(task_id)
 
+    def ensure_task(
+        self,
+        task_id: str,
+        goal: Goal,
+        *,
+        event_id: str,
+        occurred_at: datetime,
+    ) -> TaskAggregate:
+        """Create one caller-reserved Task identity or verify its exact replay."""
+        events = self._event_store.read(task_id)
+        if events:
+            aggregate = TaskAggregate.rehydrate(events)
+            if (
+                aggregate.goal != goal
+                or events[0].event_type is not TaskEventType.TASK_CREATED
+                or events[0].event_id != event_id
+                or events[0].occurred_at != occurred_at
+            ):
+                raise InvalidTransitionError(
+                    "reserved task identity is bound to different canonical content"
+                )
+            return aggregate
+        draft = TaskAggregate.create_task(
+            task_id=task_id,
+            goal=goal,
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
+        try:
+            self._event_store.append(task_id, expected_sequence=0, drafts=(draft,))
+        except ConcurrentWriteError:
+            pass
+        events = self._event_store.read(task_id)
+        if not events:
+            raise ConcurrentWriteError("reserved task creation did not persist")
+        aggregate = TaskAggregate.rehydrate(events)
+        if (
+            aggregate.goal != goal
+            or events[0].event_type is not TaskEventType.TASK_CREATED
+            or events[0].event_id != event_id
+            or events[0].occurred_at != occurred_at
+        ):
+            raise InvalidTransitionError(
+                "reserved task identity is bound to different canonical content"
+            )
+        return aggregate
+
     def commit_task(
         self,
         task_id: str,
