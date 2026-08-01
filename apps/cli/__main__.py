@@ -109,6 +109,12 @@ def _normalize_argv(argv: list[str]) -> list[str]:
             f"agent-{argv[index + 1]}",
             *argv[index + 2 :],
         ]
+    if index < len(argv) and argv[index] in _AGENT_WORK_COMMANDS:
+        return [
+            *argv[:index],
+            f"agent-{argv[index]}",
+            *argv[index + 1 :],
+        ]
     if len(argv) > 1 and not argv[1].startswith("-") and argv[1] not in _KNOWN_SUBCOMMANDS:
         return [argv[0], "agent", *argv[1:]]
     return argv
