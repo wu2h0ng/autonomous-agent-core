@@ -154,6 +154,7 @@ class OutcomePortfolioHelpGap(str, Enum):
     """Portfolio-local gap classifier; maps into canonical SrlHelpRequest.help_class."""
 
     MISSING_OBSERVED_OUTCOME = "MISSING_OBSERVED_OUTCOME"
+    PENDING_ACTION_APPROVAL = "PENDING_ACTION_APPROVAL"
     MISSING_TASK_LINK = "MISSING_TASK_LINK"
     REVOKED_TASK_LINK = "REVOKED_TASK_LINK"
     DIGEST_DRIFT = "DIGEST_DRIFT"
@@ -164,6 +165,7 @@ class OutcomePortfolioHelpGap(str, Enum):
 
 _GAP_TO_HELP_CLASS: dict[OutcomePortfolioHelpGap, HelpClass] = {
     OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME: HelpClass.INFORMATION,
+    OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL: HelpClass.PERMISSION,
     OutcomePortfolioHelpGap.MISSING_COMMITMENT_OR_EXPECTED: HelpClass.INFORMATION,
     OutcomePortfolioHelpGap.MISSING_TASK_LINK: HelpClass.PERMISSION,
     OutcomePortfolioHelpGap.REVOKED_TASK_LINK: HelpClass.PERMISSION,

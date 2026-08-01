@@ -1024,17 +1024,31 @@ class SQLiteMandateOutcomePortfolioStore:
                 actor=actor,
                 help_deferred=help_deferred,
             )
+            task = self._task_reader.get_task(commitment.task_id)
             if self._task_reader.current_outcome(commitment.task_id) is not None:
                 raise MandateOutcomePortfolioConflict(
                     "current ObservedOutcome exists; missing-outcome Help is invalid"
                 )
+            pending_action_approval = (
+                task.run is not None and task.run.status.value == "WAITING_APPROVAL"
+            )
+            gap_kind = (
+                OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL
+                if pending_action_approval
+                else OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME
+            )
+            details = (
+                "Exact pending Task action requires an external decision"
+                if pending_action_approval
+                else "Task current ObservedOutcome is required"
+            )
             help_request = self._emit_help_request(
                 mandate_id=mandate_id,
                 portfolio_id=portfolio.portfolio_id,
                 task_id=commitment.task_id,
                 actor=actor,
-                gap_kind=OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME,
-                details="Task current ObservedOutcome is required",
+                gap_kind=gap_kind,
+                details=details,
                 connection=connection,
             )
             connection.commit()

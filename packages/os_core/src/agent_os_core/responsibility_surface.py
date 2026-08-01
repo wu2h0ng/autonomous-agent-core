@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     MandateWorkspaceRecord,
+    OutcomePortfolioHelpGap,
     OutcomePortfolio,
     PrincipalIdentity,
     PrincipalRole,
@@ -33,6 +34,7 @@ from .responsibility_loop import (
     ResponsibilityLoopEffectUnknown,
     SQLiteResponsibilityLoopStore,
 )
+from .self_development_organ import SelfDevelopmentOrgan
 
 AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
     evaluator_root_id="hcw-evaluator:agent-work:v1",
@@ -278,7 +280,12 @@ def run_responsibility_work(
             "agent resume requires an existing responsibility checkpoint"
         )
 
-    def execute_task(task_id: str, assert_current, execute_effect) -> None:
+    def execute_task_with_inputs(
+        task_id: str,
+        task_inputs: dict[str, Any],
+        assert_current,
+        execute_effect,
+    ) -> None:
         assert_current("before_existing_task")
 
         def effect_custody(
@@ -314,11 +321,24 @@ def run_responsibility_work(
 
         execution_app.run_task(
             task_id,
-            inputs,
+            task_inputs,
             execution_fence=assert_current,
             effect_custody=effect_custody,
         )
         assert_current("after_existing_task")
+
+    def execute_task(task_id: str, assert_current, execute_effect) -> None:
+        execute_task_with_inputs(
+            task_id,
+            inputs,
+            assert_current,
+            execute_effect,
+        )
+
+    selfdev_organ = SelfDevelopmentOrgan(
+        workspace=workspace,
+        execute_task=execute_task_with_inputs,
+    )
 
     controller = ResponsibilityLoopController(
         responsibility_projector=app.mandate_responsibility,
@@ -327,6 +347,7 @@ def run_responsibility_work(
         loop_store=context.loop_store,
         actor=app.principal,
         execute_task=execute_task,
+        execute_selfdev=selfdev_organ,
         select_route=lambda item, _commitment: ResponsibilityOrganRoute(
             item.link.work_route.value
         ),
@@ -426,6 +447,59 @@ def answer_responsibility_help(
         raise ResponsibilitySurfaceError(
             "Help response does not match the active responsibility checkpoint"
         )
+    matching_help = [
+        candidate
+        for candidate in app.mandate_outcome_portfolio_store.list_help_requests(
+            context.mandate_id,
+            app.principal,
+        )
+        if candidate.help_request_id == help_request_id
+    ]
+    if len(matching_help) != 1:
+        raise ResponsibilitySurfaceError(
+            "active Help request is missing or ambiguous"
+        )
+    help_request = matching_help[0]
+    task_approval_recorded = False
+    if help_request.gap_kind is OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL:
+        if help_request.task_id != checkpoint.active_task_id:
+            raise ResponsibilitySurfaceError(
+                "action approval Help does not match the active Task"
+            )
+        decision = payload.get("decision")
+        if decision in {"APPROVE", "REJECT"}:
+            aggregate = app.tasks.get_task(checkpoint.active_task_id)
+            if aggregate.approval is not None and (
+                aggregate.approval.actor_id != app.principal.principal_id
+                or aggregate.approval.actor_role is not app.principal.role
+                or app.principal.role is not PrincipalRole.TENANT_ADMIN
+            ):
+                raise ResponsibilitySurfaceError(
+                    "SELFDEV_APPROVAL_AUTHORITY_INVALID: pending action has a "
+                    "non-independent approval"
+                )
+            if (
+                aggregate.approval is not None
+                and aggregate.approval.disposition.value != decision
+            ):
+                raise ResponsibilitySurfaceError(
+                    "SELFDEV_APPROVAL_DECISION_CONFLICT: Help decision contradicts "
+                    "the durable Task approval"
+                )
+            if aggregate.approval is None:
+                app.record_approval(
+                    checkpoint.active_task_id,
+                    {
+                        "disposition": decision,
+                        "reason": payload.get("notes")
+                        or "External Agent Work action decision",
+                    },
+                )
+            task_approval_recorded = True
+        elif decision != "MORE_INFO":
+            raise ResponsibilitySurfaceError(
+                "action approval Help requires APPROVE, REJECT or MORE_INFO"
+            )
     response = app.respond_outcome_portfolio_help_request(
         context.mandate_id,
         help_request_id,
@@ -447,6 +521,7 @@ def answer_responsibility_help(
         "help_request": response,
         "operator_event_id": event_id,
         "authority_granted": False,
+        "task_approval_recorded": task_approval_recorded,
     }
 
 

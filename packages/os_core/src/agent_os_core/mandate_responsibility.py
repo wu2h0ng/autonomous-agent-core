@@ -1070,6 +1070,7 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             task_id=link.task_id,
             reason=link.reason,
             work_route=link.work_route,
+            selfdev_spec=link.selfdev_spec,
         )
         payload = link.model_dump(mode="json", exclude={"record_digest"})
         if (
@@ -1310,6 +1311,7 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             }
             if command.work_route.value != "ORDINARY_TASK":
                 link_payload["work_route"] = command.work_route
+                link_payload["selfdev_spec"] = command.selfdev_spec
             link = self._seal_link(link_payload)
             connection.execute(
                 f"INSERT INTO {self._LINK_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

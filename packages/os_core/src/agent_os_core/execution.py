@@ -1095,10 +1095,34 @@ class RunCoordinator:
         read_output = context.get("workspace.read") or context.get("read")
         if not target_path or not isinstance(read_output, dict):
             raise RunExecutionError("provider requires a target path and completed workspace.read")
+        if aggregate.commitment is None:
+            raise RunExecutionError("provider requires a canonical Commitment")
         current_content = str(read_output.get("content", ""))
         goal = str(context.get("goal") or context.get("prompt") or "Produce the requested repository patch.")
+        acceptance_criteria = "\n".join(
+            f"- {criterion}" for criterion in aggregate.commitment.acceptance_criteria
+        )
+        selfdev_envelope = context.get("selfdev_execution_envelope")
+        selfdev_contract = ""
+        if isinstance(selfdev_envelope, dict):
+            prohibited = ", ".join(
+                str(value)
+                for value in selfdev_envelope.get("prohibited_effects", ())
+            )
+            selfdev_contract = (
+                "SELFDEV persisted execution envelope:\n"
+                f"Exact base HEAD: {selfdev_envelope.get('repository_head', '')}\n"
+                f"Isolated branch: {selfdev_envelope.get('isolated_branch', '')}\n"
+                f"Allowed write path: {selfdev_envelope.get('allowed_write_path', '')}\n"
+                f"Verifier: {selfdev_envelope.get('verifier_command', '')}\n"
+                f"Rollback: {selfdev_envelope.get('rollback_strategy', '')}\n"
+                f"Prohibited effects: {prohibited}.\n"
+            )
         prompt = (
             f"Repository task: {goal}\n"
+            "Acceptance criteria:\n"
+            f"{acceptance_criteria}\n"
+            f"{selfdev_contract}"
             f"Target path: {target_path}\n"
             f"Current SHA-256: {read_output.get('sha256', '')}\n"
             "Current file content follows:\n"

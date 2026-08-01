@@ -14,6 +14,7 @@ from agent_os_contracts import (
     ResponsibilityAttentionReason,
     ResponsibilityItem,
     ResponsibilityItemState,
+    ResponsibilityWorkRoute,
     RunStatus,
     TaskStatus,
 )
@@ -47,6 +48,74 @@ def _link_payload() -> dict[str, object]:
 
 def _link(**updates: object) -> MandateTaskLink:
     return MandateTaskLink.model_validate({**_link_payload(), **updates})
+
+
+def _selfdev_spec_payload() -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "repository_head": "1" * 40,
+        "isolated_branch": "codex/selfdev-task-1",
+        "target_path": "packages/os_core/src/agent_os_core/example.py",
+        "verifier_command": "pytest",
+        "rollback_strategy": "compensate_task",
+    }
+
+
+def test_selfdev_link_command_persists_exact_execution_envelope() -> None:
+    command = MandateTaskLinkCommand.model_validate(
+        {
+            "task_id": "task-1",
+            "work_route": ResponsibilityWorkRoute.SELFDEV,
+            "selfdev_spec": _selfdev_spec_payload(),
+        }
+    )
+
+    assert command.model_dump(mode="json")["selfdev_spec"] == _selfdev_spec_payload()
+
+
+def test_selfdev_route_requires_envelope_and_ordinary_route_forbids_it() -> None:
+    with pytest.raises(ValidationError, match="SELFDEV route requires selfdev_spec"):
+        MandateTaskLinkCommand(
+            task_id="task-1",
+            work_route=ResponsibilityWorkRoute.SELFDEV,
+        )
+
+    with pytest.raises(ValidationError, match="only valid for SELFDEV route"):
+        MandateTaskLinkCommand.model_validate(
+            {
+                "task_id": "task-1",
+                "selfdev_spec": _selfdev_spec_payload(),
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "field,bad_value,expected_error",
+    [
+        ("repository_head", "1" * 39, "40-character lowercase Git object id"),
+        ("isolated_branch", "main", "cannot target main/master/release"),
+        ("isolated_branch", "release/2026-08", "cannot target main/master/release"),
+        ("target_path", "../packages/os_core/pwn.py", "safe Agent OS product path"),
+        ("target_path", ".git/config", "safe Agent OS product path"),
+        ("verifier_command", "pytest -q; git push", "allowlisted verifier"),
+        ("verifier_command", "git push origin main", "allowlisted verifier"),
+    ],
+)
+def test_selfdev_execution_envelope_rejects_authority_and_escape_paths(
+    field: str,
+    bad_value: str,
+    expected_error: str,
+) -> None:
+    spec = _selfdev_spec_payload()
+    spec[field] = bad_value
+    with pytest.raises(ValidationError, match=expected_error):
+        MandateTaskLinkCommand.model_validate(
+            {
+                "task_id": "task-1",
+                "work_route": ResponsibilityWorkRoute.SELFDEV,
+                "selfdev_spec": spec,
+            }
+        )
 
 
 @pytest.mark.parametrize(
