@@ -1,7 +1,7 @@
 schema_version: 2
 
 live_pins:
-  origin_main_code_receipt: "3a9f2e8c7bdb135b5e2c61422a85123c3717a44b"
+  origin_main_code_receipt: "6180c458919526aff8bde5467d1108116a7de912"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
@@ -15,12 +15,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-01T13:01:48+08:00"
+updated: "2026-08-01T15:30:34+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main (integration worktree)"
-status: "Agent OS main code merge receipt 3a9f2e8c7bdb135b5e2c61422a85123c3717a44b integrates the independently approved local macOS-controlled single-target SELFDEV responsibility organ whose reviewed code head is fd60c5a2613729a42566a70f1d690d1168670ae1. The unique Agent Surface now binds persisted SELFDEV work to one exact clean linked worktree/branch/HEAD and the same linked Task, requires a canonical externally approved workflow, verifies in a detached OS-sandboxed mirror, settles canonical Outcome/Help, and compensates NOT_MET and interruption paths. Post-merge verification is 186 passed, Ruff clean, changed-scope Pyright 0 and integration-range diff-check clean. Verdict TECHNICAL_APPROVE_SELFDEV_ORGAN / P0=0 / P1=0 / P2=4. It is NOT_RELEASED. No multi-target general coding, AgentLoop effect-custody bridge, resident daemon, promotion, HCW reduction, sustained responsibility, general intelligence, self-improvement or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS origin/main at 6180c458919526aff8bde5467d1108116a7de912 integrates the independently approved precise AgentLoop-to-SELFDEV responsibility bridge whose reviewed code head is 6a68b677bf0db40d13a268f4f77df457addf7c4b. The unique Agent Surface now keeps multi-file precise workspace edits on the same linked Task/Run, binds external exact-action approval at ActionPipeline, records responsibility effect custody before Task receipt, and reconciles or compensates crash windows with stable identities. Independent verdict TECHNICAL_APPROVE / P0=0 / P1=0; reviewer verification is 139 passed plus clean Ruff/diff/worktree. It is NOT_RELEASED. No resident daemon, automatic wake, promotion, measured HCW reduction, sustained responsibility, general intelligence, self-improvement or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -41,8 +41,8 @@ identity:
 
 current_phase:
   product:
-    label: "durable Mandate input, bounded active perception, one persistent Responsibility Surface, and a main-integrated local macOS single-target SELFDEV organ; general AgentLoop and automatic wake remain incomplete"
-    status: "MAIN_INTEGRATED_SELFDEV_ORGAN_AT_MERGE_3A9F2E8 / REVIEWED_CODE_FD60C5A / NOT_RELEASED"
+    label: "durable Mandate input, bounded active perception, one persistent Responsibility Surface, and a main-integrated precise AgentLoop-to-SELFDEV responsibility bridge; automatic wake remains incomplete"
+    status: "MAIN_INTEGRATED_AGENTLOOP_SELFDEV_BRIDGE_AT_6180C45 / REVIEWED_CODE_6A68B67 / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 has an approved public qualification scaffold plus external-closure audit only; no B1-B5 acceptance, freeze or result run"
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
@@ -198,9 +198,9 @@ verified_capabilities:
       durable_review: ".agent_runs/agent-responsibility-loop-s1-20260730/independent-controller-approval.md"
     boundary: "LOCAL_CONTROLLED_ONLY. Task runtime lease may remain until its five-minute TTL after tool-window KeyboardInterrupt. Bearer admission has no KMS/keychain, rotation, revocation, entropy or local-DB-write resistance. No resident daemon, automatic wake, SELFDEV execution, HCW reduction, release, general intelligence or Autonomy(S,E,O,V,T) claim."
   selfdev_responsibility_organ:
-    status: "MAIN_INTEGRATED / TECHNICAL_APPROVE_SELFDEV_ORGAN / NOT_RELEASED"
+    status: "MAIN_INTEGRATED_AGENTLOOP_BRIDGE / TECHNICAL_APPROVE / NOT_RELEASED"
     requirement_class: "P/A"
-    user_result: "A persisted SELFDEV responsibility can use the one Agent Surface to obtain a provider patch for one admitted product file, wait for an external exact-action decision, verify in a detached sandboxed mirror, settle the same linked Task, and restore the preimage when verification or execution is interrupted."
+    user_result: "A persisted SELFDEV responsibility can use the one Agent Surface to carry multiple precise provider edits through the same linked Task and Run, wait for an external exact-action decision, preserve responsibility custody across effects and receipts, and recover or compensate deterministically after interruption."
     real_entry_points:
       - "agent run / answer / resume over ResponsibilityLoopController"
       - "SelfDevelopmentOrgan bound as the SELFDEV execution port"
@@ -214,15 +214,19 @@ verified_capabilities:
       - "pytest runs with base Python -S in a temporary mirror and non-editable runtime under macOS sandbox-exec; original authority, repository, secret and global tmp writes/reads fail closed"
       - "NOT_MET, node-loop KeyboardInterrupt and finalization-window KeyboardInterrupt prevent VERIFIED and compensate the exact target preimage"
       - "no second SELFDEV CLI or Task is created; no commit, push, merge, main, release or promotion capability is exposed"
+      - "ActionPipeline enforces the exact approval requirement below AgentLoop control flow; stale or substituted action approval fails closed"
+      - "RunCoordinator and AgentLoop share the governed ActionPipeline path; responsibility effect custody precedes Task receipt and compensation is custody-bound"
+      - "stable action/effect/resource identities reconcile receipt-loss and effect/receipt/tool-completion crash windows without duplicating effects"
+      - "authority, policy, contracts, task/runtime, responsibility and the unique agent_cli surface are contract-denied SELFDEV targets through primary and additional paths"
     dated_verification:
       date: "2026-08-01"
-      reviewed_code_head: "fd60c5a2613729a42566a70f1d690d1168670ae1"
-      main_merge_receipt: "3a9f2e8c7bdb135b5e2c61422a85123c3717a44b"
-      independent_review: "TECHNICAL_APPROVE_SELFDEV_ORGAN / P0=0 / P1=0 / P2=4"
-      integration: "186 passed in 27.60s"
-      quality: "Ruff clean; changed-scope Pyright 0 errors/0 warnings; 99065a4..3a9f2e8 diff-check clean"
-      durable_review: ".agent_runs/agent-selfdev-organ-20260801/independent-approval-fd60c5a.md"
-    boundary: "LOCAL_MACOS_CONTROLLED_SINGLE_TARGET_SELFDEV_ORGAN / TRUSTED_HOST_RUNTIME / EXTERNAL_APPROVAL / SHADOW_WORKTREE_ONLY. Help response and Task approval remain separate fail-closed transactions; external scope drift can require manual cleanup; non-macOS verification fails closed; trusted runtime-site has no content manifest. No general coding, AgentLoop integration, promotion, release, HCW superiority, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
+      reviewed_code_head: "6a68b677bf0db40d13a268f4f77df457addf7c4b"
+      main_merge_receipt: "6180c458919526aff8bde5467d1108116a7de912"
+      independent_review: "TECHNICAL_APPROVE / P0=0 / P1=0"
+      integration: "139 related Product tests passed independently"
+      quality: "Ruff clean; cf1bf1f7..6a68b677 diff-check clean; reviewed worktree clean"
+      durable_review: ".agent_runs/agentloop-selfdev-bridge-20260801/verification.md"
+    boundary: "LOCAL_MACOS_CONTROLLED_PRECISE_AGENTLOOP_SELFDEV / TRUSTED_HOST_RUNTIME / EXTERNAL_EXACT_APPROVAL / RESPONSIBILITY_EFFECT_CUSTODY / SHADOW_WORKTREE_ONLY. No resident daemon, automatic wake, promotion, release, HCW superiority, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
@@ -787,7 +791,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Bridge AgentLoop to the existing linked Task without creating a second Task: inject responsibility effect custody/fence into ActionPipeline, use precise workspace.edit instead of complete replacement, preserve external approval and compensation, then qualify multi-file behavior against an external coding-agent challenger only when making a relative claim."
+    action: "Run the merged precise AgentLoop SELFDEV bridge as the product's continuing responsibility path and capture truthful Outcome/Help/HCW evidence. Compare against an external coding-agent challenger only when making a relative claim; do not restore an internal daily baseline ritual."
   - priority: 2
     action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
   - priority: 3
