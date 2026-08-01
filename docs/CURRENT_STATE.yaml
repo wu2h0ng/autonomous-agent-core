@@ -1,7 +1,7 @@
 schema_version: 2
 
 live_pins:
-  origin_main: "2a5c63f"
+  origin_main_code_receipt: "3a9f2e8c7bdb135b5e2c61422a85123c3717a44b"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
@@ -15,12 +15,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-07-30T22:25:00+08:00"
+updated: "2026-08-01T13:01:48+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/agent-responsibility-loop-20260730 (isolated worktree; based on reviewed Agent CLI head 27f1643)"
-status: "Agent OS main at merge receipt 1f78937076ca76699c91a5447218e108e3d41146 now integrates the independently approved local controlled Responsibility Slice whose reviewed code head is d0b942ba6b79161e0a6a69437e0ac8fe1a3b184d: one Agent Work surface, persistent responsibility selection, Outcome/Help settlement, fenced effect custody, cross-process SQLite recovery, truthful manual-wake status, typed SELFDEV-not-bound, external correction and HCW receipt plumbing. Integration verification is 122 passed, Ruff clean, changed-scope Pyright 0 and diff-check clean. Verdict TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2. It is NOT_RELEASED. The last repository-wide run on the prior candidate was non-green at 2616 passed, 1 skipped, 27 failed; no full-suite-green claim is made. No resident daemon, SELFDEV execution, production authentication, HCW reduction, sustained responsibility, general intelligence or Autonomy(S,E,O,V,T) is established."
+branch: "main (integration worktree)"
+status: "Agent OS main code merge receipt 3a9f2e8c7bdb135b5e2c61422a85123c3717a44b integrates the independently approved local macOS-controlled single-target SELFDEV responsibility organ whose reviewed code head is fd60c5a2613729a42566a70f1d690d1168670ae1. The unique Agent Surface now binds persisted SELFDEV work to one exact clean linked worktree/branch/HEAD and the same linked Task, requires a canonical externally approved workflow, verifies in a detached OS-sandboxed mirror, settles canonical Outcome/Help, and compensates NOT_MET and interruption paths. Post-merge verification is 186 passed, Ruff clean, changed-scope Pyright 0 and integration-range diff-check clean. Verdict TECHNICAL_APPROVE_SELFDEV_ORGAN / P0=0 / P1=0 / P2=4. It is NOT_RELEASED. No multi-target general coding, AgentLoop effect-custody bridge, resident daemon, promotion, HCW reduction, sustained responsibility, general intelligence, self-improvement or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -41,8 +41,8 @@ identity:
 
 current_phase:
   product:
-    label: "durable RATIFIED Mandate input, bounded active perception, read-only responsibility view, and an independently approved branch-contained local Responsibility Slice; SELFDEV execution and automatic wake remain incomplete"
-    status: "MAIN_INTEGRATED_RESPONSIBILITY_SLICE_AT_MERGE_1F78937 / REVIEWED_CODE_D0B942B / NOT_RELEASED"
+    label: "durable Mandate input, bounded active perception, one persistent Responsibility Surface, and a main-integrated local macOS single-target SELFDEV organ; general AgentLoop and automatic wake remain incomplete"
+    status: "MAIN_INTEGRATED_SELFDEV_ORGAN_AT_MERGE_3A9F2E8 / REVIEWED_CODE_FD60C5A / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 has an approved public qualification scaffold plus external-closure audit only; no B1-B5 acceptance, freeze or result run"
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
@@ -194,9 +194,35 @@ verified_capabilities:
       independent_review: "TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2"
       targeted: "70 responsibility/controller/CLI passed"
       adjacent: "64 responsibility-store/portfolio/long-horizon passed; writer combined suite 122 passed"
-      quality: "Ruff clean; Pyright 0 errors/0 warnings; cumulative diff-check clean"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; responsibility delta clean; inherited three-line whitespace debt exists outside the responsibility delta"
       durable_review: ".agent_runs/agent-responsibility-loop-s1-20260730/independent-controller-approval.md"
     boundary: "LOCAL_CONTROLLED_ONLY. Task runtime lease may remain until its five-minute TTL after tool-window KeyboardInterrupt. Bearer admission has no KMS/keychain, rotation, revocation, entropy or local-DB-write resistance. No resident daemon, automatic wake, SELFDEV execution, HCW reduction, release, general intelligence or Autonomy(S,E,O,V,T) claim."
+  selfdev_responsibility_organ:
+    status: "MAIN_INTEGRATED / TECHNICAL_APPROVE_SELFDEV_ORGAN / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A persisted SELFDEV responsibility can use the one Agent Surface to obtain a provider patch for one admitted product file, wait for an external exact-action decision, verify in a detached sandboxed mirror, settle the same linked Task, and restore the preimage when verification or execution is interrupted."
+    real_entry_points:
+      - "agent run / answer / resume over ResponsibilityLoopController"
+      - "SelfDevelopmentOrgan bound as the SELFDEV execution port"
+      - "RunCoordinator and WorkspaceSandbox selfdev_verification_snapshot"
+    verified_properties:
+      - "exact linked Git worktree, non-main branch, base HEAD, clean index/worktree/untracked state and post-execution path scope are revalidated"
+      - "new SELFDEV links require a persisted single-target spec; legacy spec-less links remain decodable and typed blocked"
+      - "tests/docs cannot be candidate write targets; files above 20k characters fail closed until precise-edit integration"
+      - "the only admitted workflow is read-provider-external approval-single compensatable patch-pytest-evaluation-terminal"
+      - "Help decisions cannot contradict or hide durable Task approval; invalid Help payloads create no orphan approval"
+      - "pytest runs with base Python -S in a temporary mirror and non-editable runtime under macOS sandbox-exec; original authority, repository, secret and global tmp writes/reads fail closed"
+      - "NOT_MET, node-loop KeyboardInterrupt and finalization-window KeyboardInterrupt prevent VERIFIED and compensate the exact target preimage"
+      - "no second SELFDEV CLI or Task is created; no commit, push, merge, main, release or promotion capability is exposed"
+    dated_verification:
+      date: "2026-08-01"
+      reviewed_code_head: "fd60c5a2613729a42566a70f1d690d1168670ae1"
+      main_merge_receipt: "3a9f2e8c7bdb135b5e2c61422a85123c3717a44b"
+      independent_review: "TECHNICAL_APPROVE_SELFDEV_ORGAN / P0=0 / P1=0 / P2=4"
+      integration: "186 passed in 27.60s"
+      quality: "Ruff clean; changed-scope Pyright 0 errors/0 warnings; 99065a4..3a9f2e8 diff-check clean"
+      durable_review: ".agent_runs/agent-selfdev-organ-20260801/independent-approval-fd60c5a.md"
+    boundary: "LOCAL_MACOS_CONTROLLED_SINGLE_TARGET_SELFDEV_ORGAN / TRUSTED_HOST_RUNTIME / EXTERNAL_APPROVAL / SHADOW_WORKTREE_ONLY. Help response and Task approval remain separate fail-closed transactions; external scope drift can require manual cleanup; non-macOS verification fails closed; trusted runtime-site has no content manifest. No general coding, AgentLoop integration, promotion, release, HCW superiority, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
@@ -720,7 +746,7 @@ recently_completed:
 
 blockers:
   product:
-    - "The main-integrated local Responsibility Slice owns a bounded foreground Outcome/Commitment settlement cycle, but it has no resident watcher, automatic wake, SELFDEV execution or measured HCW reduction. It therefore does not close sustained responsibility or the full Mandate-driven SRL."
+    - "The main-integrated local SELFDEV responsibility organ closes one macOS single-target provider-patch loop, but it still has no AgentLoop precise multi-edit/effect-custody bridge, resident watcher, automatic wake, promotion path or measured HCW reduction. It therefore does not close a general terminal agent, sustained responsibility or the full Mandate-driven SRL."
     - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
@@ -761,7 +787,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Remediate the exact 3cbaf82 foundation review before controller/CLI work: stable lease_scope_id with fail-closed binding drift; trusted-clock effect dispatch/reconciliation with typed receipt; exact cycle-scoped canonical settlement denominator; checkpoint head CAS/monotonic sequence; real multi-process crash/TTL tests. Then require exact-head independent rereview. Keep SELFDEV and BlueprintGap routes denied."
+    action: "Bridge AgentLoop to the existing linked Task without creating a second Task: inject responsibility effect custody/fence into ActionPipeline, use precise workspace.edit instead of complete replacement, preserve external approval and compensation, then qualify multi-file behavior against an external coding-agent challenger only when making a relative claim."
   - priority: 2
     action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
   - priority: 3
