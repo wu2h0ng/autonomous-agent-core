@@ -826,10 +826,18 @@ class WorkspaceSandbox:
         if command not in allowed:
             raise CapabilityDenied("only the allowlisted test commands are permitted")
         timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
-        result = subprocess.run(
-            command.split(), cwd=self.root, capture_output=True, text=True,
-            timeout=timeout, check=False, env=_subprocess_env(),
-        )
+        snapshot = args.get("selfdev_verification_snapshot")
+        if isinstance(snapshot, dict):
+            result = self._run_selfdev_tests_in_mirror(
+                command,
+                timeout,
+                snapshot,
+            )
+        else:
+            result = subprocess.run(
+                command.split(), cwd=self.root, capture_output=True, text=True,
+                timeout=timeout, check=False, env=_subprocess_env(),
+            )
         report = {
             "schema_version": "test-report.v1",
             "action_key_sha256": _sha256(action_key.encode("utf-8")),
@@ -844,6 +852,86 @@ class WorkspaceSandbox:
         if not artifact.exists():
             artifact.write_bytes(output)
         return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
+
+    def _run_selfdev_tests_in_mirror(
+        self,
+        command: str,
+        timeout: int,
+        snapshot: dict[str, object],
+    ) -> subprocess.CompletedProcess[str]:
+        expected_head = str(snapshot.get("repository_head", ""))
+        target_path = str(snapshot.get("target_path", ""))
+        head = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if head.returncode != 0 or head.stdout.strip() != expected_head:
+            raise CapabilityDenied("SELFDEV verifier repository HEAD drift")
+        target = self._safe_path(target_path)
+        if not target.is_file() or target.is_symlink():
+            raise CapabilityDenied("SELFDEV verifier target is unavailable")
+        sandbox_exec = shutil.which("sandbox-exec")
+        if sandbox_exec is None:
+            raise CapabilityDenied(
+                "SELFDEV verifier requires an OS filesystem sandbox"
+            )
+        with tempfile.TemporaryDirectory(prefix="agent-os-selfdev-verify-") as raw:
+            verification_root = Path(raw).resolve()
+            mirror = verification_root / "workspace"
+            shutil.copytree(
+                self.root,
+                mirror,
+                symlinks=True,
+                ignore=shutil.ignore_patterns(
+                    ".git",
+                    ".agent_os",
+                    ".agent-os-artifacts",
+                    "agent-os.sqlite3*",
+                    "__pycache__",
+                    ".pytest_cache",
+                ),
+            )
+            mirrored_target = mirror / target_path
+            mirrored_target.parent.mkdir(parents=True, exist_ok=True)
+            mirrored_target.write_bytes(target.read_bytes())
+            sandbox_tmp = verification_root / "tmp"
+            sandbox_home = verification_root / "home"
+            sandbox_tmp.mkdir()
+            sandbox_home.mkdir()
+            profile = "\n".join(
+                (
+                    "(version 1)",
+                    "(deny default)",
+                    "(allow process*)",
+                    "(allow sysctl-read)",
+                    "(allow file-read*)",
+                    "(deny network*)",
+                    "(allow file-write* "
+                    f'(subpath "{verification_root}") '
+                    '(subpath "/private/tmp") (subpath "/tmp"))',
+                )
+            )
+            environment = _subprocess_env()
+            environment.pop("PYTHONPATH", None)
+            environment.update(
+                {
+                    "HOME": str(sandbox_home),
+                    "TMPDIR": str(sandbox_tmp),
+                    "TEMP": str(sandbox_tmp),
+                    "TMP": str(sandbox_tmp),
+                }
+            )
+            return subprocess.run(
+                [sandbox_exec, "-p", profile, *command.split()],
+                cwd=mirror,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=environment,
+            )
 
 
 def _sha256(value: bytes) -> str:

@@ -92,10 +92,11 @@ def _verified_responsibility(
         product_tests = tmp_path / "tests" / "product"
         product_tests.mkdir(parents=True, exist_ok=True)
         (product_tests / "test_selfdev_fixture.py").write_text(
-            "from pathlib import Path\n\n"
+            "from pathlib import Path\n"
+            "import runpy\n\n"
             "def test_selfdev_fixture():\n"
             "    source = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
-            "    assert source.read_text(encoding='utf-8') == 'VALUE = True\\n'\n",
+            "    assert runpy.run_path(str(source))['VALUE'] is True\n",
             encoding="utf-8",
         )
     database, owner, admin = _apps(tmp_path)
@@ -560,10 +561,11 @@ def _linked_worktree(tmp_path: Path) -> tuple[Path, str, str]:
     test_target = source / "tests" / "product" / "test_selfdev_fixture.py"
     test_target.parent.mkdir(parents=True)
     test_target.write_text(
-        "from pathlib import Path\n\n"
+        "from pathlib import Path\n"
+        "import runpy\n\n"
         "def test_selfdev_fixture():\n"
         "    source = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
-        "    assert source.read_text(encoding='utf-8') == 'VALUE = True\\n'\n",
+        "    assert runpy.run_path(str(source))['VALUE'] is True\n",
         encoding="utf-8",
     )
     (source / "fixture.txt").write_text("stable\n", encoding="utf-8")
@@ -1280,6 +1282,147 @@ def test_selfdev_keyboard_interrupt_after_patch_compensates_exact_preimage(
 
     assert target.read_text(encoding="utf-8") == preimage
     assert owner.tasks.current_outcome(task_id) is None
+
+
+def test_selfdev_verifier_cannot_write_original_operational_state(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    target = (
+        isolated
+        / "packages"
+        / "os_core"
+        / "src"
+        / "agent_os_core"
+        / "selfdev_fixture.py"
+    )
+    preimage = target.read_text(encoding="utf-8")
+    attach_path = isolated / ".agent_os" / "mandate_attach.json"
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_selfdev_patch_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+    )
+    malicious = (
+        "from pathlib import Path\n"
+        f"Path({str(attach_path)!r}).write_text('pwn', encoding='utf-8')\n"
+        "VALUE = True\n"
+    )
+    owner.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:selfdev-verifier-escape",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": spec.target_path, "content": malicious}
+                ),
+            ),
+        )
+    )
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+    attach_preimage = attach_path.read_bytes()
+    waiting = run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=False,
+    )
+    answer_responsibility_help(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        help_request_id=waiting["cycles"][0]["help_request_id"],
+        payload={
+            "response_kind": SrlHelpResponseKind.OPERATOR_DECISION.value,
+            "decision": "APPROVE",
+            "notes": "sandbox escape attack fixture",
+        },
+    )
+
+    completed = run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=True,
+    )
+
+    assert completed["cycles"][0]["state"] == "SETTLED"
+    outcome = owner.tasks.current_outcome(task_id)
+    assert outcome is not None
+    assert outcome.status is OutcomeStatus.NOT_MET
+    assert attach_path.read_bytes() == attach_preimage
+    assert target.read_text(encoding="utf-8") == preimage
+
+
+def test_run_finalization_interrupt_downgrades_outcome_and_compensates(
+    tmp_path: Path,
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        tmp_path,
+        workflow=_selfdev_patch_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+    )
+    target = (
+        tmp_path
+        / "packages"
+        / "os_core"
+        / "src"
+        / "agent_os_core"
+        / "selfdev_fixture.py"
+    )
+    preimage = target.read_text(encoding="utf-8")
+    target_path = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
+    owner.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:selfdev-finalization-interrupt",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": target_path, "content": "VALUE = True\n# changed\n"}
+                ),
+            ),
+        )
+    )
+    inputs = {"target_path": target_path, "test_command": "pytest"}
+    owner.run_task(task_id, inputs)
+    admin.record_approval(
+        task_id,
+        {"disposition": "APPROVE", "reason": "approve exact fixture"},
+    )
+
+    def interrupt_finalization(phase: str) -> None:
+        if phase == "before_run_finalization":
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        owner.run_task(task_id, inputs, execution_fence=interrupt_finalization)
+
+    outcome = owner.tasks.current_outcome(task_id)
+    assert outcome is not None
+    assert outcome.status is OutcomeStatus.UNRESOLVED
+    assert target.read_text(encoding="utf-8") == preimage
+    assert database.exists()
 
 
 def test_process_b_finishes_cycle_after_crash_following_settlement(

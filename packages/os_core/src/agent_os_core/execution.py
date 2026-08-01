@@ -523,22 +523,12 @@ class RunCoordinator:
                 raise
             except KeyboardInterrupt:
                 try:
-                    self.tasks.append_event(
-                        task_id,
-                        TaskEventType.NODE_FAILED,
-                        {"node_id": node.node_id, "error": "KeyboardInterrupt"},
-                        correlation_id=run.run_id,
-                    )
-                    self.tasks.update_run_status(
-                        task_id,
-                        RunStatus.FAILED,
-                        event_type=TaskEventType.RUN_FAILED,
-                        active_node_id=node.node_id,
-                    )
-                    self._attempt_automatic_compensation(
+                    self._handle_keyboard_interrupt(
                         task_id,
                         principal,
-                        held_lease_fence=lease_fence,
+                        run_id=run.run_id,
+                        node_id=node.node_id,
+                        lease_fence=lease_fence,
                     )
                 finally:
                     self._release_lease(run.run_id, owner)
@@ -588,9 +578,66 @@ class RunCoordinator:
                     principal,
                     held_lease_fence=lease_fence,
                 )
+        except KeyboardInterrupt:
+            self._handle_keyboard_interrupt(
+                task_id,
+                principal,
+                run_id=run.run_id,
+                node_id="run-finalization",
+                lease_fence=lease_fence,
+            )
+            raise
         finally:
             self._release_lease(run.run_id, owner)
         return self.tasks.get_task(task_id)
+
+    def _handle_keyboard_interrupt(
+        self,
+        task_id: str,
+        principal: PrincipalIdentity,
+        *,
+        run_id: str,
+        node_id: str,
+        lease_fence: int,
+    ) -> None:
+        current = self.tasks.current_outcome(task_id)
+        if current is not None and current.status is OutcomeStatus.VERIFIED:
+            self.tasks.record_outcome(
+                task_id,
+                ObservedOutcome(
+                    observed_outcome_id=f"observed-{uuid4()}",
+                    expected_outcome_id=current.expected_outcome_id,
+                    task_id=current.task_id,
+                    run_id=current.run_id,
+                    tenant_id=current.tenant_id,
+                    workspace_id=current.workspace_id,
+                    evaluator_type=current.evaluator_type,
+                    evaluator_version=current.evaluator_version,
+                    status=OutcomeStatus.UNRESOLVED,
+                    score=None,
+                    confidence=1.0,
+                    evidence_refs=current.evidence_refs,
+                    unresolved_gaps=("execution interrupted before finalization",),
+                    observed_at=self.tasks.now(),
+                ),
+            )
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.NODE_FAILED,
+            {"node_id": node_id, "error": "KeyboardInterrupt"},
+            correlation_id=run_id,
+        )
+        self.tasks.update_run_status(
+            task_id,
+            RunStatus.FAILED,
+            event_type=TaskEventType.RUN_FAILED,
+            active_node_id=node_id,
+        )
+        self._attempt_automatic_compensation(
+            task_id,
+            principal,
+            held_lease_fence=lease_fence,
+        )
 
     def _revalidate_outcome_before_finalization(
         self,
@@ -1457,7 +1504,14 @@ class RunCoordinator:
             return {"path": path}
         if capability_id == "workspace.run_tests":
             command = context.get("test_command") or context.get("command") or "python -m pytest"
-            return {"command": str(command)}
+            arguments: dict[str, Any] = {"command": str(command)}
+            selfdev_envelope = context.get("selfdev_execution_envelope")
+            if isinstance(selfdev_envelope, dict):
+                arguments["selfdev_verification_snapshot"] = {
+                    "repository_head": selfdev_envelope.get("repository_head"),
+                    "target_path": selfdev_envelope.get("allowed_write_path"),
+                }
+            return arguments
         explicit = context.get(capability_id)
         if isinstance(explicit, dict):
             return dict(explicit)
