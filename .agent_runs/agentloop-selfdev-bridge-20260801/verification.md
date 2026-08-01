@@ -26,3 +26,14 @@
 - P0: compensation mutations bypass responsibility effect custody.
 - P1: reserved governance/approval/evaluator/C7 paths are not contract-denied; action execution remains duplicated between AgentLoop and RunCoordinator; the adapter can seal/start a missing Run instead of requiring the pre-bound Run.
 - Merge/push: denied until all P0 findings are remediated and a new exact-head review approves them.
+
+## Final exact-head review
+
+- Exact reviewed code head: `6a68b677bf0db40d13a268f4f77df457addf7c4b`.
+- Independent reviewer: `responsibility_exact_head_review` (read-only, not the writer).
+- Verdict: `TECHNICAL_APPROVE`.
+- P0: none.
+- P1: none.
+- The final remediation denies `packages/os_core/src/agent_os_core/agent_cli.py` through both `target_path` and `additional_target_paths`.
+- Reviewer verification: `139 passed in 36.66s`; Ruff passed; `git diff --check cf1bf1f7..HEAD` passed; worktree clean.
+- Claim ceiling: technical approval for this exact head and review scope only. It is not release authority, autonomy evidence, or proof that SELFDEV reaches the final blueprint.
