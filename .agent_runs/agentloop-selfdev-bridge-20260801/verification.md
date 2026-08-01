@@ -17,4 +17,12 @@
 
 ## Review
 
-Pending exact-head independent code review.
+- Exact reviewed code head: `b87a69ffc60cd338dbc331b0410654a7a4fc41d1`.
+- Independent reviewer: `responsibility_exact_head_review` (read-only, not the writer).
+- Verdict: `TECHNICAL_REVISE`.
+- P0: an older Help approval is not typed/bound end-to-end to the exact current pending action and can be substituted under an invalid resume path.
+- P0: precise-loop provider failure, interruption and three effect/receipt/tool-completion crash windows lack a complete reconciliation-or-reverse-compensation state machine.
+- P0: exact external approval is enforced only by AgentLoop control flow, not by the ActionPipeline/Policy boundary; durable mode also does not require custody/fence inputs.
+- P0: compensation mutations bypass responsibility effect custody.
+- P1: reserved governance/approval/evaluator/C7 paths are not contract-denied; action execution remains duplicated between AgentLoop and RunCoordinator; the adapter can seal/start a missing Run instead of requiring the pre-bound Run.
+- Merge/push: denied until all P0 findings are remediated and a new exact-head review approves them.
