@@ -11,5 +11,6 @@
 - Added success, identity-drift, approval, negative-outcome and compensation attack tests. Provider-proposed failing edits restore the exact file preimage.
 - Remediated the independent `e9d8cd7` review: clean-byte and post-scope admission, immutable verifier targets, canonical WorkflowGraph shape, 20k complete-replacement ceiling, Help-before-approval fail-closed ordering, interrupt compensation, and legacy SELFDEV link decoding.
 - Remediated the `7e11be5` rereview: SELFDEV pytest now executes in an OS-sandboxed temporary mirror without authority/ledger/evidence files, and finalization-window interruption downgrades any recorded VERIFIED outcome before compensation.
+- Remediated the `eb756d7` rereview: verifier uses base Python with `-S`, a temporary non-editable hardlinked/copy fallback runtime, a rebuilt PATH/PYTHONPATH, read access limited to mirror/runtime/system files, and write access limited to verifier-owned home/tmp. Secret-read, original-state write and global `/tmp` escape attacks are asserted.
 
 Claim ceiling: first isolated single-target Product organ only. AgentLoop effect custody, broader terminal capability, resident wake, promotion, release, HCW reduction, general intelligence and `Autonomy(S,E,O,V,T)` remain unestablished.

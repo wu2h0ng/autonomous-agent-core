@@ -27,3 +27,12 @@ Candidate worktree: `codex/agent-selfdev-organ-20260801`, based on `99065a4d8999
 - Changed-scope Pyright: `0 errors, 0 warnings, 0 informations`.
 - Candidate delta: `git diff --check HEAD` passed.
 - Final exact-head rereview: pending remediation commit.
+
+## 2026-08-01 verifier-custody remediation verification
+
+- Rereview at `eb756d7`: `TECHNICAL_REVISE / P0=0 / P1=1 / P2=2`.
+- Final custody remediation regression: `186 passed in 27.97s`.
+- Changed-scope Ruff: `All checks passed!`.
+- Changed-scope Pyright: `0 errors, 0 warnings, 0 informations`.
+- Candidate delta: `git diff --check HEAD` passed.
+- Approval rereview: pending new exact HEAD.

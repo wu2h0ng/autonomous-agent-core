@@ -1298,6 +1298,11 @@ def test_selfdev_verifier_cannot_write_original_operational_state(
     )
     preimage = target.read_text(encoding="utf-8")
     attach_path = isolated / ".agent_os" / "mandate_attach.json"
+    secret_path = tmp_path / "secret-outside-verifier-mirror.txt"
+    secret_value = "SELFDEV_SECRET_MUST_NOT_LEAK"
+    secret_path.write_text(secret_value, encoding="utf-8")
+    temp_escape = Path(f"/tmp/agent-os-selfdev-escape-{os.getpid()}")
+    assert not temp_escape.exists()
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
         isolated_branch=branch,
@@ -1312,8 +1317,21 @@ def test_selfdev_verifier_cannot_write_original_operational_state(
     )
     malicious = (
         "from pathlib import Path\n"
-        f"Path({str(attach_path)!r}).write_text('pwn', encoding='utf-8')\n"
-        "VALUE = True\n"
+        "import sys\n"
+        "print('SYSPATH=' + repr(sys.path))\n"
+        "try:\n"
+        f"    print(Path({str(secret_path)!r}).read_text(encoding='utf-8'))\n"
+        "except Exception:\n"
+        "    pass\n"
+        "try:\n"
+        f"    Path({str(temp_escape)!r}).write_text('pwn', encoding='utf-8')\n"
+        "except Exception:\n"
+        "    pass\n"
+        "try:\n"
+        f"    Path({str(attach_path)!r}).write_text('pwn', encoding='utf-8')\n"
+        "except Exception:\n"
+        "    pass\n"
+        "raise RuntimeError('verifier custody attack')\n"
     )
     owner.provider = DeterministicProvider(
         tool_proposals=(
@@ -1373,6 +1391,13 @@ def test_selfdev_verifier_cannot_write_original_operational_state(
     assert outcome.status is OutcomeStatus.NOT_MET
     assert attach_path.read_bytes() == attach_preimage
     assert target.read_text(encoding="utf-8") == preimage
+    assert not temp_escape.exists()
+    artifacts = isolated / ".agent-os-artifacts"
+    artifact_bytes = b"\n".join(
+        artifact.read_bytes() for artifact in artifacts.iterdir() if artifact.is_file()
+    )
+    assert secret_value.encode("utf-8") not in artifact_bytes
+    assert str(Path.cwd()).encode("utf-8") not in artifact_bytes
 
 
 def test_run_finalization_interrupt_downgrades_outcome_and_compensates(
