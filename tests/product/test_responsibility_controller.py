@@ -10,6 +10,8 @@ import sys
 
 import pytest
 from agent_os_contracts import (
+    ApprovalDecision,
+    ApprovalDisposition,
     Commitment,
     EdgeSpec,
     ExpectedOutcome,
@@ -30,11 +32,14 @@ from agent_os_contracts import (
     ProviderToolProposal,
     ProviderErrorCode,
     ProviderFailure,
+    PrincipalRole,
+    RunStatus,
     WorkflowGraph,
     content_digest,
 )
 from agent_os_core.errors import RunExecutionError
 from agent_os_core import DeterministicProvider, TASK_CONFIGURATION_CAPABILITY
+from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.capability import CapabilityBroker
 from agent_os_core.responsibility_controller import (
     ResponsibilityControllerBlockReason,
@@ -55,6 +60,7 @@ from agent_os_core.self_development_organ import (
     SelfDevelopmentOrganBlocked,
 )
 from agent_os_core.responsibility_surface import (
+    _effect_custody_for,
     ResponsibilitySurfaceError,
     answer_responsibility_help,
     build_responsibility_surface_context,
@@ -758,7 +764,7 @@ def test_selfdev_organ_admits_large_precise_multi_file_write_set(
 ) -> None:
     isolated, branch, head = _linked_worktree(tmp_path)
     primary = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
-    secondary = "packages/contracts/src/agent_os_contracts/selfdev_fixture.py"
+    secondary = "packages/os_core/src/agent_os_core/selfdev_fixture_second.py"
     primary_path = isolated / primary
     secondary_path = isolated / secondary
     primary_path.write_text("P" * 25_000, encoding="utf-8")
@@ -1050,7 +1056,7 @@ def test_real_agent_surface_precise_agent_loop_edits_two_files_on_same_task(
 ) -> None:
     isolated, branch, _ = _linked_worktree(tmp_path)
     primary = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
-    secondary = "packages/contracts/src/agent_os_contracts/selfdev_fixture.py"
+    secondary = "packages/os_core/src/agent_os_core/selfdev_fixture_second.py"
     (isolated / primary).write_text("VALUE = False\n", encoding="utf-8")
     (isolated / secondary).parent.mkdir(parents=True, exist_ok=True)
     (isolated / secondary).write_text("SECOND = False\n", encoding="utf-8")
@@ -1060,7 +1066,7 @@ def test_real_agent_surface_precise_agent_loop_edits_two_files_on_same_task(
         "import runpy\n\n"
         "def test_selfdev_fixture():\n"
         "    first = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
-        "    second = Path('packages/contracts/src/agent_os_contracts/selfdev_fixture.py')\n"
+        "    second = Path('packages/os_core/src/agent_os_core/selfdev_fixture_second.py')\n"
         "    assert runpy.run_path(str(first))['VALUE'] is True\n"
         "    assert runpy.run_path(str(second))['SECOND'] is True\n",
         encoding="utf-8",
@@ -1689,6 +1695,8 @@ def test_precise_selfdev_provider_failure_after_edit_fails_and_compensates(
     assert aggregate.run.status.value == "FAILED"
     assert target.read_text(encoding="utf-8") == preimage
     assert any(record.status.value == "COMPENSATED" for record in aggregate.compensations)
+    with pytest.raises(RunExecutionError, match="requires effect custody"):
+        owner.compensate_task(task_id)
     with sqlite3.connect(database) as connection:
         compensation_effects = connection.execute(
             "SELECT COUNT(*) FROM responsibility_loop_effects_v2 "
@@ -2237,6 +2245,140 @@ def test_explicit_idempotent_effect_reconciliation_closes_unknown_crash_window(
 
     assert calls == 2
     assert reconciled.status == "APPLIED"
+
+
+def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    relative = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path=relative,
+        edit_mode="agent_loop_precise",
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_selfdev_agent_loop_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+    )
+    aggregate = owner.tasks.get_task(task_id)
+    assert aggregate.run is not None
+    assert aggregate.expected_outcome is not None
+    owner.tasks.update_run_status(
+        task_id,
+        RunStatus.RUNNING,
+        event_type=TaskEventType.RUN_RESUMED,
+    )
+    pipeline = ActionPipeline(
+        owner.tasks,
+        CapabilityBroker(owner.sandbox, owner.correction),
+        owner.policy,
+        owner.correction,
+        owner.grants,
+    )
+    action = pipeline.build_action(
+        task_id=task_id,
+        run_id=aggregate.run.run_id,
+        node_id=f"selfdev:{aggregate.run.run_id}:action:1",
+        capability_id="workspace.edit",
+        principal=owner.principal,
+        args={
+            "path": relative,
+            "old_string": "VALUE = True",
+            "new_string": "VALUE = False",
+        },
+        expected=aggregate.expected_outcome,
+        envelope_id="envelope:selfdev:receipt-reconcile",
+        risk_tier=2,
+        approval_requirement="external_exact",
+    )
+    pipeline.record_action_proposed(action)
+    owner.tasks.update_run_status(
+        task_id,
+        RunStatus.WAITING_APPROVAL,
+        event_type=TaskEventType.APPROVAL_REQUESTED,
+        active_node_id=action.node_id,
+    )
+    approval_now = action.created_at
+    owner.tasks.record_approval(
+        task_id,
+        ApprovalDecision(
+            approval_id="approval:receipt-reconcile",
+            tenant_id=owner.principal.tenant_id,
+            workspace_id=owner.principal.workspace_id,
+            action_digest=action.action_digest(),
+            actor_id=admin.principal.principal_id,
+            actor_role=PrincipalRole.TENANT_ADMIN,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="bind exact replay action",
+            decided_at=approval_now,
+            expires_at=approval_now + timedelta(minutes=5),
+        ),
+    )
+    binding, loop_store, _ = _controller(database, owner, admin, isolated)
+    lease = loop_store.acquire_lease(
+        binding,
+        process_instance_id="process:receipt-reconcile",
+        now=NOW,
+    )
+
+    def execute_effect(
+        operation_slot,
+        intent_digest,
+        effect,
+        *,
+        reconcile_idempotent,
+    ):
+        return loop_store.execute_effect(
+            binding,
+            lease,
+            cycle_id="cycle:receipt-reconcile",
+            task_id=task_id,
+            operation_slot=operation_slot,
+            intent_digest=intent_digest,
+            effect=effect,
+            executed_at=NOW,
+            reconcile_idempotent=reconcile_idempotent,
+        )
+
+    custody = _effect_custody_for(execute_effect)
+    original_record = owner.tasks._record_action_receipt
+
+    def crash_before_task_receipt(*_args, **_kwargs):
+        raise SystemExit("process died before Task receipt")
+
+    monkeypatch.setattr(owner.tasks, "_record_action_receipt", crash_before_task_receipt)
+    with pytest.raises(SystemExit, match="before Task receipt"):
+        pipeline.execute(
+            action,
+            owner.principal,
+            capability_spec=owner.sandbox.specs()["workspace.edit"],
+            approval=owner.tasks.get_task(task_id).approval,
+            record_artifacts=False,
+            execution_fence=lambda _phase: None,
+            effect_custody=custody,
+        )
+    assert loop_store.runtime_status(binding)["applied_without_task_receipt_count"] == 1
+    monkeypatch.setattr(owner.tasks, "_record_action_receipt", original_record)
+
+    pipeline.execute(
+        action,
+        owner.principal,
+        capability_spec=owner.sandbox.specs()["workspace.edit"],
+        approval=owner.tasks.get_task(task_id).approval,
+        record_artifacts=False,
+        execution_fence=lambda _phase: None,
+        effect_custody=custody,
+    )
+
+    runtime = loop_store.runtime_status(binding)
+    assert runtime["applied_without_task_receipt_count"] == 0
+    assert runtime["unknown_effect_count"] == 0
 
 
 def test_missing_outcome_emits_typed_help_without_unauthorized_work(

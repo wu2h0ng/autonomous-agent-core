@@ -808,7 +808,7 @@ class SQLiteResponsibilityLoopStore:
                         str(effect_row["effect_receipt_json"])
                     )
                     adapter_receipt = envelope["adapter_receipt"]
-                    evidence_digest = adapter_receipt["evidence_digest"]
+                    resource_ref = adapter_receipt["resource_ref"]
                 except (
                     json.JSONDecodeError,
                     KeyError,
@@ -836,7 +836,15 @@ class SQLiteResponsibilityLoopStore:
                             continue
                         if (
                             isinstance(receipt, dict)
-                            and content_digest(receipt) == evidence_digest
+                            and receipt.get("action_digest")
+                            == str(effect_row["intent_digest"])
+                            and (
+                                f"{receipt.get('connector_id')}:"
+                                f"{receipt.get('idempotency_key')}"
+                            )
+                            == resource_ref
+                            and receipt.get("status")
+                            in {"SUCCEEDED", "COMPENSATED"}
                         ):
                             task_receipt_bound = True
                             break
@@ -898,6 +906,19 @@ class SQLiteResponsibilityLoopStore:
             ),
             "last_hcw_receipt": last_hcw,
         }
+
+    def has_effects_for_task(
+        self,
+        binding: ResponsibilityLoopBinding,
+        task_id: str,
+    ) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM responsibility_loop_effects_v2 "
+                "WHERE binding_digest=? AND task_id=? LIMIT 1",
+                (binding.digest, task_id),
+            ).fetchone()
+        return row is not None
 
     def list_rebind_receipts(
         self,

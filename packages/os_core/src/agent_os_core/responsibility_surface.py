@@ -73,6 +73,43 @@ class ResponsibilitySurfaceError(RuntimeError):
     """Fail-closed error for the unique terminal Work surface."""
 
 
+def _effect_custody_for(execute_effect):
+    def effect_custody(
+        operation_slot: str,
+        intent_digest: str,
+        effect,
+    ) -> CapabilityResult:
+        captured: list[CapabilityResult] = []
+
+        def invoke_with_receipt() -> dict[str, str]:
+            result = effect()
+            captured.append(result)
+            receipt = result.receipt
+            return {
+                "receipt_id": receipt.receipt_id,
+                "resource_ref": (
+                    f"{receipt.connector_id}:{receipt.idempotency_key}"
+                ),
+                "evidence_digest": content_digest(receipt),
+            }
+
+        effect_record = execute_effect(
+            operation_slot,
+            intent_digest,
+            invoke_with_receipt,
+            reconcile_idempotent=True,
+        )
+        if not captured:
+            raise ResponsibilityLoopEffectUnknown(
+                "responsibility effect is APPLIED without a Task receipt; "
+                "reconciliation is required"
+            )
+        del effect_record
+        return captured[0]
+
+    return effect_custody
+
+
 def _validate_selfdev_task(
     aggregate: Any,
     spec: SelfDevelopmentWorkSpec,
@@ -374,41 +411,6 @@ def run_responsibility_work(
             "agent resume requires an existing responsibility checkpoint"
         )
 
-    def effect_custody_for(execute_effect):
-        def effect_custody(
-            operation_slot: str,
-            intent_digest: str,
-            effect,
-        ) -> CapabilityResult:
-            captured: list[CapabilityResult] = []
-
-            def invoke_with_receipt() -> dict[str, str]:
-                result = effect()
-                captured.append(result)
-                receipt = result.receipt
-                return {
-                    "receipt_id": receipt.receipt_id,
-                    "resource_ref": (
-                        f"{receipt.connector_id}:{receipt.idempotency_key}"
-                    ),
-                    "evidence_digest": content_digest(receipt),
-                }
-
-            execute_effect(
-                operation_slot,
-                intent_digest,
-                invoke_with_receipt,
-                reconcile_idempotent=True,
-            )
-            if not captured:
-                raise ResponsibilityLoopEffectUnknown(
-                    "responsibility effect is APPLIED without a Task receipt; "
-                    "reconciliation is required"
-                )
-            return captured[0]
-
-        return effect_custody
-
     def execute_task_with_inputs(
         task_id: str,
         task_inputs: dict[str, Any],
@@ -425,7 +427,7 @@ def run_responsibility_work(
                 snapshot.snapshot_id if snapshot is not None else None
             ),
             execution_fence=assert_current,
-            effect_custody=effect_custody_for(execute_effect),
+            effect_custody=_effect_custody_for(execute_effect),
         )
         assert_current("after_existing_task")
 
@@ -523,7 +525,7 @@ def run_responsibility_work(
                 system_prompt=system_prompt,
             ),
             execution_fence=assert_current,
-            effect_custody=effect_custody_for(execute_effect),
+            effect_custody=_effect_custody_for(execute_effect),
             allowed_capability_ids=capabilities,
             durable_write_approval=True,
             allowed_write_paths=spec.allowed_write_paths,
@@ -556,7 +558,10 @@ def run_responsibility_work(
         return SelfDevelopmentAgentLoopState.COMPLETED
 
     def has_persisted_effects(task_id: str) -> bool:
-        return any(
+        return context.loop_store.has_effects_for_task(
+            context.binding,
+            task_id,
+        ) or any(
             event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
             and isinstance(event.decoded_payload().get("effect"), dict)
             for event in execution_app.tasks._event_store.read(task_id)
@@ -589,7 +594,7 @@ def run_responsibility_work(
         if has_persisted_effects(task_id):
             execution_app.compensate_task(
                 task_id,
-                effect_custody=effect_custody_for(execute_effect),
+                effect_custody=_effect_custody_for(execute_effect),
             )
 
     selfdev_organ = SelfDevelopmentOrgan(

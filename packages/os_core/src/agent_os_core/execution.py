@@ -692,12 +692,26 @@ class RunCoordinator:
         *,
         effect_custody: EffectCustodyPort | None = None,
     ):
+        if effect_custody is None and self._requires_effect_custody(task_id):
+            raise RunExecutionError(
+                "durable external-exact Task compensation requires effect custody"
+            )
         return self._compensate_with_mode(
             task_id,
             principal,
             mode=CompensationMode.MANUAL,
             held_lease_fence=None,
             effect_custody=effect_custody,
+        )
+
+    def _requires_effect_custody(self, task_id: str) -> bool:
+        return any(
+            ActionContract.model_validate(event.decoded_payload()["action"])
+            .approval_requirement
+            == "external_exact"
+            for event in self.tasks._event_store.read(task_id)
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+            and isinstance(event.decoded_payload().get("action"), dict)
         )
 
     def _auto_compensate_task(

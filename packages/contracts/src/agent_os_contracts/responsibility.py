@@ -106,9 +106,6 @@ class SelfDevelopmentWorkSpec(ContractModel):
     def _safe_product_path(value: str) -> str:
         allowed_prefixes = (
             "packages/os_core/src/agent_os_core/",
-            "packages/contracts/src/agent_os_contracts/",
-            "apps/api_server/",
-            "apps/cli/",
         )
         path = PurePosixPath(value)
         reserved_paths = {
@@ -116,12 +113,16 @@ class SelfDevelopmentWorkSpec(ContractModel):
             "packages/contracts/src/agent_os_contracts/authority.py",
             "packages/contracts/src/agent_os_contracts/evaluator.py",
             "packages/contracts/src/agent_os_contracts/outcome_portfolio.py",
+            "packages/contracts/src/agent_os_contracts/responsibility.py",
             "packages/os_core/src/agent_os_core/action_pipeline.py",
+            "packages/os_core/src/agent_os_core/agent_loop.py",
             "packages/os_core/src/agent_os_core/capability.py",
             "packages/os_core/src/agent_os_core/execution.py",
             "packages/os_core/src/agent_os_core/governance.py",
             "packages/os_core/src/agent_os_core/evaluator_authority.py",
+            "packages/os_core/src/agent_os_core/event_store.py",
             "packages/os_core/src/agent_os_core/mandate_outcome_portfolio.py",
+            "packages/os_core/src/agent_os_core/mandate_responsibility.py",
             "packages/os_core/src/agent_os_core/materialization_evaluation.py",
             "packages/os_core/src/agent_os_core/materialization_evaluation_persistence.py",
             "packages/os_core/src/agent_os_core/materialization_promotion.py",
@@ -132,16 +133,44 @@ class SelfDevelopmentWorkSpec(ContractModel):
             "packages/os_core/src/agent_os_core/responsibility_surface.py",
             "packages/os_core/src/agent_os_core/self_development_organ.py",
             "packages/os_core/src/agent_os_core/srl_event_authority.py",
+            "packages/os_core/src/agent_os_core/srl_event_store.py",
             "packages/os_core/src/agent_os_core/task_aggregate.py",
             "packages/os_core/src/agent_os_core/task_configuration.py",
             "packages/os_core/src/agent_os_core/task_service.py",
         }
+        reserved_name_tokens = (
+            "approval",
+            "authority",
+            "capability",
+            "correction",
+            "evaluation",
+            "evaluator",
+            "event_store",
+            "governance",
+            "mandate",
+            "policy",
+            "promotion",
+            "responsibility",
+            "security",
+        )
+        reserved_stems = {
+            "action_pipeline",
+            "agent_loop",
+            "execution",
+            "self_development_organ",
+            "task_aggregate",
+            "task_configuration",
+            "task_service",
+        }
+        stem = path.stem.lower()
         if (
             value.startswith("/")
             or "\\" in value
             or any(part in {"", ".", ".."} or part.startswith(".") for part in path.parts)
             or not path.as_posix().startswith(allowed_prefixes)
             or path.as_posix() in reserved_paths
+            or stem in reserved_stems
+            or any(token in stem for token in reserved_name_tokens)
         ):
             raise ValueError(
                 "target_path must be a safe Agent OS product path outside authority core"

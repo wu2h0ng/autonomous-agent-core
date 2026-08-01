@@ -79,7 +79,7 @@ def test_selfdev_precise_mode_persists_one_canonical_ordered_write_set() -> None
         {
             "edit_mode": "agent_loop_precise",
             "additional_target_paths": [
-                "packages/contracts/src/agent_os_contracts/example.py",
+                "packages/os_core/src/agent_os_core/example_secondary.py",
             ],
         }
     )
@@ -95,7 +95,7 @@ def test_selfdev_precise_mode_persists_one_canonical_ordered_write_set() -> None
     assert command.selfdev_spec is not None
     assert command.selfdev_spec.allowed_write_paths == (
         "packages/os_core/src/agent_os_core/example.py",
-        "packages/contracts/src/agent_os_contracts/example.py",
+        "packages/os_core/src/agent_os_core/example_secondary.py",
     )
     assert command.model_dump(mode="json")["selfdev_spec"] == payload
 
@@ -134,7 +134,7 @@ def test_selfdev_precise_mode_rejects_ambiguous_or_unsafe_write_sets(
 def test_complete_replacement_mode_rejects_multiple_targets() -> None:
     payload = _selfdev_spec_payload()
     payload["additional_target_paths"] = [
-        "packages/contracts/src/agent_os_contracts/example.py",
+        "packages/os_core/src/agent_os_core/example_secondary.py",
     ]
     with pytest.raises(ValidationError, match="agent_loop_precise"):
         MandateTaskLinkCommand.model_validate(
@@ -185,6 +185,26 @@ def test_legacy_persisted_selfdev_link_without_envelope_remains_decodable() -> N
             (
                 "target_path",
                 "packages/os_core/src/agent_os_core/responsibility_surface.py",
+                "outside authority core",
+            ),
+            (
+                "target_path",
+                "packages/os_core/src/agent_os_core/agent_loop.py",
+                "outside authority core",
+            ),
+            (
+                "target_path",
+                "packages/os_core/src/agent_os_core/event_store.py",
+                "outside authority core",
+            ),
+            (
+                "target_path",
+                "packages/contracts/src/agent_os_contracts/capability.py",
+                "outside authority core",
+            ),
+            (
+                "target_path",
+                "apps/api_server/data_agent_report_policy.py",
                 "outside authority core",
             ),
         ("verifier_command", "pytest -q; git push", "allowlisted verifier"),
