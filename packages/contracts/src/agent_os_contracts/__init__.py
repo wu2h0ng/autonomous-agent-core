@@ -135,6 +135,7 @@ from .responsibility import (
     ResponsibilityAttentionReason,
     ResponsibilityItem,
     ResponsibilityItemState,
+    SelfDevelopmentWorkSpec,
     ResponsibilityWorkRoute,
 )
 from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
@@ -473,6 +474,7 @@ __all__ = [
     "ResponsibilityAttentionReason",
     "ResponsibilityItem",
     "ResponsibilityItemState",
+    "SelfDevelopmentWorkSpec",
     "RubricRef",
     "Sha256Digest",
     "SideEffectGuarantee",

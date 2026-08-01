@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import PurePosixPath
+import re
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -49,6 +51,73 @@ class ResponsibilityAttentionReason(str, Enum):
     UNHANDLED_TASK_RUN_STATE = "UNHANDLED_TASK_RUN_STATE"
 
 
+class SelfDevelopmentWorkSpec(ContractModel):
+    """Persisted execution envelope for one isolated Agent OS change."""
+
+    repository_head: NonEmptyStr
+    isolated_branch: NonEmptyStr
+    target_path: NonEmptyStr
+    verifier_command: NonEmptyStr
+    rollback_strategy: Literal["compensate_task"] = "compensate_task"
+
+    @field_validator("repository_head", mode="after")
+    @classmethod
+    def _validate_repository_head(cls, value: str) -> str:
+        if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+            raise ValueError("repository_head must be a 40-character lowercase Git object id")
+        return value
+
+    @field_validator("isolated_branch", mode="after")
+    @classmethod
+    def _validate_isolated_branch(cls, value: str) -> str:
+        if (
+            value in {"main", "master", "release"}
+            or value.startswith("release/")
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", value) is None
+            or ".." in value
+            or value.endswith(("/", ".lock"))
+        ):
+            raise ValueError("isolated_branch cannot target main/master/release or an unsafe ref")
+        return value
+
+    @field_validator("target_path", mode="after")
+    @classmethod
+    def _validate_target_path(cls, value: str) -> str:
+        allowed_prefixes = (
+            "packages/os_core/src/agent_os_core/",
+            "packages/contracts/src/agent_os_contracts/",
+            "apps/api_server/",
+            "apps/cli/",
+        )
+        path = PurePosixPath(value)
+        if (
+            value.startswith("/")
+            or "\\" in value
+            or any(part in {"", ".", ".."} or part.startswith(".") for part in path.parts)
+            or not path.as_posix().startswith(allowed_prefixes)
+        ):
+            raise ValueError("target_path must be a safe Agent OS product path")
+        return path.as_posix()
+
+    @field_validator("verifier_command", mode="after")
+    @classmethod
+    def _validate_verifier_command(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if normalized not in {"pytest", "python -m pytest", "python3 -m pytest"}:
+            raise ValueError("verifier_command must be an allowlisted verifier")
+        return normalized
+
+
+def _validate_work_route_spec(
+    route: ResponsibilityWorkRoute,
+    spec: SelfDevelopmentWorkSpec | None,
+) -> None:
+    if route is ResponsibilityWorkRoute.SELFDEV and spec is None:
+        raise ValueError("SELFDEV route requires selfdev_spec")
+    if route is not ResponsibilityWorkRoute.SELFDEV and spec is not None:
+        raise ValueError("selfdev_spec is only valid for SELFDEV route")
+
+
 class MandateTaskLinkCommand(ContractModel):
     task_id: NonEmptyStr
     reason: NonEmptyStr | None = None
@@ -56,6 +125,15 @@ class MandateTaskLinkCommand(ContractModel):
         default=ResponsibilityWorkRoute.ORDINARY_TASK,
         exclude_if=lambda value: value is ResponsibilityWorkRoute.ORDINARY_TASK,
     )
+    selfdev_spec: SelfDevelopmentWorkSpec | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def _validate_selfdev_route(self) -> MandateTaskLinkCommand:
+        _validate_work_route_spec(self.work_route, self.selfdev_spec)
+        return self
 
 
 class MandateTaskLink(ContractModel):
@@ -76,6 +154,10 @@ class MandateTaskLink(ContractModel):
     work_route: ResponsibilityWorkRoute = Field(
         default=ResponsibilityWorkRoute.ORDINARY_TASK,
         exclude_if=lambda value: value is ResponsibilityWorkRoute.ORDINARY_TASK,
+    )
+    selfdev_spec: SelfDevelopmentWorkSpec | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
     )
     prior_record_digest: Sha256Digest | None = None
     command_digest: Sha256Digest

@@ -27,6 +27,7 @@ from agent_os_contracts import (
     ResponsibilityAttentionReason,
     ResponsibilityItem,
     ResponsibilityItemState,
+    ResponsibilityWorkRoute,
     RunStatus,
     TaskEvent,
     TaskEventType,
@@ -1066,15 +1067,31 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             raise MandateResponsibilityPersistenceConflict(
                 "durable responsibility link is malformed"
             ) from None
-        reconstructed = MandateTaskLinkCommand(
-            task_id=link.task_id,
-            reason=link.reason,
-            work_route=link.work_route,
-        )
+        if (
+            link.work_route is ResponsibilityWorkRoute.SELFDEV
+            and link.selfdev_spec is None
+        ):
+            legacy_command: dict[str, object] = {
+                "schema_version": "1.0",
+                "task_id": link.task_id,
+                "work_route": link.work_route.value,
+            }
+            if link.reason is not None:
+                legacy_command["reason"] = link.reason
+            reconstructed_digest = content_digest(legacy_command)
+        else:
+            reconstructed_digest = content_digest(
+                MandateTaskLinkCommand(
+                    task_id=link.task_id,
+                    reason=link.reason,
+                    work_route=link.work_route,
+                    selfdev_spec=link.selfdev_spec,
+                )
+            )
         payload = link.model_dump(mode="json", exclude={"record_digest"})
         if (
             content_digest(payload) != link.record_digest
-            or link.command_digest != content_digest(reconstructed)
+            or link.command_digest != reconstructed_digest
             or link.association_id != str(row["association_id"])
             or link.link_id != str(row["link_id"])
             or link.principal_id != str(row["principal_id"])
@@ -1310,6 +1327,7 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             }
             if command.work_route.value != "ORDINARY_TASK":
                 link_payload["work_route"] = command.work_route
+                link_payload["selfdev_spec"] = command.selfdev_spec
             link = self._seal_link(link_payload)
             connection.execute(
                 f"INSERT INTO {self._LINK_TABLE} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

@@ -11,6 +11,7 @@ from agent_os_contracts import (
     PersistentCommitment,
     PersistentCommitmentState,
     PrincipalIdentity,
+    SelfDevelopmentWorkSpec,
     SettlementCommand,
     content_digest,
 )
@@ -21,6 +22,7 @@ from .responsibility_loop import (
     ResponsibilityLoopStaleFence,
     SQLiteResponsibilityLoopStore,
 )
+from .self_development_organ import SelfDevelopmentOrganBlocked
 
 
 class ResponsibilityControllerError(RuntimeError):
@@ -40,6 +42,16 @@ class ResponsibilityOrganRoute(str, Enum):
 
 class ResponsibilityControllerBlockReason(str, Enum):
     SELFDEV_ROUTE_NOT_BOUND = "SELFDEV_ROUTE_NOT_BOUND"
+    SELFDEV_WORKTREE_NOT_ISOLATED = "SELFDEV_WORKTREE_NOT_ISOLATED"
+    SELFDEV_WORKTREE_SCOPE_MISMATCH = "SELFDEV_WORKTREE_SCOPE_MISMATCH"
+    SELFDEV_GIT_IDENTITY_UNAVAILABLE = "SELFDEV_GIT_IDENTITY_UNAVAILABLE"
+    SELFDEV_BRANCH_MISMATCH = "SELFDEV_BRANCH_MISMATCH"
+    SELFDEV_HEAD_MISMATCH = "SELFDEV_HEAD_MISMATCH"
+    SELFDEV_WORKTREE_DIRTY = "SELFDEV_WORKTREE_DIRTY"
+    SELFDEV_TARGET_UNSAFE = "SELFDEV_TARGET_UNSAFE"
+    SELFDEV_TARGET_TOO_LARGE = "SELFDEV_TARGET_TOO_LARGE"
+    SELFDEV_SCOPE_DRIFT = "SELFDEV_SCOPE_DRIFT"
+    SELFDEV_WORKFLOW_NOT_ADMITTED = "SELFDEV_WORKFLOW_NOT_ADMITTED"
 
 
 class ResponsibilityProjectorPort(Protocol):
@@ -86,6 +98,10 @@ TaskExecutionPort = Callable[
     [str, Callable[[str], None], EffectExecutionPort],
     None,
 ]
+SelfDevelopmentExecutionPort = Callable[
+    [str, SelfDevelopmentWorkSpec, Callable[[str], None], EffectExecutionPort],
+    None,
+]
 ResponsibilityRouteSelectorPort = Callable[
     [Any, PersistentCommitment],
     ResponsibilityOrganRoute,
@@ -125,6 +141,7 @@ class ResponsibilityLoopController:
         select_route: ResponsibilityRouteSelectorPort,
         hcw_evaluator_root_id: str,
         clock: Callable[[], datetime],
+        execute_selfdev: SelfDevelopmentExecutionPort | None = None,
     ) -> None:
         self._responsibility_projector = responsibility_projector
         self._portfolio_store = portfolio_store
@@ -132,6 +149,7 @@ class ResponsibilityLoopController:
         self._loop = loop_store
         self._actor = actor
         self._execute_task = execute_task
+        self._execute_selfdev = execute_selfdev
         self._select_route = select_route
         self._hcw_evaluator_root_id = hcw_evaluator_root_id
         self._clock = clock
@@ -308,7 +326,9 @@ class ResponsibilityLoopController:
             )
             aggregate = self._tasks.get_task(commitment.task_id)
             organ_route = self._select_route(item, commitment)
-            if organ_route is ResponsibilityOrganRoute.SELFDEV:
+            if organ_route is ResponsibilityOrganRoute.SELFDEV and (
+                self._execute_selfdev is None or item.link.selfdev_spec is None
+            ):
                 blocked_checkpoint = self._loop.write_checkpoint(
                     binding,
                     lease,
@@ -494,11 +514,75 @@ class ResponsibilityLoopController:
 
             outcome = self._tasks.current_outcome(commitment.task_id)
             if outcome is None:
-                self._execute_task(
-                    commitment.task_id,
-                    assert_current,
-                    execute_effect,
-                )
+                if organ_route is ResponsibilityOrganRoute.SELFDEV:
+                    assert self._execute_selfdev is not None
+                    assert item.link.selfdev_spec is not None
+                    try:
+                        self._execute_selfdev(
+                            commitment.task_id,
+                            item.link.selfdev_spec,
+                            assert_current,
+                            execute_effect,
+                        )
+                    except SelfDevelopmentOrganBlocked as exc:
+                        blocked_checkpoint = self._loop.write_checkpoint(
+                            binding,
+                            lease,
+                            state=ResponsibilityCycleState.BLOCKED,
+                            active_cycle_id=cycle_id,
+                            active_link_id=item.link.link_id,
+                            active_commitment_record_id=(
+                                commitment.commitment_record_id
+                            ),
+                            responsibility_projection_digest=(
+                                responsibility.view_digest
+                            ),
+                            active_task_id=commitment.task_id,
+                            active_run_id=(
+                                aggregate.run.run_id
+                                if aggregate.run is not None
+                                else None
+                            ),
+                            last_event_sequence=max(
+                                aggregate.sequence,
+                                checkpoint.last_event_sequence,
+                            ),
+                            next_transition=exc.code,
+                            recorded_at=self._clock(),
+                            expected_prior_digest=checkpoint_digest,
+                        )
+                        return ResponsibilityControllerResult(
+                            state=ResponsibilityControllerState.BLOCKED,
+                            mandate_id=binding.mandate_id,
+                            cycle_id=cycle_id,
+                            link_id=item.link.link_id,
+                            commitment_record_id=(
+                                commitment.commitment_record_id
+                            ),
+                            task_id=commitment.task_id,
+                            run_id=(
+                                aggregate.run.run_id
+                                if aggregate.run is not None
+                                else None
+                            ),
+                            settlement_id=None,
+                            help_request_id=None,
+                            cycle_receipt_digest=None,
+                            hcw_receipt_digest=None,
+                            checkpoint_digest=(
+                                blocked_checkpoint.checkpoint_digest
+                            ),
+                            organ_route=organ_route,
+                            block_reason=ResponsibilityControllerBlockReason(
+                                exc.code
+                            ),
+                        )
+                else:
+                    self._execute_task(
+                        commitment.task_id,
+                        assert_current,
+                        execute_effect,
+                    )
                 assert_current("after_task_execution")
                 outcome = self._tasks.current_outcome(commitment.task_id)
             if outcome is None:

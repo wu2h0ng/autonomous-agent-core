@@ -521,6 +521,18 @@ class RunCoordinator:
                     raise WorkerInterrupted(f"worker interrupted after node {node.node_id}")
             except WorkerInterrupted:
                 raise
+            except KeyboardInterrupt:
+                try:
+                    self._handle_keyboard_interrupt(
+                        task_id,
+                        principal,
+                        run_id=run.run_id,
+                        node_id=node.node_id,
+                        lease_fence=lease_fence,
+                    )
+                finally:
+                    self._release_lease(run.run_id, owner)
+                raise
             except Exception as exc:
                 failure_commit_allowed = True
                 if execution_fence is not None:
@@ -566,9 +578,66 @@ class RunCoordinator:
                     principal,
                     held_lease_fence=lease_fence,
                 )
+        except KeyboardInterrupt:
+            self._handle_keyboard_interrupt(
+                task_id,
+                principal,
+                run_id=run.run_id,
+                node_id="run-finalization",
+                lease_fence=lease_fence,
+            )
+            raise
         finally:
             self._release_lease(run.run_id, owner)
         return self.tasks.get_task(task_id)
+
+    def _handle_keyboard_interrupt(
+        self,
+        task_id: str,
+        principal: PrincipalIdentity,
+        *,
+        run_id: str,
+        node_id: str,
+        lease_fence: int,
+    ) -> None:
+        current = self.tasks.current_outcome(task_id)
+        if current is not None and current.status is OutcomeStatus.VERIFIED:
+            self.tasks.record_outcome(
+                task_id,
+                ObservedOutcome(
+                    observed_outcome_id=f"observed-{uuid4()}",
+                    expected_outcome_id=current.expected_outcome_id,
+                    task_id=current.task_id,
+                    run_id=current.run_id,
+                    tenant_id=current.tenant_id,
+                    workspace_id=current.workspace_id,
+                    evaluator_type=current.evaluator_type,
+                    evaluator_version=current.evaluator_version,
+                    status=OutcomeStatus.UNRESOLVED,
+                    score=None,
+                    confidence=1.0,
+                    evidence_refs=current.evidence_refs,
+                    unresolved_gaps=("execution interrupted before finalization",),
+                    observed_at=self.tasks.now(),
+                ),
+            )
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.NODE_FAILED,
+            {"node_id": node_id, "error": "KeyboardInterrupt"},
+            correlation_id=run_id,
+        )
+        self.tasks.update_run_status(
+            task_id,
+            RunStatus.FAILED,
+            event_type=TaskEventType.RUN_FAILED,
+            active_node_id=node_id,
+        )
+        self._attempt_automatic_compensation(
+            task_id,
+            principal,
+            held_lease_fence=lease_fence,
+        )
 
     def _revalidate_outcome_before_finalization(
         self,
@@ -1095,10 +1164,34 @@ class RunCoordinator:
         read_output = context.get("workspace.read") or context.get("read")
         if not target_path or not isinstance(read_output, dict):
             raise RunExecutionError("provider requires a target path and completed workspace.read")
+        if aggregate.commitment is None:
+            raise RunExecutionError("provider requires a canonical Commitment")
         current_content = str(read_output.get("content", ""))
         goal = str(context.get("goal") or context.get("prompt") or "Produce the requested repository patch.")
+        acceptance_criteria = "\n".join(
+            f"- {criterion}" for criterion in aggregate.commitment.acceptance_criteria
+        )
+        selfdev_envelope = context.get("selfdev_execution_envelope")
+        selfdev_contract = ""
+        if isinstance(selfdev_envelope, dict):
+            prohibited = ", ".join(
+                str(value)
+                for value in selfdev_envelope.get("prohibited_effects", ())
+            )
+            selfdev_contract = (
+                "SELFDEV persisted execution envelope:\n"
+                f"Exact base HEAD: {selfdev_envelope.get('repository_head', '')}\n"
+                f"Isolated branch: {selfdev_envelope.get('isolated_branch', '')}\n"
+                f"Allowed write path: {selfdev_envelope.get('allowed_write_path', '')}\n"
+                f"Verifier: {selfdev_envelope.get('verifier_command', '')}\n"
+                f"Rollback: {selfdev_envelope.get('rollback_strategy', '')}\n"
+                f"Prohibited effects: {prohibited}.\n"
+            )
         prompt = (
             f"Repository task: {goal}\n"
+            "Acceptance criteria:\n"
+            f"{acceptance_criteria}\n"
+            f"{selfdev_contract}"
             f"Target path: {target_path}\n"
             f"Current SHA-256: {read_output.get('sha256', '')}\n"
             "Current file content follows:\n"
@@ -1411,7 +1504,14 @@ class RunCoordinator:
             return {"path": path}
         if capability_id == "workspace.run_tests":
             command = context.get("test_command") or context.get("command") or "python -m pytest"
-            return {"command": str(command)}
+            arguments: dict[str, Any] = {"command": str(command)}
+            selfdev_envelope = context.get("selfdev_execution_envelope")
+            if isinstance(selfdev_envelope, dict):
+                arguments["selfdev_verification_snapshot"] = {
+                    "repository_head": selfdev_envelope.get("repository_head"),
+                    "target_path": selfdev_envelope.get("allowed_write_path"),
+                }
+            return arguments
         explicit = context.get(capability_id)
         if isinstance(explicit, dict):
             return dict(explicit)
