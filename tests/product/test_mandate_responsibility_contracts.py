@@ -107,6 +107,10 @@ def test_selfdev_precise_mode_persists_one_canonical_ordered_write_set() -> None
             ["packages/os_core/src/agent_os_core/example.py"],
             "write paths must be unique",
         ),
+        (
+            ["packages/os_core/src/agent_os_core/agent_cli.py"],
+            "outside authority core",
+        ),
         (["../escape.py"], "safe Agent OS product path"),
     ],
 )
@@ -205,6 +209,11 @@ def test_legacy_persisted_selfdev_link_without_envelope_remains_decodable() -> N
             (
                 "target_path",
                 "apps/api_server/data_agent_report_policy.py",
+                "outside authority core",
+            ),
+            (
+                "target_path",
+                "packages/os_core/src/agent_os_core/agent_cli.py",
                 "outside authority core",
             ),
         ("verifier_command", "pytest -q; git push", "allowlisted verifier"),

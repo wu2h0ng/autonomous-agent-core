@@ -155,6 +155,7 @@ class SelfDevelopmentWorkSpec(ContractModel):
         )
         reserved_stems = {
             "action_pipeline",
+            "agent_cli",
             "agent_loop",
             "execution",
             "self_development_organ",
