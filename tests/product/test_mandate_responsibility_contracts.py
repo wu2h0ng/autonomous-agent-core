@@ -80,6 +80,13 @@ def test_selfdev_route_requires_envelope_and_ordinary_route_forbids_it() -> None
             work_route=ResponsibilityWorkRoute.SELFDEV,
         )
 
+
+def test_legacy_persisted_selfdev_link_without_envelope_remains_decodable() -> None:
+    link = _link(work_route=ResponsibilityWorkRoute.SELFDEV)
+
+    assert link.work_route is ResponsibilityWorkRoute.SELFDEV
+    assert link.selfdev_spec is None
+
     with pytest.raises(ValidationError, match="only valid for SELFDEV route"):
         MandateTaskLinkCommand.model_validate(
             {
@@ -97,6 +104,11 @@ def test_selfdev_route_requires_envelope_and_ordinary_route_forbids_it() -> None
         ("isolated_branch", "release/2026-08", "cannot target main/master/release"),
         ("target_path", "../packages/os_core/pwn.py", "safe Agent OS product path"),
         ("target_path", ".git/config", "safe Agent OS product path"),
+        (
+            "target_path",
+            "tests/product/test_acceptance.py",
+            "safe Agent OS product path",
+        ),
         ("verifier_command", "pytest -q; git push", "allowlisted verifier"),
         ("verifier_command", "git push origin main", "allowlisted verifier"),
     ],

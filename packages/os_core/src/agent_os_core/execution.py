@@ -521,6 +521,28 @@ class RunCoordinator:
                     raise WorkerInterrupted(f"worker interrupted after node {node.node_id}")
             except WorkerInterrupted:
                 raise
+            except KeyboardInterrupt:
+                try:
+                    self.tasks.append_event(
+                        task_id,
+                        TaskEventType.NODE_FAILED,
+                        {"node_id": node.node_id, "error": "KeyboardInterrupt"},
+                        correlation_id=run.run_id,
+                    )
+                    self.tasks.update_run_status(
+                        task_id,
+                        RunStatus.FAILED,
+                        event_type=TaskEventType.RUN_FAILED,
+                        active_node_id=node.node_id,
+                    )
+                    self._attempt_automatic_compensation(
+                        task_id,
+                        principal,
+                        held_lease_fence=lease_fence,
+                    )
+                finally:
+                    self._release_lease(run.run_id, owner)
+                raise
             except Exception as exc:
                 failure_commit_allowed = True
                 if execution_fence is not None:

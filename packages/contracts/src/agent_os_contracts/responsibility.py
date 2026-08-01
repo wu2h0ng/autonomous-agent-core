@@ -88,9 +88,6 @@ class SelfDevelopmentWorkSpec(ContractModel):
             "packages/contracts/src/agent_os_contracts/",
             "apps/api_server/",
             "apps/cli/",
-            "tests/product/",
-            "docs/product/",
-            "docs/architecture/",
         )
         path = PurePosixPath(value)
         if (
@@ -168,11 +165,6 @@ class MandateTaskLink(ContractModel):
     task_activation_authorized: Literal[False] = False
     capability_grant_authorized: Literal[False] = False
     external_effects_authorized: Literal[False] = False
-
-    @model_validator(mode="after")
-    def _validate_selfdev_route(self) -> MandateTaskLink:
-        _validate_work_route_spec(self.work_route, self.selfdev_spec)
-        return self
 
     @field_validator(
         "task_activation_authorized",

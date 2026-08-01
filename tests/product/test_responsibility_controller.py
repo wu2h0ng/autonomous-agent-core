@@ -32,6 +32,7 @@ from agent_os_contracts import (
 )
 from agent_os_core.errors import RunExecutionError
 from agent_os_core import DeterministicProvider
+from agent_os_core.capability import CapabilityBroker
 from agent_os_core.responsibility_controller import (
     ResponsibilityControllerBlockReason,
     ResponsibilityControllerState,
@@ -78,10 +79,23 @@ def _verified_responsibility(
 ):
     _prepare_workspace(tmp_path)
     if work_route is ResponsibilityWorkRoute.SELFDEV:
+        implementation = (
+            tmp_path
+            / "packages"
+            / "os_core"
+            / "src"
+            / "agent_os_core"
+            / "selfdev_fixture.py"
+        )
+        implementation.parent.mkdir(parents=True, exist_ok=True)
+        implementation.write_text("VALUE = True\n", encoding="utf-8")
         product_tests = tmp_path / "tests" / "product"
         product_tests.mkdir(parents=True, exist_ok=True)
         (product_tests / "test_selfdev_fixture.py").write_text(
-            "def test_selfdev_fixture():\n    assert True\n",
+            "from pathlib import Path\n\n"
+            "def test_selfdev_fixture():\n"
+            "    source = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
+            "    assert source.read_text(encoding='utf-8') == 'VALUE = True\\n'\n",
             encoding="utf-8",
         )
     database, owner, admin = _apps(tmp_path)
@@ -131,7 +145,12 @@ def _verified_responsibility(
     owner.tasks.commit_task(
         task.task_id,
         commitment,
-        workflow or _post_test_read_workflow(NOW),
+        workflow
+        or (
+            _selfdev_patch_workflow()
+            if work_route is ResponsibilityWorkRoute.SELFDEV
+            else _post_test_read_workflow(NOW)
+        ),
         expected,
     )
     admin.mandate_outcome_portfolio_store.create_portfolio(
@@ -154,7 +173,7 @@ def _verified_responsibility(
                 or SelfDevelopmentWorkSpec(
                     repository_head="a" * 40,
                     isolated_branch="codex/selfdev-controller-test",
-                    target_path="tests/product/test_selfdev_fixture.py",
+                    target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
                     verifier_command="pytest",
                 )
                 if work_route is ResponsibilityWorkRoute.SELFDEV
@@ -397,6 +416,7 @@ def test_selfdev_responsibility_is_typed_blocked_without_task_execution(
 ) -> None:
     database, owner, admin, task_id, attached = _verified_responsibility(
         tmp_path,
+        workflow=_post_test_read_workflow(NOW),
         work_route=ResponsibilityWorkRoute.SELFDEV,
     )
     binding, loop_store, _ = _controller(database, owner, admin, tmp_path)
@@ -443,6 +463,7 @@ def test_bound_selfdev_route_executes_linked_task_without_ordinary_fallback(
 ) -> None:
     database, owner, admin, task_id, attached = _verified_responsibility(
         tmp_path,
+        workflow=_post_test_read_workflow(NOW),
         work_route=ResponsibilityWorkRoute.SELFDEV,
     )
     binding, loop_store, _ = _controller(database, owner, admin, tmp_path)
@@ -499,7 +520,7 @@ def test_bound_selfdev_route_executes_linked_task_without_ordinary_fallback(
             SelfDevelopmentWorkSpec(
                 repository_head="a" * 40,
                 isolated_branch="codex/selfdev-controller-test",
-                target_path="tests/product/test_selfdev_fixture.py",
+                target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
                 verifier_command="pytest",
             ),
         )
@@ -526,9 +547,30 @@ def _linked_worktree(tmp_path: Path) -> tuple[Path, str, str]:
         ["git", "-C", str(source), "config", "user.name", "Agent Test"],
         check=True,
     )
-    target = source / "tests" / "product" / "test_selfdev_fixture.py"
+    target = (
+        source
+        / "packages"
+        / "os_core"
+        / "src"
+        / "agent_os_core"
+        / "selfdev_fixture.py"
+    )
     target.parent.mkdir(parents=True)
-    target.write_text("def test_selfdev_fixture():\n    assert True\n", encoding="utf-8")
+    target.write_text("VALUE = True\n", encoding="utf-8")
+    test_target = source / "tests" / "product" / "test_selfdev_fixture.py"
+    test_target.parent.mkdir(parents=True)
+    test_target.write_text(
+        "from pathlib import Path\n\n"
+        "def test_selfdev_fixture():\n"
+        "    source = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
+        "    assert source.read_text(encoding='utf-8') == 'VALUE = True\\n'\n",
+        encoding="utf-8",
+    )
+    (source / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    (source / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert open('fixture.txt').read() == 'stable\\n'\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "-C", str(source), "add", "."], check=True)
     subprocess.run(
         ["git", "-C", str(source), "commit", "-m", "fixture"],
@@ -621,7 +663,7 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
         isolated_branch=branch,
-        target_path="tests/product/test_selfdev_fixture.py",
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
     )
 
@@ -636,12 +678,12 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
         (
             "task:selfdev",
             {
-                "target_path": "tests/product/test_selfdev_fixture.py",
+                "target_path": "packages/os_core/src/agent_os_core/selfdev_fixture.py",
                 "test_command": "pytest",
                 "selfdev_execution_envelope": {
                     "repository_head": head,
                     "isolated_branch": branch,
-                    "allowed_write_path": "tests/product/test_selfdev_fixture.py",
+                    "allowed_write_path": "packages/os_core/src/agent_os_core/selfdev_fixture.py",
                     "verifier_command": "pytest",
                     "rollback_strategy": "compensate_task",
                     "prohibited_effects": (
@@ -686,7 +728,7 @@ def test_selfdev_organ_rejects_unproven_isolation_before_execution(
     spec = SelfDevelopmentWorkSpec(
         repository_head=expected_head,
         isolated_branch=expected_branch,
-        target_path="tests/product/test_selfdev_fixture.py",
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
     )
 
@@ -699,6 +741,116 @@ def test_selfdev_organ_rejects_unproven_isolation_before_execution(
     assert calls == []
 
 
+def test_selfdev_organ_rejects_dirty_large_and_out_of_scope_changes(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
+        verifier_command="pytest",
+    )
+    disguised = isolated / "agent-os.sqlite3-pwn.py"
+    disguised.write_text("dirty\n", encoding="utf-8")
+    organ = responsibility_surface.SelfDevelopmentOrgan(
+        workspace=isolated,
+        execute_task=lambda *_args: None,
+    )
+    with pytest.raises(SelfDevelopmentOrganBlocked, match="SELFDEV_WORKTREE_DIRTY"):
+        organ("task:selfdev", spec, lambda _phase: None, lambda *_args: None)
+    disguised.unlink()
+
+    target = isolated / spec.target_path
+    target.write_text("x" * 20_001, encoding="utf-8")
+    subprocess.run(["git", "-C", str(isolated), "add", spec.target_path], check=True)
+    subprocess.run(
+        ["git", "-C", str(isolated), "commit", "-m", "large fixture"],
+        check=True,
+        capture_output=True,
+    )
+    large_spec = spec.model_copy(
+        update={"repository_head": subprocess.run(
+            ["git", "-C", str(isolated), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()}
+    )
+    with pytest.raises(SelfDevelopmentOrganBlocked, match="SELFDEV_TARGET_TOO_LARGE"):
+        organ("task:selfdev", large_spec, lambda _phase: None, lambda *_args: None)
+
+    target.write_text("VALUE = True\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(isolated), "add", spec.target_path], check=True)
+    subprocess.run(
+        ["git", "-C", str(isolated), "commit", "-m", "small fixture"],
+        check=True,
+        capture_output=True,
+    )
+    clean_spec = spec.model_copy(
+        update={"repository_head": subprocess.run(
+            ["git", "-C", str(isolated), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()}
+    )
+    scope_drift = responsibility_surface.SelfDevelopmentOrgan(
+        workspace=isolated,
+        execute_task=lambda *_args: (isolated / "outside.txt").write_text(
+            "drift\n", encoding="utf-8"
+        ),
+    )
+    with pytest.raises(SelfDevelopmentOrganBlocked, match="SELFDEV_SCOPE_DRIFT"):
+        scope_drift(
+            "task:selfdev",
+            clean_spec,
+            lambda _phase: None,
+            lambda *_args: None,
+        )
+
+
+def test_real_agent_surface_blocks_noncanonical_selfdev_workflow(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_post_test_read_workflow(NOW),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+    )
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+
+    payload = run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=False,
+    )
+
+    assert payload["terminal_state"] == "BLOCKED"
+    assert payload["cycles"][0]["block_reason"] == "SELFDEV_WORKFLOW_NOT_ADMITTED"
+    assert owner.tasks.current_outcome(task_id) is None
+
+
 def test_real_agent_surface_runs_bound_selfdev_organ_on_same_linked_task(
     tmp_path: Path,
 ) -> None:
@@ -706,13 +858,24 @@ def test_real_agent_surface_runs_bound_selfdev_organ_on_same_linked_task(
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
         isolated_branch=branch,
-        target_path="tests/product/test_selfdev_fixture.py",
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
     )
     database, owner, admin, task_id, _ = _verified_responsibility(
         isolated,
         work_route=ResponsibilityWorkRoute.SELFDEV,
         selfdev_spec=spec,
+    )
+    owner.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:selfdev-noop",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": spec.target_path, "content": "VALUE = True\n"}
+                ),
+            ),
+        )
     )
     attach_mandate(
         workspace=isolated,
@@ -737,12 +900,10 @@ def test_real_agent_surface_runs_bound_selfdev_organ_on_same_linked_task(
 
     assert payload["terminal_state"] == "WAITING_EVENT"
     assert payload["cycles"][0]["organ_route"] == "SELFDEV"
-    assert payload["cycles"][0]["state"] == "SETTLED"
+    assert payload["cycles"][0]["state"] == "WAITING_EVENT"
     assert payload["cycles"][0]["task_id"] == task_id
     assert len(owner.list_tasks()) == task_count
-    outcome = owner.tasks.current_outcome(task_id)
-    assert outcome is not None
-    assert outcome.status is OutcomeStatus.VERIFIED
+    assert owner.tasks.current_outcome(task_id) is None
 
 
 def test_real_agent_surface_returns_typed_block_on_selfdev_head_drift(
@@ -752,7 +913,7 @@ def test_real_agent_surface_returns_typed_block_on_selfdev_head_drift(
     spec = SelfDevelopmentWorkSpec(
         repository_head="f" * 40,
         isolated_branch=branch,
-        target_path="tests/product/test_selfdev_fixture.py",
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
     )
     database, owner, admin, task_id, _ = _verified_responsibility(
@@ -789,12 +950,19 @@ def test_selfdev_approval_help_resumes_exact_task_and_rolls_back_not_met_patch(
     tmp_path: Path,
 ) -> None:
     isolated, branch, head = _linked_worktree(tmp_path)
-    target = isolated / "tests" / "product" / "test_selfdev_fixture.py"
+    target = (
+        isolated
+        / "packages"
+        / "os_core"
+        / "src"
+        / "agent_os_core"
+        / "selfdev_fixture.py"
+    )
     preimage = target.read_text(encoding="utf-8")
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
         isolated_branch=branch,
-        target_path="tests/product/test_selfdev_fixture.py",
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
     )
     database, owner, admin, task_id, _ = _verified_responsibility(
@@ -811,7 +979,7 @@ def test_selfdev_approval_help_resumes_exact_task_and_rolls_back_not_met_patch(
                 arguments_json=json.dumps(
                     {
                         "path": spec.target_path,
-                        "content": "def test_selfdev_fixture():\n    assert False\n",
+                        "content": "VALUE = False\n",
                     }
                 ),
             ),
@@ -861,6 +1029,22 @@ def test_selfdev_approval_help_resumes_exact_task_and_rolls_back_not_met_patch(
     assert "Acceptance criteria:" in provider_prompt
     assert "pytest passes" in provider_prompt
 
+    with pytest.raises(ValueError):
+        answer_responsibility_help(
+            app=admin,
+            execution_app=owner,
+            workspace=isolated,
+            database=database,
+            help_request_id=help_id,
+            payload={
+                "response_kind": SrlHelpResponseKind.CANCELLATION.value,
+                "decision": "APPROVE",
+                "notes": "invalid response must not create an orphan approval",
+            },
+        )
+    assert owner.tasks.get_task(task_id).approval is None
+    assert help_request.is_open
+
     admin.record_approval(
         task_id,
         {"disposition": "APPROVE", "reason": "external exact approval"},
@@ -879,6 +1063,22 @@ def test_selfdev_approval_help_resumes_exact_task_and_rolls_back_not_met_patch(
                 "response_kind": SrlHelpResponseKind.OPERATOR_DECISION.value,
                 "decision": "REJECT",
                 "notes": "must not contradict the durable approval",
+            },
+        )
+    with pytest.raises(
+        ResponsibilitySurfaceError,
+        match="SELFDEV_APPROVAL_DECISION_CONFLICT",
+    ):
+        answer_responsibility_help(
+            app=admin,
+            execution_app=owner,
+            workspace=isolated,
+            database=database,
+            help_request_id=help_id,
+            payload={
+                "response_kind": SrlHelpResponseKind.OPERATOR_DECISION.value,
+                "decision": "MORE_INFO",
+                "notes": "durable approval cannot be hidden behind more info",
             },
         )
 
@@ -919,12 +1119,19 @@ def test_selfdev_organ_rejects_task_owner_self_approval(
     tmp_path: Path,
 ) -> None:
     isolated, branch, head = _linked_worktree(tmp_path)
-    target = isolated / "tests" / "product" / "test_selfdev_fixture.py"
+    target = (
+        isolated
+        / "packages"
+        / "os_core"
+        / "src"
+        / "agent_os_core"
+        / "selfdev_fixture.py"
+    )
     preimage = target.read_text(encoding="utf-8")
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
         isolated_branch=branch,
-        target_path="tests/product/test_selfdev_fixture.py",
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
     )
     database, owner, admin, task_id, _ = _verified_responsibility(
@@ -984,6 +1191,95 @@ def test_selfdev_organ_rejects_task_owner_self_approval(
             },
         )
     assert target.read_text(encoding="utf-8") == preimage
+
+
+def test_selfdev_keyboard_interrupt_after_patch_compensates_exact_preimage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    target = (
+        isolated
+        / "packages"
+        / "os_core"
+        / "src"
+        / "agent_os_core"
+        / "selfdev_fixture.py"
+    )
+    preimage = target.read_text(encoding="utf-8")
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_selfdev_patch_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+    )
+    owner.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:selfdev-interrupt",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": spec.target_path, "content": "VALUE = False\n"}
+                ),
+            ),
+        )
+    )
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+    waiting = run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=False,
+    )
+    answer_responsibility_help(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        help_request_id=waiting["cycles"][0]["help_request_id"],
+        payload={
+            "response_kind": SrlHelpResponseKind.OPERATOR_DECISION.value,
+            "decision": "APPROVE",
+            "notes": "approve interrupt fixture",
+        },
+    )
+    original_invoke = CapabilityBroker.invoke
+
+    def interrupt_tests(self, action, permit, attempt=1):
+        if action.capability_id == "workspace.run_tests":
+            raise KeyboardInterrupt
+        return original_invoke(self, action, permit, attempt=attempt)
+
+    monkeypatch.setattr(CapabilityBroker, "invoke", interrupt_tests)
+    with pytest.raises(KeyboardInterrupt):
+        run_responsibility_work(
+            app=admin,
+            execution_app=owner,
+            workspace=isolated,
+            database=database,
+            inputs={},
+            resume=True,
+        )
+
+    assert target.read_text(encoding="utf-8") == preimage
+    assert owner.tasks.current_outcome(task_id) is None
 
 
 def test_process_b_finishes_cycle_after_crash_following_settlement(

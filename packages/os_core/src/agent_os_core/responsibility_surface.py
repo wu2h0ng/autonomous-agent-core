@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     MandateWorkspaceRecord,
+    NodeKind,
     OutcomePortfolioHelpGap,
     OutcomePortfolio,
     PrincipalIdentity,
@@ -34,7 +35,7 @@ from .responsibility_loop import (
     ResponsibilityLoopEffectUnknown,
     SQLiteResponsibilityLoopStore,
 )
-from .self_development_organ import SelfDevelopmentOrgan
+from .self_development_organ import SelfDevelopmentOrgan, SelfDevelopmentOrganBlocked
 
 AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
     evaluator_root_id="hcw-evaluator:agent-work:v1",
@@ -53,6 +54,50 @@ AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
 
 class ResponsibilitySurfaceError(RuntimeError):
     """Fail-closed error for the unique terminal Work surface."""
+
+
+def _validate_selfdev_task(aggregate: Any) -> None:
+    workflow = aggregate.workflow
+    if workflow is None:
+        raise SelfDevelopmentOrganBlocked(
+            "SELFDEV_WORKFLOW_NOT_ADMITTED",
+            "SELFDEV requires a committed canonical workflow",
+        )
+    nodes = {node.node_id: node for node in workflow.nodes}
+    outgoing: dict[str, list[str]] = {node_id: [] for node_id in nodes}
+    incoming: dict[str, int] = {node_id: 0 for node_id in nodes}
+    for edge in workflow.edges:
+        outgoing[edge.source].append(edge.target)
+        incoming[edge.target] += 1
+    roots = [node_id for node_id, count in incoming.items() if count == 0]
+    ordered = []
+    current = roots[0] if len(roots) == 1 else None
+    while current is not None:
+        ordered.append(nodes[current])
+        targets = outgoing[current]
+        current = targets[0] if len(targets) == 1 else None
+    signature = tuple((node.kind, node.capability) for node in ordered)
+    expected = (
+        (NodeKind.TOOL, "workspace.read"),
+        (NodeKind.PROVIDER, "provider.chat"),
+        (NodeKind.APPROVAL, None),
+        (NodeKind.TOOL, "workspace.apply_patch"),
+        (NodeKind.TOOL, "workspace.run_tests"),
+        (NodeKind.EVALUATION, None),
+        (NodeKind.TERMINAL, None),
+    )
+    patch_node = ordered[3] if len(ordered) == len(expected) else None
+    if (
+        signature != expected
+        or len(workflow.edges) != len(expected) - 1
+        or patch_node is None
+        or patch_node.risk_tier != 2
+        or patch_node.idempotency.value != "compensatable"
+    ):
+        raise SelfDevelopmentOrganBlocked(
+            "SELFDEV_WORKFLOW_NOT_ADMITTED",
+            "SELFDEV workflow must be read-provider-approval-single-patch-test-evaluate",
+        )
 
 
 @dataclass(frozen=True)
@@ -338,6 +383,9 @@ def run_responsibility_work(
     selfdev_organ = SelfDevelopmentOrgan(
         workspace=workspace,
         execute_task=execute_task_with_inputs,
+        validate_task=lambda task_id: _validate_selfdev_task(
+            execution_app.tasks.get_task(task_id)
+        ),
     )
 
     controller = ResponsibilityLoopController(
@@ -461,14 +509,15 @@ def answer_responsibility_help(
         )
     help_request = matching_help[0]
     task_approval_recorded = False
+    pending_task_decision: str | None = None
     if help_request.gap_kind is OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL:
         if help_request.task_id != checkpoint.active_task_id:
             raise ResponsibilitySurfaceError(
                 "action approval Help does not match the active Task"
             )
         decision = payload.get("decision")
+        aggregate = app.tasks.get_task(checkpoint.active_task_id)
         if decision in {"APPROVE", "REJECT"}:
-            aggregate = app.tasks.get_task(checkpoint.active_task_id)
             if aggregate.approval is not None and (
                 aggregate.approval.actor_id != app.principal.principal_id
                 or aggregate.approval.actor_role is not app.principal.role
@@ -487,15 +536,14 @@ def answer_responsibility_help(
                     "the durable Task approval"
                 )
             if aggregate.approval is None:
-                app.record_approval(
-                    checkpoint.active_task_id,
-                    {
-                        "disposition": decision,
-                        "reason": payload.get("notes")
-                        or "External Agent Work action decision",
-                    },
-                )
-            task_approval_recorded = True
+                pending_task_decision = decision
+            else:
+                task_approval_recorded = True
+        elif decision == "MORE_INFO" and aggregate.approval is not None:
+            raise ResponsibilitySurfaceError(
+                "SELFDEV_APPROVAL_DECISION_CONFLICT: MORE_INFO contradicts the "
+                "durable Task approval"
+            )
         elif decision != "MORE_INFO":
             raise ResponsibilitySurfaceError(
                 "action approval Help requires APPROVE, REJECT or MORE_INFO"
@@ -505,6 +553,16 @@ def answer_responsibility_help(
         help_request_id,
         payload,
     )
+    if pending_task_decision is not None:
+        app.record_approval(
+            checkpoint.active_task_id,
+            {
+                "disposition": pending_task_decision,
+                "reason": payload.get("notes")
+                or "External Agent Work action decision",
+            },
+        )
+        task_approval_recorded = True
     event_id = "operator-help-response:" + content_digest(response)
     context.loop_store.append_operator_work_event(
         context.binding,
