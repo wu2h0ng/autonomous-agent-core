@@ -42,6 +42,7 @@ from agent_os_contracts import (
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
+from .action_pipeline import ActionPipeline
 from .errors import (
     ConcurrentWriteError,
     RunExecutionError,
@@ -198,6 +199,13 @@ class RunCoordinator:
         self.tasks.bind_artifact_reader(sandbox.read_artifact_bytes)
         self.tasks.bind_correction_reader(correction)
         self.broker = CapabilityBroker(sandbox, correction)
+        self.actions = ActionPipeline(
+            task_service,
+            self.broker,
+            policy,
+            correction,
+            grant,
+        )
         self.provider = provider
         self.provider_profile = provider_profile
         self.policy = policy
@@ -529,6 +537,7 @@ class RunCoordinator:
                         run_id=run.run_id,
                         node_id=node.node_id,
                         lease_fence=lease_fence,
+                        effect_custody=effect_custody,
                     )
                 finally:
                     self._release_lease(run.run_id, owner)
@@ -548,6 +557,7 @@ class RunCoordinator:
                             task_id,
                             principal,
                             held_lease_fence=lease_fence,
+                            effect_custody=effect_custody,
                         )
                 finally:
                     self._release_lease(run.run_id, owner)
@@ -577,6 +587,7 @@ class RunCoordinator:
                     task_id,
                     principal,
                     held_lease_fence=lease_fence,
+                    effect_custody=effect_custody,
                 )
         except KeyboardInterrupt:
             self._handle_keyboard_interrupt(
@@ -585,6 +596,7 @@ class RunCoordinator:
                 run_id=run.run_id,
                 node_id="run-finalization",
                 lease_fence=lease_fence,
+                effect_custody=effect_custody,
             )
             raise
         finally:
@@ -599,6 +611,7 @@ class RunCoordinator:
         run_id: str,
         node_id: str,
         lease_fence: int,
+        effect_custody: EffectCustodyPort | None = None,
     ) -> None:
         current = self.tasks.current_outcome(task_id)
         if current is not None and current.status is OutcomeStatus.VERIFIED:
@@ -637,6 +650,7 @@ class RunCoordinator:
             task_id,
             principal,
             held_lease_fence=lease_fence,
+            effect_custody=effect_custody,
         )
 
     def _revalidate_outcome_before_finalization(
@@ -675,12 +689,15 @@ class RunCoordinator:
         self,
         task_id: str,
         principal: PrincipalIdentity,
+        *,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         return self._compensate_with_mode(
             task_id,
             principal,
             mode=CompensationMode.MANUAL,
             held_lease_fence=None,
+            effect_custody=effect_custody,
         )
 
     def _auto_compensate_task(
@@ -689,12 +706,14 @@ class RunCoordinator:
         principal: PrincipalIdentity,
         *,
         held_lease_fence: int,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         return self._compensate_with_mode(
             task_id,
             principal,
             mode=CompensationMode.AUTOMATIC,
             held_lease_fence=held_lease_fence,
+            effect_custody=effect_custody,
         )
 
     def _attempt_automatic_compensation(
@@ -703,6 +722,7 @@ class RunCoordinator:
         principal: PrincipalIdentity,
         *,
         held_lease_fence: int,
+        effect_custody: EffectCustodyPort | None = None,
     ) -> None:
         """Keep an already-persisted failure authoritative if rollback infrastructure fails."""
 
@@ -711,6 +731,7 @@ class RunCoordinator:
                 task_id,
                 principal,
                 held_lease_fence=held_lease_fence,
+                effect_custody=effect_custody,
             )
         except Exception:
             # The original RUN_FAILED/NOT_MET is already durable. A broken event store
@@ -724,6 +745,7 @@ class RunCoordinator:
         *,
         mode: CompensationMode,
         held_lease_fence: int | None,
+        effect_custody: EffectCustodyPort | None,
     ):
         if mode is CompensationMode.MANUAL and principal.role not in {
             PrincipalRole.PRINCIPAL,
@@ -794,6 +816,7 @@ class RunCoordinator:
                 principal,
                 mode=mode,
                 lease_fence=acquired_fence,
+                effect_custody=effect_custody,
             )
         finally:
             self._release_lease(aggregate.run.run_id, owner)
@@ -805,6 +828,7 @@ class RunCoordinator:
         *,
         mode: CompensationMode,
         lease_fence: int | None,
+        effect_custody: EffectCustodyPort | None,
     ):
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None or aggregate.workflow is None:
@@ -1073,7 +1097,17 @@ class RunCoordinator:
                     raise PermissionError(
                         "original capability correction halted compensation"
                     )
-                result = self.broker.invoke(compensation_action, permit)
+                def invoke_compensation() -> CapabilityResult:
+                    return self.broker.invoke(compensation_action, permit)
+                result = (
+                    effect_custody(
+                        f"compensate:{original.node_id}",
+                        compensation_action.action_digest(),
+                        invoke_compensation,
+                    )
+                    if effect_custody is not None
+                    else invoke_compensation()
+                )
                 self.tasks._record_action_receipt(
                     task_id,
                     action=compensation_action,
@@ -1434,75 +1468,15 @@ class RunCoordinator:
                 {"action": action.model_dump(mode="json")},
                 correlation_id=run_id,
             )
-        grant = self.grant[capability_id] if isinstance(self.grant, dict) else self.grant
-        bound_approval = (
-            approval
-            if approval is not None and approval.action_digest == action.action_digest()
-            else None
-        )
-        decision = self.policy.decide(
+        return self.actions.execute(
             action,
-            PolicyInput(
-                principal=principal,
-                grant=grant,
-                capability=self.sandbox.specs().get(capability_id),
-                approval=bound_approval,
-            ),
+            principal,
+            capability_spec=self.sandbox.specs().get(capability_id),
+            approval=approval,
+            record_artifacts=True,
+            execution_fence=execution_fence,
+            effect_custody=effect_custody,
         )
-        self.tasks.append_event(task_id, TaskEventType.POLICY_DECIDED, {"decision": decision.model_dump(mode="json")}, correlation_id=run_id)
-        if decision.verdict is not PolicyVerdict.ALLOW:
-            raise PermissionError(f"policy denied {capability_id}: {decision.reason_codes}")
-        aggregate = self.tasks.get_task(task_id)
-        lease_fence = aggregate.run.lease_fence if aggregate.run is not None else 0
-        permit = self.policy.permit(action, decision, grant, lease_fence=lease_fence)
-        current_fence = getattr(self.tasks._event_store, "lease_fence", lambda _run_id: lease_fence)(run_id)
-        if current_fence != permit.lease_fence:
-            raise PermissionError("stale worker lease")
-        if execution_fence is not None:
-            execution_fence("before_tool_effect")
-
-        def invoke() -> CapabilityResult:
-            return self.broker.invoke(action, permit)
-
-        result = (
-            effect_custody(node_id, action.action_digest(), invoke)
-            if effect_custody is not None
-            else invoke()
-        )
-        if execution_fence is not None:
-            execution_fence("before_tool_effect_commit")
-        self.tasks._record_action_receipt(
-            task_id,
-            action=action,
-            decision=decision,
-            permit=permit,
-            receipt=result.receipt,
-            writer_token=self.tasks._runtime_writer_token,
-            effect=(
-                {
-                    key: str(result.output[key])
-                    for key in (
-                        "path",
-                        "compensation_ref",
-                        "manifest_sha256",
-                        "applied_sha256",
-                    )
-                }
-                if capability_id in {"workspace.apply_patch", "workspace.edit"}
-                and result.receipt.status.value == "SUCCEEDED"
-                else None
-            ),
-        )
-        if result.receipt.status.value != "SUCCEEDED":
-            raise RunExecutionError(f"tool failed: {result.receipt.error_code}")
-        for artifact_id in result.receipt.output_artifact_ids:
-            self.tasks.record_artifact(
-                task_id,
-                artifact_id,
-                node_id=node_id,
-                action_id=action.action_id,
-            )
-        return result
 
     def _build_action(
         self,
@@ -1517,17 +1491,16 @@ class RunCoordinator:
         envelope_id: str,
         risk_tier: int,
     ) -> ActionContract:
-        return ActionContract(
-            action_id=f"action-{uuid4()}", task_id=task_id, run_id=run_id, node_id=node_id,
-            principal_id=principal.principal_id, tenant_id=principal.tenant_id,
-            workspace_id=principal.workspace_id, capability_id=capability_id,
-            capability_version="1", arguments_json=json.dumps(args), risk_tier=risk_tier,
-            idempotency_key=f"{run_id}:{node_id}",
-            estimated_budget=ResourceBudget(max_cost_usd=Decimal("0"), max_duration_seconds=120, max_provider_tokens=0, max_tool_calls=1),
-            policy_version=self.policy.policy_version,
-            observed_correction_epochs=self.correction.snapshot(task_id, run_id, capability_id),
-            expected_outcome_id=expected.expected_outcome_id, candidate_envelope_id=envelope_id,
-            created_at=datetime.now(timezone.utc),
+        return self.actions.build_action(
+            task_id=task_id,
+            run_id=run_id,
+            node_id=node_id,
+            capability_id=capability_id,
+            principal=principal,
+            args=args,
+            expected=expected,
+            envelope_id=envelope_id,
+            risk_tier=risk_tier,
         )
 
     @staticmethod

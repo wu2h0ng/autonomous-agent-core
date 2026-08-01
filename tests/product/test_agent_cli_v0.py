@@ -27,6 +27,7 @@ from agent_os_core import (
 )
 from agent_os_core.agent_cli import AgentCLIError, event_types
 from agent_os_core.capability import CapabilityDenied, WorkspaceSandbox
+from agent_os_core.errors import InvalidTransitionError, RunExecutionError
 from agent_os_core.mandate_terminal import mandate_status
 from agent_os_core.responsibility_loop import ResponsibilityLoopStaleFence
 
@@ -384,6 +385,9 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
     )
     session, _ = app.open_chat_session("same task edit", AutoApproveGateway())
     task_count = len(app.list_tasks())
+    def custody(_operation_slot, _intent_digest, effect):
+        return effect()
+
     loop = AgentLoop(
         tasks=app.tasks,
         provider=app.provider,
@@ -395,6 +399,8 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
         principal=app.principal,
         gateway=NonInteractiveDenyGateway(),
         config=AgentLoopConfig(stream=False),
+        execution_fence=lambda _phase: None,
+        effect_custody=custody,
         allowed_capability_ids=("workspace.read", "workspace.search", "workspace.edit"),
         durable_write_approval=True,
         allowed_write_paths=("fixture.txt",),
@@ -413,6 +419,20 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
         if action.capability_id == "workspace.edit"
     ]
     assert len(pending) == 1
+    with pytest.raises(RunExecutionError, match="approval is pending"):
+        loop.run_turn(session, "silently substitute a second action")
+    assert _proposed_actions_for_task(app, session.task_id) == pending
+    with pytest.raises(InvalidTransitionError, match="external exact approval"):
+        loop._actions.execute(
+            pending[0],
+            app.principal,
+            capability_spec=app.sandbox.specs()["workspace.edit"],
+            approval=None,
+            record_artifacts=False,
+            execution_fence=lambda _phase: None,
+            effect_custody=custody,
+        )
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
     now = datetime.now(timezone.utc)
     app.tasks.record_approval(
         session.task_id,
@@ -479,6 +499,9 @@ def test_existing_task_agent_loop_restarts_and_requires_each_file_approval(
     session, _ = app.open_chat_session("same task two-file edit", AutoApproveGateway())
 
     def new_loop() -> AgentLoop:
+        def custody(_operation_slot, _intent_digest, effect):
+            return effect()
+
         return AgentLoop(
             tasks=app.tasks,
             provider=app.provider,
@@ -490,6 +513,8 @@ def test_existing_task_agent_loop_restarts_and_requires_each_file_approval(
             principal=app.principal,
             gateway=NonInteractiveDenyGateway(),
             config=AgentLoopConfig(stream=False),
+            execution_fence=lambda _phase: None,
+            effect_custody=custody,
             allowed_capability_ids=(
                 "workspace.read",
                 "workspace.search",
@@ -537,6 +562,100 @@ def test_existing_task_agent_loop_restarts_and_requires_each_file_approval(
     roles = [message.role for message in history.history]
     assert roles.count(ProviderMessageRole.ASSISTANT) == 3
     assert roles.count(ProviderMessageRole.TOOL) == 2
+
+
+def test_durable_agent_loop_recovers_crash_after_effect_receipt_before_tool_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _agent_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "recovered",
+                        },
+                    ),
+                ),
+            ),
+            ("recovered after durable receipt", ()),
+        ),
+    )
+    session, _ = app.open_chat_session("recover exact edit", AutoApproveGateway())
+
+    def custody(_operation_slot, _intent_digest, effect):
+        return effect()
+
+    def new_loop() -> AgentLoop:
+        return AgentLoop(
+            tasks=app.tasks,
+            provider=app.provider,
+            provider_profile=app.provider_profile,
+            policy=app.policy,
+            correction=app.correction,
+            sandbox=app.sandbox,
+            grants=dict(app.grants),
+            principal=app.principal,
+            gateway=NonInteractiveDenyGateway(),
+            config=AgentLoopConfig(stream=False),
+            execution_fence=lambda _phase: None,
+            effect_custody=custody,
+            allowed_capability_ids=(
+                "workspace.read",
+                "workspace.search",
+                "workspace.edit",
+            ),
+            durable_write_approval=True,
+            allowed_write_paths=("fixture.txt",),
+        )
+
+    first = new_loop()
+    assert first.run_turn(session, "edit once").stop_reason == "waiting_approval"
+    action = app.tasks.pending_action(session.task_id)
+    assert action is not None
+    now = datetime.now(timezone.utc)
+    app.tasks.record_approval(
+        session.task_id,
+        ApprovalDecision(
+            approval_id="approval:crash-window",
+            tenant_id=app.principal.tenant_id,
+            workspace_id=app.principal.workspace_id,
+            action_digest=action.action_digest(),
+            actor_id="admin:external:crash-window",
+            actor_role=PrincipalRole.TENANT_ADMIN,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="exact action approved",
+            decided_at=now,
+            expires_at=now + timedelta(minutes=5),
+        ),
+    )
+
+    def crash_after_receipt(*_args, **_kwargs):
+        raise RuntimeError("simulated crash after Task action receipt")
+
+    monkeypatch.setattr(first, "_record_tool_completion", crash_after_receipt)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        first.resume_after_approval(session)
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "recovered\n"
+
+    completed = new_loop().resume_after_approval(session)
+
+    assert completed.stop_reason == "completed"
+    receipts = [
+        event
+        for event in app.tasks._event_store.read(session.task_id)
+        if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+        and event.decoded_payload().get("decision", {}).get("action_id")
+        == action.action_id
+    ]
+    assert len(receipts) == 1
 
 
 def test_resume_rejects_mandate_or_workspace_mismatch(tmp_path: Path) -> None:

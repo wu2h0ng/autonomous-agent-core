@@ -1466,6 +1466,7 @@ class SQLiteResponsibilityLoopStore:
         intent_digest: str,
         effect: Callable[[], Mapping[str, str]],
         executed_at: datetime,
+        reconcile_idempotent: bool = False,
     ) -> ResponsibilityEffectRecord:
         del executed_at
         executed_at = _utc(self._clock())
@@ -1480,6 +1481,7 @@ class SQLiteResponsibilityLoopStore:
                 operation_slot=operation_slot,
                 intent_digest=intent_digest,
             )
+            existing: ResponsibilityEffectRecord | None = None
             if row is not None:
                 existing = self._effect_from_row(
                     row,
@@ -1490,38 +1492,46 @@ class SQLiteResponsibilityLoopStore:
                     intent_digest=intent_digest,
                 )
                 connection.commit()
-                if existing.status != "APPLIED":
+                if not reconcile_idempotent and existing.status != "APPLIED":
                     raise ResponsibilityLoopEffectUnknown(
                         "effect outcome is not APPLIED; reconciliation required"
                     )
-                return existing
-            self._reserve_effect_identity(
-                connection,
-                binding,
-                key=key,
-                cycle_id=cycle_id,
-                task_id=task_id,
-                operation_slot=operation_slot,
-                intent_digest=intent_digest,
-            )
-            connection.execute(
-                "INSERT INTO responsibility_loop_effects_v2 "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    key,
-                    binding.digest,
-                    cycle_id,
-                    task_id,
-                    operation_slot,
-                    intent_digest,
-                    "PREPARED",
-                    _stamp(executed_at),
-                    None,
-                    None,
-                    None,
-                ),
-            )
-            connection.commit()
+                if not reconcile_idempotent:
+                    return existing
+                key = existing.effect_key
+                existing_receipt_json = row["effect_receipt_json"]
+                existing_status = existing.status
+            else:
+                existing_receipt_json = None
+                existing_status = None
+            if row is None:
+                self._reserve_effect_identity(
+                    connection,
+                    binding,
+                    key=key,
+                    cycle_id=cycle_id,
+                    task_id=task_id,
+                    operation_slot=operation_slot,
+                    intent_digest=intent_digest,
+                )
+                connection.execute(
+                    "INSERT INTO responsibility_loop_effects_v2 "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        key,
+                        binding.digest,
+                        cycle_id,
+                        task_id,
+                        operation_slot,
+                        intent_digest,
+                        "PREPARED",
+                        _stamp(executed_at),
+                        None,
+                        None,
+                        None,
+                    ),
+                )
+                connection.commit()
         try:
             receipt = dict(effect())
             required = {"receipt_id", "resource_ref", "evidence_digest"}
@@ -1536,11 +1546,32 @@ class SQLiteResponsibilityLoopStore:
                 "adapter_receipt": receipt,
             }
             receipt_digest = content_digest(receipt_envelope)
+            if existing_status == "APPLIED":
+                assert existing is not None
+                stored = (
+                    json.loads(str(existing_receipt_json))
+                    if existing_receipt_json is not None
+                    else None
+                )
+                stored_adapter = (
+                    stored.get("adapter_receipt")
+                    if isinstance(stored, dict)
+                    else None
+                )
+                if (
+                    not isinstance(stored_adapter, dict)
+                    or stored_adapter.get("resource_ref")
+                    != receipt.get("resource_ref")
+                ):
+                    raise ValueError(
+                        "idempotent reconciliation resource identity drifted"
+                    )
+                return existing
         except Exception as exc:
             with self._connect() as connection:
                 connection.execute(
                     "UPDATE responsibility_loop_effects_v2 SET status='UNKNOWN' "
-                    "WHERE effect_key=? AND status='PREPARED'",
+                    "WHERE effect_key=? AND status IN ('PREPARED','UNKNOWN')",
                     (key,),
                 )
             raise ResponsibilityLoopEffectUnknown(
@@ -1569,7 +1600,7 @@ class SQLiteResponsibilityLoopStore:
             connection.execute(
                 "UPDATE responsibility_loop_effects_v2 SET status='APPLIED', applied_at=?, "
                 "effect_receipt_json=?, effect_receipt_digest=? "
-                "WHERE effect_key=? AND status='PREPARED'",
+                "WHERE effect_key=? AND status IN ('PREPARED','UNKNOWN')",
                 (
                     _stamp(completed_at),
                     json.dumps(receipt_envelope, sort_keys=True),

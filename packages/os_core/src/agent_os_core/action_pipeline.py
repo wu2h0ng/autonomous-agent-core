@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -58,6 +58,7 @@ class ActionPipeline:
         expected: ExpectedOutcome,
         envelope_id: str,
         risk_tier: int,
+        approval_requirement: Literal["policy", "external_exact"] = "policy",
     ) -> ActionContract:
         return ActionContract(
             action_id=f"action-{uuid4()}",
@@ -84,6 +85,7 @@ class ActionPipeline:
             ),
             expected_outcome_id=expected.expected_outcome_id,
             candidate_envelope_id=envelope_id,
+            approval_requirement=approval_requirement,
             created_at=datetime.now(timezone.utc),
         )
 
@@ -105,6 +107,7 @@ class ActionPipeline:
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
             )
+        self._tasks.assert_external_exact_approval(action, approval)
         grant = (
             self._grant[cid]
             if isinstance(self._grant, dict)

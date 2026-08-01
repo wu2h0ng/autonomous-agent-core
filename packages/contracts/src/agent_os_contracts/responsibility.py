@@ -111,13 +111,41 @@ class SelfDevelopmentWorkSpec(ContractModel):
             "apps/cli/",
         )
         path = PurePosixPath(value)
+        reserved_paths = {
+            "apps/api_server/app.py",
+            "packages/contracts/src/agent_os_contracts/authority.py",
+            "packages/contracts/src/agent_os_contracts/evaluator.py",
+            "packages/contracts/src/agent_os_contracts/outcome_portfolio.py",
+            "packages/os_core/src/agent_os_core/action_pipeline.py",
+            "packages/os_core/src/agent_os_core/capability.py",
+            "packages/os_core/src/agent_os_core/execution.py",
+            "packages/os_core/src/agent_os_core/governance.py",
+            "packages/os_core/src/agent_os_core/evaluator_authority.py",
+            "packages/os_core/src/agent_os_core/mandate_outcome_portfolio.py",
+            "packages/os_core/src/agent_os_core/materialization_evaluation.py",
+            "packages/os_core/src/agent_os_core/materialization_evaluation_persistence.py",
+            "packages/os_core/src/agent_os_core/materialization_promotion.py",
+            "packages/os_core/src/agent_os_core/materialization_promotion_persistence.py",
+            "packages/os_core/src/agent_os_core/materialization_promotion_policy.py",
+            "packages/os_core/src/agent_os_core/responsibility_controller.py",
+            "packages/os_core/src/agent_os_core/responsibility_loop.py",
+            "packages/os_core/src/agent_os_core/responsibility_surface.py",
+            "packages/os_core/src/agent_os_core/self_development_organ.py",
+            "packages/os_core/src/agent_os_core/srl_event_authority.py",
+            "packages/os_core/src/agent_os_core/task_aggregate.py",
+            "packages/os_core/src/agent_os_core/task_configuration.py",
+            "packages/os_core/src/agent_os_core/task_service.py",
+        }
         if (
             value.startswith("/")
             or "\\" in value
             or any(part in {"", ".", ".."} or part.startswith(".") for part in path.parts)
             or not path.as_posix().startswith(allowed_prefixes)
+            or path.as_posix() in reserved_paths
         ):
-            raise ValueError("target_path must be a safe Agent OS product path")
+            raise ValueError(
+                "target_path must be a safe Agent OS product path outside authority core"
+            )
         return path.as_posix()
 
     @model_validator(mode="after")

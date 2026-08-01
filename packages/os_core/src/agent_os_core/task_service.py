@@ -12,6 +12,7 @@ from agent_os_contracts import (
     ActionPermit,
     ActionReceipt,
     AgentRun,
+    ApprovalDisposition,
     ApprovalDecision,
     Commitment,
     ExpectedOutcome,
@@ -31,6 +32,7 @@ from agent_os_contracts import (
     OutcomeStatus,
     PolicyDecision,
     PolicyVerdict,
+    PrincipalRole,
     ProviderExecutionReceipt,
     ReceiptStatus,
 )
@@ -509,6 +511,27 @@ class TaskService:
             raise InvalidTransitionError(
                 "non-compensatable action cannot record a patch effect binding"
             )
+        prior_receipts = [
+            event.decoded_payload()
+            for event in events
+            if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+            and event.correlation_id == run.run_id
+            and isinstance(event.decoded_payload().get("decision"), dict)
+            and event.decoded_payload()["decision"].get("action_id")
+            == action.action_id
+        ]
+        if prior_receipts:
+            if any(
+                prior.get("effect") != receipt_payload.get("effect")
+                or not isinstance(prior.get("receipt"), dict)
+                or prior["receipt"].get("status")
+                != receipt.status.value
+                for prior in prior_receipts
+            ):
+                raise InvalidTransitionError(
+                    "replayed action receipt conflicts with durable Task truth"
+                )
+            return aggregate
         return self._append_event(
             task_id,
             TaskEventType.ACTION_RECEIPT_RECORDED,
@@ -876,21 +899,19 @@ class TaskService:
         if not events:
             raise TaskNotFoundError(f"task not found: {task_id}")
         aggregate = TaskAggregate.rehydrate(events)
-        pending: ActionContract | None = None
-        for event in reversed(events):
-            if event.event_type in {
-                TaskEventType.RUN_PLAN_REBOUND,
-                TaskEventType.APPROVAL_RECORDED,
-            }:
-                break
-            if event.event_type is not TaskEventType.ACTION_PROPOSED:
-                continue
-            candidate = event.decoded_payload().get("action")
-            if isinstance(candidate, dict):
-                pending = ActionContract.model_validate(candidate)
-                break
+        pending = self.pending_action(task_id)
         if pending is None:
             raise InvalidTransitionError("task has no pending action in the current plan")
+        if (
+            pending.approval_requirement == "external_exact"
+            and (
+                aggregate.run is None
+                or aggregate.run.status is not RunStatus.WAITING_APPROVAL
+            )
+        ):
+            raise InvalidTransitionError(
+                "external exact approval requires a WAITING_APPROVAL run"
+            )
         if pending.task_id != task_id:
             raise InvalidTransitionError("pending action task binding mismatch")
         if aggregate.run is None or pending.run_id != aggregate.run.run_id:
@@ -912,18 +933,86 @@ class TaskService:
         events = self._event_store.read(task_id)
         if not events:
             raise TaskNotFoundError(f"task not found: {task_id}")
+        aggregate = TaskAggregate.rehydrate(events)
+        if aggregate.run is None:
+            return None
+        if aggregate.run.status is not RunStatus.WAITING_APPROVAL:
+            for event in reversed(events):
+                if event.event_type in {
+                    TaskEventType.RUN_PLAN_REBOUND,
+                    TaskEventType.APPROVAL_RECORDED,
+                }:
+                    return None
+                if event.event_type is not TaskEventType.ACTION_PROPOSED:
+                    continue
+                candidate = event.decoded_payload().get("action")
+                if isinstance(candidate, dict):
+                    return ActionContract.model_validate(candidate)
+            return None
+        active_node_id: str | None = None
+        approval_sequence: int | None = None
         for event in reversed(events):
-            if event.event_type in {
-                TaskEventType.RUN_PLAN_REBOUND,
-                TaskEventType.APPROVAL_RECORDED,
-            }:
+            if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
                 return None
+            if event.event_type is TaskEventType.APPROVAL_REQUESTED:
+                run_payload = event.decoded_payload().get("run")
+                if isinstance(run_payload, dict):
+                    candidate_node_id = run_payload.get("active_node_id")
+                    if isinstance(candidate_node_id, str):
+                        active_node_id = candidate_node_id
+                        approval_sequence = event.sequence
+                        break
+        if active_node_id is None or approval_sequence is None:
+            return None
+        if any(
+            event.sequence > approval_sequence
+            and event.event_type is TaskEventType.ACTION_PROPOSED
+            for event in events
+        ):
+            return None
+        fallback: ActionContract | None = None
+        for event in reversed(events):
+            if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
+                return fallback
+            if event.sequence > approval_sequence:
+                continue
             if event.event_type is not TaskEventType.ACTION_PROPOSED:
                 continue
             candidate = event.decoded_payload().get("action")
             if isinstance(candidate, dict):
-                return ActionContract.model_validate(candidate)
-        return None
+                action = ActionContract.model_validate(candidate)
+                if active_node_id == action.node_id:
+                    return action
+                if fallback is None:
+                    fallback = action
+        return fallback
+
+    def assert_external_exact_approval(
+        self,
+        action: ActionContract,
+        approval: ApprovalDecision | None,
+    ) -> None:
+        if action.approval_requirement != "external_exact":
+            return
+        aggregate = self.get_task(action.task_id)
+        pending = self.pending_action(action.task_id)
+        if (
+            aggregate.run is None
+            or aggregate.run.run_id != action.run_id
+            or aggregate.run.status is not RunStatus.WAITING_APPROVAL
+            or pending is None
+            or pending != action
+            or approval is None
+            or aggregate.approval != approval
+            or approval.action_digest != action.action_digest()
+            or approval.actor_id == action.principal_id
+            or approval.actor_role is not PrincipalRole.TENANT_ADMIN
+            or approval.disposition is not ApprovalDisposition.APPROVE
+            or approval.expires_at <= self._clock()
+        ):
+            raise InvalidTransitionError(
+                "external exact approval is missing, stale, substituted, or invalid"
+            )
 
     def update_run_status(
         self,

@@ -36,6 +36,7 @@ class SelfDevelopmentOrgan:
         validate_task: Callable[[str, SelfDevelopmentWorkSpec], None] | None = None,
         execute_agent_loop: Callable[[str, SelfDevelopmentWorkSpec, Any, Any], SelfDevelopmentAgentLoopState] | None = None,
         has_persisted_effects: Callable[[str], bool] | None = None,
+        fail_agent_loop: Callable[[str, BaseException, Any], None] | None = None,
     ) -> None:
         self._workspace = Path(workspace).resolve()
         self._execute_task = execute_task
@@ -44,6 +45,7 @@ class SelfDevelopmentOrgan:
         self._has_persisted_effects = has_persisted_effects or (
             lambda _task_id: False
         )
+        self._fail_agent_loop = fail_agent_loop
 
     def __call__(
         self,
@@ -96,12 +98,17 @@ class SelfDevelopmentOrgan:
                     "SELFDEV_AGENT_LOOP_NOT_BOUND",
                     "precise SELFDEV requires the existing-Task AgentLoop organ",
                 )
-            state = self._execute_agent_loop(
-                task_id,
-                spec,
-                assert_selfdev_current,
-                execute_effect,
-            )
+            try:
+                state = self._execute_agent_loop(
+                    task_id,
+                    spec,
+                    assert_selfdev_current,
+                    execute_effect,
+                )
+            except BaseException as exc:
+                if self._fail_agent_loop is not None:
+                    self._fail_agent_loop(task_id, exc, execute_effect)
+                raise
             self._assert_exact_workspace(spec, require_clean=False)
             self._assert_only_target_changed(spec)
             if state is SelfDevelopmentAgentLoopState.WAITING_APPROVAL:

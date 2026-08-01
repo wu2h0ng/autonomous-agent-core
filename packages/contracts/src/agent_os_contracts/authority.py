@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -175,6 +176,10 @@ class ActionContract(ContractModel):
     observed_correction_epochs: CorrectionEpochVector
     expected_outcome_id: NonEmptyStr
     candidate_envelope_id: NonEmptyStr
+    approval_requirement: Literal["policy", "external_exact"] = Field(
+        default="policy",
+        exclude_if=lambda value: value == "policy",
+    )
     created_at: UtcDateTime
 
     @field_validator("arguments_json", mode="after")

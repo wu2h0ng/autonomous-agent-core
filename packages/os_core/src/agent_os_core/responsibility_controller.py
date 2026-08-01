@@ -502,6 +502,8 @@ class ResponsibilityLoopController:
                 operation_slot: str,
                 intent_digest: str,
                 effect: Callable[[], Mapping[str, str]],
+                *,
+                reconcile_idempotent: bool = False,
             ) -> Any:
                 return self._loop.execute_effect(
                     binding,
@@ -512,6 +514,7 @@ class ResponsibilityLoopController:
                     intent_digest=intent_digest,
                     effect=effect,
                     executed_at=self._clock(),
+                    reconcile_idempotent=reconcile_idempotent,
                 )
 
             outcome = self._tasks.current_outcome(commitment.task_id)

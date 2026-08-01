@@ -14,12 +14,14 @@ from agent_os_contracts import (
     MandateWorkspaceRecord,
     NodeKind,
     OutcomePortfolioHelpGap,
+    OutcomePortfolioHelpRespondCommand,
     OutcomePortfolio,
     PrincipalIdentity,
     PrincipalRole,
     RunStatus,
     SelfDevelopmentWorkSpec,
     SessionRef,
+    SrlHelpResponse,
     TaskEventType,
     content_digest,
 )
@@ -396,6 +398,7 @@ def run_responsibility_work(
                 operation_slot,
                 intent_digest,
                 invoke_with_receipt,
+                reconcile_idempotent=True,
             )
             if not captured:
                 raise ResponsibilityLoopEffectUnknown(
@@ -447,17 +450,21 @@ def run_responsibility_work(
                 "precise SELFDEV requires the existing committed Task contracts",
             )
         snapshot = aggregate.configuration_snapshot
-        if snapshot is None:
-            snapshot = execution_app.seal_task_configuration(task_id, {})
-            aggregate = execution_app.tasks.get_task(task_id)
-        if aggregate.run is None:
-            aggregate = execution_app.start_run(task_id, snapshot.snapshot_id)
-        if aggregate.run is None:
+        if snapshot is None or aggregate.run is None:
             raise SelfDevelopmentOrganBlocked(
                 "SELFDEV_AGENT_LOOP_NOT_BOUND",
-                "precise SELFDEV could not bind a Run to the existing Task",
+                "precise SELFDEV requires an existing snapshot-bound Run",
             )
         run = aggregate.run
+        if (
+            run.configuration_snapshot_id != snapshot.snapshot_id
+            or run.configuration_snapshot_digest != snapshot.snapshot_digest
+            or run.provider_profile_id != snapshot.provider_profile.profile_id
+        ):
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_AGENT_LOOP_NOT_BOUND",
+                "precise SELFDEV Run does not bind the exact Task configuration snapshot",
+            )
         session = ChatSession(
             ref=SessionRef(
                 session_id=f"session:selfdev:{task_id}",
@@ -555,6 +562,36 @@ def run_responsibility_work(
             for event in execution_app.tasks._event_store.read(task_id)
         )
 
+    def fail_agent_loop(task_id: str, exc: BaseException, execute_effect) -> None:
+        aggregate = execution_app.tasks.get_task(task_id)
+        if aggregate.run is None:
+            return
+        if aggregate.run.status not in {
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+            RunStatus.SUCCEEDED,
+        }:
+            execution_app.tasks.append_event(
+                task_id,
+                TaskEventType.NODE_FAILED,
+                {
+                    "node_id": aggregate.run.active_node_id or "selfdev-agent-loop",
+                    "error": type(exc).__name__,
+                },
+                correlation_id=aggregate.run.run_id,
+            )
+            execution_app.tasks.update_run_status(
+                task_id,
+                RunStatus.FAILED,
+                event_type=TaskEventType.RUN_FAILED,
+                active_node_id=aggregate.run.active_node_id or "selfdev-agent-loop",
+            )
+        if has_persisted_effects(task_id):
+            execution_app.compensate_task(
+                task_id,
+                effect_custody=effect_custody_for(execute_effect),
+            )
+
     selfdev_organ = SelfDevelopmentOrgan(
         workspace=workspace,
         execute_task=execute_task_with_inputs,
@@ -563,6 +600,7 @@ def run_responsibility_work(
         ),
         execute_agent_loop=execute_agent_loop,
         has_persisted_effects=has_persisted_effects,
+        fail_agent_loop=fail_agent_loop,
     )
 
     controller = ResponsibilityLoopController(
@@ -685,6 +723,15 @@ def answer_responsibility_help(
             "active Help request is missing or ambiguous"
         )
     help_request = matching_help[0]
+    response_command = OutcomePortfolioHelpRespondCommand.model_validate(payload)
+    SrlHelpResponse(
+        help_request_id=help_request_id,
+        responded_at=datetime.now(timezone.utc),
+        responder_principal_id=app.principal.principal_id,
+        response_kind=response_command.response_kind,
+        decision=response_command.decision,
+        notes=response_command.notes,
+    )
     task_approval_recorded = False
     pending_task_decision: str | None = None
     if help_request.gap_kind is OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL:
@@ -694,6 +741,16 @@ def answer_responsibility_help(
             )
         decision = payload.get("decision")
         aggregate = app.tasks.get_task(checkpoint.active_task_id)
+        pending_action = app.tasks.pending_action(checkpoint.active_task_id)
+        if (
+            pending_action is None
+            or help_request.pending_action_digest is None
+            or pending_action.action_digest()
+            != help_request.pending_action_digest
+        ):
+            raise ResponsibilitySurfaceError(
+                "SELFDEV_APPROVAL_ACTION_DRIFT: Help no longer binds the pending action"
+            )
         if decision in {"APPROVE", "REJECT"}:
             if aggregate.approval is not None and (
                 aggregate.approval.actor_id != app.principal.principal_id
@@ -725,21 +782,22 @@ def answer_responsibility_help(
             raise ResponsibilitySurfaceError(
                 "action approval Help requires APPROVE, REJECT or MORE_INFO"
             )
-    response = app.respond_outcome_portfolio_help_request(
-        context.mandate_id,
-        help_request_id,
-        payload,
-    )
     if pending_task_decision is not None:
         app.record_approval(
             checkpoint.active_task_id,
             {
                 "disposition": pending_task_decision,
+                "action_digest": help_request.pending_action_digest,
                 "reason": payload.get("notes")
                 or "External Agent Work action decision",
             },
         )
         task_approval_recorded = True
+    response = app.respond_outcome_portfolio_help_request(
+        context.mandate_id,
+        help_request_id,
+        payload,
+    )
     event_id = "operator-help-response:" + content_digest(response)
     context.loop_store.append_operator_work_event(
         context.binding,

@@ -1604,7 +1604,7 @@ class AgentOSApplication:
         )
         return self.tasks.get_task(task_id)
 
-    def compensate_task(self, task_id: str):
+    def compensate_task(self, task_id: str, *, effect_custody=None):
         runner = RunCoordinator(
             self.tasks,
             self.sandbox,
@@ -1615,24 +1615,25 @@ class AgentOSApplication:
             self.grants,
             compensation_grant=self.compensation_grant,
         )
-        return runner.compensate_task(task_id, self.principal)
+        return runner.compensate_task(
+            task_id,
+            self.principal,
+            effect_custody=effect_custody,
+        )
 
     def record_approval(self, task_id: str, payload: dict[str, Any]):
         task = self.tasks.get_task(task_id)
         if task.commitment is None or task.run is None:
             raise ValueError("approval requires an active committed task")
-        action: ActionContract | None = None
-        for event in reversed(self.store.read(task_id)):
-            if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
-                break
-            if event.event_type is not TaskEventType.ACTION_PROPOSED:
-                continue
-            candidate = event.decoded_payload().get("action")
-            if isinstance(candidate, dict):
-                action = ActionContract.model_validate(candidate)
-                break
+        action = self.tasks.pending_action(task_id)
         if action is None:
             raise ValueError("no pending provider action is available for review")
+        expected_action_digest = payload.get("action_digest")
+        if (
+            expected_action_digest is not None
+            and expected_action_digest != action.action_digest()
+        ):
+            raise ValueError("approval payload does not bind the pending action")
         disposition = ApprovalDisposition(str(payload.get("disposition", "APPROVE")))
         reason = str(
             payload.get("reason", "Reviewed in Agent OS Task Workspace")

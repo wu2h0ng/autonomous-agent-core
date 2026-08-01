@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from .evidence import Sha256Digest
@@ -193,6 +193,10 @@ class OutcomePortfolioHelpRequest(ContractModel):
     portfolio_id: NonEmptyStr
     task_id: NonEmptyStr | None = None
     gap_kind: OutcomePortfolioHelpGap
+    pending_action_digest: Sha256Digest | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     srl_help: SrlHelpRequest
     response: SrlHelpResponse | None = None
     authority_granted: Literal[False] = False
@@ -210,6 +214,20 @@ class OutcomePortfolioHelpRequest(ContractModel):
     @classmethod
     def _false_flags(cls, value: Any) -> Literal[False]:
         return _require_exact_false(value)
+
+    @model_validator(mode="after")
+    def _approval_gap_requires_digest(self) -> OutcomePortfolioHelpRequest:
+        if (
+            self.gap_kind is OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL
+            and self.pending_action_digest is None
+        ):
+            raise ValueError("pending approval Help requires an exact action digest")
+        if (
+            self.gap_kind is not OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL
+            and self.pending_action_digest is not None
+        ):
+            raise ValueError("only pending approval Help may bind an action digest")
+        return self
 
     @property
     def help_request_id(self) -> str:

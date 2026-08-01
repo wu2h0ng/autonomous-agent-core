@@ -881,6 +881,7 @@ class SQLiteMandateOutcomePortfolioStore:
         actor: PrincipalIdentity,
         gap_kind: OutcomePortfolioHelpGap,
         details: str,
+        pending_action_digest: str | None = None,
         connection: sqlite3.Connection | None = None,
     ) -> OutcomePortfolioHelpRequest:
         now = self._clock()
@@ -941,6 +942,7 @@ class SQLiteMandateOutcomePortfolioStore:
                 portfolio_id=portfolio_id,
                 task_id=task_id,
                 gap_kind=gap_kind,
+                pending_action_digest=pending_action_digest,
                 srl_help=srl_help,
             )
             conn.execute(
@@ -1063,6 +1065,11 @@ class SQLiteMandateOutcomePortfolioStore:
                 actor=actor,
                 gap_kind=gap_kind,
                 details=details,
+                pending_action_digest=(
+                    pending_action.action_digest()
+                    if pending_action is not None
+                    else None
+                ),
                 connection=connection,
             )
             connection.commit()

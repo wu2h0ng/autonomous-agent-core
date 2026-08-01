@@ -214,9 +214,11 @@ class AgentLoop:
         if durable_write_approval and (
             not allowed_write_paths
             or len(set(allowed_write_paths)) != len(allowed_write_paths)
+            or execution_fence is None
+            or effect_custody is None
         ):
             raise ValueError(
-                "durable AgentLoop requires a non-empty exact write-path set"
+                "durable AgentLoop requires exact paths, fence, and effect custody"
             )
         self._allowed_write_paths = frozenset(allowed_write_paths or ())
         self._broker = CapabilityBroker(sandbox, correction)
@@ -317,6 +319,10 @@ class AgentLoop:
             if aggregate.run is None or aggregate.run.run_id != session.run_id:
                 raise RunExecutionError(
                     "durable AgentLoop requires the existing bound Run"
+                )
+            if aggregate.run.status is RunStatus.WAITING_APPROVAL:
+                raise RunExecutionError(
+                    "durable AgentLoop cannot create a new turn while approval is pending"
                 )
             if aggregate.run.status in {RunStatus.CREATED, RunStatus.QUEUED}:
                 self._tasks.update_run_status(
@@ -617,6 +623,12 @@ class AgentLoop:
             expected=session.expected,
             envelope_id=session.envelope_id,
             risk_tier=risk_tier,
+            approval_requirement=(
+                "external_exact"
+                if self._durable_write_approval
+                and capability_id in {"workspace.edit", "workspace.apply_patch"}
+                else "policy"
+            ),
         )
         self._actions.record_action_proposed(
             action,
@@ -708,12 +720,12 @@ class AgentLoop:
         turn_id_value = pending_payload.get("turn_id")
         if not isinstance(tool_call_id, str) or not isinstance(turn_id_value, str):
             raise RunExecutionError("pending AgentLoop proposal identity is missing")
-        self._tasks.update_run_status(
-            session.task_id,
-            RunStatus.RUNNING,
-            event_type=TaskEventType.RUN_RESUMED,
-        )
         if approval.disposition is ApprovalDisposition.REJECT:
+            self._tasks.update_run_status(
+                session.task_id,
+                RunStatus.RUNNING,
+                event_type=TaskEventType.RUN_RESUMED,
+            )
             tool_message = ProviderMessage(
                 role=ProviderMessageRole.TOOL,
                 content=json.dumps(
@@ -732,6 +744,11 @@ class AgentLoop:
                 effect_custody=self._effect_custody,
             )
             self._record_tool_completion(action, tool_call_id, result.output)
+            self._tasks.update_run_status(
+                session.task_id,
+                RunStatus.RUNNING,
+                event_type=TaskEventType.RUN_RESUMED,
+            )
             tool_message = ProviderMessage(
                 role=ProviderMessageRole.TOOL,
                 content=json.dumps(_truncate_json(result.output), default=str)[

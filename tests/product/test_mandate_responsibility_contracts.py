@@ -177,11 +177,16 @@ def test_legacy_persisted_selfdev_link_without_envelope_remains_decodable() -> N
         ("isolated_branch", "release/2026-08", "cannot target main/master/release"),
         ("target_path", "../packages/os_core/pwn.py", "safe Agent OS product path"),
         ("target_path", ".git/config", "safe Agent OS product path"),
-        (
-            "target_path",
-            "tests/product/test_acceptance.py",
-            "safe Agent OS product path",
-        ),
+            (
+                "target_path",
+                "tests/product/test_acceptance.py",
+                "safe Agent OS product path",
+            ),
+            (
+                "target_path",
+                "packages/os_core/src/agent_os_core/responsibility_surface.py",
+                "outside authority core",
+            ),
         ("verifier_command", "pytest -q; git push", "allowlisted verifier"),
         ("verifier_command", "git push origin main", "allowlisted verifier"),
     ],

@@ -28,6 +28,8 @@ from agent_os_contracts import (
     SrlHelpResponseKind,
     TaskEventType,
     ProviderToolProposal,
+    ProviderErrorCode,
+    ProviderFailure,
     WorkflowGraph,
     content_digest,
 )
@@ -206,6 +208,12 @@ def _verified_responsibility(
         "mandate:build-agent-os",
         admin.principal,
     )
+    if (
+        selfdev_spec is not None
+        and selfdev_spec.edit_mode == "agent_loop_precise"
+    ):
+        snapshot = owner.seal_task_configuration(task.task_id, {})
+        owner.start_run(task.task_id, snapshot.snapshot_id)
     return database, owner, admin, task.task_id, attached
 
 
@@ -1573,6 +1581,121 @@ def test_selfdev_keyboard_interrupt_after_patch_compensates_exact_preimage(
         )
 
     assert target.read_text(encoding="utf-8") == preimage
+
+
+def test_precise_selfdev_provider_failure_after_edit_fails_and_compensates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    relative = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
+    target = isolated / relative
+    preimage = target.read_text(encoding="utf-8")
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path=relative,
+        edit_mode="agent_loop_precise",
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_selfdev_agent_loop_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+    )
+    provider = DeterministicProvider(
+        scripted=(
+            (
+                "",
+                (
+                    ProviderToolProposal(
+                        proposal_id="proposal:precise-before-failure",
+                        capability_id="workspace.edit",
+                        arguments_json=json.dumps(
+                            {
+                                "path": relative,
+                                "old_string": "VALUE = True",
+                                "new_string": "VALUE = False",
+                            }
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        invocation_binding=owner.provider.invocation_binding,
+    )
+    original_complete = provider.complete
+    calls = 0
+
+    def fail_after_first(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_complete(request)
+        return ProviderFailure(
+            failure_id=f"failure:{calls}",
+            request_id=request.request_id,
+            code=ProviderErrorCode.UNAVAILABLE,
+            retryable=False,
+            safe_message="provider unavailable after edit",
+            occurred_at=NOW,
+        )
+
+    monkeypatch.setattr(provider, "complete", fail_after_first)
+    owner.provider = provider
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+    waiting = run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=False,
+    )
+    answer_responsibility_help(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        help_request_id=waiting["cycles"][0]["help_request_id"],
+        payload={
+            "response_kind": SrlHelpResponseKind.OPERATOR_DECISION.value,
+            "decision": "APPROVE",
+            "notes": "approve exact edit before injected provider failure",
+        },
+    )
+
+    run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=True,
+    )
+
+    aggregate = owner.tasks.get_task(task_id)
+    assert aggregate.run is not None
+    assert aggregate.run.status.value == "FAILED"
+    assert target.read_text(encoding="utf-8") == preimage
+    assert any(record.status.value == "COMPENSATED" for record in aggregate.compensations)
+    with sqlite3.connect(database) as connection:
+        compensation_effects = connection.execute(
+            "SELECT COUNT(*) FROM responsibility_loop_effects_v2 "
+            "WHERE operation_slot LIKE 'compensate:%' AND status='APPLIED'"
+        ).fetchone()
+    assert compensation_effects is not None
+    assert compensation_effects[0] == 1
     assert owner.tasks.current_outcome(task_id) is None
 
 
@@ -2064,6 +2187,56 @@ def test_status_marks_applied_effect_without_task_receipt_as_unreconciled(
 
     assert runtime["unknown_effect_count"] == 1
     assert runtime["applied_without_task_receipt_count"] == 1
+
+
+def test_explicit_idempotent_effect_reconciliation_closes_unknown_crash_window(
+    tmp_path: Path,
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(tmp_path)
+    binding, loop_store, _ = _controller(database, owner, admin, tmp_path)
+    lease = loop_store.acquire_lease(
+        binding,
+        process_instance_id="process:idempotent-reconcile",
+        now=NOW,
+    )
+    calls = 0
+
+    def idempotent_effect():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("crash after durable preparation")
+        return {
+            "receipt_id": "receipt:idempotent-replay",
+            "resource_ref": "workspace.edit:stable-key",
+            "evidence_digest": "e" * 64,
+        }
+
+    with pytest.raises(ResponsibilityLoopEffectUnknown):
+        loop_store.execute_effect(
+            binding,
+            lease,
+            cycle_id="cycle:idempotent-reconcile",
+            task_id=task_id,
+            operation_slot="edit",
+            intent_digest="d" * 64,
+            effect=idempotent_effect,
+            executed_at=NOW,
+        )
+    reconciled = loop_store.execute_effect(
+        binding,
+        lease,
+        cycle_id="cycle:idempotent-reconcile",
+        task_id=task_id,
+        operation_slot="edit",
+        intent_digest="d" * 64,
+        effect=idempotent_effect,
+        executed_at=NOW,
+        reconcile_idempotent=True,
+    )
+
+    assert calls == 2
+    assert reconciled.status == "APPLIED"
 
 
 def test_missing_outcome_emits_typed_help_without_unauthorized_work(
