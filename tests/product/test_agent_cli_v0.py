@@ -6,7 +6,15 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
-from agent_os_contracts import ProviderMessageRole, ProviderToolProposal, TaskEventType
+from agent_os_contracts import (
+    ApprovalDecision,
+    ApprovalDisposition,
+    PrincipalRole,
+    ProviderMessageRole,
+    ProviderToolProposal,
+    RunStatus,
+    TaskEventType,
+)
 from agent_os_core import (
     AgentLoop,
     AgentLoopConfig,
@@ -40,6 +48,16 @@ def _prepare_workspace(root: Path) -> None:
         "def test_fixture():\n    assert open('fixture.txt').read() == 'stable\\n'\n",
         encoding="utf-8",
     )
+
+
+def _proposed_actions_for_task(app: AgentOSApplication, task_id: str):
+    from agent_os_contracts import ActionContract
+
+    return [
+        ActionContract.model_validate(event.decoded_payload()["action"])
+        for event in app.tasks._event_store.read(task_id)
+        if event.event_type is TaskEventType.ACTION_PROPOSED
+    ]
 
 
 def _agent_app(root: Path, scripted=()) -> AgentOSApplication:
@@ -242,6 +260,283 @@ def test_stale_responsibility_fence_stops_before_next_tool_effect(
     assert "before_provider_commit" in phases
     assert "before_tool_effect" in phases
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+def test_agent_loop_routes_tool_effect_through_responsibility_custody(
+    tmp_path: Path,
+) -> None:
+    app = _agent_app(
+        tmp_path,
+        scripted=(("", (_proposal("call-1", "workspace.read", {"path": "fixture.txt"}),)),),
+    )
+    session, _ = app.open_chat_session("custodied read", AutoApproveGateway())
+    custody_calls: list[tuple[str, str]] = []
+
+    def custody(operation_slot, intent_digest, effect):
+        custody_calls.append((operation_slot, intent_digest))
+        return effect()
+
+    loop = AgentLoop(
+        tasks=app.tasks,
+        provider=app.provider,
+        provider_profile=app.provider_profile,
+        policy=app.policy,
+        correction=app.correction,
+        sandbox=app.sandbox,
+        grants=dict(app.grants),
+        principal=app.principal,
+        gateway=AutoApproveGateway(),
+        config=AgentLoopConfig(stream=False),
+        effect_custody=custody,
+    )
+
+    loop.run_turn(session, "read the fixture")
+
+    assert len(custody_calls) == 1
+    assert custody_calls[0][0].endswith("action-0")
+    assert len(custody_calls[0][1]) == 64
+    assert TaskEventType.ACTION_RECEIPT_RECORDED in event_types(app, session.task_id)
+
+
+def test_agent_loop_fences_after_custodied_effect_before_task_receipt(
+    tmp_path: Path,
+) -> None:
+    app = _agent_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "mutated",
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+    session, _ = app.open_chat_session("custodied edit", AutoApproveGateway())
+    phases: list[str] = []
+    custody_calls: list[str] = []
+
+    def custody(operation_slot, _intent_digest, effect):
+        custody_calls.append(operation_slot)
+        return effect()
+
+    def assert_current(phase: str) -> None:
+        phases.append(phase)
+        if phase == "before_tool_effect_commit":
+            raise ResponsibilityLoopStaleFence("Process B owns the loop")
+
+    loop = AgentLoop(
+        tasks=app.tasks,
+        provider=app.provider,
+        provider_profile=app.provider_profile,
+        policy=app.policy,
+        correction=app.correction,
+        sandbox=app.sandbox,
+        grants=dict(app.grants),
+        principal=app.principal,
+        gateway=AutoApproveGateway(),
+        config=AgentLoopConfig(stream=False),
+        execution_fence=assert_current,
+        effect_custody=custody,
+    )
+
+    with pytest.raises(ResponsibilityLoopStaleFence, match="Process B"):
+        loop.run_turn(session, "change the fixture")
+
+    assert custody_calls
+    assert "before_tool_effect_commit" in phases
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "mutated\n"
+    assert TaskEventType.ACTION_RECEIPT_RECORDED not in event_types(
+        app, session.task_id
+    )
+
+
+def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
+    tmp_path: Path,
+) -> None:
+    app = _agent_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "mutated",
+                        },
+                    ),
+                ),
+            ),
+            ("edit complete", ()),
+        ),
+    )
+    session, _ = app.open_chat_session("same task edit", AutoApproveGateway())
+    task_count = len(app.list_tasks())
+    loop = AgentLoop(
+        tasks=app.tasks,
+        provider=app.provider,
+        provider_profile=app.provider_profile,
+        policy=app.policy,
+        correction=app.correction,
+        sandbox=app.sandbox,
+        grants=dict(app.grants),
+        principal=app.principal,
+        gateway=NonInteractiveDenyGateway(),
+        config=AgentLoopConfig(stream=False),
+        allowed_capability_ids=("workspace.read", "workspace.search", "workspace.edit"),
+        durable_write_approval=True,
+        allowed_write_paths=("fixture.txt",),
+    )
+
+    waiting = loop.run_turn(session, "make the exact edit")
+
+    assert waiting.stop_reason == "waiting_approval"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    aggregate = app.tasks.get_task(session.task_id)
+    assert aggregate.run is not None
+    assert aggregate.run.status is RunStatus.WAITING_APPROVAL
+    pending = [
+        action
+        for action in _proposed_actions_for_task(app, session.task_id)
+        if action.capability_id == "workspace.edit"
+    ]
+    assert len(pending) == 1
+    now = datetime.now(timezone.utc)
+    app.tasks.record_approval(
+        session.task_id,
+        ApprovalDecision(
+            approval_id="approval:external:selfdev",
+            tenant_id=app.principal.tenant_id,
+            workspace_id=app.principal.workspace_id,
+            action_digest=pending[0].action_digest(),
+            actor_id="admin:external:selfdev",
+            actor_role=PrincipalRole.TENANT_ADMIN,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="external exact action approval",
+            decided_at=now,
+            expires_at=now + timedelta(minutes=5),
+        ),
+    )
+
+    completed = loop.resume_after_approval(session)
+
+    assert completed.stop_reason == "completed"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "mutated\n"
+    assert len(app.list_tasks()) == task_count
+    assert _proposed_actions_for_task(app, session.task_id) == pending
+
+
+def test_existing_task_agent_loop_restarts_and_requires_each_file_approval(
+    tmp_path: Path,
+) -> None:
+    app = _agent_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "first",
+                        },
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-2",
+                        "workspace.edit",
+                        {
+                            "path": "second.txt",
+                            "old_string": "before",
+                            "new_string": "second",
+                        },
+                    ),
+                ),
+            ),
+            ("both complete", ()),
+        ),
+    )
+    (tmp_path / "second.txt").write_text("before\n", encoding="utf-8")
+    session, _ = app.open_chat_session("same task two-file edit", AutoApproveGateway())
+
+    def new_loop() -> AgentLoop:
+        return AgentLoop(
+            tasks=app.tasks,
+            provider=app.provider,
+            provider_profile=app.provider_profile,
+            policy=app.policy,
+            correction=app.correction,
+            sandbox=app.sandbox,
+            grants=dict(app.grants),
+            principal=app.principal,
+            gateway=NonInteractiveDenyGateway(),
+            config=AgentLoopConfig(stream=False),
+            allowed_capability_ids=(
+                "workspace.read",
+                "workspace.search",
+                "workspace.edit",
+            ),
+            durable_write_approval=True,
+            allowed_write_paths=("fixture.txt", "second.txt"),
+        )
+
+    def approve_latest() -> None:
+        action = _proposed_actions_for_task(app, session.task_id)[-1]
+        now = datetime.now(timezone.utc)
+        app.tasks.record_approval(
+            session.task_id,
+            ApprovalDecision(
+                approval_id=f"approval:external:{action.action_id}",
+                tenant_id=app.principal.tenant_id,
+                workspace_id=app.principal.workspace_id,
+                action_digest=action.action_digest(),
+                actor_id="admin:external:selfdev",
+                actor_role=PrincipalRole.TENANT_ADMIN,
+                disposition=ApprovalDisposition.APPROVE,
+                reason="external exact action approval",
+                decided_at=now,
+                expires_at=now + timedelta(minutes=5),
+            ),
+        )
+
+    first_wait = new_loop().run_turn(session, "edit both files precisely")
+    assert first_wait.stop_reason == "waiting_approval"
+    approve_latest()
+
+    second_wait = new_loop().resume_after_approval(session)
+    assert second_wait.stop_reason == "waiting_approval"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "first\n"
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "before\n"
+    assert app.tasks.get_task(session.task_id).approval is None
+    approve_latest()
+
+    completed = new_loop().resume_after_approval(session)
+    assert completed.stop_reason == "completed"
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "second\n"
+    history = new_loop()
+    history.restore_history_from_task(session)
+    roles = [message.role for message in history.history]
+    assert roles.count(ProviderMessageRole.ASSISTANT) == 3
+    assert roles.count(ProviderMessageRole.TOOL) == 2
 
 
 def test_resume_rejects_mandate_or_workspace_mismatch(tmp_path: Path) -> None:

@@ -57,6 +57,15 @@ class SelfDevelopmentWorkSpec(ContractModel):
     repository_head: NonEmptyStr
     isolated_branch: NonEmptyStr
     target_path: NonEmptyStr
+    edit_mode: Literal["complete_replacement", "agent_loop_precise"] = Field(
+        default="complete_replacement",
+        exclude_if=lambda value: value == "complete_replacement",
+    )
+    additional_target_paths: tuple[NonEmptyStr, ...] = Field(
+        default=(),
+        max_length=7,
+        exclude_if=lambda value: not value,
+    )
     verifier_command: NonEmptyStr
     rollback_strategy: Literal["compensate_task"] = "compensate_task"
 
@@ -83,6 +92,18 @@ class SelfDevelopmentWorkSpec(ContractModel):
     @field_validator("target_path", mode="after")
     @classmethod
     def _validate_target_path(cls, value: str) -> str:
+        return cls._safe_product_path(value)
+
+    @field_validator("additional_target_paths", mode="after")
+    @classmethod
+    def _validate_additional_target_paths(
+        cls,
+        values: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        return tuple(cls._safe_product_path(value) for value in values)
+
+    @staticmethod
+    def _safe_product_path(value: str) -> str:
         allowed_prefixes = (
             "packages/os_core/src/agent_os_core/",
             "packages/contracts/src/agent_os_contracts/",
@@ -98,6 +119,21 @@ class SelfDevelopmentWorkSpec(ContractModel):
         ):
             raise ValueError("target_path must be a safe Agent OS product path")
         return path.as_posix()
+
+    @model_validator(mode="after")
+    def _validate_write_set(self) -> SelfDevelopmentWorkSpec:
+        paths = self.allowed_write_paths
+        if len(set(paths)) != len(paths):
+            raise ValueError("SELFDEV write paths must be unique")
+        if self.additional_target_paths and self.edit_mode != "agent_loop_precise":
+            raise ValueError(
+                "multiple SELFDEV targets require agent_loop_precise edit mode"
+            )
+        return self
+
+    @property
+    def allowed_write_paths(self) -> tuple[str, ...]:
+        return (self.target_path, *self.additional_target_paths)
 
     @field_validator("verifier_command", mode="after")
     @classmethod

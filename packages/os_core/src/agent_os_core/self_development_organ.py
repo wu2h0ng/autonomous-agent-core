@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import Enum
 from pathlib import Path
 import subprocess
 from typing import Any
@@ -19,6 +20,11 @@ class SelfDevelopmentOrganBlocked(RuntimeError):
         self.detail = detail
 
 
+class SelfDevelopmentAgentLoopState(str, Enum):
+    COMPLETED = "COMPLETED"
+    WAITING_APPROVAL = "WAITING_APPROVAL"
+
+
 class SelfDevelopmentOrgan:
     """Admit one exact linked-worktree Task into the governed execution spine."""
 
@@ -27,11 +33,17 @@ class SelfDevelopmentOrgan:
         *,
         workspace: Path,
         execute_task: Callable[[str, dict[str, Any], Any, Any], None],
-        validate_task: Callable[[str], None] | None = None,
+        validate_task: Callable[[str, SelfDevelopmentWorkSpec], None] | None = None,
+        execute_agent_loop: Callable[[str, SelfDevelopmentWorkSpec, Any, Any], SelfDevelopmentAgentLoopState] | None = None,
+        has_persisted_effects: Callable[[str], bool] | None = None,
     ) -> None:
         self._workspace = Path(workspace).resolve()
         self._execute_task = execute_task
-        self._validate_task = validate_task or (lambda _task_id: None)
+        self._validate_task = validate_task or (lambda _task_id, _spec: None)
+        self._execute_agent_loop = execute_agent_loop
+        self._has_persisted_effects = has_persisted_effects or (
+            lambda _task_id: False
+        )
 
     def __call__(
         self,
@@ -40,9 +52,15 @@ class SelfDevelopmentOrgan:
         assert_current: Callable[[str], None],
         execute_effect: Any,
     ) -> None:
-        self._assert_exact_workspace(spec, require_clean=True)
-        self._assert_target_admitted(spec)
-        self._validate_task(task_id)
+        precise_resume = (
+            spec.edit_mode == "agent_loop_precise"
+            and self._has_persisted_effects(task_id)
+        )
+        self._assert_exact_workspace(spec, require_clean=not precise_resume)
+        if precise_resume:
+            self._assert_only_target_changed(spec)
+        self._assert_targets_admitted(spec)
+        self._validate_task(task_id, spec)
         assert_current("before_selfdev_execution")
 
         def assert_selfdev_current(phase: str) -> None:
@@ -54,26 +72,51 @@ class SelfDevelopmentOrgan:
                 self._assert_exact_workspace(spec, require_clean=False)
                 self._assert_only_target_changed(spec)
 
+        execution_envelope: dict[str, Any] = {
+            "repository_head": spec.repository_head,
+            "isolated_branch": spec.isolated_branch,
+            "allowed_write_path": spec.target_path,
+            "verifier_command": spec.verifier_command,
+            "rollback_strategy": spec.rollback_strategy,
+            "prohibited_effects": (
+                "main",
+                "master",
+                "release",
+                "commit",
+                "push",
+                "merge",
+            ),
+        }
+        if spec.edit_mode == "agent_loop_precise":
+            execution_envelope["allowed_write_paths"] = spec.allowed_write_paths
+            execution_envelope["edit_mode"] = spec.edit_mode
+        if spec.edit_mode == "agent_loop_precise":
+            if self._execute_agent_loop is None:
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_AGENT_LOOP_NOT_BOUND",
+                    "precise SELFDEV requires the existing-Task AgentLoop organ",
+                )
+            state = self._execute_agent_loop(
+                task_id,
+                spec,
+                assert_selfdev_current,
+                execute_effect,
+            )
+            self._assert_exact_workspace(spec, require_clean=False)
+            self._assert_only_target_changed(spec)
+            if state is SelfDevelopmentAgentLoopState.WAITING_APPROVAL:
+                return
+            if state is not SelfDevelopmentAgentLoopState.COMPLETED:
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_AGENT_LOOP_STOPPED",
+                    "precise AgentLoop did not reach its verification handoff",
+                )
         self._execute_task(
             task_id,
             {
                 "target_path": spec.target_path,
                 "test_command": spec.verifier_command,
-                "selfdev_execution_envelope": {
-                    "repository_head": spec.repository_head,
-                    "isolated_branch": spec.isolated_branch,
-                    "allowed_write_path": spec.target_path,
-                    "verifier_command": spec.verifier_command,
-                    "rollback_strategy": spec.rollback_strategy,
-                    "prohibited_effects": (
-                        "main",
-                        "master",
-                        "release",
-                        "commit",
-                        "push",
-                        "merge",
-                    ),
-                },
+                "selfdev_execution_envelope": execution_envelope,
             },
             assert_selfdev_current,
             execute_effect,
@@ -118,29 +161,33 @@ class SelfDevelopmentOrgan:
                 "admitted worktree must be clean before SELFDEV execution",
             )
 
-    def _assert_target_admitted(self, spec: SelfDevelopmentWorkSpec) -> None:
-        target = self._workspace / spec.target_path
-        if not target.is_file() or target.is_symlink():
-            raise SelfDevelopmentOrganBlocked(
-                "SELFDEV_TARGET_UNSAFE",
-                "single-target SELFDEV requires one existing non-symlink file",
-            )
-        try:
-            content = target.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            raise SelfDevelopmentOrganBlocked(
-                "SELFDEV_TARGET_UNSAFE",
-                "target must be readable UTF-8 text",
-            ) from exc
-        if len(content) > _MAX_COMPLETE_REPLACEMENT_CHARACTERS:
-            raise SelfDevelopmentOrganBlocked(
-                "SELFDEV_TARGET_TOO_LARGE",
-                "complete-replacement route is limited to fully provider-visible files",
-            )
+    def _assert_targets_admitted(self, spec: SelfDevelopmentWorkSpec) -> None:
+        for relative_path in spec.allowed_write_paths:
+            target = self._workspace / relative_path
+            if not target.is_file() or target.is_symlink():
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_TARGET_UNSAFE",
+                    "SELFDEV requires existing non-symlink write targets",
+                )
+            try:
+                content = target.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_TARGET_UNSAFE",
+                    "targets must be readable UTF-8 text",
+                ) from exc
+            if (
+                spec.edit_mode == "complete_replacement"
+                and len(content) > _MAX_COMPLETE_REPLACEMENT_CHARACTERS
+            ):
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_TARGET_TOO_LARGE",
+                    "complete-replacement route is limited to fully provider-visible files",
+                )
 
     def _assert_only_target_changed(self, spec: SelfDevelopmentWorkSpec) -> None:
         changed = self._git_status_paths()
-        if changed - {spec.target_path}:
+        if changed - set(spec.allowed_write_paths):
             raise SelfDevelopmentOrganBlocked(
                 "SELFDEV_SCOPE_DRIFT",
                 "SELFDEV execution changed a path outside its persisted target",

@@ -861,7 +861,15 @@ class WorkspaceSandbox:
         snapshot: dict[str, object],
     ) -> subprocess.CompletedProcess[str]:
         expected_head = str(snapshot.get("repository_head", ""))
-        target_path = str(snapshot.get("target_path", ""))
+        raw_target_paths = snapshot.get("target_paths")
+        if isinstance(raw_target_paths, (list, tuple)) and raw_target_paths:
+            target_paths = tuple(str(path) for path in raw_target_paths)
+        else:
+            target_paths = (str(snapshot.get("target_path", "")),)
+        if any(not path for path in target_paths) or len(set(target_paths)) != len(
+            target_paths
+        ):
+            raise CapabilityDenied("SELFDEV verifier target set is invalid")
         head = subprocess.run(
             ["git", "-C", str(self.root), "rev-parse", "HEAD"],
             capture_output=True,
@@ -870,8 +878,8 @@ class WorkspaceSandbox:
         )
         if head.returncode != 0 or head.stdout.strip() != expected_head:
             raise CapabilityDenied("SELFDEV verifier repository HEAD drift")
-        target = self._safe_path(target_path)
-        if not target.is_file() or target.is_symlink():
+        targets = tuple(self._safe_path(path) for path in target_paths)
+        if any(not target.is_file() or target.is_symlink() for target in targets):
             raise CapabilityDenied("SELFDEV verifier target is unavailable")
         sandbox_exec = shutil.which("sandbox-exec")
         if sandbox_exec is None:
@@ -894,9 +902,10 @@ class WorkspaceSandbox:
                     ".pytest_cache",
                 ),
             )
-            mirrored_target = mirror / target_path
-            mirrored_target.parent.mkdir(parents=True, exist_ok=True)
-            mirrored_target.write_bytes(target.read_bytes())
+            for target_path, target in zip(target_paths, targets, strict=True):
+                mirrored_target = mirror / target_path
+                mirrored_target.parent.mkdir(parents=True, exist_ok=True)
+                mirrored_target.write_bytes(target.read_bytes())
             sandbox_tmp = verification_root / "tmp"
             sandbox_home = verification_root / "home"
             runtime_site = verification_root / "runtime-site"
@@ -933,7 +942,7 @@ class WorkspaceSandbox:
             shutil.copytree(
                 source_site,
                 runtime_site,
-                symlinks=True,
+                symlinks=False,
                 ignore=ignore_runtime,
                 copy_function=hardlink_or_copy,
             )
@@ -948,13 +957,16 @@ class WorkspaceSandbox:
                     "(allow process*)",
                     "(allow sysctl-read)",
                     "(deny network*)",
+                    "(allow file-read*)",
+                    '(deny file-read* (subpath "/Users") '
+                    '(subpath "/Volumes") (subpath "/Network") '
+                    '(subpath "/private/tmp") '
+                    '(subpath "/private/var/folders"))',
                     "(allow file-read* "
                     f'(subpath "{mirror}") '
                     f'(subpath "{runtime_site}") '
                     f'(subpath "{base_runtime}") '
-                    '(subpath "/System") (subpath "/usr/lib") '
-                    '(subpath "/Library/Apple") (subpath "/private/etc") '
-                    '(subpath "/dev"))',
+                    f'(subpath "{verification_root}"))',
                     "(allow file-write* "
                     f'(subpath "{sandbox_tmp}") '
                     f'(subpath "{sandbox_home}") '
@@ -976,6 +988,7 @@ class WorkspaceSandbox:
                 "PATH": "/usr/bin:/bin",
                 "PYTHONPATH": os.pathsep.join(str(path) for path in python_paths),
                 "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
                 "NO_COLOR": "1",
                 "LANG": os.environ.get("LANG", "C.UTF-8"),
             }

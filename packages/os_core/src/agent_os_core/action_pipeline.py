@@ -23,6 +23,12 @@ from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .task_service import TaskService
 
 
+EffectCustodyPort = Callable[
+    [str, str, Callable[[], CapabilityResult]],
+    CapabilityResult,
+]
+
+
 class ActionPipeline:
     """Typed action flow: build contract → policy → permit → broker → receipt."""
 
@@ -91,6 +97,8 @@ class ActionPipeline:
         lease_fence_fn: Callable[[str], int] | None = None,
         capability_id: str | None = None,
         record_artifacts: bool = True,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ) -> CapabilityResult:
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
@@ -144,7 +152,19 @@ class ActionPipeline:
                 current_fence = store(run_id)
         if current_fence != permit.lease_fence:
             raise PermissionError("stale worker lease")
-        result = self._broker.invoke(action, permit)
+        if execution_fence is not None:
+            execution_fence("before_tool_effect")
+
+        def invoke() -> CapabilityResult:
+            return self._broker.invoke(action, permit)
+
+        result = (
+            effect_custody(action.node_id, action.action_digest(), invoke)
+            if effect_custody is not None
+            else invoke()
+        )
+        if execution_fence is not None:
+            execution_fence("before_tool_effect_commit")
         self._tasks._record_action_receipt(
             action.task_id,
             action=action,
@@ -152,6 +172,21 @@ class ActionPipeline:
             permit=permit,
             receipt=result.receipt,
             writer_token=self._tasks._runtime_writer_token,
+            effect=(
+                {
+                    key: str(result.output[key])
+                    for key in (
+                        "path",
+                        "compensation_ref",
+                        "manifest_sha256",
+                        "applied_sha256",
+                    )
+                }
+                if action.capability_id
+                in {"workspace.apply_patch", "workspace.edit"}
+                and result.receipt.status.value == "SUCCEEDED"
+                else None
+            ),
         )
         if result.receipt.status.value != "SUCCEEDED":
             raise RunExecutionError(
@@ -175,11 +210,22 @@ class ActionPipeline:
         return result
 
     def record_action_proposed(
-        self, action: ActionContract
+        self,
+        action: ActionContract,
+        *,
+        provider_tool_call_id: str | None = None,
+        turn_id: str | None = None,
     ) -> None:
+        payload: dict[str, Any] = {
+            "action": action.model_dump(mode="json"),
+        }
+        if provider_tool_call_id is not None:
+            payload["provider_tool_call_id"] = provider_tool_call_id
+        if turn_id is not None:
+            payload["turn_id"] = turn_id
         self._tasks.append_event(
             action.task_id,
             TaskEventType.ACTION_PROPOSED,
-            {"action": action.model_dump(mode="json")},
+            payload,
             correlation_id=action.run_id,
         )

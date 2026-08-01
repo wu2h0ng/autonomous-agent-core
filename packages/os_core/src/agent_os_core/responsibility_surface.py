@@ -17,9 +17,19 @@ from agent_os_contracts import (
     OutcomePortfolio,
     PrincipalIdentity,
     PrincipalRole,
+    RunStatus,
+    SelfDevelopmentWorkSpec,
+    SessionRef,
+    TaskEventType,
     content_digest,
 )
 
+from .agent_loop import (
+    AgentLoop,
+    AgentLoopConfig,
+    ChatSession,
+    NonInteractiveDenyGateway,
+)
 from .capability import CapabilityResult
 from .mandate_terminal import load_attach_session, mandate_status
 from .responsibility_controller import (
@@ -35,7 +45,12 @@ from .responsibility_loop import (
     ResponsibilityLoopEffectUnknown,
     SQLiteResponsibilityLoopStore,
 )
-from .self_development_organ import SelfDevelopmentOrgan, SelfDevelopmentOrganBlocked
+from .self_development_organ import (
+    SelfDevelopmentAgentLoopState,
+    SelfDevelopmentOrgan,
+    SelfDevelopmentOrganBlocked,
+)
+from .task_configuration import TASK_CONFIGURATION_CAPABILITY
 
 AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
     evaluator_root_id="hcw-evaluator:agent-work:v1",
@@ -56,7 +71,10 @@ class ResponsibilitySurfaceError(RuntimeError):
     """Fail-closed error for the unique terminal Work surface."""
 
 
-def _validate_selfdev_task(aggregate: Any) -> None:
+def _validate_selfdev_task(
+    aggregate: Any,
+    spec: SelfDevelopmentWorkSpec,
+) -> None:
     workflow = aggregate.workflow
     if workflow is None:
         raise SelfDevelopmentOrganBlocked(
@@ -77,6 +95,35 @@ def _validate_selfdev_task(aggregate: Any) -> None:
         targets = outgoing[current]
         current = targets[0] if len(targets) == 1 else None
     signature = tuple((node.kind, node.capability) for node in ordered)
+    if spec.edit_mode == "agent_loop_precise":
+        if (
+            aggregate.commitment is None
+            or TASK_CONFIGURATION_CAPABILITY
+            not in aggregate.commitment.authority_scopes
+        ):
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_WORKFLOW_NOT_ADMITTED",
+                "precise SELFDEV requires authority to freeze its runtime binding",
+            )
+        expected = (
+            (NodeKind.TRANSFORM, None),
+            (NodeKind.TOOL, "workspace.run_tests"),
+            (NodeKind.EVALUATION, None),
+            (NodeKind.TERMINAL, None),
+        )
+        test_node = ordered[1] if len(ordered) == len(expected) else None
+        if (
+            signature != expected
+            or len(workflow.edges) != len(expected) - 1
+            or test_node is None
+            or test_node.risk_tier != 0
+            or test_node.idempotency.value != "idempotent"
+        ):
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_WORKFLOW_NOT_ADMITTED",
+                "precise SELFDEV workflow must be agent-loop-handoff-test-evaluate",
+            )
+        return
     expected = (
         (NodeKind.TOOL, "workspace.read"),
         (NodeKind.PROVIDER, "provider.chat"),
@@ -325,14 +372,7 @@ def run_responsibility_work(
             "agent resume requires an existing responsibility checkpoint"
         )
 
-    def execute_task_with_inputs(
-        task_id: str,
-        task_inputs: dict[str, Any],
-        assert_current,
-        execute_effect,
-    ) -> None:
-        assert_current("before_existing_task")
-
+    def effect_custody_for(execute_effect):
         def effect_custody(
             operation_slot: str,
             intent_digest: str,
@@ -364,11 +404,25 @@ def run_responsibility_work(
                 )
             return captured[0]
 
+        return effect_custody
+
+    def execute_task_with_inputs(
+        task_id: str,
+        task_inputs: dict[str, Any],
+        assert_current,
+        execute_effect,
+    ) -> None:
+        assert_current("before_existing_task")
+        aggregate = execution_app.tasks.get_task(task_id)
+        snapshot = aggregate.configuration_snapshot
         execution_app.run_task(
             task_id,
             task_inputs,
+            configuration_snapshot_id=(
+                snapshot.snapshot_id if snapshot is not None else None
+            ),
             execution_fence=assert_current,
-            effect_custody=effect_custody,
+            effect_custody=effect_custody_for(execute_effect),
         )
         assert_current("after_existing_task")
 
@@ -380,12 +434,135 @@ def run_responsibility_work(
             execute_effect,
         )
 
+    def execute_agent_loop(
+        task_id: str,
+        spec: SelfDevelopmentWorkSpec,
+        assert_current,
+        execute_effect,
+    ) -> SelfDevelopmentAgentLoopState:
+        aggregate = execution_app.tasks.get_task(task_id)
+        if aggregate.expected_outcome is None or aggregate.commitment is None:
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_AGENT_LOOP_NOT_BOUND",
+                "precise SELFDEV requires the existing committed Task contracts",
+            )
+        snapshot = aggregate.configuration_snapshot
+        if snapshot is None:
+            snapshot = execution_app.seal_task_configuration(task_id, {})
+            aggregate = execution_app.tasks.get_task(task_id)
+        if aggregate.run is None:
+            aggregate = execution_app.start_run(task_id, snapshot.snapshot_id)
+        if aggregate.run is None:
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_AGENT_LOOP_NOT_BOUND",
+                "precise SELFDEV could not bind a Run to the existing Task",
+            )
+        run = aggregate.run
+        session = ChatSession(
+            ref=SessionRef(
+                session_id=f"session:selfdev:{task_id}",
+                task_id=task_id,
+                run_id=run.run_id,
+                tenant_id=run.tenant_id,
+                workspace_id=run.workspace_id,
+            ),
+            envelope_id=f"envelope:selfdev:{run.run_id}",
+            expected=aggregate.expected_outcome,
+        )
+        capabilities = (
+            "workspace.read",
+            "workspace.search",
+            "workspace.edit",
+        )
+        grants = {
+            capability_id: execution_app.grants[capability_id]
+            for capability_id in capabilities
+        }
+        write_paths = "\n".join(
+            f"- {path}" for path in spec.allowed_write_paths
+        )
+        acceptance = "\n".join(
+            f"- {criterion}"
+            for criterion in aggregate.commitment.acceptance_criteria
+        )
+        system_prompt = (
+            "You are the internal Agent OS SELFDEV inspect/propose organ for one "
+            "existing governed Task. Inspect with workspace.search/read, then make "
+            "one exact workspace.edit tool call per provider response. Never use "
+            "complete-file replacement, shell, commit, push, merge, main, release, "
+            "approval, policy, evaluator or promotion operations. Each edit waits "
+            "for an external exact-action decision. When the repository change is "
+            "ready for the detached verifier, return a final response with no tools."
+        )
+        prompt = (
+            f"Task: {aggregate.goal.statement if aggregate.goal else task_id}\n"
+            f"Acceptance criteria:\n{acceptance}\n"
+            f"Persisted allowed write paths:\n{write_paths}\n"
+            f"Exact base HEAD: {spec.repository_head}\n"
+            f"Verifier after handoff: {spec.verifier_command}"
+        )
+        loop = AgentLoop(
+            tasks=execution_app.tasks,
+            provider=execution_app.provider,
+            provider_profile=execution_app.provider_profile,
+            policy=execution_app.policy,
+            correction=execution_app.correction,
+            sandbox=execution_app.sandbox,
+            grants=grants,
+            principal=execution_app.principal,
+            gateway=NonInteractiveDenyGateway(),
+            config=AgentLoopConfig(
+                stream=False,
+                system_prompt=system_prompt,
+            ),
+            execution_fence=assert_current,
+            effect_custody=effect_custody_for(execute_effect),
+            allowed_capability_ids=capabilities,
+            durable_write_approval=True,
+            allowed_write_paths=spec.allowed_write_paths,
+        )
+        events = execution_app.tasks._event_store.read(task_id)
+        has_turn = any(
+            event.event_type is TaskEventType.SESSION_TURN_STARTED
+            and event.correlation_id == run.run_id
+            for event in events
+        )
+        current = execution_app.tasks.get_task(task_id)
+        if (
+            current.run is not None
+            and current.run.status is RunStatus.WAITING_APPROVAL
+        ):
+            if current.approval is None:
+                return SelfDevelopmentAgentLoopState.WAITING_APPROVAL
+            result = loop.resume_after_approval(session)
+        elif has_turn:
+            result = loop.continue_existing_turn(session)
+        else:
+            result = loop.run_turn(session, prompt)
+        if result.stop_reason == "waiting_approval":
+            return SelfDevelopmentAgentLoopState.WAITING_APPROVAL
+        if result.stop_reason != "completed":
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_AGENT_LOOP_STOPPED",
+                f"precise AgentLoop stopped with {result.stop_reason}",
+            )
+        return SelfDevelopmentAgentLoopState.COMPLETED
+
+    def has_persisted_effects(task_id: str) -> bool:
+        return any(
+            event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+            and isinstance(event.decoded_payload().get("effect"), dict)
+            for event in execution_app.tasks._event_store.read(task_id)
+        )
+
     selfdev_organ = SelfDevelopmentOrgan(
         workspace=workspace,
         execute_task=execute_task_with_inputs,
-        validate_task=lambda task_id: _validate_selfdev_task(
-            execution_app.tasks.get_task(task_id)
+        validate_task=lambda task_id, spec: _validate_selfdev_task(
+            execution_app.tasks.get_task(task_id), spec
         ),
+        execute_agent_loop=execute_agent_loop,
+        has_persisted_effects=has_persisted_effects,
     )
 
     controller = ResponsibilityLoopController(

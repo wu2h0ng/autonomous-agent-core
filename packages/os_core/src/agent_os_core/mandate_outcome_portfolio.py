@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from agent_os_contracts import (
+    ActionContract,
     MandateTaskLink,
     ObservedOutcome,
     OutcomePortfolio,
@@ -62,6 +63,8 @@ class OutcomePortfolioTaskReader(Protocol):
     def get_task(self, task_id: str) -> TaskAggregate: ...
 
     def current_outcome(self, task_id: str) -> ObservedOutcome | None: ...
+
+    def pending_action(self, task_id: str) -> ActionContract | None: ...
 
 
 _STATUS_TO_STATE = {
@@ -1032,16 +1035,27 @@ class SQLiteMandateOutcomePortfolioStore:
             pending_action_approval = (
                 task.run is not None and task.run.status.value == "WAITING_APPROVAL"
             )
+            pending_action = (
+                self._task_reader.pending_action(commitment.task_id)
+                if pending_action_approval
+                else None
+            )
+            if pending_action_approval and pending_action is None:
+                raise MandateOutcomePortfolioConflict(
+                    "WAITING_APPROVAL Task has no exact pending action"
+                )
             gap_kind = (
                 OutcomePortfolioHelpGap.PENDING_ACTION_APPROVAL
                 if pending_action_approval
                 else OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME
             )
-            details = (
-                "Exact pending Task action requires an external decision"
-                if pending_action_approval
-                else "Task current ObservedOutcome is required"
-            )
+            if pending_action is not None:
+                details = (
+                    "Exact pending Task action requires an external decision: "
+                    f"{pending_action.action_digest()}"
+                )
+            else:
+                details = "Task current ObservedOutcome is required"
             help_request = self._emit_help_request(
                 mandate_id=mandate_id,
                 portfolio_id=portfolio.portfolio_id,

@@ -422,6 +422,7 @@ class TaskService:
         permit: ActionPermit,
         receipt: ActionReceipt,
         writer_token: object,
+        effect: dict[str, str] | None = None,
     ) -> TaskAggregate:
         if writer_token is not self._runtime_writer_token:
             raise InvalidTransitionError("action receipt writer is not authorized")
@@ -475,14 +476,43 @@ class TaskService:
             raise InvalidTransitionError(
                 "action receipt lacks proposed action or policy decision"
             )
+        receipt_payload: dict[str, object] = {
+            "decision": decision.model_dump(mode="json"),
+            "permit": permit.model_dump(mode="json"),
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        if (
+            action.capability_id in {"workspace.apply_patch", "workspace.edit"}
+            and receipt.status is ReceiptStatus.SUCCEEDED
+        ):
+            required_effect_fields = {
+                "path",
+                "compensation_ref",
+                "manifest_sha256",
+                "applied_sha256",
+            }
+            if effect is None or set(effect) != required_effect_fields:
+                raise InvalidTransitionError(
+                    "compensatable action receipt requires an exact effect binding"
+                )
+            arguments = json.loads(action.arguments_json)
+            if (
+                effect["path"] != arguments.get("path")
+                or effect["compensation_ref"] != receipt.detail_ref
+                or any(not value for value in effect.values())
+            ):
+                raise InvalidTransitionError(
+                    "compensatable action effect binding mismatch"
+                )
+            receipt_payload["effect"] = effect
+        elif effect is not None:
+            raise InvalidTransitionError(
+                "non-compensatable action cannot record a patch effect binding"
+            )
         return self._append_event(
             task_id,
             TaskEventType.ACTION_RECEIPT_RECORDED,
-            {
-                "decision": decision.model_dump(mode="json"),
-                "permit": permit.model_dump(mode="json"),
-                "receipt": receipt.model_dump(mode="json"),
-            },
+            receipt_payload,
             correlation_id=run.run_id,
             writer_token=writer_token,
         )
@@ -877,6 +907,23 @@ class TaskService:
             ),
             correlation_id=aggregate.run.run_id,
         )
+
+    def pending_action(self, task_id: str) -> ActionContract | None:
+        events = self._event_store.read(task_id)
+        if not events:
+            raise TaskNotFoundError(f"task not found: {task_id}")
+        for event in reversed(events):
+            if event.event_type in {
+                TaskEventType.RUN_PLAN_REBOUND,
+                TaskEventType.APPROVAL_RECORDED,
+            }:
+                return None
+            if event.event_type is not TaskEventType.ACTION_PROPOSED:
+                continue
+            candidate = event.decoded_payload().get("action")
+            if isinstance(candidate, dict):
+                return ActionContract.model_validate(candidate)
+        return None
 
     def update_run_status(
         self,

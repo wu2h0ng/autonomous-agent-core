@@ -400,6 +400,8 @@ class TaskAggregate:
                 elif event.event_type is TaskEventType.RUN_FAILED:
                     task_status = TaskStatus.FAILED
                 approval = self.approval
+                if event.event_type is TaskEventType.ACTION_PROPOSED:
+                    approval = None
                 if event.event_type is TaskEventType.APPROVAL_RECORDED:
                     approval = ApprovalDecision.model_validate(payload["approval"])
                 return replace(

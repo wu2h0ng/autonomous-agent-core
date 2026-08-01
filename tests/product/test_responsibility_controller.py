@@ -4,6 +4,7 @@ from datetime import timedelta
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 
@@ -31,7 +32,7 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core.errors import RunExecutionError
-from agent_os_core import DeterministicProvider
+from agent_os_core import DeterministicProvider, TASK_CONFIGURATION_CAPABILITY
 from agent_os_core.capability import CapabilityBroker
 from agent_os_core.responsibility_controller import (
     ResponsibilityControllerBlockReason,
@@ -47,7 +48,10 @@ from agent_os_core.responsibility_loop import (
     ResponsibilityLoopStaleFence,
     SQLiteResponsibilityLoopStore,
 )
-from agent_os_core.self_development_organ import SelfDevelopmentOrganBlocked
+from agent_os_core.self_development_organ import (
+    SelfDevelopmentAgentLoopState,
+    SelfDevelopmentOrganBlocked,
+)
 from agent_os_core.responsibility_surface import (
     ResponsibilitySurfaceError,
     answer_responsibility_help,
@@ -76,9 +80,11 @@ def _verified_responsibility(
     workflow=None,
     work_route: ResponsibilityWorkRoute = ResponsibilityWorkRoute.ORDINARY_TASK,
     selfdev_spec: SelfDevelopmentWorkSpec | None = None,
+    prepare_workspace: bool = True,
 ):
-    _prepare_workspace(tmp_path)
-    if work_route is ResponsibilityWorkRoute.SELFDEV:
+    if prepare_workspace:
+        _prepare_workspace(tmp_path)
+    if prepare_workspace and work_route is ResponsibilityWorkRoute.SELFDEV:
         implementation = (
             tmp_path
             / "packages"
@@ -125,6 +131,12 @@ def _verified_responsibility(
         accepted_at=NOW,
         deliverables=("verified repository state",),
         acceptance_criteria=("pytest passes",),
+        authority_scopes=(
+            (TASK_CONFIGURATION_CAPABILITY,)
+            if selfdev_spec is not None
+            and selfdev_spec.edit_mode == "agent_loop_precise"
+            else ()
+        ),
         budget=_budget(),
         risk_tier=0,
         exit_conditions=("verified",),
@@ -648,6 +660,37 @@ def _selfdev_patch_workflow() -> WorkflowGraph:
     )
 
 
+def _selfdev_agent_loop_workflow() -> WorkflowGraph:
+    nodes = (
+        NodeSpec(node_id="agent-loop-handoff", kind=NodeKind.TRANSFORM),
+        NodeSpec(
+            node_id="tests",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    return WorkflowGraph(
+        workflow_id="workflow:selfdev-agent-loop-test",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=NOW,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=tuple(
+            EdgeSpec(source=source, target=target)
+            for source, target in (
+                ("agent-loop-handoff", "tests"),
+                ("tests", "evaluate"),
+                ("evaluate", "done"),
+            )
+        ),
+    )
 def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
     tmp_path: Path,
 ) -> None:
@@ -700,6 +743,92 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
             },
         )
     ]
+
+
+def test_selfdev_organ_admits_large_precise_multi_file_write_set(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    primary = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
+    secondary = "packages/contracts/src/agent_os_contracts/selfdev_fixture.py"
+    primary_path = isolated / primary
+    secondary_path = isolated / secondary
+    primary_path.write_text("P" * 25_000, encoding="utf-8")
+    secondary_path.parent.mkdir(parents=True, exist_ok=True)
+    secondary_path.write_text("S" * 24_000, encoding="utf-8")
+    subprocess.run(["git", "-C", str(isolated), "add", primary, secondary], check=True)
+    subprocess.run(
+        ["git", "-C", str(isolated), "commit", "-m", "large precise fixtures"],
+        check=True,
+        capture_output=True,
+    )
+    head = subprocess.run(
+        ["git", "-C", str(isolated), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    calls: list[dict[str, object]] = []
+
+    def execute_task(_task_id, inputs, assert_current, _execute_effect) -> None:
+        assert_current("inside_precise_executor")
+        calls.append(inputs)
+
+    def execute_agent_loop(_task_id, _spec, assert_current, _execute_effect):
+        assert_current("inside_precise_agent_loop")
+        primary_path.write_text("P fixed\n", encoding="utf-8")
+        secondary_path.write_text("S fixed\n", encoding="utf-8")
+        return SelfDevelopmentAgentLoopState.COMPLETED
+
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path=primary,
+        edit_mode="agent_loop_precise",
+        additional_target_paths=(secondary,),
+        verifier_command="pytest",
+    )
+    organ = responsibility_surface.SelfDevelopmentOrgan(
+        workspace=isolated,
+        execute_task=execute_task,
+        execute_agent_loop=execute_agent_loop,
+    )
+
+    organ("task:selfdev", spec, lambda _phase: None, lambda *_args: None)
+
+    assert calls[0]["selfdev_execution_envelope"]["allowed_write_paths"] == (
+        primary,
+        secondary,
+    )
+
+
+def test_selfdev_precise_write_set_rejects_out_of_scope_change(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
+        edit_mode="agent_loop_precise",
+        verifier_command="pytest",
+    )
+
+    def drift(*_args):
+        (isolated / "packages/os_core/src/agent_os_core/outside.py").write_text(
+            "drift\n",
+            encoding="utf-8",
+        )
+        return SelfDevelopmentAgentLoopState.COMPLETED
+
+    organ = responsibility_surface.SelfDevelopmentOrgan(
+        workspace=isolated,
+        execute_task=lambda *_args: None,
+        execute_agent_loop=drift,
+    )
+
+    with pytest.raises(SelfDevelopmentOrganBlocked, match="SELFDEV_SCOPE_DRIFT"):
+        organ("task:selfdev", spec, lambda _phase: None, lambda *_args: None)
 
 
 @pytest.mark.parametrize("drift", ["head", "branch", "primary_checkout"])
@@ -906,6 +1035,169 @@ def test_real_agent_surface_runs_bound_selfdev_organ_on_same_linked_task(
     assert payload["cycles"][0]["task_id"] == task_id
     assert len(owner.list_tasks()) == task_count
     assert owner.tasks.current_outcome(task_id) is None
+
+
+def test_real_agent_surface_precise_agent_loop_edits_two_files_on_same_task(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, _ = _linked_worktree(tmp_path)
+    primary = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
+    secondary = "packages/contracts/src/agent_os_contracts/selfdev_fixture.py"
+    (isolated / primary).write_text("VALUE = False\n", encoding="utf-8")
+    (isolated / secondary).parent.mkdir(parents=True, exist_ok=True)
+    (isolated / secondary).write_text("SECOND = False\n", encoding="utf-8")
+    test_file = isolated / "tests/product/test_selfdev_fixture.py"
+    test_file.write_text(
+        "from pathlib import Path\n"
+        "import runpy\n\n"
+        "def test_selfdev_fixture():\n"
+        "    first = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
+        "    second = Path('packages/contracts/src/agent_os_contracts/selfdev_fixture.py')\n"
+        "    assert runpy.run_path(str(first))['VALUE'] is True\n"
+        "    assert runpy.run_path(str(second))['SECOND'] is True\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "-C", str(isolated), "add", primary, secondary, str(test_file)],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(isolated), "commit", "-m", "precise fixtures"],
+        check=True,
+        capture_output=True,
+    )
+    head = subprocess.run(
+        ["git", "-C", str(isolated), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path=primary,
+        edit_mode="agent_loop_precise",
+        additional_target_paths=(secondary,),
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_selfdev_agent_loop_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+        prepare_workspace=False,
+    )
+    owner.provider = DeterministicProvider(
+        scripted=(
+            (
+                "",
+                (
+                    ProviderToolProposal(
+                        proposal_id="proposal:precise:first",
+                        capability_id="workspace.edit",
+                        arguments_json=json.dumps(
+                            {
+                                "path": primary,
+                                "old_string": "VALUE = False",
+                                "new_string": "VALUE = True",
+                            }
+                        ),
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    ProviderToolProposal(
+                        proposal_id="proposal:precise:second",
+                        capability_id="workspace.edit",
+                        arguments_json=json.dumps(
+                            {
+                                "path": secondary,
+                                "old_string": "SECOND = False",
+                                "new_string": "SECOND = True",
+                            }
+                        ),
+                    ),
+                ),
+            ),
+            ("ready for detached verification", ()),
+        ),
+        invocation_binding=owner.provider.invocation_binding,
+    )
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+    task_count = len(owner.list_tasks())
+
+    def run_and_approve(resume: bool) -> dict[str, object]:
+        waiting = run_responsibility_work(
+            app=admin,
+            execution_app=owner,
+            workspace=isolated,
+            database=database,
+            inputs={},
+            resume=resume,
+        )
+        if waiting["terminal_state"] != "WAITING_EVENT":
+            raise AssertionError(waiting["cycles"][0]["block_reason"])
+        help_id = waiting["cycles"][0]["help_request_id"]
+        answer_responsibility_help(
+            app=admin,
+            execution_app=owner,
+            workspace=isolated,
+            database=database,
+            help_request_id=help_id,
+            payload={
+                "response_kind": SrlHelpResponseKind.OPERATOR_DECISION.value,
+                "decision": "APPROVE",
+                "notes": "approve one exact precise edit",
+            },
+        )
+        return waiting
+
+    run_and_approve(False)
+    assert (isolated / primary).read_text(encoding="utf-8") == "VALUE = False\n"
+    run_and_approve(True)
+    assert (isolated / primary).read_text(encoding="utf-8") == "VALUE = True\n"
+    assert (isolated / secondary).read_text(encoding="utf-8") == "SECOND = False\n"
+
+    completed = run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=True,
+    )
+
+    assert completed["cycles"][0]["state"] == "SETTLED"
+    outcome = owner.tasks.current_outcome(task_id)
+    assert outcome is not None
+    assert outcome.status is OutcomeStatus.VERIFIED
+    assert (isolated / secondary).read_text(encoding="utf-8") == "SECOND = True\n"
+    assert len(owner.list_tasks()) == task_count
+    effects = [
+        event.decoded_payload()["effect"]
+        for event in owner.tasks._event_store.read(task_id)
+        if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+        and isinstance(event.decoded_payload().get("effect"), dict)
+    ]
+    assert [effect["path"] for effect in effects] == [primary, secondary]
+    with sqlite3.connect(database) as connection:
+        applied = connection.execute(
+            "SELECT COUNT(*) FROM responsibility_loop_effects_v2 "
+            "WHERE task_id=? AND status='APPLIED'",
+            (task_id,),
+        ).fetchone()[0]
+    assert applied >= 2
 
 
 def test_real_agent_surface_returns_typed_block_on_selfdev_head_drift(

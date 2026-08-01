@@ -11,7 +11,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
-from agent_os_contracts import ProviderMessageRole, ProviderToolProposal, TaskEventType
+from agent_os_contracts import (
+    ProviderMessageRole,
+    ProviderToolProposal,
+    RunStatus,
+    TaskEventType,
+)
 from agent_os_core import AutoApproveGateway, DeterministicProvider
 
 from apps.api_server.app import AgentOSApplication
@@ -46,6 +51,16 @@ def _chat_app(root: Path, scripted=()) -> AgentOSApplication:
 
 def _event_types(app: AgentOSApplication, task_id: str) -> list[TaskEventType]:
     return [event.event_type for event in app.tasks._event_store.read(task_id)]
+
+
+def _proposed_actions(app: AgentOSApplication, task_id: str):
+    from agent_os_contracts import ActionContract
+
+    return [
+        ActionContract.model_validate(event.decoded_payload()["action"])
+        for event in app.tasks._event_store.read(task_id)
+        if event.event_type is TaskEventType.ACTION_PROPOSED
+    ]
 
 
 def _tool_messages(loop) -> list:
@@ -155,6 +170,79 @@ def test_end_to_end_fixes_failing_test_and_returns_green_result(
         for event in app.tasks._event_store.read(session.task_id)
     )
     assert receipt_count == 3
+
+
+def test_agent_loop_multi_file_effects_compensate_in_reverse_order(
+    tmp_path: Path,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "first",
+                        },
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-2",
+                        "workspace.edit",
+                        {
+                            "path": "second.txt",
+                            "old_string": "before",
+                            "new_string": "second",
+                        },
+                    ),
+                ),
+            ),
+            ("edits complete", ()),
+        ),
+    )
+    (tmp_path / "second.txt").write_text("before\n", encoding="utf-8")
+    session, loop = app.open_chat_session("edit two files", AutoApproveGateway())
+
+    result = loop.run_turn(session, "make both edits")
+    assert result.stop_reason == "completed"
+    edit_actions = [
+        action
+        for action in _proposed_actions(app, session.task_id)
+        if action.capability_id == "workspace.edit"
+    ]
+    app.tasks.update_run_status(
+        session.task_id,
+        RunStatus.RUNNING,
+        event_type=TaskEventType.RUN_RESUMED,
+    )
+    app.tasks.update_run_status(
+        session.task_id,
+        RunStatus.FAILED,
+        event_type=TaskEventType.RUN_FAILED,
+    )
+
+    compensated = app.compensate_task(session.task_id)
+
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "before\n"
+    completed = [
+        record
+        for record in compensated.compensations
+        if record.status.value == "COMPENSATED"
+    ]
+    assert [record.node_id for record in completed] == [
+        edit_actions[1].node_id,
+        edit_actions[0].node_id,
+    ]
 
 
 def test_tool_results_are_fed_back_to_provider(tmp_path: Path) -> None:

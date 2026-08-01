@@ -22,18 +22,23 @@ from agent_os_contracts import (
     ProviderRequest,
     ProviderResponse,
     ProviderToolCall,
+    RunStatus,
     SessionRef,
     TaskEventType,
     TurnId,
     WorkingSetRef,
 )
 
-from .action_pipeline import ActionPipeline
+from .action_pipeline import ActionPipeline, EffectCustodyPort
 from .capability import CapabilityBroker, WorkspaceSandbox
 from .governance import CorrectionReadPort, PolicyKernel
 from .errors import RunExecutionError
 from .provider_receipts import build_provider_execution_receipt
 from .provider import ProviderPort
+from .responsibility_loop import (
+    ResponsibilityLoopEffectUnknown,
+    ResponsibilityLoopStaleFence,
+)
 from .task_service import TaskService
 
 # Tool surface exposed to the model during chat turns. The model may only ever
@@ -107,6 +112,10 @@ class NonInteractiveDenyGateway:
         return False
 
 
+class _DurableApprovalPending(RuntimeError):
+    """Internal control signal: a persisted write action awaits external approval."""
+
+
 @dataclass(frozen=True)
 class AgentLoopConfig:
     max_steps_per_turn: int = 25
@@ -174,6 +183,10 @@ class AgentLoop:
         config: AgentLoopConfig | None = None,
         on_text_delta: Callable[[str], None] | None = None,
         execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
+        allowed_capability_ids: tuple[str, ...] = CHAT_CAPABILITY_IDS,
+        durable_write_approval: bool = False,
+        allowed_write_paths: tuple[str, ...] | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -186,6 +199,26 @@ class AgentLoop:
         self._config = config or AgentLoopConfig()
         self._on_text_delta = on_text_delta
         self._execution_fence = execution_fence
+        self._effect_custody = effect_custody
+        if (
+            not allowed_capability_ids
+            or len(set(allowed_capability_ids)) != len(allowed_capability_ids)
+            or any(
+                capability_id not in CHAT_CAPABILITY_IDS
+                for capability_id in allowed_capability_ids
+            )
+        ):
+            raise ValueError("AgentLoop capability allowlist is invalid")
+        self._allowed_capability_ids = allowed_capability_ids
+        self._durable_write_approval = durable_write_approval
+        if durable_write_approval and (
+            not allowed_write_paths
+            or len(set(allowed_write_paths)) != len(allowed_write_paths)
+        ):
+            raise ValueError(
+                "durable AgentLoop requires a non-empty exact write-path set"
+            )
+        self._allowed_write_paths = frozenset(allowed_write_paths or ())
         self._broker = CapabilityBroker(sandbox, correction)
         self._actions = ActionPipeline(
             tasks, self._broker, policy, correction, grants
@@ -207,11 +240,90 @@ class AgentLoop:
             return
         self._history = list(messages)
 
+    def restore_history_from_task(self, session: ChatSession) -> None:
+        """Rebuild existing-run conversation state from the canonical Task ledger."""
+        history = [self._history[0]]
+        for event in self._tasks._event_store.read(session.task_id):
+            if event.correlation_id != session.run_id:
+                continue
+            payload = event.decoded_payload()
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                user_text = payload.get("user_text")
+                if isinstance(user_text, str) and user_text.strip():
+                    history.append(
+                        ProviderMessage(
+                            role=ProviderMessageRole.USER,
+                            content=user_text,
+                        )
+                    )
+            elif event.event_type is TaskEventType.PROVIDER_RESPONDED:
+                provider_output = payload.get("provider_output")
+                if not isinstance(provider_output, dict):
+                    continue
+                proposals = provider_output.get("tool_proposals", ())
+                if not isinstance(proposals, list):
+                    continue
+                tool_calls = []
+                for raw in proposals:
+                    if not isinstance(raw, dict):
+                        continue
+                    proposal_id = raw.get("proposal_id")
+                    capability_id = raw.get("capability_id")
+                    arguments_json = raw.get("arguments_json")
+                    if (
+                        isinstance(proposal_id, str)
+                        and isinstance(capability_id, str)
+                        and isinstance(arguments_json, str)
+                    ):
+                        tool_calls.append(
+                            ProviderToolCall(
+                                tool_call_id=proposal_id,
+                                capability_id=capability_id,
+                                arguments_json=arguments_json,
+                            )
+                        )
+                history.append(
+                    ProviderMessage(
+                        role=ProviderMessageRole.ASSISTANT,
+                        content=str(provider_output.get("text", "")),
+                        tool_calls=tuple(tool_calls),
+                    )
+                )
+            elif (
+                event.event_type is TaskEventType.NODE_COMPLETED
+                and payload.get("agent_loop_dynamic_action") is True
+            ):
+                tool_call_id = payload.get("provider_tool_call_id")
+                output = payload.get("output")
+                if isinstance(tool_call_id, str) and isinstance(output, dict):
+                    history.append(
+                        ProviderMessage(
+                            role=ProviderMessageRole.TOOL,
+                            content=json.dumps(
+                                _truncate_json(output), default=str
+                            )[:_MAX_TOOL_RESULT_CHARS],
+                            tool_call_id=tool_call_id,
+                        )
+                    )
+        self._history = history
+
     def _assert_execution_fence(self, phase: str) -> None:
         if self._execution_fence is not None:
             self._execution_fence(phase)
 
     def run_turn(self, session: ChatSession, user_input: str) -> TurnResult:
+        if self._durable_write_approval:
+            aggregate = self._tasks.get_task(session.task_id)
+            if aggregate.run is None or aggregate.run.run_id != session.run_id:
+                raise RunExecutionError(
+                    "durable AgentLoop requires the existing bound Run"
+                )
+            if aggregate.run.status in {RunStatus.CREATED, RunStatus.QUEUED}:
+                self._tasks.update_run_status(
+                    session.task_id,
+                    RunStatus.RUNNING,
+                    event_type=TaskEventType.RUN_RESUMED,
+                )
         turn_id = TurnId(
             turn_id=f"turn-{uuid4()}",
             session_id=session.session_id,
@@ -287,22 +399,33 @@ class AgentLoop:
                 stop_reason = "completed"
                 final_text = response.text
                 break
+            if self._durable_write_approval and len(response.tool_proposals) != 1:
+                stop_reason = "ambiguous_proposal"
+                final_text = (
+                    "durable SELFDEV requires exactly one tool proposal per response"
+                )
+                break
             for index, proposal in enumerate(response.tool_proposals):
                 capability_id = proposal.capability_id
-                if capability_id not in CHAT_CAPABILITY_IDS:
+                if capability_id not in self._allowed_capability_ids:
                     stop_reason = "unauthorized_proposal"
                     final_text = (
                         f"provider proposed unauthorized capability {capability_id}"
                     )
                     break
-                tool_message = self._execute_proposal(
-                    session,
-                    turn_id.turn_id,
-                    steps,
-                    index,
-                    proposal,
-                    seen_action_digests,
-                )
+                try:
+                    tool_message = self._execute_proposal(
+                        session,
+                        turn_id.turn_id,
+                        steps,
+                        index,
+                        proposal,
+                        seen_action_digests,
+                    )
+                except _DurableApprovalPending:
+                    stop_reason = "waiting_approval"
+                    final_text = "external exact-action approval required"
+                    break
                 self._history.append(tool_message)
                 if seen_action_digests and max(seen_action_digests.values()) >= (
                     self._config.loop_detection_threshold
@@ -313,6 +436,7 @@ class AgentLoop:
             if stop_reason in {
                 "unauthorized_proposal",
                 "loop_detected",
+                "waiting_approval",
             }:
                 break
         return TurnResult(
@@ -366,7 +490,7 @@ class AgentLoop:
                 run_id=session.run_id,
                 provider_profile_id=self._profile.profile_id,
                 messages=tuple(self._trimmed_history()),
-                allowed_capability_ids=CHAT_CAPABILITY_IDS,
+                allowed_capability_ids=self._allowed_capability_ids,
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
@@ -460,15 +584,33 @@ class AgentLoop:
             return self._tool_message(
                 proposal, {"error": f"malformed arguments: {exc}"}
             )
+        if (
+            self._durable_write_approval
+            and capability_id in {"workspace.edit", "workspace.apply_patch"}
+            and arguments.get("path") not in self._allowed_write_paths
+        ):
+            return self._tool_message(
+                proposal,
+                {"error": "SELFDEV action path is outside the persisted write set"},
+            )
         risk_tier = ACTION_RISK_TIERS.get(capability_id, 1)
         fingerprint = hashlib.sha256(
             f"{capability_id}\n{proposal.arguments_json}".encode("utf-8")
         ).hexdigest()
         seen_action_digests[fingerprint] = seen_action_digests.get(fingerprint, 0) + 1
+        node_id = f"{turn_id}-step-{step}-action-{index}"
+        if self._durable_write_approval:
+            action_ordinal = 1 + sum(
+                event.event_type is TaskEventType.ACTION_PROPOSED
+                for event in self._tasks._event_store.read(session.task_id)
+            )
+            node_id = (
+                f"selfdev:{session.run_id}:action:{action_ordinal}"
+            )
         action = self._actions.build_action(
             task_id=session.task_id,
             run_id=session.run_id,
-            node_id=f"{turn_id}-step-{step}-action-{index}",
+            node_id=node_id,
             capability_id=capability_id,
             principal=self._principal,
             args=arguments,
@@ -476,9 +618,21 @@ class AgentLoop:
             envelope_id=session.envelope_id,
             risk_tier=risk_tier,
         )
-        self._actions.record_action_proposed(action)
+        self._actions.record_action_proposed(
+            action,
+            provider_tool_call_id=proposal.proposal_id,
+            turn_id=turn_id,
+        )
         approval = None
         if risk_tier >= 2:
+            if self._durable_write_approval:
+                self._tasks.update_run_status(
+                    session.task_id,
+                    RunStatus.WAITING_APPROVAL,
+                    event_type=TaskEventType.APPROVAL_REQUESTED,
+                    active_node_id=action.node_id,
+                )
+                raise _DurableApprovalPending(action.action_digest())
             if not self._gateway.confirm(action, _action_preview(action, arguments)):
                 return self._tool_message(
                     proposal,
@@ -486,7 +640,6 @@ class AgentLoop:
                 )
             if risk_tier >= 3:
                 approval = self._build_approval(action)
-        self._assert_execution_fence("before_tool_effect")
         try:
             result = self._actions.execute(
                 action,
@@ -494,16 +647,166 @@ class AgentLoop:
                 capability_spec=self._sandbox.specs().get(capability_id),
                 approval=approval,
                 record_artifacts=False,
+                execution_fence=self._execution_fence,
+                effect_custody=self._effect_custody,
             )
+        except (ResponsibilityLoopEffectUnknown, ResponsibilityLoopStaleFence):
+            raise
         except Exception as exc:
             return self._tool_message(
                 proposal,
                 {"error": f"{type(exc).__name__}: {exc}"},
             )
-        self._assert_execution_fence("after_tool_effect")
         output = result.output
+        self._record_tool_completion(
+            action,
+            proposal.proposal_id,
+            output,
+        )
         truncated = _truncate_json(output)
         return self._tool_message(proposal, truncated)
+
+    def resume_after_approval(self, session: ChatSession) -> TurnResult:
+        if not self._durable_write_approval:
+            raise RunExecutionError(
+                "resume_after_approval requires durable write approval mode"
+            )
+        if len(self._history) == 1:
+            self.restore_history_from_task(session)
+        aggregate = self._tasks.get_task(session.task_id)
+        if (
+            aggregate.run is None
+            or aggregate.run.run_id != session.run_id
+            or aggregate.run.status is not RunStatus.WAITING_APPROVAL
+            or aggregate.approval is None
+        ):
+            raise RunExecutionError(
+                "durable AgentLoop has no externally approved pending action"
+            )
+        pending_payload: dict[str, Any] | None = None
+        for event in reversed(self._tasks._event_store.read(session.task_id)):
+            if event.event_type is TaskEventType.ACTION_PROPOSED:
+                pending_payload = event.decoded_payload()
+                break
+        if pending_payload is None or not isinstance(
+            pending_payload.get("action"), dict
+        ):
+            raise RunExecutionError("pending durable AgentLoop action is missing")
+        action = ActionContract.model_validate(pending_payload["action"])
+        approval = aggregate.approval
+        now = _session_now()
+        if (
+            approval.action_digest != action.action_digest()
+            or approval.actor_id == action.principal_id
+            or approval.actor_role.value != "TENANT_ADMIN"
+            or approval.expires_at <= now
+        ):
+            raise RunExecutionError(
+                "pending durable AgentLoop approval is invalid or non-independent"
+            )
+        tool_call_id = pending_payload.get("provider_tool_call_id")
+        turn_id_value = pending_payload.get("turn_id")
+        if not isinstance(tool_call_id, str) or not isinstance(turn_id_value, str):
+            raise RunExecutionError("pending AgentLoop proposal identity is missing")
+        self._tasks.update_run_status(
+            session.task_id,
+            RunStatus.RUNNING,
+            event_type=TaskEventType.RUN_RESUMED,
+        )
+        if approval.disposition is ApprovalDisposition.REJECT:
+            tool_message = ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content=json.dumps(
+                    {"error": "external principal rejected the proposed action"}
+                ),
+                tool_call_id=tool_call_id,
+            )
+        else:
+            result = self._actions.execute(
+                action,
+                self._principal,
+                capability_spec=self._sandbox.specs().get(action.capability_id),
+                approval=approval,
+                record_artifacts=False,
+                execution_fence=self._execution_fence,
+                effect_custody=self._effect_custody,
+            )
+            self._record_tool_completion(action, tool_call_id, result.output)
+            tool_message = ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content=json.dumps(_truncate_json(result.output), default=str)[
+                    :_MAX_TOOL_RESULT_CHARS
+                ],
+                tool_call_id=tool_call_id,
+            )
+        self._history.append(tool_message)
+        turn_id = TurnId(turn_id=turn_id_value, session_id=session.session_id)
+        continued = self._drive(session, turn_id)
+        self._assert_execution_fence("before_turn_commit")
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.SESSION_TURN_COMPLETED,
+            {
+                "turn_id": turn_id.turn_id,
+                "session_id": turn_id.session_id,
+                "stop_reason": continued.stop_reason,
+                "steps": continued.steps,
+                "total_tokens": continued.total_tokens,
+            },
+            correlation_id=session.run_id,
+        )
+        return continued
+
+    def continue_existing_turn(self, session: ChatSession) -> TurnResult:
+        """Continue a ledger-backed existing Task without adding a new user turn."""
+        if not self._durable_write_approval:
+            raise RunExecutionError(
+                "continue_existing_turn requires durable write approval mode"
+            )
+        self.restore_history_from_task(session)
+        last = self._history[-1]
+        if (
+            last.role is ProviderMessageRole.ASSISTANT
+            and not last.tool_calls
+        ):
+            return TurnResult(
+                turn_id=TurnId(
+                    turn_id=f"turn:selfdev:complete:{session.run_id}",
+                    session_id=session.session_id,
+                ),
+                text=last.content,
+                steps=0,
+                stop_reason="completed",
+                total_tokens=0,
+            )
+        if last.role not in {ProviderMessageRole.USER, ProviderMessageRole.TOOL}:
+            raise RunExecutionError(
+                "existing AgentLoop history cannot be continued safely"
+            )
+        turn_id = TurnId(
+            turn_id=f"turn:selfdev:continue:{uuid4()}",
+            session_id=session.session_id,
+        )
+        return self._drive(session, turn_id)
+
+    def _record_tool_completion(
+        self,
+        action: ActionContract,
+        provider_tool_call_id: str,
+        output: dict[str, Any],
+    ) -> None:
+        self._tasks.append_event(
+            action.task_id,
+            TaskEventType.NODE_COMPLETED,
+            {
+                "node_id": action.node_id,
+                "action_id": action.action_id,
+                "provider_tool_call_id": provider_tool_call_id,
+                "agent_loop_dynamic_action": True,
+                "output": output,
+            },
+            correlation_id=action.run_id,
+        )
 
     def _build_approval(self, action: ActionContract) -> ApprovalDecision:
         now = _session_now()

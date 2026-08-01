@@ -812,9 +812,11 @@ class RunCoordinator:
         run = aggregate.run
         events = self.tasks._event_store.read(task_id)
         actions_by_node: dict[str, ActionContract] = {}
+        actions_by_id: dict[str, ActionContract] = {}
         outputs_by_node: dict[str, dict[str, Any]] = {}
         completed_node_ids: set[str] = set()
         compensated_nodes: set[str] = set()
+        effect_candidates: list[tuple[int, ActionContract, dict[str, Any]]] = []
         for event in events:
             payload = event.decoded_payload()
             if event.event_type is TaskEventType.ACTION_PROPOSED:
@@ -822,6 +824,25 @@ class RunCoordinator:
                 if isinstance(value, dict):
                     action = ActionContract.model_validate(value)
                     actions_by_node[action.node_id] = action
+                    actions_by_id[action.action_id] = action
+            elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
+                effect = payload.get("effect")
+                decision = payload.get("decision")
+                if isinstance(effect, dict) and isinstance(decision, dict):
+                    action_id = decision.get("action_id")
+                    action = (
+                        actions_by_id.get(action_id)
+                        if isinstance(action_id, str)
+                        else None
+                    )
+                    if (
+                        action is not None
+                        and action.capability_id
+                        in {"workspace.apply_patch", "workspace.edit"}
+                    ):
+                        effect_candidates.append(
+                            (event.sequence, action, dict(effect))
+                        )
             elif event.event_type is TaskEventType.NODE_COMPLETED:
                 node_id = payload.get("node_id")
                 output = payload.get("output")
@@ -835,17 +856,36 @@ class RunCoordinator:
                     record = PatchCompensationRecord.model_validate(value)
                     compensated_nodes.add(record.node_id)
 
-        candidates = [
-            node
+        durable_effect_nodes = {
+            action.node_id for _, action, _ in effect_candidates
+        }
+        candidates: list[tuple[ActionContract | None, dict[str, Any]]] = [
+            (action, output)
+            for _, action, output in sorted(
+                effect_candidates,
+                key=lambda candidate: candidate[0],
+                reverse=True,
+            )
+            if action.node_id not in compensated_nodes
+        ]
+        candidates.extend(
+            (
+                actions_by_node.get(node.node_id),
+                outputs_by_node.get(node.node_id, {}),
+            )
             for node in reversed(self._ordered_nodes(aggregate.workflow))
             if node.capability == "workspace.apply_patch"
             and node.idempotency.value == "compensatable"
             and node.node_id in completed_node_ids
             and node.node_id not in compensated_nodes
-        ]
-        for node in candidates:
-            original = actions_by_node.get(node.node_id)
-            output = outputs_by_node.get(node.node_id, {})
+            and node.node_id not in durable_effect_nodes
+        )
+        for original, output in candidates:
+            node_id = (
+                original.node_id
+                if original is not None
+                else "unknown-compensatable-action"
+            )
             compensation_ref = output.get("compensation_ref")
             manifest_sha256 = output.get("manifest_sha256")
             path = output.get("path")
@@ -860,11 +900,11 @@ class RunCoordinator:
                     compensation_id=attempt_id,
                     task_id=task_id,
                     run_id=run.run_id,
-                    node_id=node.node_id,
+                    node_id=node_id,
                     original_action_id=(
                         original.action_id
                         if original is not None
-                        else f"action:missing:{node.node_id}"
+                        else f"action:missing:{node_id}"
                     ),
                     mode=mode,
                     status=CompensationStatus.FAILED,
@@ -890,7 +930,7 @@ class RunCoordinator:
                 action_id=f"action-{uuid4()}",
                 task_id=task_id,
                 run_id=run.run_id,
-                node_id=node.node_id,
+                node_id=node_id,
                 principal_id=principal.principal_id,
                 tenant_id=principal.tenant_id,
                 workspace_id=principal.workspace_id,
@@ -898,7 +938,7 @@ class RunCoordinator:
                 capability_version="1",
                 arguments_json=json.dumps(arguments),
                 risk_tier=1,
-                idempotency_key=f"{run.run_id}:compensate:{node.node_id}",
+                idempotency_key=f"{run.run_id}:compensate:{node_id}",
                 estimated_budget=ResourceBudget(
                     max_cost_usd=Decimal("0"),
                     max_duration_seconds=120,
@@ -919,7 +959,7 @@ class RunCoordinator:
                 "compensation_id": attempt_id,
                 "task_id": task_id,
                 "run_id": run.run_id,
-                "node_id": node.node_id,
+                "node_id": node_id,
                 "original_action_id": original.action_id,
                 "compensation_action_id": compensation_action.action_id,
                 "compensation_ref": compensation_ref,
@@ -1438,6 +1478,20 @@ class RunCoordinator:
             permit=permit,
             receipt=result.receipt,
             writer_token=self.tasks._runtime_writer_token,
+            effect=(
+                {
+                    key: str(result.output[key])
+                    for key in (
+                        "path",
+                        "compensation_ref",
+                        "manifest_sha256",
+                        "applied_sha256",
+                    )
+                }
+                if capability_id in {"workspace.apply_patch", "workspace.edit"}
+                and result.receipt.status.value == "SUCCEEDED"
+                else None
+            ),
         )
         if result.receipt.status.value != "SUCCEEDED":
             raise RunExecutionError(f"tool failed: {result.receipt.error_code}")
@@ -1507,9 +1561,13 @@ class RunCoordinator:
             arguments: dict[str, Any] = {"command": str(command)}
             selfdev_envelope = context.get("selfdev_execution_envelope")
             if isinstance(selfdev_envelope, dict):
+                target_paths = selfdev_envelope.get("allowed_write_paths")
+                if isinstance(target_paths, tuple):
+                    target_paths = list(target_paths)
                 arguments["selfdev_verification_snapshot"] = {
                     "repository_head": selfdev_envelope.get("repository_head"),
                     "target_path": selfdev_envelope.get("allowed_write_path"),
+                    "target_paths": target_paths,
                 }
             return arguments
         explicit = context.get(capability_id)

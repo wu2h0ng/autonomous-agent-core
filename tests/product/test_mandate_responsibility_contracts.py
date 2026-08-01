@@ -73,6 +73,79 @@ def test_selfdev_link_command_persists_exact_execution_envelope() -> None:
     assert command.model_dump(mode="json")["selfdev_spec"] == _selfdev_spec_payload()
 
 
+def test_selfdev_precise_mode_persists_one_canonical_ordered_write_set() -> None:
+    payload = _selfdev_spec_payload()
+    payload.update(
+        {
+            "edit_mode": "agent_loop_precise",
+            "additional_target_paths": [
+                "packages/contracts/src/agent_os_contracts/example.py",
+            ],
+        }
+    )
+
+    command = MandateTaskLinkCommand.model_validate(
+        {
+            "task_id": "task-1",
+            "work_route": ResponsibilityWorkRoute.SELFDEV,
+            "selfdev_spec": payload,
+        }
+    )
+
+    assert command.selfdev_spec is not None
+    assert command.selfdev_spec.allowed_write_paths == (
+        "packages/os_core/src/agent_os_core/example.py",
+        "packages/contracts/src/agent_os_contracts/example.py",
+    )
+    assert command.model_dump(mode="json")["selfdev_spec"] == payload
+
+
+@pytest.mark.parametrize(
+    "additional_paths,error",
+    [
+        (
+            ["packages/os_core/src/agent_os_core/example.py"],
+            "write paths must be unique",
+        ),
+        (["../escape.py"], "safe Agent OS product path"),
+    ],
+)
+def test_selfdev_precise_mode_rejects_ambiguous_or_unsafe_write_sets(
+    additional_paths: list[str],
+    error: str,
+) -> None:
+    payload = _selfdev_spec_payload()
+    payload.update(
+        {
+            "edit_mode": "agent_loop_precise",
+            "additional_target_paths": additional_paths,
+        }
+    )
+    with pytest.raises(ValidationError, match=error):
+        MandateTaskLinkCommand.model_validate(
+            {
+                "task_id": "task-1",
+                "work_route": ResponsibilityWorkRoute.SELFDEV,
+                "selfdev_spec": payload,
+            }
+        )
+
+
+def test_complete_replacement_mode_rejects_multiple_targets() -> None:
+    payload = _selfdev_spec_payload()
+    payload["additional_target_paths"] = [
+        "packages/contracts/src/agent_os_contracts/example.py",
+    ]
+    with pytest.raises(ValidationError, match="agent_loop_precise"):
+        MandateTaskLinkCommand.model_validate(
+            {
+                "task_id": "task-1",
+                "work_route": ResponsibilityWorkRoute.SELFDEV,
+                "selfdev_spec": payload,
+            }
+        )
+
+
 def test_selfdev_route_requires_envelope_and_ordinary_route_forbids_it() -> None:
     with pytest.raises(ValidationError, match="SELFDEV route requires selfdev_spec"):
         MandateTaskLinkCommand(
