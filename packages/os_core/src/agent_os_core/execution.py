@@ -950,8 +950,18 @@ class RunCoordinator:
                 "compensation_ref": compensation_ref,
                 "manifest_sha256": manifest_sha256,
             }
+            compensation_identity = content_digest(
+                {
+                    "task_id": task_id,
+                    "run_id": run.run_id,
+                    "node_id": node_id,
+                    "original_action_id": original.action_id,
+                    "compensation_ref": compensation_ref,
+                    "manifest_sha256": manifest_sha256,
+                }
+            )
             compensation_action = ActionContract(
-                action_id=f"action-{uuid4()}",
+                action_id=f"action:compensate:{compensation_identity}",
                 task_id=task_id,
                 run_id=run.run_id,
                 node_id=node_id,
@@ -977,7 +987,7 @@ class RunCoordinator:
                 ),
                 expected_outcome_id=original.expected_outcome_id,
                 candidate_envelope_id=original.candidate_envelope_id,
-                created_at=self.tasks.now(),
+                created_at=original.created_at,
             )
             record_kwargs = {
                 "compensation_id": attempt_id,
