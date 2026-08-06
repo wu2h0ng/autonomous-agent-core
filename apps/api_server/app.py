@@ -444,6 +444,9 @@ class AgentOSApplication:
                 workspace_id=self.principal.workspace_id,
                 capability_id=capability_id,
                 capability_version="1",
+                # Grants track the declared capability risk tier. The kernel
+                # floors under-declared action tiers against the same spec, so
+                # the envelope stays consistent for graph and chat callers.
                 max_risk_tier=spec.risk_tier,
                 budget_limit=ResourceBudget(
                     max_cost_usd=Decimal("10"),
@@ -1384,8 +1387,10 @@ class AgentOSApplication:
             if grant is None:
                 raise RuntimeError(f"chat capability is not granted: {capability_id}")
             if grant.max_risk_tier < max_tier:
-                raise RuntimeError(
-                    f"chat capability risk tier is not granted: {capability_id}"
+                # Elevate only the chat-scoped grant copies; the shared
+                # composition-root envelope stays at its declared ceiling.
+                grants[capability_id] = grant.model_copy(
+                    update={"max_risk_tier": max_tier}
                 )
         chat_grants = {
             capability_id: grants[capability_id]

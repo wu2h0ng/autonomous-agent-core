@@ -90,10 +90,13 @@ class ConfirmationGateway(Protocol):
 
 
 class AutoApproveGateway:
-    """Non-interactive gateway for `-p` runs and hermetic tests.
+    """Test-support gateway for hermetic suites and pre-authorized batch runs.
 
-    Only admits risk tier <= 2 actions; tier >= 3 still requires an explicit
-    approval callback, so shell commands are never auto-approved here.
+    Auto-admits risk tier <= 2 actions with no human in the loop; tier >= 3
+    still requires an explicit approval callback, so shell commands are never
+    auto-approved here. This gateway is NOT used by `chat -p` (which fails
+    closed via NonInteractiveDenyGateway) and must not be wired into
+    interactive production paths.
     """
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
@@ -271,7 +274,9 @@ class AgentLoop:
                 stop_reason = "completed"
                 final_text = response.text
                 break
-            for index, proposal in enumerate(response.tool_proposals):
+            proposals = response.tool_proposals
+            replied_proposal_ids: set[str] = set()
+            for index, proposal in enumerate(proposals):
                 capability_id = proposal.capability_id
                 if capability_id not in CHAT_CAPABILITY_IDS:
                     stop_reason = "unauthorized_proposal"
@@ -288,6 +293,7 @@ class AgentLoop:
                     seen_action_digests,
                 )
                 self._history.append(tool_message)
+                replied_proposal_ids.add(proposal.proposal_id)
                 if seen_action_digests and max(seen_action_digests.values()) >= (
                     self._config.loop_detection_threshold
                 ):
@@ -298,6 +304,17 @@ class AgentLoop:
                 "unauthorized_proposal",
                 "loop_detected",
             }:
+                # Never leave dangling ASSISTANT tool_calls in history: a real
+                # provider rejects tool_calls without matching TOOL replies
+                # (HTTP 400), which would make the session unrecoverable.
+                for proposal in proposals:
+                    if proposal.proposal_id not in replied_proposal_ids:
+                        self._history.append(
+                            self._tool_message(
+                                proposal,
+                                {"error": f"not executed: {stop_reason}"},
+                            )
+                        )
                 break
         return TurnResult(
             turn_id=turn_id,
@@ -457,6 +474,7 @@ class AgentLoop:
         approval = None
         if risk_tier >= 2:
             if not self._gateway.confirm(action, _action_preview(action, arguments)):
+                self._record_denial(session, action)
                 return self._tool_message(
                     proposal,
                     {"error": "user rejected the proposed action", "rejected": True},
@@ -479,6 +497,23 @@ class AgentLoop:
         output = result.output
         truncated = _truncate_json(output)
         return self._tool_message(proposal, truncated)
+
+    def _record_denial(self, session: ChatSession, action: ActionContract) -> None:
+        """Durably record that the principal declined this exact proposed action."""
+        now = _session_now()
+        denial = ApprovalDecision(
+            approval_id=f"approval-{uuid4()}",
+            tenant_id=action.tenant_id,
+            workspace_id=action.workspace_id,
+            action_digest=action.action_digest(),
+            actor_id=self._principal.principal_id,
+            actor_role=self._principal.role,
+            disposition=ApprovalDisposition.REJECT,
+            reason="interactive terminal denial",
+            decided_at=now,
+            expires_at=now + timedelta(minutes=5),
+        )
+        self._tasks.record_approval(session.task_id, denial)
 
     def _build_approval(self, action: ActionContract) -> ApprovalDecision:
         now = _session_now()

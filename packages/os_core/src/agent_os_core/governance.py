@@ -227,7 +227,14 @@ class PolicyKernel:
             verdict, reasons = PolicyVerdict.DENY, ["GRANT_SCOPE_MISMATCH"]
         elif context.grant.capability_id != action.capability_id or context.grant.capability_version != action.capability_version:
             verdict, reasons = PolicyVerdict.DENY, ["CAPABILITY_VERSION_MISMATCH"]
-        elif action.risk_tier > context.grant.max_risk_tier:
+        elif action.risk_tier and action.risk_tier < context.capability.risk_tier:
+            # The declared capability risk tier is a floor, not a hint: an
+            # explicitly declared action tier may over-declare risk but never
+            # under-declare it. Tier 0 means "unset" and inherits the spec tier.
+            verdict, reasons = PolicyVerdict.DENY, ["RISK_TIER_UNDERDECLARED"]
+        elif (
+            action.risk_tier or context.capability.risk_tier
+        ) > context.grant.max_risk_tier:
             verdict, reasons = PolicyVerdict.DENY, ["RISK_TIER_EXCEEDED"]
         elif self.correction.halted(action.task_id, action.run_id, action.capability_id):
             verdict, reasons = PolicyVerdict.DENY, ["CORRECTION_HALTED"]
@@ -239,7 +246,7 @@ class PolicyKernel:
             verdict, reasons = PolicyVerdict.DENY, ["APPROVAL_DIGEST_MISMATCH"]
         elif context.approval is not None and context.approval.expires_at <= now:
             verdict, reasons = PolicyVerdict.DENY, ["APPROVAL_EXPIRED"]
-        elif action.risk_tier >= 3 and (
+        elif (action.risk_tier or context.capability.risk_tier) >= 3 and (
             context.approval is None or context.approval.disposition is not ApprovalDisposition.APPROVE
         ):
             verdict, reasons = PolicyVerdict.ESCALATE, ["APPROVAL_REQUIRED"]

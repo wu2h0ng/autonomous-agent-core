@@ -11,8 +11,21 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
-from agent_os_contracts import ProviderMessageRole, ProviderToolProposal, TaskEventType
-from agent_os_core import AutoApproveGateway, DeterministicProvider
+from agent_os_contracts import (
+    ActionContract,
+    ProviderErrorCode,
+    ProviderFailure,
+    ProviderMessageRole,
+    ProviderToolProposal,
+    PolicyVerdict,
+    TaskEventType,
+)
+from agent_os_core import (
+    AgentLoopConfig,
+    AutoApproveGateway,
+    DeterministicProvider,
+    PolicyInput,
+)
 
 from apps.api_server.app import AgentOSApplication
 
@@ -778,3 +791,364 @@ def test_session_and_turn_identity_contracts_are_closed() -> None:
             tenant_id="tenant-1",
             workspace_id="workspace-1",
         )
+
+
+# --- Review-required-change coverage (review-interim.md RC1-RC6) ---
+
+
+def _assert_tool_blocks_closed(messages) -> None:
+    """Every ASSISTANT tool_call has exactly one matching TOOL reply later."""
+    open_calls: list[str] = []
+    answered: list[str] = []
+    for message in messages:
+        if message.role is ProviderMessageRole.ASSISTANT:
+            open_calls.extend(call.tool_call_id for call in message.tool_calls)
+        elif message.role is ProviderMessageRole.TOOL:
+            assert message.tool_call_id in open_calls, (
+                f"TOOL reply {message.tool_call_id} has no preceding tool_call"
+            )
+            answered.append(message.tool_call_id)
+    assert sorted(open_calls) == sorted(answered), (
+        f"dangling tool_calls: {sorted(set(open_calls) - set(answered))}"
+    )
+
+
+def test_session_recovers_after_unauthorized_proposal_stop(tmp_path: Path) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            ("", (_proposal("call-bad", "system.exec", {"cmd": "rm -rf /"}),)),
+            ("recovered", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("evil", AutoApproveGateway())
+    first = loop.run_turn(session, "do something")
+    assert first.stop_reason == "unauthorized_proposal"
+
+    second = loop.run_turn(session, "are you still there?")
+    assert second.stop_reason == "completed"
+    assert second.text == "recovered"
+    _assert_tool_blocks_closed(loop.history)
+    provider = app.provider
+    assert isinstance(provider, DeterministicProvider)
+    _assert_tool_blocks_closed(provider.requests[-1].messages)
+
+
+def test_session_recovers_after_loop_detected_stop(tmp_path: Path) -> None:
+    repeated = _proposal("call-x", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            ("", (repeated,)),
+            ("", (repeated,)),
+            ("", (repeated,)),
+            ("recovered", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("loop", AutoApproveGateway())
+    first = loop.run_turn(session, "spin")
+    assert first.stop_reason == "loop_detected"
+
+    second = loop.run_turn(session, "stop spinning")
+    assert second.stop_reason == "completed"
+    _assert_tool_blocks_closed(loop.history)
+
+
+def test_trailing_proposals_get_error_replies_on_stop(tmp_path: Path) -> None:
+    repeated = _proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
+    trailing = _proposal("call-2", "workspace.read", {"path": "fixture.txt"})
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            ("", (repeated,)),
+            ("", (repeated, trailing)),
+            ("recovered", ()),
+        ),
+    )
+    session, loop = app.open_chat_session(
+        "loop",
+        AutoApproveGateway(),
+        loop_config=AgentLoopConfig(loop_detection_threshold=2),
+    )
+    result = loop.run_turn(session, "spin")
+    assert result.stop_reason == "loop_detected"
+
+    tool_messages = _tool_messages(loop)
+    trailing_reply = next(
+        message for message in tool_messages if message.tool_call_id == "call-2"
+    )
+    assert "not executed: loop_detected" in trailing_reply.content
+    _assert_tool_blocks_closed(loop.history)
+
+    second = loop.run_turn(session, "again")
+    assert second.stop_reason == "completed"
+
+
+class _DenyAllGateway:
+    def confirm(self, action, preview) -> bool:
+        return False
+
+
+def test_approval_denial_is_recorded_as_durable_event(tmp_path: Path) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable",
+                            "new_string": "fixed",
+                        },
+                    ),
+                ),
+            ),
+            ("denied", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("deny edit", _DenyAllGateway())
+    loop.run_turn(session, "edit the fixture")
+
+    events = app.tasks._event_store.read(session.task_id)
+    approval_events = [
+        event
+        for event in events
+        if event.event_type is TaskEventType.APPROVAL_RECORDED
+    ]
+    assert len(approval_events) == 1
+    approval = approval_events[0].decoded_payload()["approval"]
+    assert approval["disposition"] == "REJECT"
+    proposed = [
+        event
+        for event in events
+        if event.event_type is TaskEventType.ACTION_PROPOSED
+    ]
+    action = ActionContract.model_validate(proposed[-1].decoded_payload()["action"])
+    assert approval["action_digest"] == action.action_digest()
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    tool_messages = _tool_messages(loop)
+    assert "user rejected" in tool_messages[0].content
+
+
+def test_grants_track_spec_tiers_and_unset_tier_inherits(tmp_path: Path) -> None:
+    app = _chat_app(tmp_path)
+    # The composition envelope intentionally tracks declared spec tiers, and
+    # the kernel floors under-declared callers against the same spec.
+    assert app.grants["workspace.edit"].max_risk_tier == 2
+    assert app.grants["workspace.shell"].max_risk_tier == 3
+    session, loop = app.open_chat_session("tiers", AutoApproveGateway())
+
+    # A graph-style tier-0 (unset) action inherits the spec tier: tier-2 edit
+    # is admitted by the tier-2 grant...
+    edit_action = loop._actions.build_action(
+        task_id=session.task_id,
+        run_id=session.run_id,
+        node_id="unset-tier-edit",
+        capability_id="workspace.edit",
+        principal=app.principal,
+        args={"path": "fixture.txt", "old_string": "a", "new_string": "b"},
+        expected=session.expected,
+        envelope_id=session.envelope_id,
+        risk_tier=0,
+    )
+    edit_decision = app.policy.decide(
+        edit_action,
+        PolicyInput(
+            principal=app.principal,
+            grant=app.grants["workspace.edit"],
+            capability=app.sandbox.specs().get("workspace.edit"),
+        ),
+    )
+    assert edit_decision.verdict is PolicyVerdict.ALLOW
+
+    # ...while a tier-0 shell action escalates to approval instead of running
+    # silently (finding 1: enforcement now lives in the kernel, not callers).
+    shell_action = loop._actions.build_action(
+        task_id=session.task_id,
+        run_id=session.run_id,
+        node_id="unset-tier-shell",
+        capability_id="workspace.shell",
+        principal=app.principal,
+        args={"command": "pytest"},
+        expected=session.expected,
+        envelope_id=session.envelope_id,
+        risk_tier=0,
+    )
+    shell_decision = app.policy.decide(
+        shell_action,
+        PolicyInput(
+            principal=app.principal,
+            grant=app.grants["workspace.shell"],
+            capability=app.sandbox.specs().get("workspace.shell"),
+        ),
+    )
+    assert shell_decision.verdict is PolicyVerdict.ESCALATE
+    assert "APPROVAL_REQUIRED" in shell_decision.reason_codes
+
+
+def test_kernel_denies_underdeclared_risk_tier(tmp_path: Path) -> None:
+    app = _chat_app(tmp_path)
+    session, loop = app.open_chat_session("floor", AutoApproveGateway())
+    action = loop._actions.build_action(
+        task_id=session.task_id,
+        run_id=session.run_id,
+        node_id="underdeclared",
+        capability_id="workspace.edit",
+        principal=app.principal,
+        args={"path": "fixture.txt", "old_string": "a", "new_string": "b"},
+        expected=session.expected,
+        envelope_id=session.envelope_id,
+        risk_tier=1,
+    )
+    elevated_grant = app.grants["workspace.edit"].model_copy(
+        update={"max_risk_tier": 3}
+    )
+    decision = app.policy.decide(
+        action,
+        PolicyInput(
+            principal=app.principal,
+            grant=elevated_grant,
+            capability=app.sandbox.specs().get("workspace.edit"),
+        ),
+    )
+    assert decision.verdict is PolicyVerdict.DENY
+    assert "RISK_TIER_UNDERDECLARED" in decision.reason_codes
+
+
+def test_tier3_action_without_approval_escalates(tmp_path: Path) -> None:
+    app = _chat_app(tmp_path)
+    session, loop = app.open_chat_session("escalate", AutoApproveGateway())
+    action = loop._actions.build_action(
+        task_id=session.task_id,
+        run_id=session.run_id,
+        node_id="shell-no-approval",
+        capability_id="workspace.shell",
+        principal=app.principal,
+        args={"command": "pytest"},
+        expected=session.expected,
+        envelope_id=session.envelope_id,
+        risk_tier=3,
+    )
+    elevated_grant = app.grants["workspace.shell"].model_copy(
+        update={"max_risk_tier": 3}
+    )
+    decision = app.policy.decide(
+        action,
+        PolicyInput(
+            principal=app.principal,
+            grant=elevated_grant,
+            capability=app.sandbox.specs().get("workspace.shell"),
+        ),
+    )
+    assert decision.verdict is PolicyVerdict.ESCALATE
+    assert "APPROVAL_REQUIRED" in decision.reason_codes
+
+
+def test_max_steps_stop(tmp_path: Path) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=tuple(
+            ("", (_proposal(f"call-{index}", "workspace.search", {"mode": "ls"}),))
+            for index in range(5)
+        ),
+    )
+    session, loop = app.open_chat_session(
+        "steps",
+        AutoApproveGateway(),
+        loop_config=AgentLoopConfig(max_steps_per_turn=2),
+    )
+    result = loop.run_turn(session, "keep searching")
+    assert result.stop_reason == "max_steps"
+    assert result.steps == 2
+
+
+def test_budget_exceeded_stop(tmp_path: Path) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            ("", (_proposal("call-1", "workspace.search", {"mode": "ls"}),)),
+            ("done", ()),
+        ),
+    )
+    session, loop = app.open_chat_session(
+        "budget",
+        AutoApproveGateway(),
+        loop_config=AgentLoopConfig(max_turn_tokens=5),
+    )
+    result = loop.run_turn(session, "hello")
+    assert result.stop_reason == "budget_exceeded"
+
+
+class _FailingProvider:
+    def __init__(self, binding) -> None:
+        self._binding = binding
+        self.calls = 0
+
+    @property
+    def invocation_binding(self):
+        return self._binding
+
+    def complete(self, request):
+        self.calls += 1
+        from datetime import datetime, timezone
+
+        return ProviderFailure(
+            failure_id="failure-test",
+            request_id=request.request_id,
+            code=ProviderErrorCode.UNAVAILABLE,
+            retryable=True,
+            safe_message="provider is down",
+            occurred_at=datetime.now(timezone.utc),
+        )
+
+
+def test_provider_retry_exhaustion_stops_turn(tmp_path: Path) -> None:
+    app = _chat_app(tmp_path)
+    failing = _FailingProvider(app.provider.invocation_binding)
+    app.provider = failing
+    session, loop = app.open_chat_session(
+        "retry",
+        AutoApproveGateway(),
+        loop_config=AgentLoopConfig(max_provider_retries=2),
+    )
+    result = loop.run_turn(session, "go")
+    assert result.stop_reason.startswith("provider_failure")
+    assert failing.calls == 3
+
+
+def test_trimmed_history_keeps_tool_blocks_atomic(tmp_path: Path) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=tuple(
+            (
+                "",
+                (
+                    _proposal(
+                        f"call-{index}",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": f"*.ext{index}"},
+                    ),
+                ),
+            )
+            for index in range(6)
+        )
+        + (("final answer", ()),),
+    )
+    session, loop = app.open_chat_session(
+        "trim",
+        AutoApproveGateway(),
+        loop_config=AgentLoopConfig(max_steps_per_turn=10, max_context_chars=1200),
+    )
+    result = loop.run_turn(session, "x" * 300)
+    assert result.stop_reason == "completed"
+
+    provider = app.provider
+    assert isinstance(provider, DeterministicProvider)
+    trimmed = provider.requests[-1].messages
+    assert trimmed[0].role is ProviderMessageRole.SYSTEM
+    assert len(trimmed) < len(loop.history)
+    _assert_tool_blocks_closed(trimmed)

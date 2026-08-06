@@ -37,7 +37,15 @@ def _chat(args: argparse.Namespace) -> int:
         session, loop = app.open_chat_session(
             args.prompt, NonInteractiveDenyGateway()
         )
-        result = loop.run_turn(session, args.prompt)
+        try:
+            result = loop.run_turn(session, args.prompt)
+        except KeyboardInterrupt:
+            app.correct_task(
+                session.task_id,
+                "user interrupt from terminal",
+            )
+            print("[run interrupted; task correction-halted]", file=sys.stderr)
+            return 130
         print(result.text)
         if result.stop_reason != "completed":
             print(f"[stopped: {result.stop_reason}]", file=sys.stderr)
