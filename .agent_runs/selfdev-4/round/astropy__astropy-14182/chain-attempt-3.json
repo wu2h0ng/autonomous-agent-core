@@ -1,0 +1,8 @@
+{
+  "instance_id": "astropy__astropy-14182",
+  "arm": "chain",
+  "attempt": 3,
+  "attempt_class": "INVALID_PROVIDER",
+  "detail": "provider MALFORMED: provider response malformed: ValidationError \u2014 stderr preserved at chain-attempt-3-stderr.log",
+  "operator_error": true
+}

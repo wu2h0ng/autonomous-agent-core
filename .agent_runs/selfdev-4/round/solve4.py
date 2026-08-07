@@ -25,12 +25,12 @@ from agent_os_core import (  # noqa: E402
 )
 from apps.cli.__main__ import _benchmark_task_from_entry  # noqa: E402
 
-ROUND = ROOT / ".agent_runs/selfdev-2/round"
+ROUND = ROOT / ".agent_runs/selfdev-4/round"
 SELECTION = json.loads((ROOT / ".agent_runs/selfdev-4/selection.json").read_text())
 TASKS = {t["instance_id"]: t for t in SELECTION["tasks"] if t["set"] == "main"}
 
 
-def extract_content(attempt_file: Path) -> str | None:
+def extract_candidate(attempt_file: Path) -> tuple[str, str] | None:
     data = json.loads(attempt_file.read_text())
     events = (data.get("task") or {}).get("events") or []
     for event in events:
@@ -42,7 +42,10 @@ def extract_content(attempt_file: Path) -> str | None:
         args = json.loads(action.get("arguments_json") or "{}")
         content = args.get("content")
         if isinstance(content, str) and content:
-            return content
+            return ("content", content)
+        diff = args.get("diff")
+        if isinstance(diff, str) and diff:
+            return ("diff", diff)
     return None
 
 
@@ -64,13 +67,15 @@ def main() -> None:
             verdict_file = ROUND / iid / f"chain-attempt-{attempt}-verdict.json"
             if not attempt_file.exists() or verdict_file.exists():
                 continue
-            content = extract_content(attempt_file)
-            if content is None:
+            candidate = extract_candidate(attempt_file)
+            if candidate is None:
                 continue
+            kind, payload = candidate
             verdict = run_benchmark_verifier(
                 task,
                 ws,
-                candidate_content=content,
+                candidate_content=payload if kind == "content" else None,
+                candidate_diff=payload if kind == "diff" else None,
                 test_patch=test_patch,
                 executor=executor,
             )

@@ -1,0 +1,8 @@
+{
+  "instance_id": "astropy__astropy-14182",
+  "arm": "chain",
+  "attempt": 2,
+  "attempt_class": "INVALID_PROVIDER",
+  "detail": "provider UNAVAILABLE: provider HTTP 504 (gateway timeout) \u2014 evidence preserved in session task log bash-64m14w8h/output.log; stderr overwritten by later smoke run (operator mishap, disclosed)",
+  "operator_error": true
+}

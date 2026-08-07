@@ -1,0 +1,15 @@
+{
+  "instance_id": "sympy__sympy-12419",
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "f440798309ec134ae02d6fa786402be83c9560f1e7d5036e6530ca536455a56a",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 4465,
+    "output_tokens": 5541,
+    "total_tokens": 10006,
+    "estimated_cost_usd": "0"
+  }
+}
