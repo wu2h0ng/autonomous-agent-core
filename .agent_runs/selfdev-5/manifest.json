@@ -1,0 +1,39 @@
+{
+  "schema": "selfdev-5-prereg-manifest.v1",
+  "prereg": "docs/product/AGENT-OS-SELFDEV-5-transport-fix-prereg-2026-08-07.md",
+  "reviewer": "kimi subagent (blind-anchored, no builder history): TECHNICAL_APPROVE round 2",
+  "reused_subset": {
+    "path": ".agent_runs/selfdev-4/selection.json",
+    "sha256": "735b2643c69aed4e28b3ca5d1087e3278874febb10908426e21c5054ac0ca7e5",
+    "byte_identical_to_selfdev4_manifest_pin": true
+  },
+  "subset": {
+    "main": [
+      "django__django-10880",
+      "django__django-11066",
+      "sympy__sympy-13551",
+      "sympy__sympy-13852",
+      "sphinx-doc__sphinx-8459",
+      "astropy__astropy-13579",
+      "pytest-dev__pytest-5809",
+      "pylint-dev__pylint-7277",
+      "sympy__sympy-12419",
+      "astropy__astropy-14182",
+      "scikit-learn__scikit-learn-13328",
+      "pytest-dev__pytest-5631"
+    ],
+    "reserve": [
+      "django__django-9296",
+      "django__django-10999",
+      "sphinx-doc__sphinx-7889",
+      "sphinx-doc__sphinx-9658",
+      "scikit-learn__scikit-learn-25747"
+    ]
+  },
+  "files": {
+    "docs/product/AGENT-OS-SELFDEV-5-transport-fix-prereg-2026-08-07.md": "51908c14c055622e3bcac0b7d92fd8cdc64a5a359c7a314815eb8f7ee4442264",
+    ".agent_runs/selfdev-5/round/driver5.py": "57ccd241b8603f39556f0c5fe6a40e9348b26cd829f6f1bb381ed57728084650",
+    ".agent_runs/selfdev-5/round/solve5.py": "a7518e7d2b2db20ae09a26c55ff0fc5b35055f07e60f60eee23093e49e815adc",
+    ".agent_runs/selfdev-4/round/round-adjudication.md": "2cc230005f1b2c16e5f5966593aa670d017ff942a14a74dc01ccc81eecdad10e"
+  }
+}
