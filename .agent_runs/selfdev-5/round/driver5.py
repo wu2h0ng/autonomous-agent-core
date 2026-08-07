@@ -16,6 +16,9 @@ import sys
 import time
 
 ROOT = Path("/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715")
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "packages/contracts/src"))
+sys.path.insert(0, str(ROOT / "packages/os_core/src"))
 ROUND = ROOT / ".agent_runs/selfdev-5/round"
 SELECTION = json.loads((ROOT / ".agent_runs/selfdev-4/selection.json").read_text())
 MAIN = [t for t in SELECTION["tasks"] if t["set"] == "main"]

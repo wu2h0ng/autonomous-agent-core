@@ -1,0 +1,15 @@
+{
+  "instance_id": "scikit-learn__scikit-learn-13328",
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "e7203a17d6e5e39dc088fb9a1a2b727e71bcb31853f97f5b890d4a0987e2c8d3",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 4477,
+    "output_tokens": 1775,
+    "total_tokens": 6252,
+    "estimated_cost_usd": "0"
+  }
+}

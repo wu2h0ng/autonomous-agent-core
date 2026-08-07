@@ -1,0 +1,15 @@
+{
+  "instance_id": "pytest-dev__pytest-5809",
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "7f12c32fc97d9820f695b4f48abf66f7a12d6278b340f192752e102b37872a27",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 1330,
+    "output_tokens": 1086,
+    "total_tokens": 2416,
+    "estimated_cost_usd": "0"
+  }
+}
