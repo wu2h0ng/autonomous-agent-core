@@ -81,20 +81,27 @@ def run_arm(arm: str, entry: dict[str, object], attempt: int) -> dict[str, objec
                 "stderr_tail": stderr_tail,
             }))
             return {"attempt_class": "INVALID_PROVIDER"}
-        if "BASELINE_DIFF_INVALID" in stderr_tail:
+        if "BASELINE_DIFF_INVALID" in stderr_tail or "provider diff failed validation" in stderr_tail:
             out_file.write_text(json.dumps({
                 "instance_id": instance_id, "arm": arm, "attempt": attempt,
                 "attempt_class": "DIFF_INVALID",
                 "stderr_tail": stderr_tail,
             }))
             return {"attempt_class": "DIFF_INVALID"}
-        if "provider patch arguments must contain only path and content" in stderr_tail:
+        if "must contain only path and" in stderr_tail:
             out_file.write_text(json.dumps({
                 "instance_id": instance_id, "arm": arm, "attempt": attempt,
                 "attempt_class": "INVALID_ENVELOPE",
                 "stderr_tail": stderr_tail,
             }))
             return {"attempt_class": "INVALID_ENVELOPE"}
+        if "BASELINE_DIFF_REJECTED" in stderr_tail or "patch does not apply" in stderr_tail or "unified diff context mismatch" in stderr_tail:
+            out_file.write_text(json.dumps({
+                "instance_id": instance_id, "arm": arm, "attempt": attempt,
+                "attempt_class": "APPLY_FAILED",
+                "stderr_tail": stderr_tail,
+            }))
+            return {"attempt_class": "APPLY_FAILED"}
         out_file.write_text(json.dumps({
             "instance_id": instance_id, "arm": arm, "attempt": attempt,
             "infra_error": True, "returncode": proc.returncode,
@@ -129,7 +136,7 @@ def health_gate() -> bool:
         print("health gate: provider env incomplete", flush=True)
         return False
 
-    def probe(content: str, max_tokens: int, timeout: int) -> bool:
+    def probe(content: str, max_tokens: int, timeout: int) -> str | None:
         body = _json.dumps({
             "model": model,
             "messages": [{"role": "user", "content": content}],
@@ -145,12 +152,15 @@ def health_gate() -> bool:
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.status == 200
+                if resp.status != 200:
+                    return None
+                payload = _json.loads(resp.read().decode())
+            return payload["choices"][0]["message"]["content"] or ""
         except Exception:
-            return False
+            return None
 
     for i in range(3):
-        if not probe("reply with the single word: ok", 8, 30):
+        if probe("reply with the single word: ok", 8, 30) is None:
             print(f"health gate: small probe {i+1} failed", flush=True)
             return False
     reserve = next(t for t in SELECTION["tasks"] if t["set"] == "reserve")
@@ -163,8 +173,14 @@ def health_gate() -> bool:
         "Output ONLY a unified diff (--- a/... +++ b/... with @@ hunks) that "
         "adds a one-line comment at the end of the file."
     )
-    if not probe(medium_prompt, 4096, 300):
-        print("health gate: medium probe failed", flush=True)
+    medium_text = probe(medium_prompt, 4096, 300)
+    if medium_text is None:
+        print("health gate: medium probe failed (no response)", flush=True)
+        return False
+    from agent_os_core import extract_unified_diff
+
+    if extract_unified_diff(medium_text) is None:
+        print("health gate: medium probe produced no extractable diff", flush=True)
         return False
     print("health gate: PASS", flush=True)
     return True

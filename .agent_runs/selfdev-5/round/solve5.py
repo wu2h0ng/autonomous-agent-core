@@ -1,10 +1,10 @@
-"""SELFDEV-2 solve determination: independent verifier re-run per prereg §6.
+"""SELFDEV-5 solve determination: independent verifier re-run per prereg §6.
 
 For every chain attempt with an apply_patch proposal in its task events,
-extract the proposed content and re-run the independent verifier flow
-(checkout base -> write candidate -> apply test patch -> f2p -> p2p ->
-restore). Chain-internal outcomes are telemetry only; THIS is the solve
-evidence.
+extract the proposed candidate (content or diff) and re-run the independent
+verifier flow (checkout base -> apply candidate -> apply test patch -> f2p ->
+p2p -> restore). Chain-internal outcomes are telemetry only; THIS is the
+solve evidence.
 """
 
 from __future__ import annotations
