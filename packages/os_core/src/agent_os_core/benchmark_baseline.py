@@ -12,6 +12,28 @@ BASELINE_DIFF_INVALID = "BASELINE_DIFF_INVALID"
 BASELINE_DIFF_REJECTED = "BASELINE_DIFF_REJECTED"
 
 CHEAP_BASELINE_DIFF_MAX_BYTES = 65536
+
+
+def extract_unified_diff(text: str) -> str | None:
+    """Locate the unified diff in provider output; deterministic, no repair.
+
+    From the first line starting with '--- ' through EOF, with trailing
+    markdown fence lines dropped (fenced and raw output both resolve).
+    Returns None when no diff header exists. Shared by the cheap baseline
+    CLI and the governed diff-mode provider node (ADR-0059).
+    """
+
+    lines = text.splitlines()
+    start = next(
+        (index for index, line in enumerate(lines) if line.startswith("--- ")),
+        None,
+    )
+    if start is None:
+        return None
+    body = lines[start:]
+    while body and body[-1].strip().startswith("```"):
+        body.pop()
+    return "\n".join(body) + "\n"
 """Fail-closed cap on one-shot baseline diff output (64 KiB).
 
 Comfortably above the largest legitimate single-file diff inside the 19,000

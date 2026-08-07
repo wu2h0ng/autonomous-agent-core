@@ -43,7 +43,7 @@ from agent_os_contracts import (
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
-from .benchmark_baseline import validate_unified_diff
+from .benchmark_baseline import extract_unified_diff, validate_unified_diff
 from .errors import ConcurrentWriteError
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
 from .provider import ProviderPort
@@ -1098,12 +1098,13 @@ class RunCoordinator:
             raise RunExecutionError(f"unsupported patch_format: {patch_format}")
         if patch_format == "unified_diff":
             proposal_instruction = (
-                "Propose a single-file unified diff for the target path only by "
-                "calling only the workspace.apply_patch tool. Include path and "
-                "diff. The diff must start with '--- a/<path>' and '+++ b/<path>' "
-                "headers for the target path and contain only well-formed @@ "
-                "hunks. Do not output the complete file, do not call any other "
-                "capability and do not claim that the patch was applied."
+                "Propose a single-file unified diff for the target path only. "
+                "Output ONLY the diff as plain text: it must start with "
+                "'--- a/<path>' and '+++ b/<path>' headers for the target path "
+                "and contain only well-formed @@ hunks. Do not output the "
+                "complete file, do not wrap the diff in prose or code fences "
+                "beyond a single markdown fence, and do not claim that the "
+                "patch was applied."
             )
         else:
             proposal_instruction = (
@@ -1152,11 +1153,15 @@ class RunCoordinator:
                 "provider returned an ambiguous or unauthorized tool proposal"
             )
         if not proposals:
-            fallback = (
-                self._parse_patch_json(response.text)
-                if patch_format == "complete_file"
-                else None
-            )
+            if patch_format == "unified_diff":
+                extracted = extract_unified_diff(response.text)
+                fallback = (
+                    {"path": target_path, "diff": extracted}
+                    if extracted is not None
+                    else None
+                )
+            else:
+                fallback = self._parse_patch_json(response.text)
             if fallback is not None:
                 proposals = [
                     ProviderToolProposal(

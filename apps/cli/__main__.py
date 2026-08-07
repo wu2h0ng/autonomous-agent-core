@@ -40,6 +40,7 @@ from agent_os_core import (
     build_self_development_comparison_receipt,
     build_self_development_run_record,
     evaluate_self_development_readiness,
+    extract_unified_diff,
     prepare_benchmark_task_package,
     prepare_self_development_task_package,
     run_benchmark_verifier,
@@ -1251,26 +1252,19 @@ def _benchmark_baseline_provider_from_env() -> (
 def _extract_unified_diff(text: str) -> str:
     """Locate the unified diff in provider output; fail closed.
 
-    Deterministic: from the first line starting with '--- ' through EOF,
-    with trailing markdown fence lines dropped (fenced and raw output both
-    resolve). Anything else is an attempt failure (BASELINE_DIFF_INVALID),
-    never repaired by hand (ADR-0056 decision 4).
+    Delegates to agent_os_core.extract_unified_diff (ADR-0059): first
+    '--- ' header through EOF, trailing markdown fences dropped. Raises
+    BASELINE_DIFF_INVALID when no diff exists — an attempt failure, never
+    repaired by hand (ADR-0056 decision 4).
     """
 
-    lines = text.splitlines()
-    start = next(
-        (index for index, line in enumerate(lines) if line.startswith("--- ")),
-        None,
-    )
-    if start is None:
+    extracted = extract_unified_diff(text)
+    if extracted is None:
         raise BenchmarkTaskValidationError(
             BASELINE_DIFF_INVALID,
             "provider output contains no unified diff",
         )
-    body = lines[start:]
-    while body and body[-1].strip().startswith("```"):
-        body.pop()
-    return "\n".join(body) + "\n"
+    return extracted
 
 
 def _str_tuple(value: object) -> tuple[str, ...]:

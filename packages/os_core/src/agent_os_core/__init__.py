@@ -117,6 +117,7 @@ from .benchmark_baseline import (
     BASELINE_DIFF_REJECTED,
     CHEAP_BASELINE_DIFF_MAX_BYTES,
     apply_unified_diff,
+    extract_unified_diff,
     validate_unified_diff,
 )
 from .benchmark_container import (
@@ -403,6 +404,7 @@ __all__ = [
     "SelfDevelopmentValidationError",
     "WorkloadIdentityAdapter",
     "apply_unified_diff",
+    "extract_unified_diff",
     "build_benchmark_task",
     "build_self_development_comparison_receipt",
     "build_self_development_baseline_record",

@@ -287,6 +287,80 @@ def test_diff_mode_proposal_cannot_apply_without_approval(tmp_path) -> None:
     assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
 
 
+def test_diff_mode_text_response_extracts_and_applies(tmp_path) -> None:
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    fenced = f"Here is the fix.\n```diff\n{DIFF}```\n"
+    app.provider = DeterministicProvider(
+        text=fenced,
+        tool_proposals=(),
+        invocation_binding=_binding(app),
+    )
+    app.provider_configured = True
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    waiting = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+
+    app.record_approval(
+        task_id,
+        {"disposition": "APPROVE", "reason": "exact diff approved"},
+    )
+    result = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert result.status is TaskStatus.COMPLETED
+    assert (workspace / TARGET).read_text(encoding="utf-8") == PATCHED
+
+
+def test_diff_mode_text_response_cannot_apply_without_approval(tmp_path) -> None:
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    app.provider = DeterministicProvider(
+        text=DIFF,
+        tool_proposals=(),
+        invocation_binding=_binding(app),
+    )
+    app.provider_configured = True
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    waiting = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    assert waiting.status is not TaskStatus.COMPLETED
+    assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    (
+        (f"```diff\n{DIFF}```\n", DIFF),
+        (DIFF, DIFF),
+        (f"Some explanation first.\n{DIFF}", DIFF),
+        ("no diff here at all", None),
+        ("", None),
+    ),
+)
+def test_extract_unified_diff_matrix(text, expected) -> None:
+    from agent_os_core import extract_unified_diff
+
+    assert extract_unified_diff(text) == expected
+
+
+
 @pytest.mark.parametrize(
     ("arguments", "inputs", "detail"),
     (
