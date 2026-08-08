@@ -4,8 +4,10 @@ import fcntl
 import hashlib
 import json
 import sqlite3
+import subprocess
 from collections.abc import Callable
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
@@ -22,8 +24,10 @@ from agent_os_contracts import (
     NodeKind,
     NodeSpec,
     PersistentCommitmentAttachCommand,
+    PersistentCommitmentState,
     ResourceBudget,
     ResponsibilityWorkRoute,
+    RunStatus,
     SelfDevelopmentAdmissionCommand,
     SelfDevelopmentAdmissionReceipt,
     TaskEventType,
@@ -42,6 +46,7 @@ from .self_development_organ import (
     inspect_selfdev_workspace,
 )
 from .task_configuration import TASK_CONFIGURATION_CAPABILITY
+from .governance import POLICY_KERNEL_V1_DIGEST
 
 
 class SelfDevelopmentAdmissionError(ResponsibilitySurfaceError):
@@ -67,6 +72,7 @@ class SelfDevelopmentAdmissionPhase(str, Enum):
 _PHASE_ORDER = tuple(SelfDevelopmentAdmissionPhase)
 _ADMISSION_TABLE = "selfdev_admissions_v1"
 _POLICY_EXPIRY_DAYS = 30
+_UNRESERVED_RUN_ID = "run:selfdev-admission:unreserved"
 
 
 def _utc_now() -> datetime:
@@ -113,6 +119,25 @@ def _identity(kind: str, identity_digest: str) -> str:
     return f"{kind}:selfdev-admission:{identity_digest}"
 
 
+def _grant_authority_projection(grants: dict[str, Any]) -> dict[str, Any]:
+    security_fields = (
+        "grant_id",
+        "principal_id",
+        "tenant_id",
+        "workspace_id",
+        "capability_id",
+        "capability_version",
+        "max_risk_tier",
+        "budget_limit",
+        "status",
+        "granted_by",
+    )
+    return {
+        capability_id: {field: grant[field] for field in security_fields}
+        for capability_id, grant in grants.items()
+    }
+
+
 def _plan(
     *,
     command: SelfDevelopmentAdmissionCommand,
@@ -123,7 +148,12 @@ def _plan(
     principal_id: str,
     tenant_id: str,
     workspace_id: str,
+    responsibility_binding: dict[str, Any],
+    portfolio_record: dict[str, Any],
+    provider_profile: dict[str, Any],
     provider_profile_digest: str,
+    policy_version: str,
+    configuration_grants: dict[str, Any],
     created_at: datetime,
 ) -> dict[str, Any]:
     identity_digest = content_digest(
@@ -216,7 +246,15 @@ def _plan(
         "principal_id": principal_id,
         "tenant_id": tenant_id,
         "workspace_id": workspace_id,
+        "responsibility_binding": responsibility_binding,
+        "portfolio_record": portfolio_record,
+        "provider_profile": provider_profile,
         "provider_profile_digest": provider_profile_digest,
+        "policy_version": policy_version,
+        "configuration_grants": configuration_grants,
+        "configuration_grant_authority": _grant_authority_projection(
+            configuration_grants
+        ),
         "created_at": created_at.isoformat(),
         "task_id": task_id,
         "task_event_id": _identity("event-created", identity_digest),
@@ -426,9 +464,43 @@ class SQLiteSelfDevelopmentAdmissionStore:
 
 
 @contextmanager
-def _admission_lock(database: Path):
-    lock_path = Path(f"{Path(database).resolve()}.selfdev-admission.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+def _admission_lock(workspace: Path, database: Path):
+    completed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(Path(workspace).resolve()),
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_LOCK_INVALID", "Git common directory is unavailable"
+        )
+    git_common_dir = Path(completed.stdout.strip())
+    if not git_common_dir.is_dir() or git_common_dir.is_symlink():
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_LOCK_INVALID", "Git common directory is not a trusted directory"
+        )
+    control_root = git_common_dir / "agent-os-admission-locks"
+    if control_root.exists() and control_root.is_symlink():
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_LOCK_INVALID", "admission lock directory cannot be a symlink"
+        )
+    control_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    database_digest = content_digest(
+        {"canonical_database": str(Path(database).resolve())}
+    )
+    lock_path = control_root / f"{database_digest}.lock"
+    if lock_path.exists() and lock_path.is_symlink():
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_LOCK_INVALID", "admission lock file cannot be a symlink"
+        )
     with lock_path.open("a+b") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
@@ -442,6 +514,79 @@ def _phase_hook(hook: Callable[[str], None] | None, name: str) -> None:
         hook(name)
 
 
+def _assert_authority_plan(
+    plan: dict[str, Any],
+    authority: Any,
+    execution_app: Any,
+) -> None:
+    current_grants = {
+        capability_id: grant.model_dump(mode="json")
+        for capability_id, grant in sorted(execution_app.grants.items())
+    }
+    task_id = str(plan["task_id"])
+    if not execution_app.provider_configured:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_PROVIDER_UNCONFIGURED",
+            "a configured provider is required before admitting a Run",
+        )
+    comparisons = (
+        (
+            "provider profile",
+            execution_app.provider_profile.model_dump(mode="json"),
+            plan["provider_profile"],
+        ),
+        (
+            "ResponsibilityLoopBinding",
+            asdict(authority.binding),
+            plan["responsibility_binding"],
+        ),
+        (
+            "OutcomePortfolio",
+            authority.portfolio.model_dump(mode="json"),
+            plan["portfolio_record"],
+        ),
+        ("policy version", execution_app.policy.policy_version, plan["policy_version"]),
+        (
+            "configuration grants",
+            _grant_authority_projection(current_grants),
+            plan["configuration_grant_authority"],
+        ),
+        (
+            "correction authority",
+            execution_app.correction.snapshot(
+                task_id,
+                _UNRESERVED_RUN_ID,
+                TASK_CONFIGURATION_CAPABILITY,
+            ).model_dump(mode="json"),
+            plan["correction_authority"],
+        ),
+    )
+    for name, actual, expected in comparisons:
+        if actual != expected:
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_STATE_DRIFT",
+                f"authority preflight: {name} differs from immutable reservation",
+            )
+
+
+def _revalidate_authority_plan(
+    *,
+    plan: dict[str, Any],
+    app: Any,
+    execution_app: Any,
+    workspace: Path,
+    database: Path,
+) -> Any:
+    authority = resolve_responsibility_authority_context(
+        app=app,
+        execution_app=execution_app,
+        workspace=workspace,
+        database=database,
+    )
+    _assert_authority_plan(plan, authority, execution_app)
+    return authority
+
+
 def _assert_equal(phase: str, object_name: str, actual: Any, expected: Any) -> None:
     if actual != expected:
         raise SelfDevelopmentAdmissionError(
@@ -450,60 +595,206 @@ def _assert_equal(phase: str, object_name: str, actual: Any, expected: Any) -> N
         )
 
 
-def _created_event_digest(execution_app: Any, task_id: str) -> str:
-    events = execution_app.tasks._event_store.read(task_id)
-    if not events or events[0].event_type is not TaskEventType.TASK_CREATED:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_STATE_DRIFT", "TASK_CREATED: canonical event is missing"
-        )
-    return content_digest(events[0])
+@dataclass(frozen=True)
+class _AdmissionGraph:
+    task: Any
+    goal: Goal
+    commitment: Commitment
+    expected: ExpectedOutcome
+    workflow: WorkflowGraph
+    snapshot: Any
+    run: Any
+    link: Any
+    persistent: Any | None
+    task_created_event_digest: str
 
 
-def _receipt(
+def _preflight_admission_graph(
     *,
-    row: sqlite3.Row,
     plan: dict[str, Any],
     app: Any,
     execution_app: Any,
-    replayed: bool,
-) -> SelfDevelopmentAdmissionReceipt:
+    database: Path,
+    require_persistent: bool,
+) -> _AdmissionGraph:
     task_id = str(plan["task_id"])
-    task = execution_app.tasks.get_task(task_id)
     goal = Goal.model_validate(plan["goal"])
     commitment = Commitment.model_validate(plan["commitment"])
     expected = ExpectedOutcome.model_validate(plan["expected_outcome"])
     workflow = WorkflowGraph.model_validate(plan["workflow"])
-    _assert_equal("ADMITTED", "Goal", task.goal, goal)
-    _assert_equal("ADMITTED", "Commitment", task.commitment, commitment)
-    _assert_equal("ADMITTED", "ExpectedOutcome", task.expected_outcome, expected)
-    _assert_equal("ADMITTED", "WorkflowGraph", task.workflow, workflow)
+    try:
+        events = execution_app.tasks._event_store.read(task_id)
+        task = execution_app.tasks.get_task(task_id)
+    except Exception as exc:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT", "PREFLIGHT: exact Task stream is unavailable"
+        ) from exc
+    expected_types = (
+        TaskEventType.TASK_CREATED,
+        TaskEventType.TASK_COMMITTED,
+        TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED,
+        TaskEventType.RUN_STARTED,
+    )
+    if tuple(event.event_type for event in events) != expected_types:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: Task event stream is not the exact four-event admission stream",
+        )
+    if events[0].event_id != plan["task_event_id"]:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT", "PREFLIGHT: TASK_CREATED identity drift"
+        )
+    for index, event in enumerate(events):
+        if (
+            event.task_id != task_id
+            or event.sequence != index + 1
+            or event.correlation_id != task_id
+            or event.causation_id
+            != (events[index - 1].event_id if index else None)
+        ):
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_STATE_DRIFT",
+                "PREFLIGHT: Task event chain scope or causation drift",
+            )
+    _assert_equal("PREFLIGHT", "Goal", task.goal, goal)
+    _assert_equal("PREFLIGHT", "Commitment", task.commitment, commitment)
+    _assert_equal("PREFLIGHT", "ExpectedOutcome", task.expected_outcome, expected)
+    _assert_equal("PREFLIGHT", "WorkflowGraph", task.workflow, workflow)
+    _assert_equal(
+        "PREFLIGHT",
+        "TASK_CREATED payload",
+        events[0].decoded_payload(),
+        {"goal": goal.model_dump(mode="json")},
+    )
+    _assert_equal(
+        "PREFLIGHT",
+        "TASK_COMMITTED payload",
+        events[1].decoded_payload(),
+        {
+            "commitment": commitment.model_dump(mode="json"),
+            "workflow": workflow.model_dump(mode="json"),
+            "workflow_digest": workflow.canonical_digest(),
+            "expected_outcome": expected.model_dump(mode="json"),
+        },
+    )
     if task.configuration_snapshot is None or task.run is None:
         raise SelfDevelopmentAdmissionError(
-            "ADMISSION_STATE_DRIFT", "ADMITTED: snapshot-bound Run is missing"
+            "ADMISSION_STATE_DRIFT", "PREFLIGHT: snapshot-bound Run is missing"
         )
     snapshot = task.configuration_snapshot
     run = task.run
+    expected_grant = plan["configuration_grants"].get("workspace.run_tests")
+    immutable_fields = {
+        "task.status": (task.status, TaskStatus.RUNNING),
+        "run.status": (run.status, RunStatus.QUEUED),
+        "run.active_node_id": (run.active_node_id, None),
+        "run.attempt": (run.attempt, 1),
+        "run.wait_condition": (run.wait_condition, None),
+        "run.replan_count": (run.replan_count, 0),
+        "run.configuration_snapshot_id": (
+            run.configuration_snapshot_id,
+            snapshot.snapshot_id,
+        ),
+        "run.configuration_snapshot_digest": (
+            run.configuration_snapshot_digest,
+            snapshot.snapshot_digest,
+        ),
+        "run.run_id": (run.run_id, snapshot.reserved_run_id),
+        "run.provider_profile_id": (
+            run.provider_profile_id,
+            snapshot.provider_profile.profile_id,
+        ),
+        "snapshot.consumer_task_id": (snapshot.consumer_task_id, task_id),
+        "snapshot.commitment_id": (
+            snapshot.commitment_id,
+            commitment.commitment_id,
+        ),
+        "snapshot.principal_id": (snapshot.principal_id, plan["principal_id"]),
+        "snapshot.tenant_id": (snapshot.tenant_id, plan["tenant_id"]),
+        "snapshot.workspace_id": (snapshot.workspace_id, plan["workspace_id"]),
+        "snapshot.workflow": (snapshot.workflow, workflow),
+        "snapshot.workflow_digest": (
+            snapshot.workflow_digest,
+            workflow.canonical_digest(),
+        ),
+        "snapshot.expected_outcome": (snapshot.expected_outcome, expected),
+        "snapshot.expected_outcome_digest": (
+            snapshot.expected_outcome_digest,
+            content_digest(expected),
+        ),
+        "snapshot.provider_profile": (
+            snapshot.provider_profile.model_dump(mode="json"),
+            plan["provider_profile"],
+        ),
+        "snapshot.provider_profile_digest": (
+            snapshot.provider_profile_digest,
+            plan["provider_profile_digest"],
+        ),
+        "snapshot.policy_version": (snapshot.policy_version, plan["policy_version"]),
+        "snapshot.policy_digest": (snapshot.policy_digest, POLICY_KERNEL_V1_DIGEST),
+        "snapshot.execution_grants": (
+            tuple(
+                grant.model_dump(mode="json") for grant in snapshot.execution_grants
+            ),
+            (expected_grant,),
+        ),
+        "snapshot.optional_prior": (snapshot.optional_prior, None),
+    }
+    mismatched = tuple(
+        name for name, (actual, expected_value) in immutable_fields.items()
+        if actual != expected_value
+    )
+    if expected_grant is None or mismatched:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: snapshot or initial Run differs from immutable reservation: "
+            + ", ".join(mismatched or ("workspace.run_tests grant missing",)),
+        )
+    _assert_equal(
+        "PREFLIGHT",
+        "snapshot event payload",
+        events[2].decoded_payload(),
+        {"configuration_snapshot": snapshot.model_dump(mode="json")},
+    )
+    _assert_equal(
+        "PREFLIGHT",
+        "Run event payload",
+        events[3].decoded_payload(),
+        {"run": run.model_dump(mode="json")},
+    )
+    current_epochs = execution_app.correction.snapshot(
+        task_id, run.run_id, TASK_CONFIGURATION_CAPABILITY
+    )
     if (
-        run.configuration_snapshot_id != snapshot.snapshot_id
-        or run.configuration_snapshot_digest != snapshot.snapshot_digest
-        or run.run_id != snapshot.reserved_run_id
-        or run.provider_profile_id != snapshot.provider_profile.profile_id
+        snapshot.observed_correction_epochs != current_epochs
+        or execution_app.correction.halted(
+            task_id, run.run_id, TASK_CONFIGURATION_CAPABILITY
+        )
     ):
         raise SelfDevelopmentAdmissionError(
-            "ADMISSION_STATE_DRIFT", "ADMITTED: Run/snapshot binding drift"
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: correction authority differs from sealed snapshot",
         )
-    links = tuple(
+    all_links = tuple(
         link
         for link in app.mandate_responsibility_store.list_links(
-            str(plan["mandate_id"]), app.principal
+            str(plan["mandate_id"]), app.principal, include_revoked=True
         )
         if link.task_id == task_id
     )
-    if len(links) != 1:
-        raise SelfDevelopmentAdmissionError(
-            "ADMISSION_STATE_DRIFT", "ADMITTED: exact active MandateTaskLink missing"
+    active_links = tuple(
+        link
+        for link in app.mandate_responsibility_store.list_links(
+            str(plan["mandate_id"]), app.principal, include_revoked=False
         )
-    link = links[0]
+        if link.task_id == task_id
+    )
+    if len(all_links) != 1 or len(active_links) != 1 or all_links[0] != active_links[0]:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: one unique, never-revoked active MandateTaskLink is required",
+        )
+    link = active_links[0]
     expected_link_command = MandateTaskLinkCommand(
         task_id=task_id,
         reason=f"SELFDEV admission {plan['admission_id']}",
@@ -511,7 +802,7 @@ def _receipt(
         selfdev_spec=plan["selfdev_spec"],
     )
     _assert_equal(
-        "ADMITTED",
+        "PREFLIGHT",
         "MandateTaskLink command digest",
         link.command_digest,
         content_digest(expected_link_command),
@@ -520,7 +811,7 @@ def _receipt(
         str(plan["mandate_id"]), app.principal, include_resolved_help=True
     )
     _assert_equal(
-        "ADMITTED",
+        "PREFLIGHT",
         "OutcomePortfolio id",
         portfolio.portfolio.portfolio_id,
         plan["portfolio_id"],
@@ -528,27 +819,92 @@ def _receipt(
     commitments = tuple(
         item for item in portfolio.commitments if item.task_id == task_id
     )
-    if len(commitments) != 1:
+    if len(commitments) > 1 or (require_persistent and len(commitments) != 1):
         raise SelfDevelopmentAdmissionError(
-            "ADMISSION_STATE_DRIFT", "ADMITTED: exact PersistentCommitment missing"
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: persistent commitment count is invalid",
         )
-    persistent = commitments[0]
-    _assert_equal(
-        "ADMITTED",
-        "PersistentCommitment commitment digest",
-        persistent.commitment_digest,
-        content_digest(commitment),
-    )
-    _assert_equal(
-        "ADMITTED",
-        "PersistentCommitment expected digest",
-        persistent.expected_outcome_digest,
-        content_digest(expected),
-    )
+    persistent = commitments[0] if commitments else None
+    if persistent is not None and (
+        persistent.commitment_digest != content_digest(commitment)
+        or persistent.expected_outcome_digest != content_digest(expected)
+        or persistent.state is not PersistentCommitmentState.OPEN
+        or persistent.portfolio_id != plan["portfolio_id"]
+    ):
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: PersistentCommitment differs from immutable reservation",
+        )
+    if any(item.task_id == task_id for item in portfolio.settlements) or any(
+        item.task_id == task_id for item in portfolio.help_requests
+    ):
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: settlement or Help truth already exists for admission Task",
+        )
     if task.approval is not None or task.observed_outcome is not None:
         raise SelfDevelopmentAdmissionError(
-            "ADMISSION_STATE_DRIFT", "ADMITTED: admission created execution truth"
+            "ADMISSION_STATE_DRIFT",
+            "PREFLIGHT: approval or outcome truth already exists",
         )
+    connection = sqlite3.connect(str(Path(database).resolve()))
+    try:
+        tables = {
+            str(item[0])
+            for item in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        task_tables = {
+            "responsibility_loop_effects_v2": "task_id",
+            "operator_work_events": "task_id",
+            "responsibility_cycle_receipts": "task_id",
+            "responsibility_cycle_settlements_v2": "task_id",
+        }
+        for table, column in task_tables.items():
+            if table in tables and connection.execute(
+                f"SELECT 1 FROM {table} WHERE {column}=? LIMIT 1", (task_id,)
+            ).fetchone() is not None:
+                raise SelfDevelopmentAdmissionError(
+                    "ADMISSION_STATE_DRIFT",
+                    f"PREFLIGHT: {table} already contains admission Task truth",
+                )
+    finally:
+        connection.close()
+    return _AdmissionGraph(
+        task=task,
+        goal=goal,
+        commitment=commitment,
+        expected=expected,
+        workflow=workflow,
+        snapshot=snapshot,
+        run=run,
+        link=link,
+        persistent=persistent,
+        task_created_event_digest=content_digest(events[0]),
+    )
+
+
+def _receipt(
+    *,
+    row: sqlite3.Row,
+    plan: dict[str, Any],
+    graph: _AdmissionGraph,
+    replayed: bool,
+) -> SelfDevelopmentAdmissionReceipt:
+    task_id = str(plan["task_id"])
+    persistent = graph.persistent
+    if persistent is None:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_STATE_DRIFT", "receipt requires a PersistentCommitment"
+        )
+    goal = graph.goal
+    commitment = graph.commitment
+    expected = graph.expected
+    workflow = graph.workflow
+    snapshot = graph.snapshot
+    run = graph.run
+    link = graph.link
     admission_digest = content_digest(
         {
             "reservation_digest": str(row["reservation_digest"]),
@@ -566,7 +922,7 @@ def _receipt(
         mandate_id=str(plan["mandate_id"]),
         portfolio_id=str(plan["portfolio_id"]),
         task_id=task_id,
-        task_created_event_digest=_created_event_digest(execution_app, task_id),
+        task_created_event_digest=graph.task_created_event_digest,
         commitment_id=commitment.commitment_id,
         commitment_digest=content_digest(commitment),
         expected_outcome_id=expected.expected_outcome_id,
@@ -614,7 +970,7 @@ def admit_self_development(
         canonical_json(command).encode("utf-8")
     ).hexdigest()
     source_digest = source_digest or canonical_source_digest
-    with _admission_lock(database):
+    with _admission_lock(workspace, database):
         authority = resolve_responsibility_authority_context(
             app=app,
             execution_app=execution_app,
@@ -667,6 +1023,10 @@ def admit_self_development(
             }
         )
         provider_profile_digest = content_digest(execution_app.provider_profile)
+        configuration_grants = {
+            capability_id: grant.model_dump(mode="json")
+            for capability_id, grant in sorted(execution_app.grants.items())
+        }
         created_at = clock()
         proposed_plan = _plan(
             command=command,
@@ -677,8 +1037,25 @@ def admit_self_development(
             principal_id=authority.binding.principal_id,
             tenant_id=authority.binding.tenant_id,
             workspace_id=authority.binding.workspace_id,
+            responsibility_binding=asdict(authority.binding),
+            portfolio_record=authority.portfolio.model_dump(mode="json"),
+            provider_profile=execution_app.provider_profile.model_dump(mode="json"),
             provider_profile_digest=provider_profile_digest,
+            policy_version=execution_app.policy.policy_version,
+            configuration_grants=configuration_grants,
             created_at=created_at,
+        )
+        proposed_plan["correction_authority"] = execution_app.correction.snapshot(
+            str(proposed_plan["task_id"]),
+            _UNRESERVED_RUN_ID,
+            TASK_CONFIGURATION_CAPABILITY,
+        ).model_dump(mode="json")
+        _revalidate_authority_plan(
+            plan=proposed_plan,
+            app=app,
+            execution_app=execution_app,
+            workspace=workspace,
+            database=database,
         )
         row, replayed = existing_store.reserve(
             mandate_id=authority.mandate_id,
@@ -689,25 +1066,46 @@ def admit_self_development(
             plan=proposed_plan,
         )
         plan = json.loads(str(row["plan_json"]))
-        if (
-            plan["portfolio_id"] != authority.portfolio.portfolio_id
-            or plan["principal_id"] != authority.binding.principal_id
-            or plan["provider_profile_digest"] != provider_profile_digest
-        ):
-            raise SelfDevelopmentAdmissionError(
-                "ADMISSION_STATE_DRIFT",
-                "authority, portfolio, or provider differs from immutable reservation",
-            )
+        authority = _revalidate_authority_plan(
+            plan=plan,
+            app=app,
+            execution_app=execution_app,
+            workspace=workspace,
+            database=database,
+        )
         phase = SelfDevelopmentAdmissionPhase(str(row["phase"]))
         task_id = str(plan["task_id"])
         goal = Goal.model_validate(plan["goal"])
         commitment = Commitment.model_validate(plan["commitment"])
         expected_outcome = ExpectedOutcome.model_validate(plan["expected_outcome"])
         workflow = WorkflowGraph.model_validate(plan["workflow"])
+        graph: _AdmissionGraph | None = None
+
+        def revalidate() -> Any:
+            return _revalidate_authority_plan(
+                plan=plan,
+                app=app,
+                execution_app=execution_app,
+                workspace=workspace,
+                database=database,
+            )
+
+        def advance(
+            expected_phase: SelfDevelopmentAdmissionPhase,
+            target_phase: SelfDevelopmentAdmissionPhase,
+        ) -> None:
+            revalidate()
+            existing_store.advance(
+                authority.mandate_id,
+                command.admission_id,
+                expected_phase,
+                target_phase,
+            )
 
         if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
             SelfDevelopmentAdmissionPhase.RESERVED
         ):
+            revalidate()
             task = execution_app.tasks.ensure_task(
                 task_id,
                 goal,
@@ -716,9 +1114,7 @@ def admit_self_development(
             )
             _assert_equal("TASK_CREATED", "Goal", task.goal, goal)
             _phase_hook(phase_hook, "AFTER_TASK_CREATED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.RESERVED,
                 SelfDevelopmentAdmissionPhase.TASK_CREATED,
             )
@@ -729,6 +1125,7 @@ def admit_self_development(
         ):
             task = execution_app.tasks.get_task(task_id)
             if task.status is TaskStatus.DRAFT:
+                revalidate()
                 task = execution_app.tasks.commit_task(
                     task_id, commitment, workflow, expected_outcome
                 )
@@ -741,9 +1138,7 @@ def admit_self_development(
             )
             _assert_equal("TASK_COMMITTED", "WorkflowGraph", task.workflow, workflow)
             _phase_hook(phase_hook, "AFTER_TASK_COMMITTED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.TASK_CREATED,
                 SelfDevelopmentAdmissionPhase.TASK_COMMITTED,
             )
@@ -752,6 +1147,7 @@ def admit_self_development(
         if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
             SelfDevelopmentAdmissionPhase.TASK_COMMITTED
         ):
+            revalidate()
             snapshot = execution_app.seal_task_configuration(task_id, {})
             if content_digest(snapshot.provider_profile) != provider_profile_digest:
                 raise SelfDevelopmentAdmissionError(
@@ -759,9 +1155,7 @@ def admit_self_development(
                     "CONFIGURATION_SEALED: provider profile drift",
                 )
             _phase_hook(phase_hook, "AFTER_CONFIGURATION_SEALED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.TASK_COMMITTED,
                 SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED,
             )
@@ -777,6 +1171,7 @@ def admit_self_development(
                     "RUN_STARTED: configuration snapshot missing",
                 )
             if task.run is None:
+                revalidate()
                 task = execution_app.start_run(
                     task_id, task.configuration_snapshot.snapshot_id
                 )
@@ -788,9 +1183,7 @@ def admit_self_development(
                     "ADMISSION_STATE_DRIFT", "RUN_STARTED: reserved Run binding drift"
                 )
             _phase_hook(phase_hook, "AFTER_RUN_STARTED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.CONFIGURATION_SEALED,
                 SelfDevelopmentAdmissionPhase.RUN_STARTED,
             )
@@ -805,6 +1198,7 @@ def admit_self_development(
         if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
             SelfDevelopmentAdmissionPhase.RUN_STARTED
         ):
+            revalidate()
             link = app.mandate_responsibility_store.create_link(
                 link_command, authority.mandate_id, app.principal
             )
@@ -815,9 +1209,7 @@ def admit_self_development(
                 content_digest(link_command),
             )
             _phase_hook(phase_hook, "AFTER_LINKED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.RUN_STARTED,
                 SelfDevelopmentAdmissionPhase.LINKED,
             )
@@ -832,6 +1224,14 @@ def admit_self_development(
         if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
             SelfDevelopmentAdmissionPhase.LINKED
         ):
+            graph = _preflight_admission_graph(
+                plan=plan,
+                app=app,
+                execution_app=execution_app,
+                database=database,
+                require_persistent=False,
+            )
+            revalidate()
             persistent = app.mandate_outcome_portfolio_store.attach_commitment(
                 attach_command, authority.mandate_id, app.principal
             )
@@ -841,28 +1241,27 @@ def admit_self_development(
                 persistent.commitment_digest,
                 attach_command.commitment_digest,
             )
+            graph = replace(graph, persistent=persistent)
             _phase_hook(phase_hook, "AFTER_COMMITMENT_ATTACHED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.LINKED,
                 SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED,
             )
             phase = SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED
 
         row = existing_store.get(authority.mandate_id, command.admission_id)
-        _receipt(
-            row=row,
-            plan=plan,
-            app=app,
-            execution_app=execution_app,
-            replayed=replayed,
-        )
+        if graph is None or graph.persistent is None:
+            graph = _preflight_admission_graph(
+                plan=plan,
+                app=app,
+                execution_app=execution_app,
+                database=database,
+                require_persistent=True,
+            )
+        _receipt(row=row, plan=plan, graph=graph, replayed=replayed)
         if phase is SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED:
             _phase_hook(phase_hook, "BEFORE_ADMITTED")
-            existing_store.advance(
-                authority.mandate_id,
-                command.admission_id,
+            advance(
                 SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED,
                 SelfDevelopmentAdmissionPhase.ADMITTED,
             )
@@ -872,6 +1271,4 @@ def admit_self_development(
             )
         _phase_hook(phase_hook, "AFTER_ADMITTED")
         row = existing_store.get(authority.mandate_id, command.admission_id)
-        return _receipt(
-            row=row, plan=plan, app=app, execution_app=execution_app, replayed=replayed
-        )
+        return _receipt(row=row, plan=plan, graph=graph, replayed=replayed)

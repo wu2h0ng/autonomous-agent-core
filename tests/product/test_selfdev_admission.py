@@ -2,16 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
+import socket
 import sqlite3
 import subprocess
 
 import pytest
 from agent_os_contracts import (
+    CapabilityGrantStatus,
+    MandateTaskLinkCommand,
+    MandateTaskLinkRevocationCommand,
     OutcomePortfolioCreateCommand,
     PrincipalIdentity,
     PrincipalRole,
+    ResponsibilityWorkRoute,
     SelfDevelopmentAdmissionCommand,
     SelfDevelopmentWorkSpec,
+    RunStatus,
     TaskEventType,
     content_digest,
 )
@@ -42,7 +49,7 @@ def _principal(principal_id: str, role: PrincipalRole) -> PrincipalIdentity:
     )
 
 
-def _setup(tmp_path: Path):
+def _setup(tmp_path: Path, *, database_in_workspace: bool = False):
     isolated, branch, head = _linked_worktree(tmp_path)
     exclude_path = Path(
         subprocess.run(
@@ -56,7 +63,7 @@ def _setup(tmp_path: Path):
         exclude_path.read_text(encoding="utf-8") + "\n.agent_os/\n",
         encoding="utf-8",
     )
-    database, owner, admin = _apps(tmp_path)
+    database, owner, admin = _apps(isolated if database_in_workspace else tmp_path)
     admin.authorize_mandate_observation_binding(
         "mandate:build-agent-os",
         _command(),
@@ -108,6 +115,45 @@ def _setup(tmp_path: Path):
         ),
     )
     return database, isolated, authority, execution, command
+
+
+def _commitment_count(authority: AgentOSApplication) -> int:
+    return len(
+        authority.mandate_outcome_portfolio_store.get_view(
+            "mandate:build-agent-os",
+            authority.principal,
+            include_resolved_help=True,
+        ).commitments
+    )
+
+
+def _interrupt_after_link(
+    *,
+    authority: AgentOSApplication,
+    execution: AgentOSApplication,
+    workspace: Path,
+    database: Path,
+    command: SelfDevelopmentAdmissionCommand,
+) -> str:
+    with pytest.raises(RuntimeError, match="AFTER_LINKED"):
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+            phase_hook=lambda phase: (
+                (_ for _ in ()).throw(RuntimeError(phase))
+                if phase == "AFTER_LINKED"
+                else None
+            ),
+        )
+    links = authority.mandate_responsibility_store.list_links(
+        "mandate:build-agent-os", authority.principal
+    )
+    assert len(links) == 1
+    assert _commitment_count(authority) == 0
+    return links[0].task_id
 
 
 def test_exact_replay_converges_without_execution_side_effects(tmp_path: Path) -> None:
@@ -516,3 +562,259 @@ def test_agent_cli_admits_typed_json_and_replays_reformatted_json(
     assert replay["replayed"] is True
     assert replay["task_id"] == first["task_id"]
     assert replay["run_id"] == first["run_id"]
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ("grant_budget", "grant_status", "grant_version", "policy", "provider", "correction"),
+)
+def test_authority_or_correction_drift_before_attach_leaves_no_commitment(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    task_id = _interrupt_after_link(
+        authority=authority,
+        execution=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    grant = execution.grants["workspace.run_tests"]
+    if drift == "grant_budget":
+        execution.grants["workspace.run_tests"] = grant.model_copy(
+            update={
+                "budget_limit": grant.budget_limit.model_copy(
+                    update={"max_tool_calls": grant.budget_limit.max_tool_calls + 1}
+                )
+            }
+        )
+    elif drift == "grant_status":
+        execution.grants["workspace.run_tests"] = grant.model_copy(
+            update={"status": CapabilityGrantStatus.REVOKED}
+        )
+    elif drift == "grant_version":
+        execution.grants["workspace.run_tests"] = grant.model_copy(
+            update={"capability_version": "drifted-version"}
+        )
+    elif drift == "policy":
+        execution.policy.policy_version = "policy-drift"
+    elif drift == "provider":
+        execution.provider_profile = execution.provider_profile.model_copy(
+            update={"model_id": "drifted-model"}
+        )
+    else:
+        execution.correction.correct("task", task_id, "operator correction")
+
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_STATE_DRIFT"
+    assert _commitment_count(authority) == 0
+
+
+@pytest.mark.parametrize("target", ("workflow", "snapshot", "run"))
+def test_preattach_rejects_exact_event_payload_tamper_without_commitment(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    task_id = _interrupt_after_link(
+        authority=authority,
+        execution=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    sequence = {"workflow": 2, "snapshot": 3, "run": 4}[target]
+    connection = sqlite3.connect(str(database))
+    try:
+        raw = connection.execute(
+            "SELECT payload_json FROM task_events WHERE task_id = ? AND sequence = ?",
+            (task_id, sequence),
+        ).fetchone()
+        assert raw is not None
+        payload = json.loads(str(raw[0]))
+        if target == "workflow":
+            payload["workflow"]["policy_version"] = "policy-tampered"
+        elif target == "snapshot":
+            payload["configuration_snapshot"]["policy_version"] = "policy-tampered"
+        else:
+            payload["run"]["status"] = RunStatus.RUNNING.value
+        connection.execute(
+            "UPDATE task_events SET payload_json = ? WHERE task_id = ? AND sequence = ?",
+            (json.dumps(payload), task_id, sequence),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_STATE_DRIFT"
+    assert _commitment_count(authority) == 0
+
+
+def test_preattach_rejects_run_progress_without_commitment(tmp_path: Path) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    task_id = _interrupt_after_link(
+        authority=authority,
+        execution=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    execution.tasks.update_run_status(
+        task_id,
+        RunStatus.RUNNING,
+        event_type=TaskEventType.RUN_RESUMED,
+    )
+
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_STATE_DRIFT"
+    assert _commitment_count(authority) == 0
+
+
+def test_preattach_rejects_revoked_and_relinked_task_without_commitment(
+    tmp_path: Path,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    task_id = _interrupt_after_link(
+        authority=authority,
+        execution=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    link = authority.mandate_responsibility_store.list_links(
+        "mandate:build-agent-os", authority.principal
+    )[0]
+    authority.mandate_responsibility_store.revoke_link(
+        MandateTaskLinkRevocationCommand(
+            expected_link_digest=link.record_digest,
+            reason="adversarial relink",
+        ),
+        "mandate:build-agent-os",
+        link.link_id,
+        authority.principal,
+    )
+    authority.mandate_responsibility_store.create_link(
+        MandateTaskLinkCommand(
+            task_id=task_id,
+            reason=f"SELFDEV admission {command.admission_id}",
+            work_route=ResponsibilityWorkRoute.SELFDEV,
+            selfdev_spec=command.selfdev_spec,
+        ),
+        "mandate:build-agent-os",
+        authority.principal,
+    )
+
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_STATE_DRIFT"
+    assert _commitment_count(authority) == 0
+    assert execution.tasks.get_task(task_id).run is not None
+
+
+@pytest.mark.parametrize("special_kind", ("fifo", "socket"))
+def test_workspace_special_nodes_are_rejected(
+    tmp_path: Path,
+    special_kind: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    special_path = workspace / f"adversarial-{special_kind}"
+    bound_socket: socket.socket | None = None
+    if special_kind == "fifo":
+        os.mkfifo(special_path)
+    else:
+        bound_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        previous_cwd = Path.cwd()
+        try:
+            os.chdir(workspace)
+            bound_socket.bind(special_path.name)
+        finally:
+            os.chdir(previous_cwd)
+    try:
+        with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+            admit_self_development(
+                app=authority,
+                execution_app=execution,
+                workspace=workspace,
+                database=database,
+                command=command,
+            )
+        assert excinfo.value.code == "ADMISSION_WORKTREE_INVALID"
+        assert "SELFDEV_WORKSPACE_SPECIAL_NODE" in excinfo.value.details
+    finally:
+        if bound_socket is not None:
+            bound_socket.close()
+
+
+def test_real_cli_default_local_database_first_admission_and_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database, workspace, _authority, _execution, command = _setup(
+        tmp_path, database_in_workspace=True
+    )
+    assert database == workspace / "agent-os.sqlite3"
+    command_path = tmp_path / "default-local-admission.json"
+    command_path.write_text(command.model_dump_json(indent=2), encoding="utf-8")
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("AGENT_OS_AUTHORITY_BEARER", AUTHORITY_BEARER)
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.invalid/v1")
+    argv = [
+        "agent-os",
+        "--workspace",
+        ".",
+        "agent",
+        "admit-selfdev",
+        str(command_path),
+    ]
+
+    with pytest.raises(SystemExit) as first_exit:
+        cli_module.main(argv)
+    assert first_exit.value.code == 0
+    first = json.loads(capsys.readouterr().out)
+    with pytest.raises(SystemExit) as replay_exit:
+        cli_module.main(argv)
+    assert replay_exit.value.code == 0
+    replay = json.loads(capsys.readouterr().out)
+    assert first["replayed"] is False
+    assert replay["replayed"] is True
+    assert replay["task_id"] == first["task_id"]
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "lock" not in status
+    assert {
+        line[3:] for line in status.splitlines()
+    } <= {"agent-os.sqlite3", "agent-os.sqlite3-shm", "agent-os.sqlite3-wal"}
