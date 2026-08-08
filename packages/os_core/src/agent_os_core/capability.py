@@ -178,7 +178,7 @@ class WorkspaceSandbox:
                 )
                 error_code = "error:none"
             except Exception as exc:
-                output = {"error": type(exc).__name__}
+                output = {"error": type(exc).__name__, "error_detail": str(exc)[:300]}
                 status = ReceiptStatus.FAILED
                 error_code = type(exc).__name__
         receipt = ActionReceipt(

@@ -1097,14 +1097,15 @@ class RunCoordinator:
         if patch_format not in {"complete_file", "unified_diff"}:
             raise RunExecutionError(f"unsupported patch_format: {patch_format}")
         if patch_format == "unified_diff":
-            proposal_instruction = (
-                "Propose a single-file unified diff for the target path only. "
-                "Output ONLY the diff as plain text: it must start with "
-                "'--- a/<path>' and '+++ b/<path>' headers for the target path "
-                "and contain only well-formed @@ hunks. Do not output the "
-                "complete file, do not wrap the diff in prose or code fences "
-                "beyond a single markdown fence, and do not claim that the "
-                "patch was applied."
+            prompt = (
+                f"{goal}\n\n"
+                f"Current content of {target_path} at the base commit:\n"
+                "```\n"
+                f"{current_content[:20000]}\n"
+                "```\n\n"
+                f"Output ONLY a unified diff for that single file "
+                f"({target_path}). Do not modify any other file and do not "
+                "include any explanation."
             )
         else:
             proposal_instruction = (
@@ -1112,14 +1113,14 @@ class RunCoordinator:
                 "workspace.apply_patch tool. Include path and content. Do not call any "
                 "other capability and do not claim that the patch was applied."
             )
-        prompt = (
-            f"Repository task: {goal}\n"
-            f"Target path: {target_path}\n"
-            f"Current SHA-256: {read_output.get('sha256', '')}\n"
-            "Current file content follows:\n"
-            f"---BEGIN FILE---\n{current_content[:20000]}\n---END FILE---\n"
-            f"{proposal_instruction}"
-        )
+            prompt = (
+                f"Repository task: {goal}\n"
+                f"Target path: {target_path}\n"
+                f"Current SHA-256: {read_output.get('sha256', '')}\n"
+                "Current file content follows:\n"
+                f"---BEGIN FILE---\n{current_content[:20000]}\n---END FILE---\n"
+                f"{proposal_instruction}"
+            )
         request = ProviderRequest(
             request_id=f"request-{uuid4()}", task_id=task_id, run_id=run_id,
             provider_profile_id=self.provider_profile.profile_id,
@@ -1361,7 +1362,14 @@ class RunCoordinator:
             writer_token=self.tasks._runtime_writer_token,
         )
         if result.receipt.status.value != "SUCCEEDED":
-            raise RunExecutionError(f"tool failed: {result.receipt.error_code}")
+            error_detail = ""
+            if isinstance(result.output, dict):
+                detail_value = result.output.get("error_detail")
+                if isinstance(detail_value, str) and detail_value:
+                    error_detail = f": {detail_value}"
+            raise RunExecutionError(
+                f"tool failed: {result.receipt.error_code}{error_detail}"
+            )
         for artifact_id in result.receipt.output_artifact_ids:
             self.tasks.record_artifact(
                 task_id,

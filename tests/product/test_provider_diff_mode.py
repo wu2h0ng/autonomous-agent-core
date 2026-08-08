@@ -308,6 +308,16 @@ def test_diff_mode_text_response_extracts_and_applies(tmp_path) -> None:
     assert waiting.run is not None
     assert waiting.run.status is RunStatus.WAITING_APPROVAL
 
+    provider_requests = app.provider.requests
+    assert len(provider_requests) == 1
+    prompt_text = provider_requests[0].messages[0].content
+    assert f"Current content of {TARGET} at the base commit:\n```\n" in prompt_text
+    assert (
+        f"Output ONLY a unified diff for that single file ({TARGET})"
+        in prompt_text
+    )
+    assert "Current SHA-256" not in prompt_text
+
     app.record_approval(
         task_id,
         {"disposition": "APPROVE", "reason": "exact diff approved"},
