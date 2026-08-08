@@ -23,6 +23,19 @@ from .capability import (
     CapabilitySpec,
     SideEffectGuarantee,
 )
+from .belief import (
+    BeliefPatch,
+    BeliefPatchOperation,
+    BeliefRecord,
+    BeliefStatus,
+)
+from .candidate import (
+    ProcedureCandidate,
+    RollbackEffectReconciliation,
+    RollbackReceipt,
+    procedure_candidate_digest,
+    rollback_receipt_digest,
+)
 from .common import (
     ContractModel,
     NonEmptyStr,
@@ -31,6 +44,13 @@ from .common import (
     content_digest,
 )
 from .domain import DomainPackManifest
+from .environment import (
+    EnvironmentDynamic,
+    EnvironmentEntity,
+    EnvironmentModelSnapshot,
+    EnvironmentRelation,
+    EnvironmentSourceCoverage,
+)
 from .evidence import (
     ArtifactLocationClass,
     ArtifactRef,
@@ -40,7 +60,9 @@ from .evidence import (
 )
 from .evaluator import (
     EvaluationArtifactRole,
+    EvaluationBaseline,
     EvaluationConsumptionEntry,
+    EvaluationContract,
     EvaluationFailureCode,
     EvaluationReceipt,
     EvaluationScore,
@@ -79,7 +101,13 @@ from .materialization import (
     domain_candidate_digest,
     domain_prior_artifact_digest,
 )
-from .outcome import ExpectedOutcome, ObservedOutcome, OutcomeStatus
+from .outcome import (
+    ExpectedOutcome,
+    ObservedOutcome,
+    OutcomeAttributionCandidate,
+    OutcomeAttributionStatus,
+    OutcomeStatus,
+)
 from .provider import (
     CredentialRef,
     CredentialStatus,
@@ -289,6 +317,10 @@ __all__ = [
     "ApprovalDisposition",
     "ArtifactLocationClass",
     "ArtifactRef",
+    "BeliefPatch",
+    "BeliefPatchOperation",
+    "BeliefRecord",
+    "BeliefStatus",
     "CandidateExclusion",
     "CapabilityInvocationRef",
     "CandidateEvaluationDisposition",
@@ -339,12 +371,19 @@ __all__ = [
     "EnvironmentBindingMode",
     "EnvironmentEvent",
     "EnvironmentEventAdmissionReceipt",
+    "EnvironmentDynamic",
+    "EnvironmentEntity",
+    "EnvironmentModelSnapshot",
+    "EnvironmentRelation",
+    "EnvironmentSourceCoverage",
     "EpisodeManifest",
     "EventOriginRegistration",
     "EvidenceRef",
     "EvidenceSourceKind",
     "EvaluationArtifactRole",
+    "EvaluationBaseline",
     "EvaluationConsumptionEntry",
+    "EvaluationContract",
     "EvaluationFailureCode",
     "EvaluationReceipt",
     "EvaluationScore",
@@ -411,6 +450,8 @@ __all__ = [
     "NodeSpec",
     "NO_APPROVAL_ID",
     "ObservedOutcome",
+    "OutcomeAttributionCandidate",
+    "OutcomeAttributionStatus",
     "OutcomeLink",
     "OperationalProjectionRef",
     "ProposedGoal",
@@ -429,6 +470,7 @@ __all__ = [
     "SourceBindingAuthorizationReceipt",
     "ProtocolIngressReceipt",
     "PrincipalRole",
+    "ProcedureCandidate",
     "ProviderErrorCode",
     "ProviderFailure",
     "ProviderExecutionReceipt",
@@ -480,6 +522,8 @@ __all__ = [
     "SelfDevelopmentAdmissionReceipt",
     "SelfDevelopmentWorkSpec",
     "RubricRef",
+    "RollbackEffectReconciliation",
+    "RollbackReceipt",
     "Sha256Digest",
     "SideEffectGuarantee",
     "TaskEvent",
@@ -522,6 +566,8 @@ __all__ = [
     "environment_event_admission_receipt_digest",
     "event_origin_registration_digest",
     "payload_admission_attestation_digest",
+    "procedure_candidate_digest",
+    "rollback_receipt_digest",
     "task_configuration_grants_digest",
     "task_configuration_seal_request_digest",
     "task_configuration_snapshot_digest",

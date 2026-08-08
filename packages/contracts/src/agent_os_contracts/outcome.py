@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from enum import Enum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -62,4 +63,66 @@ class ObservedOutcome(ContractModel):
             raise ValueError("verified outcome cannot contain unresolved gaps")
         if self.status is OutcomeStatus.UNRESOLVED and not self.unresolved_gaps:
             raise ValueError("unresolved outcome requires at least one unresolved gap")
+        return self
+
+
+class OutcomeAttributionStatus(str, Enum):
+    IDENTIFIED = "IDENTIFIED"
+    UNIDENTIFIABLE = "UNIDENTIFIABLE"
+
+
+class OutcomeAttributionCandidate(ContractModel):
+    """Evidence-bound hypothesis about which state/action/change contributed
+    to an observed outcome.
+
+    Named consumer: evaluator / candidate factory.
+    Fail-closed: ``UNIDENTIFIABLE`` is allowed (with reasons, without a
+    subject); a candidate never mutates production state directly
+    (``production_mutation_authorized`` pinned to ``False``).
+    """
+
+    attribution_id: NonEmptyStr
+    attribution_version: int = Field(ge=1)
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    observed_outcome_id: NonEmptyStr
+    status: OutcomeAttributionStatus
+    subject_kind: Literal["STATE", "ACTION", "CHANGE"] | None = None
+    subject_ref: NonEmptyStr | None = None
+    hypothesis: NonEmptyStr | None = None
+    confidence: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    evidence_refs: tuple[NonEmptyStr, ...] = ()
+    unidentifiable_reasons: tuple[NonEmptyStr, ...] = ()
+    production_mutation_authorized: Literal[False] = False
+    proposed_by: NonEmptyStr
+    proposed_at: UtcDateTime
+
+    @field_validator("evidence_refs", "unidentifiable_reasons", mode="after")
+    @classmethod
+    def _normalize_refs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+    @model_validator(mode="after")
+    def _validate_attribution(self) -> OutcomeAttributionCandidate:
+        subject_fields = (self.subject_kind, self.subject_ref, self.hypothesis)
+        if self.status is OutcomeAttributionStatus.IDENTIFIED:
+            if any(value is None for value in subject_fields):
+                raise ValueError(
+                    "IDENTIFIED attribution requires subject and hypothesis"
+                )
+            if not self.evidence_refs:
+                raise ValueError("IDENTIFIED attribution requires evidence")
+            if self.unidentifiable_reasons:
+                raise ValueError(
+                    "IDENTIFIED attribution forbids unidentifiable reasons"
+                )
+        else:
+            if any(value is not None for value in subject_fields):
+                raise ValueError("UNIDENTIFIABLE attribution forbids subject fields")
+            if self.evidence_refs:
+                raise ValueError("UNIDENTIFIABLE attribution forbids evidence refs")
+            if not self.unidentifiable_reasons:
+                raise ValueError("UNIDENTIFIABLE attribution requires reasons")
         return self
