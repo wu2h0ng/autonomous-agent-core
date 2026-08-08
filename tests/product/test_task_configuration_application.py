@@ -110,8 +110,11 @@ def test_application_composes_developer_capability_adapters(tmp_path) -> None:
     assert tuple(sorted(app.sandbox.specs())) == (
         "artifact.write",
         "workspace.apply_patch",
+        "workspace.edit",
         "workspace.read",
         "workspace.run_tests",
+        "workspace.search",
+        "workspace.shell",
     )
 
 

@@ -47,7 +47,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 D1E_ROOT = REPO_ROOT / "product_evals/lh_recovery_1a"
 MANIFEST_PATH = REPO_ROOT / "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml"
 MANIFEST_RELATIVE_PATH = "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml"
-SUCCESSOR_PATH = REPO_ROOT / "docs/research/LH-RECOVERY-1A-RUNTIME-SHAPE-SUCCESSOR-v2.yaml"
+SUCCESSOR_PATH = (
+    REPO_ROOT / "docs/research/LH-RECOVERY-1A-RUNTIME-SHAPE-SUCCESSOR-v2.yaml"
+)
 MODULE_NAMES = ("generator", "regimes", "templates", "evaluator", "statistics")
 RUNTIME_SOURCE_PATHS = (
     "packages/contracts/src/agent_os_contracts/workflow.py",
@@ -9400,9 +9402,10 @@ def test_manifest_declares_live_runtime_source_shape_and_public_semantics() -> N
     assert successor["status"] == "TEST_MAINTENANCE_ONLY"
     assert successor["claim_effect"] == "NO_RESULT_CHANGE / NO_CLAIM_UPGRADE"
     assert successor["supersedes_runtime_shape_only"] == MANIFEST_RELATIVE_PATH
-    assert successor["frozen_parent_sha256"] == hashlib.sha256(
-        MANIFEST_PATH.read_bytes()
-    ).hexdigest()
+    assert (
+        successor["frozen_parent_sha256"]
+        == hashlib.sha256(MANIFEST_PATH.read_bytes()).hexdigest()
+    )
     assert successor["tool_capability_registry"] == "DeveloperWorkspaceAdapter.specs"
     assert (
         successor["capability_source"]

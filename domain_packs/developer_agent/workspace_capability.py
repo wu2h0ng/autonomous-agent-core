@@ -77,7 +77,7 @@ class DeveloperWorkspaceAdapter:
                 idempotency_supported=True,
                 cancellation_supported=True,
                 compensation_supported=True,
-                **common,
+                **{**common, "risk_tier": 2},
             ),
             "workspace.run_tests": CapabilitySpec(
                 capability_id="workspace.run_tests",
@@ -166,7 +166,7 @@ class DeveloperWorkspaceAdapter:
                 )
                 error_code = "error:none"
             except Exception as exc:
-                output = {"error": type(exc).__name__}
+                output = {"error": f"{type(exc).__name__}: {exc}"}
                 status = ReceiptStatus.FAILED
                 error_code = type(exc).__name__
         return CapabilityEffect(
@@ -273,18 +273,24 @@ class DeveloperWorkspaceAdapter:
     def _safe_path(self, value: str) -> Path:
         if not value or value.startswith("/") or "\\" in value:
             raise CapabilityDenied("path must be a relative workspace path")
-        if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
-            raise CapabilityDenied("workspace artifact state is reserved")
+        first = Path(value).parts[0] if Path(value).parts else ""
+        if first in {".agent-os-artifacts", ".agent_os"}:
+            raise CapabilityDenied("workspace agent state is reserved")
         raw = self.root / value
         if any(
-            part.is_symlink() for part in (self.root, *raw.parents) if part.exists()
+            part.is_symlink()
+            for part in (self.root, *raw.parents, raw)
+            if part.exists() or part.is_symlink()
         ):
             raise CapabilityDenied("symlink paths are forbidden")
         candidate = raw.resolve()
         if candidate != self.root and self.root not in candidate.parents:
             raise CapabilityDenied("path escapes workspace")
         if candidate == self.artifacts or self.artifacts in candidate.parents:
-            raise CapabilityDenied("workspace artifact state is reserved")
+            raise CapabilityDenied("workspace agent state is reserved")
+        agent_os_dir = (self.root / ".agent_os").resolve()
+        if candidate == agent_os_dir or agent_os_dir in candidate.parents:
+            raise CapabilityDenied("workspace agent state is reserved")
         return candidate
 
     def _apply_patch(
