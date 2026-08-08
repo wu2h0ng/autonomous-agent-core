@@ -635,7 +635,7 @@ def test_authority_or_correction_drift_before_attach_leaves_no_commitment(
                 update={"model_id": "drifted-model"}
             )
     else:
-        execution.correction.correct("task", task_id, "operator correction")
+        execution.correction_admin.correct("task", task_id, "operator correction")
 
     with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
         admit_self_development(
@@ -687,7 +687,7 @@ def test_serialized_attach_guard_rejects_drift_after_final_preflight(
             with execution._selfdev_configuration_write():
                 execution.policy.policy_version = "post-preflight-drift"
         elif drift == "correction":
-            execution.correction.correct("task", task_id, "post-preflight correction")
+            execution.correction_admin.correct("task", task_id, "post-preflight correction")
         elif drift == "authority":
             connection = sqlite3.connect(str(database))
             try:
