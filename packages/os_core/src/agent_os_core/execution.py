@@ -1558,13 +1558,14 @@ class RunCoordinator:
             arguments: dict[str, Any] = {"command": str(command)}
             selfdev_envelope = context.get("selfdev_execution_envelope")
             if isinstance(selfdev_envelope, dict):
-                target_paths = selfdev_envelope.get("allowed_write_paths")
-                if isinstance(target_paths, tuple):
-                    target_paths = list(target_paths)
                 arguments["selfdev_verification_snapshot"] = {
                     "repository_head": selfdev_envelope.get("repository_head"),
-                    "target_path": selfdev_envelope.get("allowed_write_path"),
-                    "target_paths": target_paths,
+                    "verifier_bindings": selfdev_envelope.get(
+                        "verifier_bindings"
+                    ),
+                    "verifier_binding_digest": selfdev_envelope.get(
+                        "verifier_binding_digest"
+                    ),
                 }
             return arguments
         explicit = context.get(capability_id)

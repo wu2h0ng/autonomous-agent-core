@@ -138,6 +138,7 @@ from .responsibility import (
     SelfDevelopmentAdmissionCommand,
     SelfDevelopmentAdmissionReceipt,
     SelfDevelopmentWorkSpec,
+    SelfDevelopmentVerifierBinding,
     ResponsibilityWorkRoute,
 )
 from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
@@ -479,6 +480,7 @@ __all__ = [
     "SelfDevelopmentAdmissionCommand",
     "SelfDevelopmentAdmissionReceipt",
     "SelfDevelopmentWorkSpec",
+    "SelfDevelopmentVerifierBinding",
     "RubricRef",
     "Sha256Digest",
     "SideEffectGuarantee",

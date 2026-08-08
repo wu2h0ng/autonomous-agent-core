@@ -30,6 +30,8 @@ from agent_os_contracts import (
     RunStatus,
     SelfDevelopmentAdmissionCommand,
     SelfDevelopmentAdmissionReceipt,
+    SelfDevelopmentVerifierBinding,
+    SelfDevelopmentWorkSpec,
     TaskEventType,
     TaskStatus,
     WorkflowGraph,
@@ -115,6 +117,81 @@ def _validate_workspace(
     return command.selfdev_spec.repository_head, normalized
 
 
+def _seal_verifier_bindings(
+    workspace: Path,
+    command: SelfDevelopmentAdmissionCommand,
+) -> tuple[SelfDevelopmentVerifierBinding, ...]:
+    if command.selfdev_spec.verifier_bindings:
+        raise SelfDevelopmentAdmissionError(
+            "ADMISSION_VERIFIER_INVALID",
+            "caller cannot supply server-computed verifier bindings",
+        )
+    bindings: list[SelfDevelopmentVerifierBinding] = []
+    write_paths = set(command.selfdev_spec.allowed_write_paths)
+    for verifier_path in command.verifier_paths:
+        if verifier_path in write_paths:
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_VERIFIER_INVALID",
+                "verifier path cannot overlap the SELFDEV write set",
+            )
+        tree = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "ls-tree",
+                command.selfdev_spec.repository_head,
+                "--",
+                verifier_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        records = tuple(line for line in tree.stdout.splitlines() if line)
+        if tree.returncode != 0 or len(records) != 1 or "\t" not in records[0]:
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_VERIFIER_INVALID",
+                f"verifier path is not one exact base Git blob: {verifier_path}",
+            )
+        metadata, recorded_path = records[0].split("\t", 1)
+        parts = metadata.split()
+        if (
+            len(parts) != 3
+            or parts[0] not in {"100644", "100755"}
+            or parts[1] != "blob"
+            or recorded_path != verifier_path
+        ):
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_VERIFIER_INVALID",
+                f"verifier path is not a regular base Git blob: {verifier_path}",
+            )
+        blob = subprocess.run(
+            ["git", "-C", str(workspace), "cat-file", "blob", parts[2]],
+            check=False,
+            capture_output=True,
+        )
+        oracle = workspace / verifier_path
+        if (
+            blob.returncode != 0
+            or not oracle.is_file()
+            or oracle.is_symlink()
+            or hashlib.sha256(oracle.read_bytes()).digest()
+            != hashlib.sha256(blob.stdout).digest()
+        ):
+            raise SelfDevelopmentAdmissionError(
+                "ADMISSION_VERIFIER_INVALID",
+                f"verifier worktree bytes differ from the sealed base blob: {verifier_path}",
+            )
+        bindings.append(
+            SelfDevelopmentVerifierBinding(
+                path=verifier_path,
+                base_blob_sha256=hashlib.sha256(blob.stdout).hexdigest(),
+            )
+        )
+    return tuple(bindings)
+
+
 def _identity(kind: str, identity_digest: str) -> str:
     return f"{kind}:selfdev-admission:{identity_digest}"
 
@@ -141,6 +218,7 @@ def _grant_authority_projection(grants: dict[str, Any]) -> dict[str, Any]:
 def _plan(
     *,
     command: SelfDevelopmentAdmissionCommand,
+    selfdev_spec: SelfDevelopmentWorkSpec,
     command_digest: str,
     semantic_key: str,
     mandate_id: str,
@@ -262,7 +340,7 @@ def _plan(
         "commitment": commitment.model_dump(mode="json"),
         "expected_outcome": expected.model_dump(mode="json"),
         "workflow": workflow.model_dump(mode="json"),
-        "selfdev_spec": command.selfdev_spec.model_dump(mode="json"),
+        "selfdev_spec": selfdev_spec.model_dump(mode="json"),
     }
 
 
@@ -913,7 +991,6 @@ def _receipt(
         raise SelfDevelopmentAdmissionError(
             "ADMISSION_STATE_DRIFT", "receipt requires a PersistentCommitment"
         )
-    goal = graph.goal
     commitment = graph.commitment
     expected = graph.expected
     workflow = graph.workflow
@@ -952,15 +1029,7 @@ def _receipt(
         snapshot_digest=snapshot.snapshot_digest,
         run_id=run.run_id,
         work_spec_digest=content_digest(
-            SelfDevelopmentAdmissionCommand.model_validate(
-                {
-                    "admission_id": plan["admission_id"],
-                    "statement": goal.statement,
-                    "deliverables": commitment.deliverables,
-                    "acceptance_criteria": commitment.acceptance_criteria,
-                    "selfdev_spec": plan["selfdev_spec"],
-                }
-            ).selfdev_spec
+            SelfDevelopmentWorkSpec.model_validate(plan["selfdev_spec"])
         ),
         replayed=replayed,
     )
@@ -1031,6 +1100,16 @@ def admit_self_development(
                 else ()
             ),
         )
+        verifier_bindings = _seal_verifier_bindings(workspace, command)
+        sealed_selfdev_spec = SelfDevelopmentWorkSpec.model_validate(
+            {
+                **command.selfdev_spec.model_dump(mode="json"),
+                "verifier_bindings": [
+                    binding.model_dump(mode="json")
+                    for binding in verifier_bindings
+                ],
+            }
+        )
         repository_root_digest = content_digest({"repository_root": str(workspace)})
         semantic_key = content_digest(
             {
@@ -1038,6 +1117,10 @@ def admit_self_development(
                 "repository_root_digest": repository_root_digest,
                 "repository_head": head,
                 "write_set": write_set,
+                "verifier_bindings": [
+                    binding.model_dump(mode="json")
+                    for binding in verifier_bindings
+                ],
             }
         )
         provider_profile_digest = content_digest(runtime.provider_profile)
@@ -1048,6 +1131,7 @@ def admit_self_development(
         created_at = clock()
         proposed_plan = _plan(
             command=command,
+            selfdev_spec=sealed_selfdev_spec,
             command_digest=command_digest,
             semantic_key=semantic_key,
             mandate_id=authority.mandate_id,
@@ -1214,7 +1298,7 @@ def admit_self_development(
             task_id=task_id,
             reason=f"SELFDEV admission {command.admission_id}",
             work_route=ResponsibilityWorkRoute.SELFDEV,
-            selfdev_spec=command.selfdev_spec,
+            selfdev_spec=plan["selfdev_spec"],
         )
         if _PHASE_ORDER.index(phase) <= _PHASE_ORDER.index(
             SelfDevelopmentAdmissionPhase.RUN_STARTED
