@@ -25,7 +25,13 @@ from agent_os_core import CapabilityDenied, CapabilityEffect
 class DeveloperWorkspaceAdapter:
     """Allowlisted repository capabilities on a disposable, path-confined workspace."""
 
-    def __init__(self, root: str | Path, artifacts: str | Path | None = None, idempotency_store: object | None = None, shell_allowlist: tuple[str, ...] | None = None) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        artifacts: str | Path | None = None,
+        idempotency_store: object | None = None,
+        shell_allowlist: tuple[str, ...] | None = None,
+    ) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = Path(artifacts or self.root / ".agent-os-artifacts").resolve()
@@ -90,19 +96,34 @@ class DeveloperWorkspaceAdapter:
                 **common,
             ),
             "workspace.edit": CapabilitySpec(
-                capability_id="workspace.edit", version="1", display_name="Exact string replacement edit",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=True, **{**common, "risk_tier": 2},
+                capability_id="workspace.edit",
+                version="1",
+                display_name="Exact string replacement edit",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=True,
+                **{**common, "risk_tier": 2},
             ),
             "workspace.search": CapabilitySpec(
-                capability_id="workspace.search", version="1", display_name="Search workspace (glob/grep/ls)",
-                side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=False, **common,
+                capability_id="workspace.search",
+                version="1",
+                display_name="Search workspace (glob/grep/ls)",
+                side_effect_guarantee=SideEffectGuarantee.READ_ONLY,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **common,
             ),
             "workspace.shell": CapabilitySpec(
-                capability_id="workspace.shell", version="1", display_name="Run allowlisted shell command",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=False, **{**common, "risk_tier": 3},
+                capability_id="workspace.shell",
+                version="1",
+                display_name="Run allowlisted shell command",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **{**common, "risk_tier": 3},
             ),
             "artifact.write": CapabilitySpec(
                 capability_id="artifact.write",
@@ -641,7 +662,9 @@ class DeveloperWorkspaceAdapter:
         if not old_string:
             raise CapabilityDenied("workspace.edit requires a non-empty old_string")
         if old_string == new_string:
-            raise CapabilityDenied("workspace.edit old_string and new_string are identical")
+            raise CapabilityDenied(
+                "workspace.edit old_string and new_string are identical"
+            )
         content = path.read_text(encoding="utf-8")
         occurrences = content.count(old_string)
         if occurrences != 1:
@@ -657,7 +680,14 @@ class DeveloperWorkspaceAdapter:
         return self._apply_patch(patch_args, action_key)
 
     _SEARCH_SKIP_DIRS = frozenset(
-        {".git", ".agent-os-artifacts", ".agent_os", "node_modules", "__pycache__", ".venv"}
+        {
+            ".git",
+            ".agent-os-artifacts",
+            ".agent_os",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+        }
     )
     _SEARCH_MAX_RESULTS = 200
     _SEARCH_MAX_OUTPUT_CHARS = 20000
@@ -686,10 +716,9 @@ class DeveloperWorkspaceAdapter:
                 raise CapabilityDenied("workspace.search glob requires a pattern")
             matches: list[str] = []
             for candidate in sorted(self.root.rglob("*")):
-                if (
-                    any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
-                    or not self._is_safe_search_candidate(candidate)
-                ):
+                if any(
+                    part in self._SEARCH_SKIP_DIRS for part in candidate.parts
+                ) or not self._is_safe_search_candidate(candidate):
                     continue
                 relative = str(candidate.relative_to(self.root))
                 if fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(
@@ -712,10 +741,9 @@ class DeveloperWorkspaceAdapter:
             scanned = 0
             truncated = False
             for candidate in sorted(base.rglob("*") if base.is_dir() else [base]):
-                if (
-                    any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
-                    or not self._is_safe_search_candidate(candidate)
-                ):
+                if any(
+                    part in self._SEARCH_SKIP_DIRS for part in candidate.parts
+                ) or not self._is_safe_search_candidate(candidate):
                     continue
                 if not candidate.is_file() or candidate.stat().st_size > 1_000_000:
                     continue
@@ -765,8 +793,13 @@ class DeveloperWorkspaceAdapter:
             raise CapabilityDenied("command is not in the shell allowlist")
         timeout = min(int(str(args.get("timeout_seconds", 120))), 300)
         result = subprocess.run(
-            command.split(), cwd=self.root, capture_output=True, text=True,
-            timeout=timeout, check=False, env=_subprocess_env(),
+            command.split(),
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=_subprocess_env(),
         )
         report = {
             "schema_version": "shell-report.v1",
@@ -804,8 +837,13 @@ class DeveloperWorkspaceAdapter:
             )
         else:
             result = subprocess.run(
-                command.split(), cwd=self.root, capture_output=True, text=True,
-                timeout=timeout, check=False, env=_subprocess_env(),
+                command.split(),
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=_subprocess_env(),
             )
         report = {
             "schema_version": "test-report.v1",
@@ -855,9 +893,7 @@ class DeveloperWorkspaceAdapter:
             raise CapabilityDenied("SELFDEV verifier target is unavailable")
         sandbox_exec = shutil.which("sandbox-exec")
         if sandbox_exec is None:
-            raise CapabilityDenied(
-                "SELFDEV verifier requires an OS filesystem sandbox"
-            )
+            raise CapabilityDenied("SELFDEV verifier requires an OS filesystem sandbox")
         with tempfile.TemporaryDirectory(prefix="agent-os-selfdev-verify-") as raw:
             verification_root = Path(raw).resolve()
             mirror = verification_root / "workspace"
@@ -1042,9 +1078,7 @@ def _subprocess_env() -> dict[str, str]:
         "VIRTUAL_ENV",
         "WINDIR",
     }
-    environment = {
-        key: value for key, value in os.environ.items() if key in allowed
-    }
+    environment = {key: value for key, value in os.environ.items() if key in allowed}
     environment["NO_COLOR"] = "1"
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return environment

@@ -43,8 +43,7 @@ class DeveloperRepositoryPatchProfile:
         selfdev_contract = ""
         if isinstance(selfdev_envelope, dict):
             prohibited = ", ".join(
-                str(value)
-                for value in selfdev_envelope.get("prohibited_effects", ())
+                str(value) for value in selfdev_envelope.get("prohibited_effects", ())
             )
             selfdev_contract = (
                 "SELFDEV persisted execution envelope:\n"
