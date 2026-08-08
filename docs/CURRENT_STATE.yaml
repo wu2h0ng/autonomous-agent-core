@@ -15,7 +15,7 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-01T18:10:00+08:00"
+updated: "2026-08-09T12:00:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -500,10 +500,10 @@ active_work:
       - "../.agent_runs/awl-1-c7-port-split-20260723/"
   - id: "AWL-2-CAPABILITY-ADAPTER"
     track: "product_and_translational_architecture"
-    status: "IMPLEMENTED_LOCAL_AT_B751A72 / TARGETED_AND_FULL_PRODUCT_VERIFIED_ZERO_NEW_FAILURES / INDEPENDENT_TECHNICAL_APPROVE / FEATURE_BRANCH_ONLY / REBASE_REQUIRED_BEFORE_INTEGRATION / NO_MAIN_PUSH / NOT_RELEASED"
+    status: "IMPLEMENTED_LOCAL_AT_B751A72 / TARGETED_AND_FULL_PRODUCT_VERIFIED_ZERO_NEW_FAILURES / INDEPENDENT_TECHNICAL_APPROVE / REBASED_ONTO_MAIN_802AD98 / INTEGRATED_LOCAL_MERGE_ONLY / NO_MAIN_PUSH / NOT_RELEASED"
     purpose: "Extract CapabilityPort and ExecutionProfilePort as inward-facing Core protocols; move repository workspace effects and patch prompting into domain_packs/developer_agent (DeveloperWorkspaceAdapter, DeveloperRepositoryPatchProfile); CapabilityBroker remains the only production dispatch boundary and sole ActionReceipt constructor; RunCoordinator facade preserved."
     evidence: "Branch feature/awl-2-capability-adapter from 2733757, implementation HEAD b751a72 (9 commits), docs-only vendoring 950282c/f6c8179 on top. Full Product suite 18 failed/1624 passed/1 skipped with failure names identical to base baseline 18/1593/1 (zero new failures; +31 = new tests; builder run and coordinator independent re-run agree exactly). Coordinator targeted re-run 54 passed; boundary scan zero WorkspaceSandbox references in packages/os_core/src. Equivalence: all 22 migrated methods token-identical to base WorkspaceSandbox; reviewer-verified broker invokes port exactly once (capability.py:77) and sole ActionReceipt construction (capability.py:78). pyright 183 errors = measured base baseline 183, zero new. Independent review by opencode/big-pickle: TECHNICAL_APPROVE on b751a72, no P0/P1, four P2 records (strict-exit-code plan deviation recorded, advisory boundary-test blind spots, JSON-in-.yaml successor manifest, app-layer artifact binding). LH-RECOVERY-1A successor (66fd190): frozen parent SHA-256 21db5abf verified byte-identical, TEST_MAINTENANCE_ONLY/NO_RESULT_CHANGE/NO_CLAIM_UPGRADE; no separate mid-sequence independent verdict existed (single-writer limitation) but the commit was covered by the exact-head review."
-    boundary: "Architecture seam only: no new adapters beyond Developer, no authority change, no mechanism evidence, no release. Deferred to AWL-3: workspace.apply_patch/workspace.compensate_patch/PatchCompensationRecord dispatch identifiers in execution.py. Branch point 2733757 is 49 commits behind current main; rebase required before any separately authorized integration."
+    boundary: "Architecture seam only: no new adapters beyond Developer, no authority change, no mechanism evidence, no release. Deferred to AWL-3: workspace.apply_patch/workspace.compensate_patch/PatchCompensationRecord dispatch identifiers in execution.py. Integrated locally onto integration main (cbc55a4 -> 82f8d2e + cb07ab5) via no-ff merges; merged Product suite 19 failed/1889 passed/1 skipped with failure names identical to pre-merge baseline cbc55a4 (zero new failures); ruff check clean on all changed files, zero new ruff-format debt; unittest research suite 54 errors/16 skipped identical to pre-merge baseline (missing research deps). No push, no release."
     source:
       - "docs/superpowers/plans/2026-07-15-awl-2-capability-adapter-boundary.md"
       - "docs/superpowers/specs/2026-07-15-awl-2-capability-adapter-boundary-design.md"
