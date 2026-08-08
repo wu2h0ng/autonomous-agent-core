@@ -26,13 +26,14 @@ from agent_os_core import (
     run_agent_cli,
 )
 from agent_os_core.agent_cli import AgentCLIError, event_types
-from agent_os_core.capability import CapabilityDenied, WorkspaceSandbox
+from agent_os_core.capability import CapabilityDenied
 from agent_os_core.errors import InvalidTransitionError, RunExecutionError
 from agent_os_core.mandate_terminal import mandate_status
 from agent_os_core.responsibility_loop import ResponsibilityLoopStaleFence
 
 from apps.api_server.app import AgentOSApplication
 from apps.cli.__main__ import main as cli_main
+from domain_packs.developer_agent import WorkspaceSandbox
 
 
 def _proposal(call_id: str, capability_id: str, arguments: dict) -> ProviderToolProposal:

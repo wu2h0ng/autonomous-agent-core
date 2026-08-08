@@ -30,7 +30,7 @@ from agent_os_contracts import (
 )
 
 from .action_pipeline import ActionPipeline, EffectCustodyPort
-from .capability import CapabilityBroker, WorkspaceSandbox
+from .capability import CapabilityBroker, CapabilityPort
 from .governance import CorrectionReadPort, PolicyKernel
 from .errors import RunExecutionError
 from .provider_receipts import build_provider_execution_receipt
@@ -176,7 +176,7 @@ class AgentLoop:
         provider_profile: ProviderProfile,
         policy: PolicyKernel,
         correction: CorrectionReadPort,
-        sandbox: WorkspaceSandbox,
+        sandbox: CapabilityPort,
         grants: dict[str, Any],
         principal: PrincipalIdentity,
         gateway: ConfirmationGateway,

@@ -16,13 +16,14 @@ from agent_os_contracts import (
     ResourceBudget,
 )
 from agent_os_core import (
+    CapabilityBroker,
     CapabilityDenied,
     CorrectionAuthority,
     PolicyInput,
     PolicyKernel,
     SQLiteTaskEventStore,
-    WorkspaceSandbox,
 )
+from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 
 
 NOW = datetime.now(timezone.utc)
@@ -39,7 +40,7 @@ def test_sqlite_idempotency_survives_reopen(tmp_path) -> None:
 
 
 def test_workspace_denies_path_escape_and_unallowlisted_command(tmp_path) -> None:
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     with pytest.raises(PermissionError):
         sandbox._safe_path("../outside")
     with pytest.raises(PermissionError):
@@ -47,7 +48,7 @@ def test_workspace_denies_path_escape_and_unallowlisted_command(tmp_path) -> Non
 
 
 def test_workspace_compensation_removes_a_new_file(tmp_path) -> None:
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     sandbox._dispatch(
         "workspace.apply_patch", {"path": "new.txt", "content": "created"}, "action:new"
     )
@@ -75,7 +76,7 @@ def test_correction_epoch_survives_authority_restart(tmp_path) -> None:
 
 
 def test_correction_after_permit_blocks_actual_dispatch(tmp_path) -> None:
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     correction = CorrectionAuthority()
     now = NOW
     epochs = correction.snapshot("task-1", "run-1", "workspace.read")
@@ -120,7 +121,7 @@ def test_correction_after_permit_blocks_actual_dispatch(tmp_path) -> None:
     )
     correction.correct("task", "task-1", "operator pause")
     with pytest.raises(CapabilityDenied, match="halted"):
-        sandbox.invoke(action, permit, correction)
+        CapabilityBroker(sandbox, correction).invoke(action, permit)
 
 
 def test_policy_denies_budget_and_scope_mismatch() -> None:

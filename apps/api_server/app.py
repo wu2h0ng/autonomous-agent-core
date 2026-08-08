@@ -100,7 +100,6 @@ from agent_os_core import (
     SituationalTrustDenied,
     SituationalTrustResolver,
     TaskService,
-    WorkspaceSandbox,
     EnvCredentialBroker,
     OpenAICompatibleProvider,
     build_recovery_snapshot,
@@ -116,7 +115,11 @@ from agent_os_core import (
 )
 from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.trajectory import TrajectoryProjector
-from domain_packs.developer_agent import manifest as developer_agent_manifest
+from domain_packs.developer_agent import (
+    DeveloperRepositoryPatchProfile,
+    DeveloperWorkspaceAdapter,
+    manifest as developer_agent_manifest,
+)
 
 from .data_agent_report_adapter import (
     DataAgentReportAdapter,
@@ -318,7 +321,8 @@ class AgentOSApplication:
             MandateActivePerceptionService | None
         ) = None
         self._mandate_steward: MandateSteward | None = None
-        self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
+        self.sandbox = DeveloperWorkspaceAdapter(workspace, idempotency_store=self.store)
+        self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
             self.store,
@@ -651,7 +655,7 @@ class AgentOSApplication:
         ):
             raise PermissionError("workspace path is outside the local allowlist")
         with self._configuration_lock:
-            self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
+            self.sandbox = DeveloperWorkspaceAdapter(root, idempotency_store=self.store)
             self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
             rebuilt_grants = self._build_grants()
             self.grants.clear()
@@ -1331,6 +1335,7 @@ class AgentOSApplication:
                 runner = RunCoordinator(
                     self.tasks,
                     self.sandbox,
+                    self.execution_profile,
                     self.provider,
                     snapshot.provider_profile,
                     self.policy,
@@ -1347,6 +1352,7 @@ class AgentOSApplication:
                 runner = RunCoordinator(
                     self.tasks,
                     self.sandbox,
+                    self.execution_profile,
                     self.provider,
                     self.provider_profile,
                     self.policy,
@@ -1628,6 +1634,7 @@ class AgentOSApplication:
         runner = RunCoordinator(
             self.tasks,
             self.sandbox,
+            self.execution_profile,
             self.provider,
             self.provider_profile,
             self.policy,

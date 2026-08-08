@@ -97,6 +97,7 @@ def test_generic_runtime_constructs_with_reader_only_port(tmp_path) -> None:
     coordinator = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         policy,

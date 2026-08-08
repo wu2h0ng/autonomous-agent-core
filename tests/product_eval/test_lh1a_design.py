@@ -38,14 +38,18 @@ from agent_os_contracts import (
     TaskStatus,
     WorkflowGraph,
 )
-from agent_os_core import DeterministicProvider, ReplanRejectedError, WorkspaceSandbox
+from agent_os_core import DeterministicProvider, ReplanRejectedError
 from apps.api_server.app import AgentOSApplication
+from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 D1E_ROOT = REPO_ROOT / "product_evals/lh_recovery_1a"
 MANIFEST_PATH = REPO_ROOT / "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml"
 MANIFEST_RELATIVE_PATH = "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml"
+SUCCESSOR_PATH = (
+    REPO_ROOT / "docs/research/LH-RECOVERY-1A-RUNTIME-SHAPE-SUCCESSOR-v2.yaml"
+)
 MODULE_NAMES = ("generator", "regimes", "templates", "evaluator", "statistics")
 RUNTIME_SOURCE_PATHS = (
     "packages/contracts/src/agent_os_contracts/workflow.py",
@@ -7264,7 +7268,7 @@ def test_candidate_initial_and_regime_templates_freeze_only_the_suffix(
         )
         == ()
     )
-    tool_specs = WorkspaceSandbox(tmp_path / "capability-check").specs()
+    tool_specs = DeveloperWorkspaceAdapter(tmp_path / "capability-check").specs()
     for regime in REGIMES:
         instantiated = templates.instantiate_candidate_for(
             regime,
@@ -9388,15 +9392,29 @@ def test_manifest_declares_live_runtime_source_shape_and_public_semantics() -> N
     task_service_source = (REPO_ROOT / RUNTIME_SOURCE_PATHS[2]).read_text(
         encoding="utf-8"
     )
-    capability_source = (REPO_ROOT / RUNTIME_SOURCE_PATHS[3]).read_text(
-        encoding="utf-8"
-    )
     assert "class EdgeSpec" in workflow_source and "condition:" in workflow_source
     assert "edge.condition" not in execution_source
     assert "def _ordered_nodes" in execution_source
     assert "node.wait_signal_name" in task_service_source
     assert "node.wait_correlation_key" in task_service_source
-    assert "class WorkspaceSandbox" in capability_source
+
+    successor = json.loads(SUCCESSOR_PATH.read_text(encoding="utf-8"))
+    assert successor["status"] == "TEST_MAINTENANCE_ONLY"
+    assert successor["claim_effect"] == "NO_RESULT_CHANGE / NO_CLAIM_UPGRADE"
+    assert successor["supersedes_runtime_shape_only"] == MANIFEST_RELATIVE_PATH
+    assert (
+        successor["frozen_parent_sha256"]
+        == hashlib.sha256(MANIFEST_PATH.read_bytes()).hexdigest()
+    )
+    assert successor["tool_capability_registry"] == "DeveloperWorkspaceAdapter.specs"
+    assert (
+        successor["capability_source"]
+        == "domain_packs/developer_agent/workspace_capability.py"
+    )
+    capability_source = (REPO_ROOT / successor["capability_source"]).read_text(
+        encoding="utf-8"
+    )
+    assert "class DeveloperWorkspaceAdapter" in capability_source
     for capability in (
         "workspace.read",
         "workspace.apply_patch",

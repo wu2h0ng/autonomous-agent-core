@@ -285,6 +285,7 @@ def test_rebind_removes_partial_artifact_evidence_and_keeps_completed_prefix(
     runner = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         app.policy,

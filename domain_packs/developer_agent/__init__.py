@@ -4,6 +4,18 @@ from datetime import datetime, timezone
 
 from agent_os_contracts import DomainPackManifest
 
+from .repository_patch_profile import DeveloperRepositoryPatchProfile
+from .workspace_capability import DeveloperWorkspaceAdapter
+
+WorkspaceSandbox = DeveloperWorkspaceAdapter
+
+__all__ = [
+    "DeveloperRepositoryPatchProfile",
+    "DeveloperWorkspaceAdapter",
+    "WorkspaceSandbox",
+    "manifest",
+]
+
 
 def manifest(now: datetime | None = None) -> DomainPackManifest:
     return DomainPackManifest(

@@ -141,8 +141,9 @@ from .mandate_responsibility import (
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
+    CapabilityEffect,
+    CapabilityPort,
     CapabilityResult,
-    WorkspaceSandbox,
 )
 from .agent_cli import AgentCLIError, AgentCLIResult, event_types, run_agent_cli
 from .agent_context import (
@@ -194,6 +195,7 @@ from .execution import (
     RunCoordinator,
 )
 from .errors import RunExecutionError, UnsupportedNodeError, WorkerInterrupted
+from .execution_profile import ExecutionProfileError, ExecutionProfilePort
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService, ValidatedTestReport
 from .task_configuration import (
@@ -427,8 +429,9 @@ __all__ = [
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",
+    "CapabilityEffect",
+    "CapabilityPort",
     "CapabilityResult",
-    "WorkspaceSandbox",
     "AgentCLIError",
     "AgentCLIResult",
     "event_types",
@@ -471,6 +474,8 @@ __all__ = [
     "NonInteractiveDenyGateway",
     "TurnResult",
     "DeterministicOutcomeEvaluator",
+    "ExecutionProfileError",
+    "ExecutionProfilePort",
     "RunCoordinator",
     "RunExecutionError",
     "WorkerInterrupted",

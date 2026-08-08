@@ -9,6 +9,7 @@ import pytest
 
 from agent_os_contracts import ActionContract, ActionPermit, ResourceBudget
 from agent_os_core import (
+    CapabilityBroker,
     CapabilityDenied,
     ConcurrentWriteError,
     CorrectionAuthority,
@@ -17,9 +18,9 @@ from agent_os_core import (
     RunExecutionError,
     SQLiteTaskEventStore,
     WorkerInterrupted,
-    WorkspaceSandbox,
 )
 from apps.api_server.app import AgentOSApplication
+from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 
 from agent_os_contracts import (
     CompensationStatus,
@@ -135,11 +136,11 @@ def test_connector_rejects_expired_permit_before_side_effect(tmp_path: Path) -> 
         issued_at=now - timedelta(minutes=10),
         expires_at=now - timedelta(minutes=5),
     )
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     before = tuple(sandbox.artifacts.iterdir())
 
     with pytest.raises(CapabilityDenied, match="expired"):
-        sandbox.invoke(action, permit, correction)
+        CapabilityBroker(sandbox, correction).invoke(action, permit)
 
     assert tuple(sandbox.artifacts.iterdir()) == before
 
@@ -154,10 +155,10 @@ def test_forged_current_epoch_permit_cannot_bypass_halt(tmp_path: Path) -> None:
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
 
     with pytest.raises(CapabilityDenied, match="halted"):
-        sandbox.invoke(action, permit, correction)
+        CapabilityBroker(sandbox, correction).invoke(action, permit)
 
     assert not any(sandbox.artifacts.iterdir())
 
@@ -165,7 +166,7 @@ def test_forged_current_epoch_permit_cannot_bypass_halt(tmp_path: Path) -> None:
 def test_patch_snapshot_survives_new_sandbox_instance(tmp_path: Path) -> None:
     target = tmp_path / "fixture.txt"
     target.write_text("before\n", encoding="utf-8")
-    first = WorkspaceSandbox(tmp_path)
+    first = DeveloperWorkspaceAdapter(tmp_path)
 
     output = first._dispatch(
         "workspace.apply_patch",
@@ -174,7 +175,7 @@ def test_patch_snapshot_survives_new_sandbox_instance(tmp_path: Path) -> None:
     )
     assert target.read_text(encoding="utf-8") == "after\n"
 
-    second = WorkspaceSandbox(tmp_path)
+    second = DeveloperWorkspaceAdapter(tmp_path)
     restored = second._dispatch(
         "workspace.compensate_patch",
         {
@@ -190,7 +191,7 @@ def test_patch_snapshot_survives_new_sandbox_instance(tmp_path: Path) -> None:
     assert restored["compensated"] is True
 
     with pytest.raises(CapabilityDenied, match="already compensated"):
-        WorkspaceSandbox(tmp_path)._dispatch(
+        DeveloperWorkspaceAdapter(tmp_path)._dispatch(
             "workspace.apply_patch",
             {"path": "fixture.txt", "content": "after\n"},
             "run:apply",
@@ -199,7 +200,7 @@ def test_patch_snapshot_survives_new_sandbox_instance(tmp_path: Path) -> None:
 
     target.write_text("after\n", encoding="utf-8")
     with pytest.raises(CapabilityDenied, match="terminal"):
-        WorkspaceSandbox(tmp_path)._dispatch(
+        DeveloperWorkspaceAdapter(tmp_path)._dispatch(
             "workspace.compensate_patch",
             {
                 "path": "fixture.txt",
@@ -217,7 +218,7 @@ def test_applied_snapshot_with_missing_effect_does_not_resurrect_patch(
 ) -> None:
     target = tmp_path / "fixture.txt"
     target.write_text("before\n", encoding="utf-8")
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     sandbox._dispatch(
         "workspace.apply_patch",
         {"path": "fixture.txt", "content": "after\n"},
@@ -226,7 +227,7 @@ def test_applied_snapshot_with_missing_effect_does_not_resurrect_patch(
     target.write_text("before\n", encoding="utf-8")
 
     with pytest.raises(CapabilityDenied, match="APPLIED"):
-        WorkspaceSandbox(tmp_path)._dispatch(
+        DeveloperWorkspaceAdapter(tmp_path)._dispatch(
             "workspace.apply_patch",
             {"path": "fixture.txt", "content": "after\n"},
             "run:apply",
@@ -243,7 +244,7 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
     target.write_text("before\n", encoding="utf-8")
     store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
     correction = CorrectionAuthority(store)
-    sandbox = WorkspaceSandbox(tmp_path, idempotency_store=store)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store)
     action = ActionContract(
         action_id="action:persistent-patch",
         task_id="task:long",
@@ -276,7 +277,7 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    applied = sandbox.invoke(action, permit, correction)
+    applied = CapabilityBroker(sandbox, correction).invoke(action, permit)
     compensation_action = ActionContract(
         action_id="action:persistent-compensation",
         task_id=action.task_id,
@@ -313,30 +314,31 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    sandbox.invoke(compensation_action, compensation_permit, correction)
+    CapabilityBroker(sandbox, correction).invoke(
+        compensation_action,
+        compensation_permit,
+    )
 
     with pytest.raises(CapabilityDenied, match="already compensated"):
-        WorkspaceSandbox(tmp_path, idempotency_store=store).invoke(
-            action,
-            permit,
+        CapabilityBroker(
+            DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store),
             correction,
-        )
+        ).invoke(action, permit)
 
     assert target.read_text(encoding="utf-8") == "before\n"
     target.write_text("after\n", encoding="utf-8")
     with pytest.raises(CapabilityDenied, match="cached compensation"):
-        WorkspaceSandbox(tmp_path, idempotency_store=store).invoke(
-            compensation_action,
-            compensation_permit,
+        CapabilityBroker(
+            DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store),
             correction,
-        )
+        ).invoke(compensation_action, compensation_permit)
     assert target.read_text(encoding="utf-8") == "after\n"
 
 
 def test_compensation_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> None:
     target = tmp_path / "fixture.txt"
     target.write_text("before\n", encoding="utf-8")
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     output = sandbox._dispatch(
         "workspace.apply_patch",
         {"path": "fixture.txt", "content": "after\n"},
@@ -345,7 +347,7 @@ def test_compensation_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> No
     target.write_text("user edit\n", encoding="utf-8")
 
     with pytest.raises(CapabilityDenied, match="changed after patch"):
-        WorkspaceSandbox(tmp_path)._dispatch(
+        DeveloperWorkspaceAdapter(tmp_path)._dispatch(
             "workspace.compensate_patch",
             {
                 "path": "fixture.txt",
@@ -362,7 +364,7 @@ def test_compensation_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> No
 def test_snapshot_write_failure_has_zero_patch_effect(tmp_path: Path) -> None:
     target = tmp_path / "fixture.txt"
     target.write_text("before\n", encoding="utf-8")
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
 
     def fail_snapshot(*args: object, **kwargs: object) -> None:
         raise OSError("injected snapshot failure")
@@ -382,7 +384,7 @@ def test_snapshot_write_failure_has_zero_patch_effect(tmp_path: Path) -> None:
 def test_missing_or_tampered_snapshot_fails_closed(tmp_path: Path) -> None:
     target = tmp_path / "fixture.txt"
     target.write_text("before\n", encoding="utf-8")
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
     output = sandbox._dispatch(
         "workspace.apply_patch",
         {"path": "fixture.txt", "content": "after\n"},
@@ -396,7 +398,7 @@ def test_missing_or_tampered_snapshot_fails_closed(tmp_path: Path) -> None:
     (snapshot_dir / "manifest.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(CapabilityDenied, match="manifest"):
-        WorkspaceSandbox(tmp_path)._dispatch(
+        DeveloperWorkspaceAdapter(tmp_path)._dispatch(
             "workspace.compensate_patch",
             {
                 "path": "fixture.txt",
@@ -414,7 +416,7 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
     now = datetime.now(timezone.utc)
     store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
     correction = CorrectionAuthority(store)
-    sandbox = WorkspaceSandbox(tmp_path, idempotency_store=store)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store)
     first = _action(
         correction,
         now,
@@ -422,10 +424,9 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
         idempotency_key="same-key",
         content="first",
     )
-    sandbox.invoke(
+    CapabilityBroker(sandbox, correction).invoke(
         first,
         _permit(first, issued_at=now, expires_at=now + timedelta(minutes=5)),
-        correction,
     )
     changed = _action(
         correction,
@@ -436,21 +437,20 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
     )
 
     with pytest.raises(CapabilityDenied, match="idempotency key reused"):
-        sandbox.invoke(
+        CapabilityBroker(sandbox, correction).invoke(
             changed,
             _permit(
                 changed,
                 issued_at=now,
                 expires_at=now + timedelta(minutes=5),
             ),
-            correction,
         )
 
 
 def test_workspace_capability_cannot_write_reserved_artifact_state(
     tmp_path: Path,
 ) -> None:
-    sandbox = WorkspaceSandbox(tmp_path)
+    sandbox = DeveloperWorkspaceAdapter(tmp_path)
 
     with pytest.raises(CapabilityDenied, match="reserved"):
         sandbox._dispatch(
@@ -696,6 +696,7 @@ def test_manual_compensation_rejects_active_run_without_failure_context(
     runner = RunCoordinator(
         restarted.tasks,
         restarted.sandbox,
+        restarted.execution_profile,
         restarted.provider,
         restarted.provider_profile,
         restarted.policy,
@@ -731,6 +732,7 @@ def test_worker_role_cannot_request_manual_compensation(tmp_path: Path) -> None:
     runner = RunCoordinator(
         restarted.tasks,
         restarted.sandbox,
+        restarted.execution_profile,
         restarted.provider,
         restarted.provider_profile,
         restarted.policy,
@@ -778,6 +780,7 @@ def test_c7_halt_requires_principal_resume_before_manual_compensation(
     runner = RunCoordinator(
         restarted.tasks,
         restarted.sandbox,
+        restarted.execution_profile,
         restarted.provider,
         restarted.provider_profile,
         restarted.policy,
@@ -1033,6 +1036,7 @@ def test_missing_later_patch_binding_stops_reverse_compensation(
     runner = RunCoordinator(
         app.tasks,
         app.sandbox,
+        app.execution_profile,
         app.provider,
         app.provider_profile,
         app.policy,
