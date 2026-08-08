@@ -8,6 +8,8 @@ from pathlib import Path
 from agent_os_contracts import (
     CredentialRef,
     CredentialStatus,
+    ProviderErrorCode,
+    ProviderFailure,
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
@@ -179,6 +181,55 @@ def test_openai_compatible_provider_parses_sse_deltas_and_tool_calls() -> None:
     proposal = response.tool_proposals[0]
     assert proposal.capability_id == "workspace.read"
     assert json.loads(proposal.arguments_json) == {"path": "fixture.txt"}
+
+
+def test_openai_compatible_provider_rejects_malformed_sse_delta() -> None:
+    now = datetime.now(timezone.utc)
+    credential = CredentialRef(
+        credential_ref_id="credential-malformed-stream",
+        owner_principal_id="user-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        provider_id="openai-compatible",
+        resolver_key="AGENT_OS_TEST_STREAM_SECRET",
+        scopes=("chat",),
+        status=CredentialStatus.ACTIVE,
+        created_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    sse_lines = [
+        b'data: {"id":"resp-sse","choices":[{"delta":{"content":"Hel"}}]}\n',
+        b'data: {"id":"resp-sse","choices":[{"delta":\n',
+        b"data: [DONE]\n",
+    ]
+    import os
+
+    old = os.environ.get("AGENT_OS_TEST_STREAM_SECRET")
+    os.environ["AGENT_OS_TEST_STREAM_SECRET"] = "stream-secret"
+    try:
+        provider = OpenAICompatibleProvider(
+            base_url="http://fake.local",
+            model="test-model",
+            credential=credential,
+            credentials=EnvCredentialBroker(),
+            opener=_streaming_opener(sse_lines),
+        )
+        request = _user_request(
+            request_id="request-sse-malformed",
+            task_id="task-sse-malformed",
+            run_id="run-sse-malformed",
+            provider_profile_id="profile-sse-malformed",
+        )
+        deltas: list[str] = []
+        result = provider.complete_streaming(request, on_text_delta=deltas.append)
+    finally:
+        if old is None:
+            os.environ.pop("AGENT_OS_TEST_STREAM_SECRET", None)
+        else:
+            os.environ["AGENT_OS_TEST_STREAM_SECRET"] = old
+
+    assert isinstance(result, ProviderFailure)
+    assert result.code is ProviderErrorCode.MALFORMED
 
 
 def test_agent_cli_repl_streams_assistant_text(tmp_path: Path) -> None:
