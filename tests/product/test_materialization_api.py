@@ -335,7 +335,7 @@ def test_seal_endpoint_maps_typed_failures(
     if case == "wrong-path":
         path_task_id = "task:wrong"
     elif case == "halted":
-        app.correction.correct("task", task_id, "operator halt")
+        app.correct_task(task_id, "operator halt")
     else:
         body["requested_channel"] = "K"
 

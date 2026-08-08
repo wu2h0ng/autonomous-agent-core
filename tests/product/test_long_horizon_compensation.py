@@ -846,7 +846,7 @@ def test_original_patch_capability_halt_blocks_automatic_compensation(
     restarted = AgentOSApplication(database=database, workspace=tmp_path)
     restarted.provider = DeterministicProvider()
     restarted.provider_configured = True
-    restarted.correction.correct(
+    restarted.correction_admin.correct(
         "capability",
         "workspace.apply_patch",
         "halt patch capability",

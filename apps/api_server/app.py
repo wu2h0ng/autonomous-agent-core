@@ -105,6 +105,7 @@ from agent_os_core import (
     OpenAICompatibleProvider,
     build_recovery_snapshot,
     PromotionPolicyRegistry,
+    split_correction_authority,
     PromotionPolicyV1,
     POLICY_KERNEL_V1_DIGEST,
     TASK_CONFIGURATION_CAPABILITY,
@@ -319,11 +320,14 @@ class AgentOSApplication:
         self._mandate_steward: MandateSteward | None = None
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
-        self.correction = CorrectionAuthority(
+        self._correction_authority = CorrectionAuthority(
             self.store,
             tenant_id=self.principal.tenant_id,
             workspace_id=self.principal.workspace_id,
             written_by=self.principal.principal_id,
+        )
+        self.correction, self.correction_admin = split_correction_authority(
+            self._correction_authority
         )
         self.tasks.bind_correction_reader(self.correction)
         self.candidates = SQLiteCandidateStore(database)
@@ -1550,7 +1554,7 @@ class AgentOSApplication:
             reason,
             principal,
         )
-        epoch = self.correction.correct("task", task_id, normalized_reason)
+        epoch = self.correction_admin.correct("task", task_id, normalized_reason)
         self.tasks.append_event(
             task_id,
             TaskEventType.CORRECTION_WRITTEN,
@@ -1605,7 +1609,7 @@ class AgentOSApplication:
             reason,
             principal,
         )
-        epoch = self.correction.resume("task", task_id, normalized_reason)
+        epoch = self.correction_admin.resume("task", task_id, normalized_reason)
         self.tasks.append_event(
             task_id,
             TaskEventType.CORRECTION_WRITTEN,

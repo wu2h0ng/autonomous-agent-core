@@ -50,7 +50,7 @@ from .errors import (
 )
 from .governance import (
     POLICY_KERNEL_V1_DIGEST,
-    CorrectionGuard,
+    CorrectionReadPort,
 )
 from .materialization_promotion_persistence import candidate_receipt_chain_digest
 from .task_aggregate import TaskAggregate
@@ -145,7 +145,7 @@ class TaskConfigurationSnapshotService:
     def __init__(
         self,
         tasks: TaskService,
-        correction: CorrectionGuard,
+        correction: CorrectionReadPort,
         *,
         configuration_lock: ReentrantConfigurationLock,
         configuration_reader: Callable[[], TaskConfigurationRuntime],

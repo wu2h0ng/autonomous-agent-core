@@ -21,7 +21,7 @@ from .errors import (
     CandidateScopeMismatch,
     CandidateSealingDenied,
 )
-from .governance import CorrectionGuard
+from .governance import CorrectionReadPort
 from .materialization_persistence import CandidateSealRequest, CandidateStore
 from .task_aggregate import TaskAggregate
 from .task_service import TaskService
@@ -73,7 +73,7 @@ class DomainCandidateSealer:
     def __init__(
         self,
         tasks: TaskService,
-        correction: CorrectionGuard,
+        correction: CorrectionReadPort,
         store: CandidateStore,
         *,
         clock: Clock = _utc_now,

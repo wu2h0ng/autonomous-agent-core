@@ -68,6 +68,17 @@ class CorrectionReadPort(Protocol):
     ) -> AbstractContextManager[bool]: ...
 
 
+class CorrectionAdminPort(Protocol):
+    """Mutation contract reserved for authenticated operator/admin paths."""
+
+    def correct(self, scope: str, scope_id: str, reason: str) -> int: ...
+
+    def resume(self, scope: str, scope_id: str, reason: str = "resumed") -> int: ...
+
+
+# Compatibility aliases for already reviewed branches; new code must use
+# CorrectionReadPort.
+CorrectionSnapshotPort = CorrectionReadPort
 CorrectionGuard = CorrectionReadPort  # backward compatibility
 
 
@@ -81,7 +92,14 @@ class ExternalPolicyBackend(Protocol):
 
 
 class CorrectionAuthority:
-    """Externally-owned correction epochs. Acting code receives snapshots only."""
+    """Externally-owned correction epochs. Acting code receives snapshots only.
+
+    Composition-internal: the composition root owns one instance and hands out
+    least-authority views via ``split_correction_authority``. Generic Runtime
+    code must depend on ``CorrectionSnapshotPort``; only the authenticated
+    operator/admin path may hold ``CorrectionAdminPort``. Direct construction
+    remains available for authority unit tests and the composition root.
+    """
 
     def __init__(self, persistence: object | None = None, *, tenant_id: str = "tenant:local", workspace_id: str = "workspace:local", written_by: str = "principal") -> None:
         self._epochs: dict[tuple[str, str], tuple[int, bool, str]] = {}
@@ -175,6 +193,59 @@ class CorrectionAuthority:
         writer = getattr(self._persistence, "write_correction", None)
         if writer is not None:
             writer(scope, scope_id, self._tenant_id, self._workspace_id, epoch, halted, reason, self._written_by, datetime.now(timezone.utc).isoformat())
+
+
+@dataclass(frozen=True)
+class CorrectionSnapshotView:
+    """Immutable read-only view over one ``CorrectionAuthority``."""
+
+    _authority: CorrectionAuthority
+
+    def snapshot(
+        self,
+        task_id: str,
+        run_id: str,
+        capability_id: str,
+    ) -> CorrectionEpochVector:
+        return self._authority.snapshot(task_id, run_id, capability_id)
+
+    def halted(self, task_id: str, run_id: str, capability_id: str) -> bool:
+        return self._authority.halted(task_id, run_id, capability_id)
+
+    def guard_unchanged(
+        self,
+        task_id: str,
+        run_id: str,
+        capability_id: str,
+        observed_epochs: CorrectionEpochVector,
+    ) -> AbstractContextManager[bool]:
+        return self._authority.guard_unchanged(
+            task_id, run_id, capability_id, observed_epochs
+        )
+
+
+@dataclass(frozen=True)
+class CorrectionAdminView:
+    """Immutable mutation view over one ``CorrectionAuthority``."""
+
+    _authority: CorrectionAuthority
+
+    def correct(self, scope: str, scope_id: str, reason: str) -> int:
+        return self._authority.correct(scope, scope_id, reason)
+
+    def resume(self, scope: str, scope_id: str, reason: str = "resumed") -> int:
+        return self._authority.resume(scope, scope_id, reason)
+
+
+def split_correction_authority(
+    authority: CorrectionAuthority,
+) -> tuple[CorrectionSnapshotView, CorrectionAdminView]:
+    """Split one authority into least-authority snapshot and admin views.
+
+    The views share the authority's state, lock and persistence connection;
+    nothing is duplicated.
+    """
+    return CorrectionSnapshotView(authority), CorrectionAdminView(authority)
 
 
 @dataclass(frozen=True)

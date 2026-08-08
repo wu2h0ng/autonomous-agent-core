@@ -301,7 +301,7 @@ def test_policy_denial_is_reported_to_model_not_hidden(tmp_path: Path) -> None:
         ),
     )
     session, loop = app.open_chat_session("halted read", AutoApproveGateway())
-    app.correction.correct("capability", "workspace.read", "test halt")
+    app.correction_admin.correct("capability", "workspace.read", "test halt")
     result = loop.run_turn(session, "read it")
 
     assert result.stop_reason == "completed"
