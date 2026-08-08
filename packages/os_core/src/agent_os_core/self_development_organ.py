@@ -298,30 +298,31 @@ def _reject_special_workspace_nodes(workspace: Path) -> None:
     while pending:
         directory = pending.pop()
         try:
-            entries = tuple(os.scandir(directory))
+            entries = os.scandir(directory)
         except OSError as exc:
             raise SelfDevelopmentOrganBlocked(
                 "SELFDEV_WORKSPACE_SCAN_FAILED",
                 "workspace node types cannot be proven",
             ) from exc
-        for entry in entries:
-            visited += 1
-            if visited > max_nodes:
-                raise SelfDevelopmentOrganBlocked(
-                    "SELFDEV_WORKSPACE_SCAN_BUDGET_EXCEEDED",
-                    "workspace special-node scan exceeded its fixed budget",
-                )
-            try:
-                mode = entry.stat(follow_symlinks=False).st_mode
-            except OSError as exc:
-                raise SelfDevelopmentOrganBlocked(
-                    "SELFDEV_WORKSPACE_SCAN_FAILED",
-                    "workspace node type changed during inspection",
-                ) from exc
-            if stat.S_ISDIR(mode):
-                pending.append(Path(entry.path))
-            elif not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
-                raise SelfDevelopmentOrganBlocked(
-                    "SELFDEV_WORKSPACE_SPECIAL_NODE",
-                    f"workspace contains unsupported special node: {entry.name!r}",
-                )
+        with entries:
+            for entry in entries:
+                visited += 1
+                if visited > max_nodes:
+                    raise SelfDevelopmentOrganBlocked(
+                        "SELFDEV_WORKSPACE_SCAN_BUDGET_EXCEEDED",
+                        "workspace special-node scan exceeded its fixed budget",
+                    )
+                try:
+                    mode = entry.stat(follow_symlinks=False).st_mode
+                except OSError as exc:
+                    raise SelfDevelopmentOrganBlocked(
+                        "SELFDEV_WORKSPACE_SCAN_FAILED",
+                        "workspace node type changed during inspection",
+                    ) from exc
+                if stat.S_ISDIR(mode):
+                    pending.append(Path(entry.path))
+                elif not (stat.S_ISREG(mode) or stat.S_ISLNK(mode)):
+                    raise SelfDevelopmentOrganBlocked(
+                        "SELFDEV_WORKSPACE_SPECIAL_NODE",
+                        f"workspace contains unsupported special node: {entry.name!r}",
+                    )

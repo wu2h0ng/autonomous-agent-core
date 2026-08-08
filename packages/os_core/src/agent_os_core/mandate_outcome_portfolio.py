@@ -440,6 +440,8 @@ class SQLiteMandateOutcomePortfolioStore:
         command: PersistentCommitmentAttachCommand,
         mandate_id: str,
         actor: PrincipalIdentity,
+        *,
+        pre_insert_guard: Callable[[], None] | None = None,
     ) -> PersistentCommitment:
         if self._task_reader is None:
             raise MandateOutcomePortfolioDenied("task reader is required")
@@ -543,6 +545,8 @@ class SQLiteMandateOutcomePortfolioStore:
                     raise MandateOutcomePortfolioConflict(
                         "persistent commitment already exists with different command"
                     )
+                if pre_insert_guard is not None:
+                    pre_insert_guard()
                 connection.commit()
                 return record
             payload = {
@@ -572,6 +576,8 @@ class SQLiteMandateOutcomePortfolioStore:
             record = PersistentCommitment.model_validate(
                 {**payload, "record_digest": record_digest}
             )
+            if pre_insert_guard is not None:
+                pre_insert_guard()
             connection.execute(
                 f"INSERT INTO {self._COMMITMENT_TABLE} "
                 "(commitment_record_id, portfolio_id, mandate_id, task_id, state, "

@@ -1231,10 +1231,33 @@ def admit_self_development(
                 database=database,
                 require_persistent=False,
             )
-            revalidate()
-            persistent = app.mandate_outcome_portfolio_store.attach_commitment(
-                attach_command, authority.mandate_id, app.principal
-            )
+            _phase_hook(phase_hook, "AFTER_FINAL_PREFLIGHT")
+
+            def guarded_pre_insert() -> None:
+                nonlocal graph
+                graph = _preflight_admission_graph(
+                    plan=plan,
+                    app=app,
+                    execution_app=execution_app,
+                    database=database,
+                    require_persistent=False,
+                )
+                revalidate()
+
+            try:
+                persistent = app.mandate_outcome_portfolio_store.attach_commitment(
+                    attach_command,
+                    authority.mandate_id,
+                    app.principal,
+                    pre_insert_guard=guarded_pre_insert,
+                )
+            except SelfDevelopmentAdmissionError:
+                raise
+            except Exception as exc:
+                raise SelfDevelopmentAdmissionError(
+                    "ADMISSION_STATE_DRIFT",
+                    "COMMITMENT_ATTACH: serialized authority or graph validation failed",
+                ) from exc
             _assert_equal(
                 "COMMITMENT_ATTACHED",
                 "commitment digest",

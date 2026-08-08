@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Callable
 import json
 import os
 import socket
@@ -13,6 +14,8 @@ from agent_os_contracts import (
     MandateTaskLinkCommand,
     MandateTaskLinkRevocationCommand,
     OutcomePortfolioCreateCommand,
+    PersistentCommitment,
+    PersistentCommitmentAttachCommand,
     PrincipalIdentity,
     PrincipalRole,
     ResponsibilityWorkRoute,
@@ -616,6 +619,139 @@ def test_authority_or_correction_drift_before_attach_leaves_no_commitment(
         )
     assert excinfo.value.code == "ADMISSION_STATE_DRIFT"
     assert _commitment_count(authority) == 0
+
+
+@pytest.mark.parametrize(
+    "drift",
+    ("run", "grant", "provider", "policy", "correction", "authority", "link"),
+)
+def test_serialized_attach_guard_rejects_drift_after_final_preflight(
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+
+    def inject_after_final_preflight(phase: str) -> None:
+        if phase != "AFTER_FINAL_PREFLIGHT":
+            return
+        link = authority.mandate_responsibility_store.list_links(
+            "mandate:build-agent-os", authority.principal
+        )[0]
+        task_id = link.task_id
+        if drift == "run":
+            execution.tasks.update_run_status(
+                task_id,
+                RunStatus.RUNNING,
+                event_type=TaskEventType.RUN_RESUMED,
+            )
+        elif drift == "grant":
+            grant = execution.grants["workspace.run_tests"]
+            execution.grants["workspace.run_tests"] = grant.model_copy(
+                update={"status": CapabilityGrantStatus.REVOKED}
+            )
+        elif drift == "provider":
+            execution.provider_profile = execution.provider_profile.model_copy(
+                update={"model_id": "post-preflight-drift"}
+            )
+        elif drift == "policy":
+            execution.policy.policy_version = "post-preflight-drift"
+        elif drift == "correction":
+            execution.correction.correct("task", task_id, "post-preflight correction")
+        elif drift == "authority":
+            connection = sqlite3.connect(str(database))
+            try:
+                connection.execute(
+                    "UPDATE mandate_outcome_portfolios SET payload = ? "
+                    "WHERE mandate_id = ?",
+                    ("{}", "mandate:build-agent-os"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+        else:
+            authority.mandate_responsibility_store.revoke_link(
+                MandateTaskLinkRevocationCommand(
+                    expected_link_digest=link.record_digest,
+                    reason="post-preflight revocation",
+                ),
+                "mandate:build-agent-os",
+                link.link_id,
+                authority.principal,
+            )
+
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+            phase_hook=inject_after_final_preflight,
+        )
+    assert excinfo.value.code == "ADMISSION_STATE_DRIFT"
+    connection = sqlite3.connect(str(database))
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM mandate_persistent_commitments"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT phase FROM selfdev_admissions_v1 "
+            "WHERE mandate_id = ? AND admission_id = ?",
+            ("mandate:build-agent-os", command.admission_id),
+        ).fetchone() == ("LINKED",)
+    finally:
+        connection.close()
+
+
+def test_serialized_attach_guard_holds_sqlite_write_fence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    store = authority.mandate_outcome_portfolio_store
+    original_attach = store.attach_commitment
+    guard_called = False
+
+    def wrapped_attach(
+        attach_command: PersistentCommitmentAttachCommand,
+        mandate_id: str,
+        actor: PrincipalIdentity,
+        *,
+        pre_insert_guard: Callable[[], None] | None = None,
+    ) -> PersistentCommitment:
+        assert pre_insert_guard is not None
+
+        def prove_fence_after_exact_guard() -> None:
+            nonlocal guard_called
+            pre_insert_guard()
+            guard_called = True
+            contender = sqlite3.connect(str(database), timeout=0)
+            try:
+                with pytest.raises(
+                    sqlite3.OperationalError, match="database is locked"
+                ):
+                    contender.execute("BEGIN IMMEDIATE")
+            finally:
+                contender.close()
+
+        return original_attach(
+            attach_command,
+            mandate_id,
+            actor,
+            pre_insert_guard=prove_fence_after_exact_guard,
+        )
+
+    monkeypatch.setattr(store, "attach_commitment", wrapped_attach)
+    receipt = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    assert guard_called is True
+    assert receipt.replayed is False
+    assert _commitment_count(authority) == 1
 
 
 @pytest.mark.parametrize("target", ("workflow", "snapshot", "run"))
