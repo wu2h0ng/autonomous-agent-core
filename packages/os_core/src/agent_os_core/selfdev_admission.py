@@ -45,7 +45,7 @@ from .self_development_organ import (
     SelfDevelopmentOrganBlocked,
     inspect_selfdev_workspace,
 )
-from .task_configuration import TASK_CONFIGURATION_CAPABILITY
+from .task_configuration import TASK_CONFIGURATION_CAPABILITY, TaskConfigurationRuntime
 from .governance import POLICY_KERNEL_V1_DIGEST
 
 
@@ -518,13 +518,15 @@ def _assert_authority_plan(
     plan: dict[str, Any],
     authority: Any,
     execution_app: Any,
+    configuration: tuple[bool, TaskConfigurationRuntime],
 ) -> None:
+    provider_configured, runtime = configuration
     current_grants = {
         capability_id: grant.model_dump(mode="json")
-        for capability_id, grant in sorted(execution_app.grants.items())
+        for capability_id, grant in sorted(runtime.grants.items())
     }
     task_id = str(plan["task_id"])
-    if not execution_app.provider_configured:
+    if not provider_configured:
         raise SelfDevelopmentAdmissionError(
             "ADMISSION_PROVIDER_UNCONFIGURED",
             "a configured provider is required before admitting a Run",
@@ -532,7 +534,7 @@ def _assert_authority_plan(
     comparisons = (
         (
             "provider profile",
-            execution_app.provider_profile.model_dump(mode="json"),
+            runtime.provider_profile.model_dump(mode="json"),
             plan["provider_profile"],
         ),
         (
@@ -545,7 +547,7 @@ def _assert_authority_plan(
             authority.portfolio.model_dump(mode="json"),
             plan["portfolio_record"],
         ),
-        ("policy version", execution_app.policy.policy_version, plan["policy_version"]),
+        ("policy version", runtime.policy_version, plan["policy_version"]),
         (
             "configuration grants",
             _grant_authority_projection(current_grants),
@@ -576,14 +578,27 @@ def _revalidate_authority_plan(
     execution_app: Any,
     workspace: Path,
     database: Path,
+    configuration: tuple[bool, TaskConfigurationRuntime] | None = None,
 ) -> Any:
+    if configuration is None:
+        with execution_app.selfdev_admission_configuration_lease() as leased:
+            return _revalidate_authority_plan(
+                plan=plan,
+                app=app,
+                execution_app=execution_app,
+                workspace=workspace,
+                database=database,
+                configuration=leased,
+            )
+    _, runtime = configuration
     authority = resolve_responsibility_authority_context(
         app=app,
         execution_app=execution_app,
         workspace=workspace,
         database=database,
+        configuration=runtime,
     )
-    _assert_authority_plan(plan, authority, execution_app)
+    _assert_authority_plan(plan, authority, execution_app, configuration)
     return authority
 
 
@@ -971,13 +986,16 @@ def admit_self_development(
     ).hexdigest()
     source_digest = source_digest or canonical_source_digest
     with _admission_lock(workspace, database):
-        authority = resolve_responsibility_authority_context(
-            app=app,
-            execution_app=execution_app,
-            workspace=workspace,
-            database=database,
-        )
-        if not execution_app.provider_configured:
+        with execution_app.selfdev_admission_configuration_lease() as configuration:
+            provider_configured, runtime = configuration
+            authority = resolve_responsibility_authority_context(
+                app=app,
+                execution_app=execution_app,
+                workspace=workspace,
+                database=database,
+                configuration=runtime,
+            )
+        if not provider_configured:
             raise SelfDevelopmentAdmissionError(
                 "ADMISSION_PROVIDER_UNCONFIGURED",
                 "a configured provider is required before admitting a Run",
@@ -1022,10 +1040,10 @@ def admit_self_development(
                 "write_set": write_set,
             }
         )
-        provider_profile_digest = content_digest(execution_app.provider_profile)
+        provider_profile_digest = content_digest(runtime.provider_profile)
         configuration_grants = {
             capability_id: grant.model_dump(mode="json")
-            for capability_id, grant in sorted(execution_app.grants.items())
+            for capability_id, grant in sorted(runtime.grants.items())
         }
         created_at = clock()
         proposed_plan = _plan(
@@ -1039,9 +1057,9 @@ def admit_self_development(
             workspace_id=authority.binding.workspace_id,
             responsibility_binding=asdict(authority.binding),
             portfolio_record=authority.portfolio.model_dump(mode="json"),
-            provider_profile=execution_app.provider_profile.model_dump(mode="json"),
+            provider_profile=runtime.provider_profile.model_dump(mode="json"),
             provider_profile_digest=provider_profile_digest,
-            policy_version=execution_app.policy.policy_version,
+            policy_version=runtime.policy_version,
             configuration_grants=configuration_grants,
             created_at=created_at,
         )
@@ -1093,8 +1111,11 @@ def admit_self_development(
         def advance(
             expected_phase: SelfDevelopmentAdmissionPhase,
             target_phase: SelfDevelopmentAdmissionPhase,
+            *,
+            validate: bool = True,
         ) -> None:
-            revalidate()
+            if validate:
+                revalidate()
             existing_store.advance(
                 authority.mandate_id,
                 command.admission_id,
@@ -1232,32 +1253,43 @@ def admit_self_development(
                 require_persistent=False,
             )
             _phase_hook(phase_hook, "AFTER_FINAL_PREFLIGHT")
+            with execution_app.selfdev_admission_configuration_lease() as configuration:
 
-            def guarded_pre_insert() -> None:
-                nonlocal graph
-                graph = _preflight_admission_graph(
-                    plan=plan,
-                    app=app,
-                    execution_app=execution_app,
-                    database=database,
-                    require_persistent=False,
-                )
-                revalidate()
+                def guarded_pre_insert() -> None:
+                    nonlocal graph
+                    graph = _preflight_admission_graph(
+                        plan=plan,
+                        app=app,
+                        execution_app=execution_app,
+                        database=database,
+                        require_persistent=False,
+                    )
+                    _revalidate_authority_plan(
+                        plan=plan,
+                        app=app,
+                        execution_app=execution_app,
+                        workspace=workspace,
+                        database=database,
+                        configuration=configuration,
+                    )
+                    _phase_hook(phase_hook, "AFTER_SERIALIZED_CONFIG_GUARD")
 
-            try:
-                persistent = app.mandate_outcome_portfolio_store.attach_commitment(
-                    attach_command,
-                    authority.mandate_id,
-                    app.principal,
-                    pre_insert_guard=guarded_pre_insert,
-                )
-            except SelfDevelopmentAdmissionError:
-                raise
-            except Exception as exc:
-                raise SelfDevelopmentAdmissionError(
-                    "ADMISSION_STATE_DRIFT",
-                    "COMMITMENT_ATTACH: serialized authority or graph validation failed",
-                ) from exc
+                try:
+                    persistent = (
+                        app.mandate_outcome_portfolio_store.attach_commitment(
+                            attach_command,
+                            authority.mandate_id,
+                            app.principal,
+                            pre_insert_guard=guarded_pre_insert,
+                        )
+                    )
+                except SelfDevelopmentAdmissionError:
+                    raise
+                except Exception as exc:
+                    raise SelfDevelopmentAdmissionError(
+                        "ADMISSION_STATE_DRIFT",
+                        "COMMITMENT_ATTACH: serialized authority or graph validation failed",
+                    ) from exc
             _assert_equal(
                 "COMMITMENT_ATTACHED",
                 "commitment digest",
@@ -1269,6 +1301,7 @@ def admit_self_development(
             advance(
                 SelfDevelopmentAdmissionPhase.LINKED,
                 SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED,
+                validate=False,
             )
             phase = SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED
 
@@ -1287,6 +1320,7 @@ def admit_self_development(
             advance(
                 SelfDevelopmentAdmissionPhase.COMMITMENT_ATTACHED,
                 SelfDevelopmentAdmissionPhase.ADMITTED,
+                validate=False,
             )
         elif phase is not SelfDevelopmentAdmissionPhase.ADMITTED:
             raise SelfDevelopmentAdmissionError(

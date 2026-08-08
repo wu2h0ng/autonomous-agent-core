@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -477,12 +479,26 @@ class AgentOSApplication:
             TASK_CONFIGURATION_CAPABILITY_VERSION
         )
         return TaskConfigurationRuntime(
-            policy_version="policy-1",
+            policy_version=self.policy.policy_version,
             policy_digest=POLICY_KERNEL_V1_DIGEST,
             provider_profile=self.provider_profile,
             grants=dict(self.grants),
             capability_versions=capability_versions,
         )
+
+    @contextmanager
+    def selfdev_admission_configuration_lease(
+        self,
+    ) -> Iterator[tuple[bool, TaskConfigurationRuntime]]:
+        """Freeze the existing authoritative Runtime configuration for admission."""
+        with self._configuration_lock:
+            yield self.provider_configured, self._task_configuration_runtime()
+
+    @contextmanager
+    def _selfdev_configuration_write(self) -> Iterator[None]:
+        """Lock-aware mutation seam used by bounded admission drift tests."""
+        with self._configuration_lock:
+            yield
 
     def _build_task_configuration_grant(
         self,

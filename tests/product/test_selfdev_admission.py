@@ -7,6 +7,7 @@ import os
 import socket
 import sqlite3
 import subprocess
+from threading import Event, Thread
 
 import pytest
 from agent_os_contracts import (
@@ -27,6 +28,8 @@ from agent_os_contracts import (
 )
 from agent_os_core.mandate_terminal import attach_mandate
 from agent_os_core.provider import DeterministicProvider
+import agent_os_core.self_development_organ as selfdev_organ_module
+from agent_os_core import TaskConfigurationDenied, TaskConfigurationDrift
 from agent_os_core.selfdev_admission import admit_self_development
 from agent_os_core.selfdev_admission import SelfDevelopmentAdmissionError
 from apps.cli import __main__ as cli_module
@@ -157,6 +160,23 @@ def _interrupt_after_link(
     assert len(links) == 1
     assert _commitment_count(authority) == 0
     return links[0].task_id
+
+
+def _mutate_security_configuration(
+    execution: AgentOSApplication,
+    field: str,
+) -> None:
+    if field == "provider":
+        execution.provider_profile = execution.provider_profile.model_copy(
+            update={"model_id": "serialized-drift"}
+        )
+    elif field == "grant":
+        grant = execution.grants["workspace.run_tests"]
+        execution.grants["workspace.run_tests"] = grant.model_copy(
+            update={"status": CapabilityGrantStatus.REVOKED}
+        )
+    else:
+        execution.policy.policy_version = "serialized-drift"
 
 
 def test_exact_replay_converges_without_execution_side_effects(tmp_path: Path) -> None:
@@ -395,9 +415,10 @@ def test_replay_detects_provider_profile_drift(tmp_path: Path) -> None:
                 else None
             ),
         )
-    execution.provider_profile = execution.provider_profile.model_copy(
-        update={"model_id": "drifted-model"}
-    )
+    with execution._selfdev_configuration_write():
+        execution.provider_profile = execution.provider_profile.model_copy(
+            update={"model_id": "drifted-model"}
+        )
 
     with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
         admit_self_development(
@@ -585,27 +606,34 @@ def test_authority_or_correction_drift_before_attach_leaves_no_commitment(
     )
     grant = execution.grants["workspace.run_tests"]
     if drift == "grant_budget":
-        execution.grants["workspace.run_tests"] = grant.model_copy(
-            update={
-                "budget_limit": grant.budget_limit.model_copy(
-                    update={"max_tool_calls": grant.budget_limit.max_tool_calls + 1}
-                )
-            }
-        )
+        with execution._selfdev_configuration_write():
+            execution.grants["workspace.run_tests"] = grant.model_copy(
+                update={
+                    "budget_limit": grant.budget_limit.model_copy(
+                        update={
+                            "max_tool_calls": grant.budget_limit.max_tool_calls + 1
+                        }
+                    )
+                }
+            )
     elif drift == "grant_status":
-        execution.grants["workspace.run_tests"] = grant.model_copy(
-            update={"status": CapabilityGrantStatus.REVOKED}
-        )
+        with execution._selfdev_configuration_write():
+            execution.grants["workspace.run_tests"] = grant.model_copy(
+                update={"status": CapabilityGrantStatus.REVOKED}
+            )
     elif drift == "grant_version":
-        execution.grants["workspace.run_tests"] = grant.model_copy(
-            update={"capability_version": "drifted-version"}
-        )
+        with execution._selfdev_configuration_write():
+            execution.grants["workspace.run_tests"] = grant.model_copy(
+                update={"capability_version": "drifted-version"}
+            )
     elif drift == "policy":
-        execution.policy.policy_version = "policy-drift"
+        with execution._selfdev_configuration_write():
+            execution.policy.policy_version = "policy-drift"
     elif drift == "provider":
-        execution.provider_profile = execution.provider_profile.model_copy(
-            update={"model_id": "drifted-model"}
-        )
+        with execution._selfdev_configuration_write():
+            execution.provider_profile = execution.provider_profile.model_copy(
+                update={"model_id": "drifted-model"}
+            )
     else:
         execution.correction.correct("task", task_id, "operator correction")
 
@@ -646,15 +674,18 @@ def test_serialized_attach_guard_rejects_drift_after_final_preflight(
             )
         elif drift == "grant":
             grant = execution.grants["workspace.run_tests"]
-            execution.grants["workspace.run_tests"] = grant.model_copy(
-                update={"status": CapabilityGrantStatus.REVOKED}
-            )
+            with execution._selfdev_configuration_write():
+                execution.grants["workspace.run_tests"] = grant.model_copy(
+                    update={"status": CapabilityGrantStatus.REVOKED}
+                )
         elif drift == "provider":
-            execution.provider_profile = execution.provider_profile.model_copy(
-                update={"model_id": "post-preflight-drift"}
-            )
+            with execution._selfdev_configuration_write():
+                execution.provider_profile = execution.provider_profile.model_copy(
+                    update={"model_id": "post-preflight-drift"}
+                )
         elif drift == "policy":
-            execution.policy.policy_version = "post-preflight-drift"
+            with execution._selfdev_configuration_write():
+                execution.policy.policy_version = "post-preflight-drift"
         elif drift == "correction":
             execution.correction.correct("task", task_id, "post-preflight correction")
         elif drift == "authority":
@@ -752,6 +783,113 @@ def test_serialized_attach_guard_holds_sqlite_write_fence(
     assert guard_called is True
     assert receipt.replayed is False
     assert _commitment_count(authority) == 1
+
+
+@pytest.mark.parametrize("field", ("provider", "grant", "policy"))
+def test_supported_configuration_writer_blocks_until_commit(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    started = Event()
+    finished = Event()
+    threads: list[Thread] = []
+
+    def mutate_with_supported_lock() -> None:
+        started.set()
+        with execution._selfdev_configuration_write():
+            _mutate_security_configuration(execution, field)
+        finished.set()
+
+    def race_after_inner_guard(phase: str) -> None:
+        if phase != "AFTER_SERIALIZED_CONFIG_GUARD":
+            return
+        thread = Thread(target=mutate_with_supported_lock, daemon=True)
+        threads.append(thread)
+        thread.start()
+        assert started.wait(timeout=1)
+        assert finished.wait(timeout=0.05) is False
+
+    receipt = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+        phase_hook=race_after_inner_guard,
+    )
+    assert len(threads) == 1
+    threads[0].join(timeout=1)
+    assert threads[0].is_alive() is False
+    assert finished.is_set()
+    assert receipt.replayed is False
+    assert _commitment_count(authority) == 1
+    task = execution.tasks.get_task(receipt.task_id)
+    assert task.configuration_snapshot is not None
+    snapshot = task.configuration_snapshot
+    if field == "provider":
+        assert snapshot.provider_profile.model_id != "serialized-drift"
+        assert execution.provider_profile.model_id == "serialized-drift"
+    elif field == "grant":
+        sealed = next(
+            grant
+            for grant in snapshot.execution_grants
+            if grant.capability_id == "workspace.run_tests"
+        )
+        assert sealed.status is CapabilityGrantStatus.ACTIVE
+        assert (
+            execution.grants["workspace.run_tests"].status
+            is CapabilityGrantStatus.REVOKED
+        )
+    else:
+        assert snapshot.policy_version == "policy-1"
+        assert execution.policy.policy_version == "serialized-drift"
+    with pytest.raises((TaskConfigurationDenied, TaskConfigurationDrift)):
+        execution.task_configurations.assert_runtime_binding(
+            execution.principal,
+            receipt.task_id,
+            snapshot.snapshot_id,
+        )
+
+
+@pytest.mark.parametrize("field", ("provider", "grant", "policy"))
+def test_direct_post_guard_mutation_is_not_authoritative_for_admission(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+
+    def mutate_without_lock(phase: str) -> None:
+        if phase == "AFTER_SERIALIZED_CONFIG_GUARD":
+            _mutate_security_configuration(execution, field)
+
+    receipt = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+        phase_hook=mutate_without_lock,
+    )
+    task = execution.tasks.get_task(receipt.task_id)
+    assert task.configuration_snapshot is not None
+    snapshot = task.configuration_snapshot
+    assert _commitment_count(authority) == 1
+    if field == "provider":
+        assert snapshot.provider_profile.model_id != "serialized-drift"
+    elif field == "grant":
+        assert all(
+            grant.status is CapabilityGrantStatus.ACTIVE
+            for grant in snapshot.execution_grants
+        )
+    else:
+        assert snapshot.policy_version == "policy-1"
+    with pytest.raises((TaskConfigurationDenied, TaskConfigurationDrift)):
+        execution.task_configurations.assert_runtime_binding(
+            execution.principal,
+            receipt.task_id,
+            snapshot.snapshot_id,
+        )
 
 
 @pytest.mark.parametrize("target", ("workflow", "snapshot", "run"))
@@ -908,6 +1046,47 @@ def test_workspace_special_nodes_are_rejected(
     finally:
         if bound_socket is not None:
             bound_socket.close()
+
+
+def test_workspace_scan_iterator_failure_is_typed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+
+    class FailingScandir:
+        def __enter__(self) -> FailingScandir:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: object,
+            exc_value: object,
+            traceback: object,
+        ) -> bool:
+            return False
+
+        def __iter__(self) -> FailingScandir:
+            return self
+
+        def __next__(self) -> os.DirEntry[str]:
+            raise OSError("iterator advance failed")
+
+    monkeypatch.setattr(
+        selfdev_organ_module.os,
+        "scandir",
+        lambda _path: FailingScandir(),
+    )
+    with pytest.raises(SelfDevelopmentAdmissionError) as excinfo:
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert excinfo.value.code == "ADMISSION_WORKTREE_INVALID"
+    assert "SELFDEV_WORKSPACE_SCAN_FAILED" in excinfo.value.details
 
 
 def test_real_cli_default_local_database_first_admission_and_replay(

@@ -199,19 +199,20 @@ def _resume_chat_session(
 
 
 def _configure_offline_provider(app: Any) -> None:
-    if isinstance(app.provider, DeterministicProvider):
+    with app._selfdev_configuration_write():
+        if isinstance(app.provider, DeterministicProvider):
+            app.provider_configured = True
+            return
+        try:
+            binding = app.provider.invocation_binding
+        except RuntimeError:
+            binding = None
+        if binding is None:
+            raise AgentCLIError("offline mode requires a provider invocation binding")
+        app.provider = DeterministicProvider(
+            invocation_binding=binding,
+        )
         app.provider_configured = True
-        return
-    try:
-        binding = app.provider.invocation_binding
-    except RuntimeError:
-        binding = None
-    if binding is None:
-        raise AgentCLIError("offline mode requires a provider invocation binding")
-    app.provider = DeterministicProvider(
-        invocation_binding=binding,
-    )
-    app.provider_configured = True
 
 
 def _persist_session(

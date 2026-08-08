@@ -52,7 +52,7 @@ from .self_development_organ import (
     SelfDevelopmentOrgan,
     SelfDevelopmentOrganBlocked,
 )
-from .task_configuration import TASK_CONFIGURATION_CAPABILITY
+from .task_configuration import TASK_CONFIGURATION_CAPABILITY, TaskConfigurationRuntime
 
 AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
     evaluator_root_id="hcw-evaluator:agent-work:v1",
@@ -296,6 +296,7 @@ def resolve_responsibility_authority_context(
     workspace: Path,
     database: Path,
     lease_ttl_seconds: int = 30,
+    configuration: TaskConfigurationRuntime | None = None,
 ) -> ResponsibilityAuthorityContext:
     workspace = Path(workspace).resolve()
     database = Path(database).resolve()
@@ -344,10 +345,21 @@ def resolve_responsibility_authority_context(
         raise ResponsibilitySurfaceError(
             "Agent Work authority does not match the canonical portfolio creator"
         )
+    provider_profile = (
+        configuration.provider_profile
+        if configuration is not None
+        else execution.provider_profile
+    )
+    policy_version = (
+        configuration.policy_version
+        if configuration is not None
+        else execution.policy.policy_version
+    )
+    grants = configuration.grants if configuration is not None else execution.grants
     configuration_digest = content_digest(
         {
-            "provider_profile": execution.provider_profile,
-            "policy_version": execution.policy.policy_version,
+            "provider_profile": provider_profile,
+            "policy_version": policy_version,
             "grants": {
                 capability_id: content_digest(
                     grant.model_dump(
@@ -355,7 +367,7 @@ def resolve_responsibility_authority_context(
                         exclude={"granted_at", "expires_at"},
                     )
                 )
-                for capability_id, grant in sorted(execution.grants.items())
+                for capability_id, grant in sorted(grants.items())
             },
         }
     )

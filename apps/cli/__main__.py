@@ -240,11 +240,12 @@ def _work_applications(
         principal=authority_principal,
     )
     if getattr(args, "offline", False):
-        if not isinstance(execution_app.provider, DeterministicProvider):
-            execution_app.provider = DeterministicProvider(
-                invocation_binding=execution_app.provider.invocation_binding,
-            )
-        execution_app.provider_configured = True
+        with execution_app._selfdev_configuration_write():
+            if not isinstance(execution_app.provider, DeterministicProvider):
+                execution_app.provider = DeterministicProvider(
+                    invocation_binding=execution_app.provider.invocation_binding,
+                )
+            execution_app.provider_configured = True
     return authority_app, execution_app
 
 
