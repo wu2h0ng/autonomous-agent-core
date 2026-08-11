@@ -124,19 +124,31 @@ def test_completed_result_requires_evidence_and_observed_outcome() -> None:
 
 def test_os_core_ast_contains_no_data_domain_contracts_or_staging_imports() -> None:
     root = Path("packages/os_core/src")
-    forbidden_definitions = {"MetricContract", "SQLQuery", "DataProduct", "SemanticObject"}
+    forbidden_definitions = {
+        "MetricContract",
+        "SQLQuery",
+        "DataProduct",
+        "SemanticObject",
+    }
     found: list[str] = []
     staging_imports: list[str] = []
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in forbidden_definitions:
+            if (
+                isinstance(node, (ast.ClassDef, ast.FunctionDef))
+                and node.name in forbidden_definitions
+            ):
                 found.append(f"{path}:{node.name}")
             if isinstance(node, ast.Import):
                 staging_imports.extend(
-                    alias.name for alias in node.names if alias.name.startswith("_migration")
+                    alias.name
+                    for alias in node.names
+                    if alias.name.startswith("_migration")
                 )
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("_migration"):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "_migration"
+            ):
                 staging_imports.append(node.module or "")
     assert found == []
     assert staging_imports == []
