@@ -31,8 +31,10 @@ from agent_os_contracts import (
     OutcomeStatus,
     PolicyDecision,
     PolicyVerdict,
+    ProviderMessage,
     ProviderExecutionReceipt,
     ReceiptStatus,
+    SessionRef,
 )
 
 from .errors import (
@@ -46,6 +48,7 @@ from .errors import (
 )
 from .event_store import TaskEventStore
 from .governance import CorrectionGuard
+from .session_projection import SessionProjectionError, SessionProjector
 from .task_aggregate import TaskAggregate
 
 
@@ -412,6 +415,114 @@ class TaskService:
             task_id, expected_sequence=aggregate.sequence, drafts=(draft,)
         )
         return self.get_task(task_id)
+
+    def open_session(
+        self,
+        ref: SessionRef,
+        envelope_id: str,
+        expected_outcome_id: str,
+    ) -> TaskAggregate:
+        if not envelope_id.strip() or not expected_outcome_id.strip():
+            raise ValueError("session envelope and expected outcome must be non-empty")
+        aggregate = self.get_task(ref.task_id)
+        self._validate_session_binding(aggregate, ref, expected_outcome_id)
+        try:
+            SessionProjector(self._event_store).project(ref.task_id, ref.session_id)
+        except SessionProjectionError as exc:
+            if str(exc) != "session not found":
+                raise
+        else:
+            raise InvalidTransitionError("session is already open")
+        return self._append_event(
+            ref.task_id,
+            TaskEventType.SESSION_OPENED,
+            {
+                "session_id": ref.session_id,
+                "task_id": ref.task_id,
+                "run_id": ref.run_id,
+                "tenant_id": ref.tenant_id,
+                "workspace_id": ref.workspace_id,
+                "session": ref.model_dump(mode="json"),
+                "envelope_id": envelope_id,
+                "expected_outcome_id": expected_outcome_id,
+            },
+            correlation_id=ref.session_id,
+        )
+
+    def record_session_message(
+        self,
+        task_id: str,
+        session_id: str,
+        message_index: int,
+        message: ProviderMessage,
+        *,
+        turn_id: str | None,
+    ) -> TaskAggregate:
+        if message_index < 0:
+            raise ValueError("message_index must be non-negative")
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if projected.closed:
+            raise InvalidTransitionError("cannot record a message after session close")
+        if message_index != projected.next_message_index:
+            raise InvalidTransitionError("message_index must be the next contiguous index")
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_MESSAGE_RECORDED,
+            {
+                "session_id": session_id,
+                "message_index": message_index,
+                "message": message.model_dump(mode="json"),
+                "turn_id": turn_id,
+            },
+            correlation_id=session_id,
+        )
+
+    def close_session(self, task_id: str, session_id: str) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if projected.closed:
+            raise InvalidTransitionError("session is already closed")
+        if projected.pending_approval is not None:
+            raise InvalidTransitionError(
+                "cannot close a session with an unresolved pending approval"
+            )
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_CLOSED,
+            {"session_id": session_id},
+            correlation_id=session_id,
+        )
+
+    @staticmethod
+    def _validate_session_binding(
+        aggregate: TaskAggregate,
+        ref: SessionRef,
+        expected_outcome_id: str,
+    ) -> None:
+        run = aggregate.run
+        expected = aggregate.expected_outcome
+        if (
+            run is None
+            or expected is None
+            or ref.task_id != aggregate.task_id
+            or ref.run_id != run.run_id
+            or ref.tenant_id != run.tenant_id
+            or ref.workspace_id != run.workspace_id
+            or expected_outcome_id != run.expected_outcome_id
+            or expected_outcome_id != expected.expected_outcome_id
+        ):
+            raise InvalidTransitionError("session scope mismatch")
 
     def _record_action_receipt(
         self,

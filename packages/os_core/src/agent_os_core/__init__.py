@@ -89,6 +89,11 @@ from .protocol_ingress import (
     WorkloadIdentityAdapter,
 )
 from .recovery import build_recovery_snapshot
+from .session_projection import (
+    ProjectedSession,
+    SessionProjectionError,
+    SessionProjector,
+)
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
     CanonicalCredentialLeaseRegistry,
@@ -279,6 +284,9 @@ __all__ = [
     "ReplanRejectedError",
     "IdFactory",
     "ScopeMismatchError",
+    "SessionProjectionError",
+    "SessionProjector",
+    "ProjectedSession",
     "SituationalProposalError",
     "SituationalPersistenceConflict",
     "ProtocolIngressConflict",

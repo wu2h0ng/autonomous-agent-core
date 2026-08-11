@@ -438,8 +438,12 @@ class TaskAggregate:
         if event.event_type in {
             TaskEventType.SESSION_TURN_STARTED,
             TaskEventType.SESSION_TURN_COMPLETED,
+            TaskEventType.SESSION_OPENED,
+            TaskEventType.SESSION_MESSAGE_RECORDED,
+            TaskEventType.SESSION_APPROVAL_PENDING,
+            TaskEventType.SESSION_CLOSED,
         }:
-            # Chat-turn audit markers carry no aggregate state transition.
+            # Session events are provenance and carry no aggregate state transition.
             return replace(
                 self,
                 sequence=event.sequence,
