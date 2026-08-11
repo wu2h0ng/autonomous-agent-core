@@ -196,7 +196,12 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                     outstanding_tool_calls=outstanding_tool_calls,
                     seen_tool_call_ids=seen_tool_call_ids,
                 )
-                if message.role is ProviderMessageRole.USER:
+                if message.role is ProviderMessageRole.SYSTEM:
+                    if turn_id is not None:
+                        raise SessionProjectionError(
+                            "durable system message cannot have a turn binding"
+                        )
+                elif message.role is ProviderMessageRole.USER:
                     if turn_id is None:
                         raise SessionProjectionError(
                             "durable user message has invalid turn binding"
@@ -210,13 +215,17 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                             "session has more than one open turn"
                         )
                     user_turns[turn_id] = message.content
-                elif (
-                    message.role
-                    in {ProviderMessageRole.ASSISTANT, ProviderMessageRole.TOOL}
-                    and turn_id is not None
-                    and turn_id != open_turn_id
-                ):
-                    raise SessionProjectionError("session message turn mismatch")
+                elif message.role in {
+                    ProviderMessageRole.ASSISTANT,
+                    ProviderMessageRole.TOOL,
+                }:
+                    if turn_id is None:
+                        role = message.role.value.lower()
+                        raise SessionProjectionError(
+                            f"durable {role} message has invalid turn binding"
+                        )
+                    if turn_id != open_turn_id:
+                        raise SessionProjectionError("session message turn mismatch")
                 history.append(message)
                 continue
 

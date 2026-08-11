@@ -251,30 +251,7 @@ def _append_assistant_tool_call(
     store: SQLiteTaskEventStore,
     ref: SessionRef,
 ) -> None:
-    _append(
-        store,
-        ref.task_id,
-        TaskEventType.SESSION_MESSAGE_RECORDED,
-        {
-            "session_id": ref.session_id,
-            "message_index": 0,
-            "message": ProviderMessage(
-                role=ProviderMessageRole.USER,
-                content="read the file",
-            ).model_dump(mode="json"),
-            "turn_id": "turn:1",
-        },
-    )
-    _append(
-        store,
-        ref.task_id,
-        TaskEventType.SESSION_TURN_STARTED,
-        {
-            "session_id": ref.session_id,
-            "turn_id": "turn:1",
-            "user_text": "read the file",
-        },
-    )
+    _append_started_turn(store, ref)
     _append(
         store,
         ref.task_id,
@@ -294,6 +271,38 @@ def _append_assistant_tool_call(
                 ),
             ).model_dump(mode="json"),
             "turn_id": "turn:1",
+        },
+    )
+
+
+def _append_started_turn(
+    store: SQLiteTaskEventStore,
+    ref: SessionRef,
+    *,
+    user_text: str = "read the file",
+) -> None:
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 0,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.USER,
+                content=user_text,
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_TURN_STARTED,
+        {
+            "session_id": ref.session_id,
+            "turn_id": "turn:1",
+            "user_text": user_text,
         },
     )
 
@@ -483,6 +492,74 @@ def test_projector_rejects_orphan_user_turn(tmp_path: Path) -> None:
     )
 
     with pytest.raises(SessionProjectionError, match="no matching turn start"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_system_message_with_turn_binding(tmp_path: Path) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 0,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.SYSTEM,
+                content="system",
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+
+    with pytest.raises(SessionProjectionError, match="system message.*turn binding"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_assistant_message_without_turn_binding(
+    tmp_path: Path,
+) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_started_turn(store, ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 1,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.ASSISTANT,
+                content="done",
+            ).model_dump(mode="json"),
+            "turn_id": None,
+        },
+    )
+
+    with pytest.raises(SessionProjectionError, match="assistant message.*turn binding"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_tool_message_without_turn_binding(tmp_path: Path) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 2,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content="result",
+                tool_call_id="proposal:1",
+            ).model_dump(mode="json"),
+            "turn_id": None,
+        },
+    )
+
+    with pytest.raises(SessionProjectionError, match="tool message.*turn binding"):
         SessionProjector(store).project(ref.task_id, ref.session_id)
 
 
