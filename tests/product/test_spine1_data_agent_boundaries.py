@@ -40,7 +40,7 @@ def _query() -> SafeQueryRequest:
             metric_version="1",
             contract_digest="a" * 64,
         ),
-        sql="SELECT SUM(amount) AS gmv FROM orders LIMIT 100",
+        sql="SELECT SUM(amount) AS gmv FROM main.orders LIMIT 100",
         parameters_json='{"end":"2026-08-11","start":"2026-08-01"}',
         provider_contract_id="provider:data-warehouse",
     )

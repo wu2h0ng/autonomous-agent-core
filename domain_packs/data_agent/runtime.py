@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import sqlite3
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -33,44 +32,11 @@ from .contracts import (
     DataEvidenceRef,
     SafeQueryResult,
 )
+from .errors import DataAgentDenied
+from .sql_safety import DataSQLSafetyChecker
 
 
 DATA_QUERY_CAPABILITY_ID = "data.query.safe"
-_FORBIDDEN_SQL = re.compile(
-    r"\b(?:ALTER|ATTACH|CREATE|DELETE|DETACH|DROP|INSERT|PRAGMA|REPLACE|UPDATE|VACUUM)\b",
-    re.IGNORECASE,
-)
-_LIMIT = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
-
-
-class DataAgentDenied(PermissionError):
-    pass
-
-
-class DataSQLSafetyChecker:
-    def __init__(self, *, max_rows: int = 1_000) -> None:
-        self.max_rows = max_rows
-
-    def check(self, sql: str) -> None:
-        normalized = sql.strip()
-        if not normalized:
-            raise DataAgentDenied("SQL_SAFETY_DENIED:EMPTY_SQL")
-        if "--" in normalized or "/*" in normalized or "*/" in normalized:
-            raise DataAgentDenied("SQL_SAFETY_DENIED:COMMENTS_FORBIDDEN")
-        body = normalized[:-1].rstrip() if normalized.endswith(";") else normalized
-        if ";" in body:
-            raise DataAgentDenied("SQL_SAFETY_DENIED:MULTI_STATEMENT")
-        if not re.match(r"^(?:SELECT|WITH)\b", body, re.IGNORECASE):
-            raise DataAgentDenied("SQL_SAFETY_DENIED:READ_ONLY_REQUIRED")
-        if _FORBIDDEN_SQL.search(body):
-            raise DataAgentDenied("SQL_SAFETY_DENIED:WRITE_KEYWORD")
-        if re.search(r"\bSELECT\s+\*", body, re.IGNORECASE):
-            raise DataAgentDenied("SQL_SAFETY_DENIED:SELECT_STAR")
-        limit = _LIMIT.search(body)
-        if limit is None:
-            raise DataAgentDenied("SQL_SAFETY_DENIED:LIMIT_REQUIRED")
-        if int(limit.group(1)) > self.max_rows:
-            raise DataAgentDenied("SQL_SAFETY_DENIED:LIMIT_EXCEEDED")
 
 
 class SQLiteDataQueryCapability:
@@ -141,7 +107,7 @@ class SQLiteDataQueryCapability:
                 error_code="UNSUPPORTED_PROVIDER_CONTRACT",
                 detail_ref="detail:data-query:unsupported-provider",
             )
-        self._checker.check(sql)
+        self._checker.assert_safe(sql, parameters)
         connection = sqlite3.connect(
             f"file:{self._database}?mode=ro",
             uri=True,
@@ -192,7 +158,8 @@ class DataAgentRuntime:
         self._checker = checker or DataSQLSafetyChecker()
 
     def execute(self, request: DataAgentRequest) -> DataAgentResult:
-        self._checker.check(request.safe_query.sql)
+        parameters = json.loads(request.safe_query.parameters_json)
+        self._checker.assert_safe(request.safe_query.sql, parameters)
         aggregate = self._tasks.get_task(request.task_id)
         if (
             aggregate.goal is None
@@ -227,7 +194,7 @@ class DataAgentRuntime:
             args={
                 "query_id": query.query_id,
                 "sql": query.sql,
-                "parameters": json.loads(query.parameters_json),
+                "parameters": parameters,
                 "provider_contract_id": query.provider_contract_id,
             },
             expected=aggregate.expected_outcome,

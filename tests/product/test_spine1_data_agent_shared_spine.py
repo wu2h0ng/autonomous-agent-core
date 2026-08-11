@@ -40,7 +40,7 @@ from domain_packs.data_agent.runtime import (
 
 
 def _request(
-    sql: str = "SELECT SUM(amount) AS gmv FROM orders LIMIT 100",
+    sql: str = "SELECT SUM(amount) AS gmv FROM main.orders LIMIT 100",
 ) -> DataAgentRequest:
     now = datetime.now(timezone.utc)
     principal = PrincipalIdentity(

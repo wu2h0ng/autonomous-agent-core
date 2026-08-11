@@ -43,6 +43,22 @@ class SafeQueryResult(ContractModel):
     rows_json: NonEmptyStr
 
 
+class DataSQLSafetyIssue(ContractModel):
+    code: NonEmptyStr
+    message: NonEmptyStr
+    severity: NonEmptyStr = "error"
+
+
+class DataSQLSafetyResult(ContractModel):
+    allowed: bool
+    reasons: tuple[str, ...]
+    checked_schemas: tuple[str, ...]
+    checked_tables: tuple[str, ...] = ()
+    bound_parameters: tuple[str, ...] = ()
+    limit_value: int | None = None
+    issues: tuple[DataSQLSafetyIssue, ...] = ()
+
+
 class DataProductRef(ContractModel):
     data_product_id: NonEmptyStr
     data_product_version: NonEmptyStr
@@ -129,6 +145,8 @@ __all__ = [
     "DataAgentStatus",
     "DataEvidenceRef",
     "DataProductRef",
+    "DataSQLSafetyIssue",
+    "DataSQLSafetyResult",
     "MetricContractRef",
     "SafeQueryRequest",
     "SafeQueryResult",

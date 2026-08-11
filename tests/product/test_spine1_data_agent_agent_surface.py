@@ -178,7 +178,7 @@ def test_data_agent_query_uses_unified_task_surface_and_server_bound_scope(
                 "metric_version": "1",
                 "contract_digest": "a" * 64,
             },
-            "sql": "SELECT SUM(amount) AS gmv FROM orders LIMIT 100",
+            "sql": "SELECT SUM(amount) AS gmv FROM main.orders LIMIT 100",
             "parameters_json": "{}",
             "provider_contract_id": "provider:sqlite",
         },
