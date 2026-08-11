@@ -121,4 +121,8 @@ class SurfaceEventBatch(ContractModel):
                     "surface event sequences must strictly increase above after_sequence"
                 )
             previous_sequence = event.sequence
+        if self.next_sequence != previous_sequence:
+            raise ValueError(
+                "surface next_sequence must equal the last event sequence or after_sequence"
+            )
         return self
