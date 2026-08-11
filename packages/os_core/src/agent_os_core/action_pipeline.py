@@ -143,19 +143,12 @@ class ActionPipeline:
         """
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
-            raise RunExecutionError(
-                "workspace.compensate_patch is coordinator-only"
-            )
+            raise RunExecutionError("workspace.compensate_patch is coordinator-only")
         self._tasks.assert_external_exact_approval(action, approval)
-        grant = (
-            self._grant[cid]
-            if isinstance(self._grant, dict)
-            else self._grant
-        )
+        grant = self._grant[cid] if isinstance(self._grant, dict) else self._grant
         bound_approval = (
             approval
-            if approval is not None
-            and approval.action_digest == action.action_digest()
+            if approval is not None and approval.action_digest == action.action_digest()
             else None
         )
         decision = self._policy.decide(
@@ -174,16 +167,10 @@ class ActionPipeline:
             correlation_id=action.run_id,
         )
         if decision.verdict is not PolicyVerdict.ALLOW:
-            raise PermissionError(
-                f"policy denied {cid}: {decision.reason_codes}"
-            )
+            raise PermissionError(f"policy denied {cid}: {decision.reason_codes}")
         aggregate = self._tasks.get_task(action.task_id)
-        lease_fence = (
-            aggregate.run.lease_fence if aggregate.run is not None else 0
-        )
-        permit = self._policy.permit(
-            action, decision, grant, lease_fence=lease_fence
-        )
+        lease_fence = aggregate.run.lease_fence if aggregate.run is not None else 0
+        permit = self._policy.permit(action, decision, grant, lease_fence=lease_fence)
         run_id = action.run_id
         if lease_fence_fn is not None:
             current_fence = lease_fence_fn(run_id)
@@ -224,8 +211,7 @@ class ActionPipeline:
                         "applied_sha256",
                     )
                 }
-                if action.capability_id
-                in {"workspace.apply_patch", "workspace.edit"}
+                if action.capability_id in {"workspace.apply_patch", "workspace.edit"}
                 and result.receipt.status.value == "SUCCEEDED"
                 else None
             ),

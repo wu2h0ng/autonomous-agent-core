@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_os_contracts import (
+    ActionContract,
     CapabilitySpec,
     ReceiptStatus,
     ResourceBudget,
@@ -247,10 +248,10 @@ class DataAgentRuntime:
                 capability_spec=self._capability_spec,
                 record_artifacts=False,
             )
-        except PermissionError as exc:
-            raise DataAgentDenied(f"POLICY_DENIED:{exc}") from exc
         except CapabilityDenied as exc:
             raise DataAgentDenied(f"CAPABILITY_DENIED:{exc}") from exc
+        except PermissionError as exc:
+            raise DataAgentDenied(f"POLICY_DENIED:{exc}") from exc
         trace_id = f"trace:{request.request_id}"
         if result.receipt.status is ReceiptStatus.UNKNOWN:
             return DataAgentResult(
@@ -347,6 +348,7 @@ class DataAgentRuntime:
             ValidationError,
         ) as exc:
             raise DataAgentDenied("MALFORMED_CAPABILITY_OUTPUT") from exc
+
 
 __all__ = [
     "DATA_QUERY_CAPABILITY_ID",
