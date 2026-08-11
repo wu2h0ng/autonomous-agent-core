@@ -13,6 +13,7 @@ from agent_os_contracts import (
     ActionReceipt,
     AgentRun,
     ApprovalDecision,
+    ApprovalDisposition,
     Commitment,
     ExpectedOutcome,
     ExternalSignal,
@@ -32,6 +33,8 @@ from agent_os_contracts import (
     PolicyDecision,
     PolicyVerdict,
     ProviderMessage,
+    ProviderMessageRole,
+    ProviderToolProposal,
     ProviderExecutionReceipt,
     ReceiptStatus,
     SessionRef,
@@ -49,6 +52,8 @@ from .errors import (
 from .event_store import TaskEventStore
 from .governance import CorrectionGuard
 from .session_projection import (
+    ProjectedApprovalContinuation,
+    ProjectedSession,
     SessionLoopConfig,
     SessionProjectionError,
     SessionProjector,
@@ -71,6 +76,8 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.ACTION_RECEIPT_RECORDED,
         TaskEventType.ARTIFACT_RECORDED,
         TaskEventType.OUTCOME_OBSERVED,
+        TaskEventType.SESSION_APPROVAL_PENDING,
+        TaskEventType.SESSION_APPROVAL_RESOLVED,
     }
 )
 
@@ -477,6 +484,10 @@ class TaskService:
         )
         if projected.closed:
             raise InvalidTransitionError("cannot record a message after session close")
+        if projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "pending approval TOOL/resolution must be appended atomically"
+            )
         if message_index != projected.next_message_index:
             raise InvalidTransitionError("message_index must be the next contiguous index")
         return self._append_event(
@@ -489,6 +500,266 @@ class TaskService:
                 "turn_id": turn_id,
             },
             correlation_id=session_id,
+        )
+
+    def project_session(self, task_id: str, session_id: str) -> ProjectedSession:
+        return SessionProjector(self._event_store).project(task_id, session_id)
+
+    def record_session_approval_pending(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        turn_id: str,
+        action: ActionContract,
+        proposal: ProviderToolProposal,
+        preview: str,
+        assistant_message_index: int,
+        proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        snapshot = aggregate.configuration_snapshot
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if run is None or snapshot is None:
+            raise InvalidTransitionError(
+                "pending approval requires an active configured Run"
+            )
+        if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
+            raise InvalidTransitionError(
+                "pending approval requires a runnable Run"
+            )
+        if projected.closed or projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "session already has an unresolved pending approval"
+            )
+        if projected.resumable_turn_id != turn_id:
+            raise InvalidTransitionError("pending approval turn binding mismatch")
+        if (
+            action.task_id != task_id
+            or action.run_id != run.run_id
+            or action.tenant_id != run.tenant_id
+            or action.workspace_id != run.workspace_id
+            or action.candidate_envelope_id != projected.envelope_id
+            or action.expected_outcome_id != projected.expected_outcome_id
+            or proposal.capability_id != action.capability_id
+            or proposal.arguments_json != action.arguments_json
+        ):
+            raise InvalidTransitionError("pending approval action binding mismatch")
+        if (
+            run.configuration_snapshot_id != snapshot.snapshot_id
+            or run.configuration_snapshot_digest != snapshot.snapshot_digest
+            or run.provider_profile_id != snapshot.provider_profile.profile_id
+        ):
+            raise InvalidTransitionError(
+                "pending approval configuration binding mismatch"
+            )
+        if not preview.strip():
+            raise ValueError("pending approval preview must be non-empty")
+        colliding_actions: list[dict[str, object]] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.ACTION_PROPOSED:
+                continue
+            value = event.decoded_payload().get("action")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable proposed action payload")
+            if any(
+                value.get(field) == expected
+                for field, expected in (
+                    ("action_id", action.action_id),
+                    ("idempotency_key", action.idempotency_key),
+                )
+            ):
+                colliding_actions.append(value)
+        if colliding_actions:
+            raise InvalidTransitionError(
+                "pending approval action identity is already recorded"
+            )
+        waiting_run = run.model_copy(
+            update={
+                "status": RunStatus.WAITING_APPROVAL,
+                "active_node_id": action.node_id,
+            }
+        )
+        requested_at = self._clock()
+        pending_payload: dict[str, object] = {
+            "session_id": session_id,
+            "task_id": task_id,
+            "run_id": run.run_id,
+            "tenant_id": run.tenant_id,
+            "workspace_id": run.workspace_id,
+            "turn_id": turn_id,
+            "provider_proposal": proposal.model_dump(mode="json"),
+            "action": action.model_dump(mode="json"),
+            "preview": preview,
+            "action_digest": action.action_digest(),
+            "assistant_message_index": assistant_message_index,
+            "proposal_index": proposal_index,
+            "steps": steps,
+            "total_tokens": total_tokens,
+            "seen_action_digests": dict(sorted(seen_action_digests.items())),
+            "configuration_snapshot_id": snapshot.snapshot_id,
+            "configuration_snapshot_digest": snapshot.snapshot_digest,
+            "provider_profile_id": snapshot.provider_profile.profile_id,
+            "provider_profile_digest": snapshot.provider_profile_digest,
+            "c7_epochs": action.observed_correction_epochs.model_dump(mode="json"),
+            "requested_at": requested_at,
+        }
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.ACTION_PROPOSED,
+                    {"action": action.model_dump(mode="json")},
+                ),
+                (TaskEventType.SESSION_APPROVAL_PENDING, pending_payload),
+                (
+                    TaskEventType.APPROVAL_REQUESTED,
+                    {
+                        "run": waiting_run.model_dump(mode="json"),
+                        "action_id": action.action_id,
+                        "action_digest": action.action_digest(),
+                    },
+                ),
+            ),
+            correlation_id=run.run_id,
+        )
+
+    def record_or_reuse_session_approval(
+        self,
+        task_id: str,
+        session_id: str,
+        action: ActionContract,
+        approval: ApprovalDecision,
+    ) -> ApprovalDecision:
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        pending = projected.pending_continuation
+        if pending is None or pending.action != action:
+            raise InvalidTransitionError("approval has no exact pending action")
+        matching: list[ApprovalDecision] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.APPROVAL_RECORDED:
+                continue
+            value = event.decoded_payload().get("approval")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable approval payload")
+            recorded = ApprovalDecision.model_validate(value)
+            if recorded.action_digest == action.action_digest():
+                matching.append(recorded)
+        if len(matching) > 1:
+            raise InvalidTransitionError(
+                "multiple approvals bind the same pending action"
+            )
+        if matching:
+            recorded = matching[0]
+            if (
+                recorded.tenant_id != approval.tenant_id
+                or recorded.workspace_id != approval.workspace_id
+                or recorded.actor_id != approval.actor_id
+                or recorded.actor_role is not approval.actor_role
+                or recorded.disposition is not approval.disposition
+                or recorded.reason != approval.reason
+            ):
+                raise InvalidTransitionError(
+                    "approval retry does not match the exact durable decision"
+                )
+            return recorded
+        self.record_approval(task_id, approval)
+        return approval
+
+    def resolve_session_approval(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        pending: ProjectedApprovalContinuation,
+        approval: ApprovalDecision,
+        tool_message: ProviderMessage,
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        run = aggregate.run
+        if (
+            run is None
+            or run.status is not RunStatus.WAITING_APPROVAL
+            or projected.pending_continuation != pending
+            or projected.resumable_turn_id != pending.turn_id
+        ):
+            raise InvalidTransitionError(
+                "approval resolution does not bind the current pending state"
+            )
+        if (
+            approval.action_digest != pending.action.action_digest()
+            or approval.tenant_id != pending.action.tenant_id
+            or approval.workspace_id != pending.action.workspace_id
+            or approval.disposition
+            not in {ApprovalDisposition.APPROVE, ApprovalDisposition.REJECT}
+        ):
+            raise InvalidTransitionError("approval resolution decision mismatch")
+        recorded = tuple(
+            event.decoded_payload().get("approval")
+            for event in self._event_store.read(task_id)
+            if event.event_type is TaskEventType.APPROVAL_RECORDED
+            and event.decoded_payload().get("approval")
+            == approval.model_dump(mode="json")
+        )
+        if len(recorded) != 1:
+            raise InvalidTransitionError(
+                "approval resolution lacks one exact durable decision"
+            )
+        if (
+            tool_message.role is not ProviderMessageRole.TOOL
+            or tool_message.tool_call_id != pending.proposal.proposal_id
+        ):
+            raise InvalidTransitionError("approval resolution TOOL binding mismatch")
+        message_index = projected.next_message_index
+        resumed_run = run.model_copy(
+            update={"status": RunStatus.RUNNING, "active_node_id": None}
+        )
+        resolved_at = self._clock()
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.SESSION_MESSAGE_RECORDED,
+                    {
+                        "session_id": session_id,
+                        "message_index": message_index,
+                        "message": tool_message.model_dump(mode="json"),
+                        "turn_id": pending.turn_id,
+                    },
+                ),
+                (
+                    TaskEventType.SESSION_APPROVAL_RESOLVED,
+                    {
+                        "session_id": session_id,
+                        "task_id": pending.action.task_id,
+                        "run_id": pending.action.run_id,
+                        "tenant_id": pending.action.tenant_id,
+                        "workspace_id": pending.action.workspace_id,
+                        "turn_id": pending.turn_id,
+                        "action_digest": pending.action.action_digest(),
+                        "proposal_id": pending.proposal.proposal_id,
+                        "approval_id": approval.approval_id,
+                        "disposition": approval.disposition.value,
+                        "tool_message_index": message_index,
+                        "resolved_at": resolved_at,
+                    },
+                ),
+                (
+                    TaskEventType.RUN_RESUMED,
+                    {"run": resumed_run.model_dump(mode="json")},
+                ),
+            ),
+            correlation_id=run.run_id,
         )
 
     def close_session(self, task_id: str, session_id: str) -> TaskAggregate:
@@ -594,15 +865,83 @@ class TaskService:
             raise InvalidTransitionError(
                 "action receipt lacks proposed action or policy decision"
             )
+        expected_payload: dict[str, object] = {
+            "decision": decision.model_dump(mode="json"),
+            "permit": permit.model_dump(mode="json"),
+            "receipt": receipt.model_dump(mode="json"),
+        }
+        logically_bound_receipts: list[dict[str, object]] = []
+        for event in events:
+            if event.event_type is not TaskEventType.ACTION_RECEIPT_RECORDED:
+                continue
+            payload = event.decoded_payload()
+            stored_receipt = payload.get("receipt")
+            if not isinstance(stored_receipt, dict):
+                raise InvalidTransitionError("invalid durable action receipt payload")
+            if any(
+                stored_receipt.get(field) == value
+                for field, value in (
+                    ("action_id", action.action_id),
+                    ("action_digest", action.action_digest()),
+                    ("idempotency_key", action.idempotency_key),
+                )
+            ):
+                logically_bound_receipts.append(payload)
+        if logically_bound_receipts:
+            if len(logically_bound_receipts) != 1:
+                raise InvalidTransitionError(
+                    "multiple durable receipts bind the same logical action"
+                )
+            if logically_bound_receipts[0] != expected_payload:
+                raise InvalidTransitionError(
+                    "durable action receipt identity conflict"
+                )
+            return aggregate
         return self._append_event(
             task_id,
             TaskEventType.ACTION_RECEIPT_RECORDED,
-            {
-                "decision": decision.model_dump(mode="json"),
-                "permit": permit.model_dump(mode="json"),
-                "receipt": receipt.model_dump(mode="json"),
-            },
+            expected_payload,
             correlation_id=run.run_id,
+            writer_token=writer_token,
+        )
+
+    def _recover_action_receipt(
+        self,
+        task_id: str,
+        *,
+        action: ActionContract,
+        permit: ActionPermit,
+        receipt: ActionReceipt,
+        writer_token: object,
+    ) -> TaskAggregate:
+        """Append the original sealed receipt, or prove it is already present.
+
+        The policy decision is recovered only from the append-only Task stream;
+        connector outcome storage cannot mint or reconstruct policy authority.
+        """
+
+        if writer_token is not self._runtime_writer_token:
+            raise InvalidTransitionError("action receipt writer is not authorized")
+        matching: list[PolicyDecision] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.POLICY_DECIDED:
+                continue
+            value = event.decoded_payload().get("decision")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable policy decision payload")
+            decision = PolicyDecision.model_validate(value)
+            if decision.decision_id == permit.policy_decision_id:
+                matching.append(decision)
+        if len(matching) != 1:
+            raise InvalidTransitionError(
+                "sealed action outcome lacks one exact durable policy decision"
+            )
+        return self._record_action_receipt(
+            task_id,
+            action=action,
+            decision=matching[0],
+            permit=permit,
+            receipt=receipt,
             writer_token=writer_token,
         )
 

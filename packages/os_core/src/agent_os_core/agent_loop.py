@@ -23,6 +23,7 @@ from agent_os_contracts import (
     ProviderRequest,
     ProviderResponse,
     ProviderToolCall,
+    ProviderToolProposal,
     SessionRef,
     TaskEventType,
     TurnId,
@@ -32,9 +33,10 @@ from agent_os_contracts import (
 from .action_pipeline import ActionPipeline
 from .capability import CapabilityBroker, WorkspaceSandbox
 from .governance import CorrectionReadPort, PolicyKernel
-from .errors import RunExecutionError
+from .errors import InvalidTransitionError, RunExecutionError
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
+from .session_projection import ProjectedApprovalContinuation
 from .task_service import TaskService
 
 # Tool surface exposed to the model during chat turns. The model may only ever
@@ -88,6 +90,19 @@ class ConfirmationGateway(Protocol):
     """Interactive authority bridge. Implementations must be human-driven UI."""
 
     def confirm(self, action: ActionContract, preview: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class ApprovalRequired(Exception):
+    action: ActionContract
+    preview: str
+
+
+class DeferredApprovalGateway:
+    """Persist the exact proposal and return control to the Surface caller."""
+
+    def confirm(self, action: ActionContract, preview: str) -> bool:
+        raise ApprovalRequired(action=action, preview=preview)
 
 
 class AutoApproveGateway:
@@ -262,7 +277,26 @@ class AgentLoop:
             or turn_id.turn_id not in self._resumable_turn_ids
         ):
             raise ValueError("resume requires an exact durable started turn")
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        if projected.pending_continuation is not None:
+            raise ValueError(
+                "pending approval must resume through resume_pending_approval"
+            )
         result = self._drive(session, turn_id)
+        self._complete_turn(session, turn_id, result)
+        return result
+
+    def _complete_turn(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        result: TurnResult,
+    ) -> None:
+        if result.stop_reason == "approval_required":
+            return
         self._tasks.append_event(
             session.task_id,
             TaskEventType.SESSION_TURN_COMPLETED,
@@ -276,56 +310,227 @@ class AgentLoop:
             correlation_id=session.run_id,
         )
         self._resumable_turn_ids.remove(turn_id.turn_id)
+
+    def resume_pending_approval(
+        self,
+        session: ChatSession,
+        approval: ApprovalDecision,
+    ) -> TurnResult:
+        self._require_session_binding(session)
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        pending = projected.pending_continuation
+        if pending is None:
+            raise InvalidTransitionError("session has no pending approval")
+        if (
+            projected.history != tuple(self._history)
+            or projected.resumable_turn_id != pending.turn_id
+            or pending.turn_id not in self._resumable_turn_ids
+        ):
+            raise InvalidTransitionError(
+                "pending approval does not bind the restored session history"
+            )
+        self._validate_pending_runtime(session, pending)
+        if (
+            approval.action_digest != pending.action.action_digest()
+            or approval.tenant_id != pending.action.tenant_id
+            or approval.workspace_id != pending.action.workspace_id
+            or approval.actor_id != self._principal.principal_id
+            or approval.actor_role is not self._principal.role
+            or approval.disposition
+            not in {ApprovalDisposition.APPROVE, ApprovalDisposition.REJECT}
+        ):
+            raise InvalidTransitionError(
+                "approval decision does not bind the exact pending action"
+            )
+        bound_approval = self._tasks.record_or_reuse_session_approval(
+            session.task_id,
+            session.session_id,
+            pending.action,
+            approval,
+        )
+        if bound_approval.disposition is ApprovalDisposition.REJECT:
+            tool_message = self._tool_message(
+                pending.proposal,
+                {
+                    "error": f"user rejected the proposed action: {bound_approval.reason}",
+                    "rejected": True,
+                },
+            )
+        else:
+            try:
+                result = self._actions.execute(
+                    pending.action,
+                    self._principal,
+                    capability_spec=self._sandbox.specs().get(
+                        pending.action.capability_id
+                    ),
+                    approval=bound_approval,
+                    record_artifacts=False,
+                )
+            except Exception as exc:
+                tool_message = self._tool_message(
+                    pending.proposal,
+                    {"error": f"{type(exc).__name__}: {exc}"},
+                )
+            else:
+                tool_message = self._tool_message(
+                    pending.proposal,
+                    _truncate_json(result.output),
+                )
+        self._tasks.resolve_session_approval(
+            session.task_id,
+            session.session_id,
+            pending=pending,
+            approval=bound_approval,
+            tool_message=tool_message,
+        )
+        self._history.append(tool_message)
+        assistant = self._history[pending.assistant_message_index]
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=call.tool_call_id,
+                capability_id=call.capability_id,
+                arguments_json=call.arguments_json,
+            )
+            for call in assistant.tool_calls
+        )
+        turn_id = TurnId(
+            turn_id=pending.turn_id,
+            session_id=session.session_id,
+        )
+        result = self._drive(
+            session,
+            turn_id,
+            steps=pending.steps,
+            total_tokens=pending.total_tokens,
+            seen_action_digests=dict(pending.seen_action_digests),
+            continuation=(
+                proposals,
+                pending.proposal_index + 1,
+                pending.assistant_message_index,
+            ),
+        )
+        self._complete_turn(session, turn_id, result)
         return result
+
+    def _validate_pending_runtime(
+        self,
+        session: ChatSession,
+        pending: ProjectedApprovalContinuation,
+    ) -> None:
+        aggregate = self._tasks.get_task(session.task_id)
+        run = aggregate.run
+        snapshot = aggregate.configuration_snapshot
+        if (
+            run is None
+            or snapshot is None
+            or run.status.value != "WAITING_APPROVAL"
+            or run.run_id != session.run_id
+            or run.configuration_snapshot_id
+            != pending.configuration_snapshot_id
+            or run.configuration_snapshot_digest
+            != pending.configuration_snapshot_digest
+            or snapshot.snapshot_id != pending.configuration_snapshot_id
+            or snapshot.snapshot_digest != pending.configuration_snapshot_digest
+            or snapshot.provider_profile.profile_id != pending.provider_profile_id
+            or snapshot.provider_profile_digest != pending.provider_profile_digest
+            or self._profile.profile_id != pending.provider_profile_id
+            or self._profile != snapshot.provider_profile
+        ):
+            raise InvalidTransitionError(
+                "pending approval configuration/provider binding mismatch"
+            )
+        current_epochs = self._correction.snapshot(
+            session.task_id,
+            session.run_id,
+            pending.action.capability_id,
+        )
+        if (
+            current_epochs != pending.action.observed_correction_epochs
+            or self._correction.halted(
+                session.task_id,
+                session.run_id,
+                pending.action.capability_id,
+            )
+        ):
+            raise InvalidTransitionError(
+                "pending approval C7 correction epochs are stale"
+            )
 
     def _require_session_binding(self, session: ChatSession) -> None:
         if session != self._session:
             raise ValueError("chat session binding mismatch")
 
-    def _drive(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
-        steps = 0
-        total_tokens = 0
+    def _drive(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        *,
+        steps: int = 0,
+        total_tokens: int = 0,
+        seen_action_digests: dict[str, int] | None = None,
+        continuation: tuple[
+            tuple[ProviderToolProposal, ...],
+            int,
+            int,
+        ]
+        | None = None,
+    ) -> TurnResult:
         final_text = ""
-        seen_action_digests: dict[str, int] = {}
+        seen_action_digests = dict(seen_action_digests or {})
         stop_reason = "max_steps"
         while steps < self._config.max_steps_per_turn:
-            if self._correction.halted(session.task_id, session.run_id, "provider"):
-                stop_reason = "correction_halted"
-                break
-            response = self._call_provider(session, turn_id, steps)
-            if isinstance(response, ProviderFailure):
-                stop_reason = f"provider_failure:{response.code.value}"
-                final_text = response.safe_message
-                break
-            steps += 1
-            total_tokens += response.usage.total_tokens
-            if total_tokens > self._config.max_turn_tokens:
-                stop_reason = "budget_exceeded"
-                break
-            tool_calls = tuple(
-                ProviderToolCall(
-                    tool_call_id=proposal.proposal_id,
-                    capability_id=proposal.capability_id,
-                    arguments_json=proposal.arguments_json,
+            if continuation is None:
+                if self._correction.halted(
+                    session.task_id, session.run_id, "provider"
+                ):
+                    stop_reason = "correction_halted"
+                    break
+                response = self._call_provider(session, turn_id, steps)
+                if isinstance(response, ProviderFailure):
+                    stop_reason = f"provider_failure:{response.code.value}"
+                    final_text = response.safe_message
+                    break
+                steps += 1
+                total_tokens += response.usage.total_tokens
+                if total_tokens > self._config.max_turn_tokens:
+                    stop_reason = "budget_exceeded"
+                    break
+                tool_calls = tuple(
+                    ProviderToolCall(
+                        tool_call_id=proposal.proposal_id,
+                        capability_id=proposal.capability_id,
+                        arguments_json=proposal.arguments_json,
+                    )
+                    for proposal in response.tool_proposals
                 )
-                for proposal in response.tool_proposals
-            )
-            self._append_message(
-                session,
-                ProviderMessage(
-                    role=ProviderMessageRole.ASSISTANT,
-                    content=response.text,
-                    tool_calls=tool_calls,
-                ),
-                turn_id=turn_id.turn_id,
-            )
-            if not response.tool_proposals:
-                stop_reason = "completed"
-                final_text = response.text
-                break
-            proposals = response.tool_proposals
-            replied_proposal_ids: set[str] = set()
-            for index, proposal in enumerate(proposals):
+                assistant_message_index = len(self._history)
+                self._append_message(
+                    session,
+                    ProviderMessage(
+                        role=ProviderMessageRole.ASSISTANT,
+                        content=response.text,
+                        tool_calls=tool_calls,
+                    ),
+                    turn_id=turn_id.turn_id,
+                )
+                if not response.tool_proposals:
+                    stop_reason = "completed"
+                    final_text = response.text
+                    break
+                proposals = response.tool_proposals
+                start_index = 0
+            else:
+                proposals, start_index, assistant_message_index = continuation
+                continuation = None
+            replied_proposal_ids: set[str] = {
+                proposal.proposal_id for proposal in proposals[:start_index]
+            }
+            for index in range(start_index, len(proposals)):
+                proposal = proposals[index]
                 capability_id = proposal.capability_id
                 if capability_id not in CHAT_CAPABILITY_IDS:
                     stop_reason = "unauthorized_proposal"
@@ -333,14 +538,36 @@ class AgentLoop:
                         f"provider proposed unauthorized capability {capability_id}"
                     )
                     break
-                tool_message = self._execute_proposal(
-                    session,
-                    turn_id.turn_id,
-                    steps,
-                    index,
-                    proposal,
-                    seen_action_digests,
-                )
+                try:
+                    tool_message = self._execute_proposal(
+                        session,
+                        turn_id.turn_id,
+                        steps,
+                        index,
+                        proposal,
+                        seen_action_digests,
+                    )
+                except ApprovalRequired as required:
+                    self._tasks.record_session_approval_pending(
+                        session.task_id,
+                        session.session_id,
+                        turn_id=turn_id.turn_id,
+                        action=required.action,
+                        proposal=proposal,
+                        preview=required.preview,
+                        assistant_message_index=assistant_message_index,
+                        proposal_index=index,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                        seen_action_digests=seen_action_digests,
+                    )
+                    return TurnResult(
+                        turn_id=turn_id,
+                        text="approval required",
+                        steps=steps,
+                        stop_reason="approval_required",
+                        total_tokens=total_tokens,
+                    )
                 self._append_message(
                     session,
                     tool_message,
@@ -536,10 +763,14 @@ class AgentLoop:
             envelope_id=session.envelope_id,
             risk_tier=risk_tier,
         )
-        self._actions.record_action_proposed(action)
         approval = None
         if risk_tier >= 2:
-            if not self._gateway.confirm(action, _action_preview(action, arguments)):
+            confirmed = self._gateway.confirm(
+                action,
+                _action_preview(action, arguments),
+            )
+            self._actions.record_action_proposed(action)
+            if not confirmed:
                 self._record_denial(session, action)
                 return self._tool_message(
                     proposal,
@@ -547,6 +778,8 @@ class AgentLoop:
                 )
             if risk_tier >= 3:
                 approval = self._build_approval(action)
+        else:
+            self._actions.record_action_proposed(action)
         try:
             result = self._actions.execute(
                 action,

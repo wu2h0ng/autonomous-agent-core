@@ -97,6 +97,20 @@ class ActionPipeline:
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
             )
+        replayed = self._broker.replay(action)
+        if replayed is not None:
+            self._tasks._recover_action_receipt(
+                action.task_id,
+                action=action,
+                permit=replayed.permit,
+                receipt=replayed.receipt,
+                writer_token=self._tasks._runtime_writer_token,
+            )
+            return self._finish_result(
+                action,
+                replayed,
+                record_artifacts=record_artifacts,
+            )
         grant = (
             self._grant[cid]
             if isinstance(self._grant, dict)
@@ -153,6 +167,19 @@ class ActionPipeline:
             receipt=result.receipt,
             writer_token=self._tasks._runtime_writer_token,
         )
+        return self._finish_result(
+            action,
+            result,
+            record_artifacts=record_artifacts,
+        )
+
+    def _finish_result(
+        self,
+        action: ActionContract,
+        result: CapabilityResult,
+        *,
+        record_artifacts: bool,
+    ) -> CapabilityResult:
         if result.receipt.status.value != "SUCCEEDED":
             raise RunExecutionError(
                 f"tool failed: {result.receipt.error_code}: "

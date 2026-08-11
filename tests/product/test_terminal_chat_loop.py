@@ -14,20 +14,27 @@ from typing import Any, cast
 import pytest
 from agent_os_contracts import (
     ActionContract,
+    ActionPermit,
+    ActionReceipt,
+    PolicyDecision,
     ProviderErrorCode,
     ProviderFailure,
     ProviderMessageRole,
     ProviderToolProposal,
     PolicyVerdict,
     TaskEventType,
+    TaskEventDraft,
 )
 from agent_os_core import (
     AgentLoopConfig,
     AutoApproveGateway,
+    CapabilityBroker,
     DeterministicProvider,
     PolicyInput,
+    InvalidTransitionError,
     SessionProjector,
 )
+from agent_os_core.action_pipeline import ActionPipeline
 
 from apps.api_server.app import AgentOSApplication
 
@@ -116,6 +123,162 @@ def test_multi_turn_edit_applies_and_records_governance(tmp_path: Path) -> None:
         session.task_id, session.session_id
     )
     assert projected.history == loop.history
+
+
+def test_known_action_outcome_replay_writes_no_second_policy_or_receipt(
+    tmp_path: Path,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+            ("done", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("replay", AutoApproveGateway())
+    loop.run_turn(session, "edit")
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    original_receipt = ActionReceipt.model_validate(
+        next(
+            event.decoded_payload()["receipt"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+        )
+    )
+    before_policy = sum(
+        event.event_type is TaskEventType.POLICY_DECIDED for event in events
+    )
+    before_receipts = sum(
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in events
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(app.sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+
+    replayed = pipeline.execute(
+        action,
+        app.principal,
+        capability_spec=app.sandbox.specs()[action.capability_id],
+        record_artifacts=False,
+    )
+
+    after = app.store.read(session.task_id)
+    assert replayed.receipt == original_receipt
+    assert sum(
+        event.event_type is TaskEventType.POLICY_DECIDED for event in after
+    ) == before_policy
+    assert sum(
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in after
+    ) == before_receipts
+
+
+def test_action_receipt_identity_conflict_and_duplicate_fail_closed(
+    tmp_path: Path,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+            ("done", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("receipt identity", AutoApproveGateway())
+    loop.run_turn(session, "edit")
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    receipt_event = next(
+        event
+        for event in events
+        if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+    )
+    payload = receipt_event.decoded_payload()
+    decision = PolicyDecision.model_validate(payload["decision"])
+    permit = ActionPermit.model_validate(payload["permit"])
+    receipt = ActionReceipt.model_validate(payload["receipt"])
+
+    with pytest.raises(InvalidTransitionError, match="identity conflict"):
+        app.tasks._record_action_receipt(
+            session.task_id,
+            action=action,
+            decision=decision,
+            permit=permit,
+            receipt=receipt.model_copy(update={"receipt_id": "receipt:forged"}),
+            writer_token=app.tasks._runtime_writer_token,
+        )
+
+    aggregate = app.tasks.get_task(session.task_id)
+    app.store.append(
+        session.task_id,
+        expected_sequence=aggregate.sequence,
+        drafts=(
+            TaskEventDraft.build(
+                event_id="event:duplicate-receipt",
+                task_id=session.task_id,
+                event_type=TaskEventType.ACTION_RECEIPT_RECORDED,
+                payload=payload,
+                occurred_at=app.tasks.now(),
+                correlation_id=session.run_id,
+                causation_id=aggregate.last_event_id,
+            ),
+        ),
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(app.sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+    with pytest.raises(InvalidTransitionError, match="multiple durable receipts"):
+        pipeline.execute(
+            action,
+            app.principal,
+            capability_spec=app.sandbox.specs()[action.capability_id],
+            record_artifacts=False,
+        )
 
 
 def test_end_to_end_fixes_failing_test_and_returns_green_result(

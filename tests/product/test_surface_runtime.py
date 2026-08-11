@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from agent_os_contracts import (
+    ActionContract,
+    ApprovalDisposition,
+    PendingSurfaceApproval,
     PrincipalIdentity,
     ProviderMessage,
     ProviderMessageRole,
     ProviderToolProposal,
+    RunStatus,
     TaskEventType,
     TurnId,
 )
@@ -16,10 +21,13 @@ from agent_os_core import (
     AgentLoopConfig,
     AutoApproveGateway,
     ChatSession,
+    DeferredApprovalGateway,
     DeterministicProvider,
+    InvalidTransitionError,
     SessionProjector,
     TaskConfigurationDrift,
 )
+from agent_os_core.action_pipeline import ActionPipeline
 
 from apps.api_server.app import AgentOSApplication
 
@@ -53,6 +61,60 @@ def chat_app(
     )
     app.provider_configured = True
     return app
+
+
+def _receipt_count(app: AgentOSApplication, task_id: str) -> int:
+    return sum(
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+        for event in app.store.read(task_id)
+    )
+
+
+def _event_count(
+    app: AgentOSApplication,
+    task_id: str,
+    event_type: TaskEventType,
+) -> int:
+    return sum(event.event_type is event_type for event in app.store.read(task_id))
+
+
+def _pending_edit(
+    tmp_path: Path,
+) -> tuple[AgentOSApplication, ChatSession, PendingSurfaceApproval]:
+    (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    app = chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    proposal(
+                        "call-edit",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+    session, loop = app.open_chat_session("edit", DeferredApprovalGateway())
+    waiting = loop.run_turn(session, "edit fixture")
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert waiting.stop_reason == "approval_required"
+    assert projected.pending_approval is not None
+    assert projected.resumable_turn_id == waiting.turn_id.turn_id
+    run = app.tasks.get_task(session.task_id).run
+    assert run is not None
+    assert run.status is RunStatus.WAITING_APPROVAL
+    assert _event_count(app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED) == 0
+    return app, session, projected.pending_approval
 
 
 def test_restart_reuses_durable_history_without_replaying_first_turn(
@@ -329,3 +391,280 @@ def test_restore_rejects_configuration_profile_drift(tmp_path: Path) -> None:
 
     with pytest.raises(TaskConfigurationDrift):
         app.restore_chat_session(session.session_id, AutoApproveGateway())
+
+
+def test_pending_approval_survives_restart_and_executes_once(
+    tmp_path: Path,
+) -> None:
+    app1, session, pending = _pending_edit(tmp_path)
+    app1.store.close()
+
+    app2 = chat_app(tmp_path, scripted=(("edit completed", ()),))
+    resumed = app2.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+    )
+
+    assert resumed.stop_reason == "completed"
+    assert resumed.text == "edit completed"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "fixed\n"
+    assert _receipt_count(app2, session.task_id) == 1
+    projected = SessionProjector(app2.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert projected.pending_approval is None
+    assert projected.resumable_turn_id is None
+
+
+def test_stale_approval_digest_does_not_execute(tmp_path: Path) -> None:
+    app, session, _pending = _pending_edit(tmp_path)
+
+    with pytest.raises(InvalidTransitionError, match="digest"):
+        app.decide_session_approval(
+            session.session_id,
+            action_digest="0" * 64,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="wrong action",
+        )
+
+    assert _receipt_count(app, session.task_id) == 0
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+def test_proposed_action_and_pending_state_append_atomically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    app = chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    proposal(
+                        "call-edit",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+        ),
+    )
+    session, loop = app.open_chat_session("atomic pending", DeferredApprovalGateway())
+    original_append_batch = app.tasks._append_batch
+
+    def reject_pending_batch(*args: Any, **kwargs: Any) -> Any:
+        events = args[1]
+        if any(
+            event_type is TaskEventType.SESSION_APPROVAL_PENDING
+            for event_type, _payload in events
+        ):
+            raise RuntimeError("pending batch unavailable")
+        return original_append_batch(*args, **kwargs)
+
+    monkeypatch.setattr(app.tasks, "_append_batch", reject_pending_batch)
+    with pytest.raises(RuntimeError, match="pending batch unavailable"):
+        loop.run_turn(session, "edit fixture")
+
+    events = app.store.read(session.task_id)
+    assert not any(
+        event.event_type is TaskEventType.ACTION_PROPOSED for event in events
+    )
+    assert not any(
+        event.event_type is TaskEventType.SESSION_APPROVAL_PENDING
+        for event in events
+    )
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+def test_rejected_approval_appends_tool_denial_and_allows_replan(
+    tmp_path: Path,
+) -> None:
+    app1, session, pending = _pending_edit(tmp_path)
+    app1.store.close()
+    app2 = chat_app(tmp_path, scripted=(("kept stable", ()),))
+
+    resumed = app2.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.REJECT,
+        reason="do not edit this file",
+    )
+
+    assert resumed.stop_reason == "completed"
+    assert resumed.text == "kept stable"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    assert _receipt_count(app2, session.task_id) == 0
+    projected = SessionProjector(app2.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    tool_messages = tuple(
+        message
+        for message in projected.history
+        if message.role is ProviderMessageRole.TOOL
+    )
+    assert len(tool_messages) == 1
+    denial = json.loads(tool_messages[0].content)
+    assert denial["rejected"] is True
+    assert "do not edit this file" in denial["error"]
+
+
+class _ProcessCrash(BaseException):
+    pass
+
+
+def test_restart_after_approval_recorded_before_execution_reuses_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app1, session, pending = _pending_edit(tmp_path)
+    original_execute = ActionPipeline.execute
+
+    def crash_before_execute(*_args: object, **_kwargs: object) -> None:
+        raise _ProcessCrash("after approval before execution")
+
+    monkeypatch.setattr(ActionPipeline, "execute", crash_before_execute)
+    with pytest.raises(_ProcessCrash, match="before execution"):
+        app1.decide_session_approval(
+            session.session_id,
+            action_digest=pending.action_digest,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="reviewed exact edit",
+        )
+    monkeypatch.setattr(ActionPipeline, "execute", original_execute)
+
+    assert _event_count(app1, session.task_id, TaskEventType.APPROVAL_RECORDED) == 1
+    assert _receipt_count(app1, session.task_id) == 0
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    app1.store.close()
+
+    app2 = chat_app(tmp_path, scripted=(("edit completed", ()),))
+    resumed = app2.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+    )
+
+    assert resumed.stop_reason == "completed"
+    assert _event_count(app2, session.task_id, TaskEventType.APPROVAL_RECORDED) == 1
+    assert _receipt_count(app2, session.task_id) == 1
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "fixed\n"
+
+
+def test_restart_after_receipt_before_tool_continues_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app1, session, pending = _pending_edit(tmp_path)
+    original_append_batch = app1.tasks._append_batch
+
+    def crash_before_resolution(*args: Any, **kwargs: Any) -> Any:
+        events = args[1]
+        if any(
+            event_type is TaskEventType.SESSION_APPROVAL_RESOLVED
+            for event_type, _payload in events
+        ):
+            raise _ProcessCrash("after receipt before TOOL resolution")
+        return original_append_batch(*args, **kwargs)
+
+    monkeypatch.setattr(app1.tasks, "_append_batch", crash_before_resolution)
+    with pytest.raises(_ProcessCrash, match="after receipt"):
+        app1.decide_session_approval(
+            session.session_id,
+            action_digest=pending.action_digest,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="reviewed exact edit",
+        )
+
+    assert _receipt_count(app1, session.task_id) == 1
+    assert _event_count(
+        app1,
+        session.task_id,
+        TaskEventType.SESSION_APPROVAL_RESOLVED,
+    ) == 0
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "fixed\n"
+    app1.store.close()
+
+    app2 = chat_app(tmp_path, scripted=(("continued once", ()),))
+    resumed = app2.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+    )
+
+    assert resumed.text == "continued once"
+    assert _receipt_count(app2, session.task_id) == 1
+    assert _event_count(
+        app2,
+        session.task_id,
+        TaskEventType.SESSION_APPROVAL_RESOLVED,
+    ) == 1
+    projected = SessionProjector(app2.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert len(
+        [
+            message
+            for message in projected.history
+            if message.role is ProviderMessageRole.TOOL
+        ]
+    ) == 1
+
+
+def test_correction_between_approval_and_execution_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, session, pending = _pending_edit(tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=(("correction honored", ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    original_execute = ActionPipeline.execute
+
+    def correct_then_execute(
+        pipeline: ActionPipeline,
+        action: ActionContract,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        app.correction.correct(
+            "capability",
+            action.capability_id,
+            "operator correction during approval continuation",
+        )
+        return original_execute(pipeline, action, *args, **kwargs)
+
+    monkeypatch.setattr(ActionPipeline, "execute", correct_then_execute)
+    resumed = app.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+    )
+
+    assert resumed.text == "correction honored"
+    assert _receipt_count(app, session.task_id) == 0
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    tool_message = next(
+        message
+        for message in projected.history
+        if message.role is ProviderMessageRole.TOOL
+    )
+    assert "CORRECTION_HALTED" in tool_message.content

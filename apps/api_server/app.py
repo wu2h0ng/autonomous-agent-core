@@ -76,6 +76,7 @@ from agent_os_core import (
     CandidatePromotionScopeMismatch,
     Clock,
     CorrectionAuthority,
+    DeferredApprovalGateway,
     DeterministicProvider,
     PolicyKernel,
     MandateSteward,
@@ -84,6 +85,7 @@ from agent_os_core import (
     DomainCandidateEvaluationRecorder,
     DomainCandidatePromotionService,
     EVALUATION_CAPABILITY,
+    InvalidTransitionError,
     PROMOTION_CAPABILITY,
     SQLiteCandidateStore,
     SQLiteCandidateEvaluationStore,
@@ -112,6 +114,7 @@ from agent_os_core import (
     TaskConfigurationNotBound,
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
+    TurnResult,
 )
 from agent_os_core.trajectory import TrajectoryProjector
 from agent_os_core.session_projection import SessionLoopConfig
@@ -1540,6 +1543,51 @@ class AgentOSApplication:
             resumable_turn_ids=resumable_turn_ids,
         )
         return session, loop
+
+    def decide_session_approval(
+        self,
+        session_id: str,
+        action_digest: str,
+        disposition: ApprovalDisposition,
+        reason: str,
+    ) -> TurnResult:
+        """Resolve one exact durable approval and continue its open turn."""
+
+        if not action_digest.strip():
+            raise ValueError("action_digest must be non-empty")
+        if not reason.strip():
+            raise ValueError("approval reason must be non-empty")
+        if disposition not in {
+            ApprovalDisposition.APPROVE,
+            ApprovalDisposition.REJECT,
+        }:
+            raise ValueError("session approval must be APPROVE or REJECT")
+        session, loop = self.restore_chat_session(
+            session_id,
+            DeferredApprovalGateway(),
+        )
+        projected = self.tasks.project_session(session.task_id, session_id)
+        pending = projected.pending_continuation
+        if pending is None:
+            raise InvalidTransitionError("session has no pending approval")
+        if action_digest != pending.action.action_digest():
+            raise InvalidTransitionError(
+                "approval digest does not match the pending action"
+            )
+        now = self._clock()
+        approval = ApprovalDecision(
+            approval_id=f"approval-{uuid4()}",
+            tenant_id=pending.action.tenant_id,
+            workspace_id=pending.action.workspace_id,
+            action_digest=action_digest,
+            actor_id=self.principal.principal_id,
+            actor_role=self.principal.role,
+            disposition=disposition,
+            reason=reason,
+            decided_at=now,
+            expires_at=now + timedelta(minutes=5),
+        )
+        return loop.resume_pending_approval(session, approval)
 
     def _record_chat_message(
         self,

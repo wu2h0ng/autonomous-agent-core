@@ -34,6 +34,7 @@ class CapabilityDenied(PermissionError):
 class CapabilityResult:
     receipt: ActionReceipt
     output: dict[str, object]
+    permit: ActionPermit
 
 
 class CapabilityPort(Protocol):
@@ -66,6 +67,15 @@ class CapabilityBroker:
         if not permit.matches(action):
             raise CapabilityDenied("broker rejected a permit/action digest mismatch")
         return self.connector.invoke(action, permit, self.correction, attempt=attempt)
+
+    def replay(self, action: ActionContract) -> CapabilityResult | None:
+        replay = getattr(self.connector, "replay", None)
+        if replay is None:
+            return None
+        result = replay(action)
+        if result is not None and not result.permit.matches(action):
+            raise CapabilityDenied("stored capability outcome permit/action mismatch")
+        return result
 
 
 class WorkspaceSandbox:
@@ -152,114 +162,379 @@ class WorkspaceSandbox:
             )
         return specs
 
+    _RESERVATION_SCOPE = "capability-reservation.v1"
+    _OUTCOME_SCOPE = "capability-outcome.v1"
+    _LEGACY_SCOPE = "capability"
+
     def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("permit does not match action")
+        replayed = self.replay(action)
+        if replayed is not None:
+            return replayed
         if permit.expires_at <= datetime.now(timezone.utc):
             raise CapabilityDenied("permit expired before capability dispatch")
-        if correction.halted(action.task_id, action.run_id, action.capability_id):
-            raise CapabilityDenied("correction authority is halted")
-        current_epochs = correction.snapshot(
-            action.task_id, action.run_id, action.capability_id
-        )
-        if (
-            current_epochs != permit.correction_epochs
-            or current_epochs != action.observed_correction_epochs
-        ):
-            raise CapabilityDenied("stale correction epoch")
+        self._validate_correction(action, permit, correction)
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
             raise CapabilityDenied("capability arguments must be an object")
-        intent_fingerprint = _intent_fingerprint(action)
-        stored = self._get_idempotency(
-            action.idempotency_key,
-            intent_fingerprint,
-        )
-        if stored is not None:
-            if action.capability_id in {"workspace.apply_patch", "workspace.edit"}:
-                self._validate_cached_patch_effect(args, stored)
-            elif action.capability_id == "workspace.compensate_patch":
-                self._validate_cached_compensation_effect(args, stored)
-            output: dict[str, object] = stored
+        reserved = self._reserve(action)
+        if isinstance(reserved, CapabilityResult):
+            return reserved
+        reservation = reserved
+        output: dict[str, object]
+        try:
+            # C7 is sampled again after the durable reservation and immediately
+            # before dispatch. A changed epoch is sealed as a known denial; it
+            # never leaves an ambiguous reservation that a restart could resend.
+            self._validate_correction(action, permit, correction)
+            output = self._canonical_output(
+                self._dispatch(
+                    action.capability_id,
+                    args,
+                    action.idempotency_key,
+                )
+            )
             status = (
                 ReceiptStatus.COMPENSATED
                 if action.capability_id == "workspace.compensate_patch"
                 else ReceiptStatus.SUCCEEDED
             )
             error_code = "error:none"
-        else:
-            try:
-                output = self._dispatch(action.capability_id, args, action.idempotency_key)
-                self._put_idempotency(
-                    action.idempotency_key,
-                    intent_fingerprint,
-                    output,
+        except Exception as exc:
+            output = {"error": f"{type(exc).__name__}: {exc}"}
+            status = ReceiptStatus.FAILED
+            error_code = type(exc).__name__
+        receipt = self._build_receipt(
+            action,
+            permit,
+            reservation,
+            output,
+            status=status,
+            error_code=error_code,
+            attempt=attempt,
+        )
+        return self._seal_outcome(action, reservation, permit, receipt, output)
+
+    def replay(self, action: ActionContract) -> CapabilityResult | None:
+        """Return a sealed result or fail closed for an unresolved dispatch window.
+
+        This is deliberately read-only. In particular, a reservation without a
+        sealed outcome is never interpreted as success and never dispatched again.
+        """
+
+        if self._idempotency_store is None:
+            return None
+        outcome = self._get_record(self._OUTCOME_SCOPE, action.idempotency_key)
+        reservation = self._get_record(
+            self._RESERVATION_SCOPE,
+            action.idempotency_key,
+        )
+        if outcome is not None:
+            if reservation is None:
+                raise CapabilityDenied("capability outcome lacks durable reservation")
+            return self._load_outcome(action, reservation, outcome)
+        if reservation is not None:
+            self._validate_reservation(action, reservation)
+            raise CapabilityDenied(
+                "UNKNOWN_REQUIRES_REVIEW: capability dispatch was reserved but "
+                "no terminal outcome was sealed; automatic resend is forbidden"
+            )
+        legacy = self._get_record(self._LEGACY_SCOPE, action.idempotency_key)
+        if legacy is not None:
+            raise CapabilityDenied(
+                "UNKNOWN_REQUIRES_REVIEW: legacy capability result lacks an "
+                "original durable receipt; automatic replay is forbidden"
+            )
+        return None
+
+    @staticmethod
+    def _validate_correction(
+        action: ActionContract,
+        permit: ActionPermit,
+        correction: CorrectionReadPort,
+    ) -> None:
+        if correction.halted(action.task_id, action.run_id, action.capability_id):
+            raise CapabilityDenied("correction authority is halted")
+        current_epochs = correction.snapshot(
+            action.task_id,
+            action.run_id,
+            action.capability_id,
+        )
+        if (
+            current_epochs != permit.correction_epochs
+            or current_epochs != action.observed_correction_epochs
+        ):
+            raise CapabilityDenied("stale correction epoch")
+
+    def _reserve(
+        self,
+        action: ActionContract,
+    ) -> dict[str, object] | CapabilityResult:
+        if self._idempotency_store is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required before capability dispatch"
+            )
+        now = datetime.now(timezone.utc)
+        reservation = self._with_record_digest(
+            {
+                "schema_version": self._RESERVATION_SCOPE,
+                "state": "RESERVED",
+                "reservation_id": f"reservation-{uuid4()}",
+                "receipt_id": f"receipt-{uuid4()}",
+                "action_id": action.action_id,
+                "action_digest": action.action_digest(),
+                "idempotency_key": action.idempotency_key,
+                "capability_id": action.capability_id,
+                "intent_fingerprint": _intent_fingerprint(action),
+                "reserved_at": now.isoformat(),
+            }
+        )
+        if not self._put_record(
+            self._RESERVATION_SCOPE,
+            action.idempotency_key,
+            reservation,
+            now,
+        ):
+            replayed = self.replay(action)
+            if replayed is not None:
+                return replayed
+            raise CapabilityDenied("capability reservation conflict")
+        return reservation
+
+    def _seal_outcome(
+        self,
+        action: ActionContract,
+        reservation: dict[str, object],
+        permit: ActionPermit,
+        receipt: ActionReceipt,
+        output: dict[str, object],
+    ) -> CapabilityResult:
+        now = datetime.now(timezone.utc)
+        outcome = self._with_record_digest(
+            {
+                "schema_version": self._OUTCOME_SCOPE,
+                "state": receipt.status.value,
+                "reservation_id": reservation["reservation_id"],
+                "action_id": action.action_id,
+                "action_digest": action.action_digest(),
+                "idempotency_key": action.idempotency_key,
+                "capability_id": action.capability_id,
+                "intent_fingerprint": _intent_fingerprint(action),
+                "permit": permit.model_dump(mode="json"),
+                "receipt": receipt.model_dump(mode="json"),
+                "output": output,
+                "sealed_at": now.isoformat(),
+            }
+        )
+        if not self._put_record(
+            self._OUTCOME_SCOPE,
+            action.idempotency_key,
+            outcome,
+            now,
+        ):
+            stored = self._get_record(self._OUTCOME_SCOPE, action.idempotency_key)
+            if stored is None:
+                raise CapabilityDenied("capability outcome seal conflict")
+            return self._load_outcome(action, reservation, stored)
+        return CapabilityResult(receipt=receipt, output=output, permit=permit)
+
+    def _load_outcome(
+        self,
+        action: ActionContract,
+        reservation: dict[str, object],
+        outcome: dict[str, object],
+    ) -> CapabilityResult:
+        self._validate_reservation(action, reservation)
+        required = {
+            "schema_version",
+            "state",
+            "reservation_id",
+            "action_id",
+            "action_digest",
+            "idempotency_key",
+            "capability_id",
+            "intent_fingerprint",
+            "permit",
+            "receipt",
+            "output",
+            "sealed_at",
+            "record_digest",
+        }
+        self._validate_record(outcome, required, self._OUTCOME_SCOPE)
+        bindings = {
+            "reservation_id": reservation["reservation_id"],
+            "action_id": action.action_id,
+            "action_digest": action.action_digest(),
+            "idempotency_key": action.idempotency_key,
+            "capability_id": action.capability_id,
+            "intent_fingerprint": _intent_fingerprint(action),
+        }
+        if any(outcome.get(field) != value for field, value in bindings.items()):
+            if outcome.get("intent_fingerprint") != bindings["intent_fingerprint"]:
+                raise CapabilityDenied(
+                    "idempotency key reused for a different action intent"
                 )
-                status = (
-                    ReceiptStatus.COMPENSATED
-                    if action.capability_id == "workspace.compensate_patch"
-                    else ReceiptStatus.SUCCEEDED
-                )
-                error_code = "error:none"
-            except Exception as exc:
-                output = {"error": f"{type(exc).__name__}: {exc}"}
-                status = ReceiptStatus.FAILED
-                error_code = type(exc).__name__
-        receipt = ActionReceipt(
-            receipt_id=f"receipt-{uuid4()}", action_id=action.action_id,
-            action_digest=action.action_digest(), permit_id=permit.permit_id,
-            tenant_id=action.tenant_id, workspace_id=action.workspace_id,
-            connector_id=action.capability_id, status=status,
-            idempotency_key=action.idempotency_key, attempt=attempt,
-            output_artifact_ids=tuple(str(value) for value in _as_sequence(output.get("artifact_ids", ()))),
+            raise CapabilityDenied("capability outcome/action binding mismatch")
+        permit_value = outcome.get("permit")
+        receipt_value = outcome.get("receipt")
+        output_value = outcome.get("output")
+        if not isinstance(permit_value, dict) or not isinstance(receipt_value, dict):
+            raise CapabilityDenied("invalid capability outcome contracts")
+        if not isinstance(output_value, dict):
+            raise CapabilityDenied("invalid capability outcome output")
+        try:
+            permit = ActionPermit.model_validate(permit_value)
+            receipt = ActionReceipt.model_validate(receipt_value)
+        except ValueError as exc:
+            raise CapabilityDenied("invalid capability outcome contract") from exc
+        if not permit.matches(action):
+            raise CapabilityDenied("stored capability permit/action mismatch")
+        if (
+            receipt.receipt_id != reservation["receipt_id"]
+            or receipt.action_id != action.action_id
+            or receipt.action_digest != action.action_digest()
+            or receipt.permit_id != permit.permit_id
+            or receipt.tenant_id != action.tenant_id
+            or receipt.workspace_id != action.workspace_id
+            or receipt.connector_id != action.capability_id
+            or receipt.idempotency_key != action.idempotency_key
+            or receipt.status.value != outcome["state"]
+        ):
+            raise CapabilityDenied("stored capability receipt/action mismatch")
+        output = self._canonical_output(output_value)
+        args = json.loads(action.arguments_json)
+        if (
+            receipt.status is ReceiptStatus.SUCCEEDED
+            and action.capability_id in {"workspace.apply_patch", "workspace.edit"}
+        ):
+            self._validate_cached_patch_effect(args, output)
+        elif (
+            receipt.status is ReceiptStatus.COMPENSATED
+            and action.capability_id == "workspace.compensate_patch"
+        ):
+            self._validate_cached_compensation_effect(args, output)
+        return CapabilityResult(receipt=receipt, output=output, permit=permit)
+
+    def _validate_reservation(
+        self,
+        action: ActionContract,
+        reservation: dict[str, object],
+    ) -> None:
+        required = {
+            "schema_version",
+            "state",
+            "reservation_id",
+            "receipt_id",
+            "action_id",
+            "action_digest",
+            "idempotency_key",
+            "capability_id",
+            "intent_fingerprint",
+            "reserved_at",
+            "record_digest",
+        }
+        self._validate_record(reservation, required, self._RESERVATION_SCOPE)
+        if reservation.get("intent_fingerprint") != _intent_fingerprint(action):
+            raise CapabilityDenied("idempotency key reused for a different action intent")
+        expected = {
+            "state": "RESERVED",
+            "action_id": action.action_id,
+            "action_digest": action.action_digest(),
+            "idempotency_key": action.idempotency_key,
+            "capability_id": action.capability_id,
+        }
+        if any(reservation.get(field) != value for field, value in expected.items()):
+            raise CapabilityDenied("capability reservation/action binding mismatch")
+        if not all(
+            isinstance(reservation.get(field), str) and reservation[field]
+            for field in ("reservation_id", "receipt_id", "reserved_at")
+        ):
+            raise CapabilityDenied("invalid capability reservation identity")
+
+    @staticmethod
+    def _with_record_digest(record: dict[str, object]) -> dict[str, object]:
+        return {
+            **record,
+            "record_digest": _sha256(_canonical_json_bytes(record)),
+        }
+
+    @staticmethod
+    def _validate_record(
+        record: dict[str, object],
+        required: set[str],
+        schema_version: str,
+    ) -> None:
+        if set(record) != required or record.get("schema_version") != schema_version:
+            raise CapabilityDenied("invalid durable capability record fields")
+        claimed = record.get("record_digest")
+        without_digest = {
+            key: value for key, value in record.items() if key != "record_digest"
+        }
+        if not isinstance(claimed, str) or claimed != _sha256(
+            _canonical_json_bytes(without_digest)
+        ):
+            raise CapabilityDenied("durable capability record digest mismatch")
+
+    @staticmethod
+    def _canonical_output(output: dict[str, object]) -> dict[str, object]:
+        decoded = json.loads(_canonical_json_bytes(output))
+        if not isinstance(decoded, dict):
+            raise CapabilityDenied("capability output must be a JSON object")
+        return decoded
+
+    def _build_receipt(
+        self,
+        action: ActionContract,
+        permit: ActionPermit,
+        reservation: dict[str, object],
+        output: dict[str, object],
+        *,
+        status: ReceiptStatus,
+        error_code: str,
+        attempt: int,
+    ) -> ActionReceipt:
+        return ActionReceipt(
+            receipt_id=str(reservation["receipt_id"]),
+            action_id=action.action_id,
+            action_digest=action.action_digest(),
+            permit_id=permit.permit_id,
+            tenant_id=action.tenant_id,
+            workspace_id=action.workspace_id,
+            connector_id=action.capability_id,
+            status=status,
+            idempotency_key=action.idempotency_key,
+            attempt=attempt,
+            output_artifact_ids=tuple(
+                str(value) for value in _as_sequence(output.get("artifact_ids", ()))
+            ),
             error_code=error_code,
             detail_ref=str(output.get("compensation_ref", "detail:none")),
             occurred_at=datetime.now(timezone.utc),
         )
-        return CapabilityResult(receipt=receipt, output=output)
 
-    def _get_idempotency(
-        self,
-        key: str,
-        intent_fingerprint: str,
-    ) -> dict[str, object] | None:
-        if self._idempotency_store is None:
-            return None
+    def _get_record(self, scope: str, key: str) -> dict[str, object] | None:
         getter = getattr(self._idempotency_store, "get_idempotency", None)
-        stored = getter("capability", key) if getter is not None else None
+        if getter is None:
+            raise CapabilityDenied("durable idempotency store is not readable")
+        stored = getter(scope, key)
         if stored is None:
             return None
         if not isinstance(stored, dict):
-            raise CapabilityDenied("invalid idempotency record")
-        if stored.get("intent_fingerprint") != intent_fingerprint:
-            raise CapabilityDenied("idempotency key reused for a different action intent")
-        output = stored.get("output")
-        if not isinstance(output, dict):
-            raise CapabilityDenied("invalid idempotency output record")
-        return output
+            raise CapabilityDenied("invalid durable capability record")
+        return stored
 
-    def _put_idempotency(
+    def _put_record(
         self,
+        scope: str,
         key: str,
-        intent_fingerprint: str,
-        output: dict[str, object],
-    ) -> None:
-        if self._idempotency_store is None:
-            return
+        record: dict[str, object],
+        created_at: datetime,
+    ) -> bool:
         setter = getattr(self._idempotency_store, "put_idempotency", None)
-        if setter is not None:
-            stored = {
-                "intent_fingerprint": intent_fingerprint,
-                "output": output,
-            }
-            inserted = setter(
-                "capability",
-                key,
-                stored,
-                datetime.now(timezone.utc).isoformat(),
-            )
-            if inserted is False:
-                self._get_idempotency(key, intent_fingerprint)
+        if setter is None:
+            raise CapabilityDenied("durable idempotency store is not writable")
+        return bool(setter(scope, key, record, created_at.isoformat()))
 
     def _dispatch(self, capability_id: str, args: dict[str, object], action_key: str) -> dict[str, object]:
         if capability_id == "workspace.read":

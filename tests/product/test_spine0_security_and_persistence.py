@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -28,6 +31,106 @@ from agent_os_core import (
 NOW = datetime.now(timezone.utc)
 
 
+def _workspace_action(
+    correction: CorrectionAuthority,
+    *,
+    capability_id: str,
+    arguments: dict[str, object],
+    idempotency_key: str,
+) -> tuple[ActionContract, ActionPermit]:
+    now = datetime.now(timezone.utc)
+    action = ActionContract(
+        action_id=f"action:{idempotency_key}",
+        task_id="task:receipt-replay",
+        run_id="run:receipt-replay",
+        node_id=f"node:{idempotency_key}",
+        principal_id="user-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        capability_id=capability_id,
+        capability_version="1",
+        arguments_json=json.dumps(arguments),
+        risk_tier=3 if capability_id == "workspace.shell" else 2,
+        idempotency_key=idempotency_key,
+        estimated_budget=ResourceBudget(
+            max_cost_usd=Decimal("0"),
+            max_duration_seconds=30,
+            max_provider_tokens=0,
+            max_tool_calls=1,
+        ),
+        policy_version="policy-1",
+        observed_correction_epochs=correction.snapshot(
+            "task:receipt-replay",
+            "run:receipt-replay",
+            capability_id,
+        ),
+        expected_outcome_id="expected:receipt-replay",
+        candidate_envelope_id="envelope:receipt-replay",
+        created_at=now,
+    )
+    permit = ActionPermit(
+        permit_id=f"permit:{idempotency_key}",
+        action_id=action.action_id,
+        action_digest=action.action_digest(),
+        principal_id=action.principal_id,
+        tenant_id=action.tenant_id,
+        workspace_id=action.workspace_id,
+        policy_decision_id=f"decision:{idempotency_key}",
+        grant_id=f"grant:{idempotency_key}",
+        correction_epochs=action.observed_correction_epochs,
+        lease_fence=0,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    return action, permit
+
+
+class _CountingSandbox(WorkspaceSandbox):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        idempotency_store: object,
+        shell_allowlist: tuple[str, ...] | None = None,
+    ) -> None:
+        super().__init__(
+            root,
+            idempotency_store=idempotency_store,
+            shell_allowlist=shell_allowlist,
+        )
+        self.dispatch_count = 0
+
+    def _dispatch(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        self.dispatch_count += 1
+        return super()._dispatch(capability_id, args, action_key)
+
+
+class _CrashBeforeOutcomeStore:
+    def __init__(self, delegate: SQLiteTaskEventStore) -> None:
+        self.delegate = delegate
+        self.crashed = False
+
+    def get_idempotency(self, scope: str, key: str) -> dict[str, Any] | None:
+        return self.delegate.get_idempotency(scope, key)
+
+    def put_idempotency(
+        self,
+        scope: str,
+        key: str,
+        response: dict[str, Any],
+        created_at: str,
+    ) -> bool:
+        if scope == "capability-outcome.v1" and not self.crashed:
+            self.crashed = True
+            raise RuntimeError("simulated crash before outcome seal")
+        return self.delegate.put_idempotency(scope, key, response, created_at)
+
+
 def test_sqlite_idempotency_survives_reopen(tmp_path) -> None:
     path = tmp_path / "state.sqlite3"
     first = SQLiteTaskEventStore(path)
@@ -36,6 +139,118 @@ def test_sqlite_idempotency_survives_reopen(tmp_path) -> None:
     second = SQLiteTaskEventStore(path)
     assert second.get_idempotency("scope", "key") == {"value": "one"}
     assert not second.put_idempotency("scope", "key", {"value": "two"}, NOW.isoformat())
+
+
+def test_known_capability_outcome_replays_original_receipt_and_output_without_dispatch(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    first_store = SQLiteTaskEventStore(database)
+    first_correction = CorrectionAuthority(first_store)
+    action, permit = _workspace_action(
+        first_correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key="receipt-replay-edit",
+    )
+    first_sandbox = _CountingSandbox(
+        tmp_path,
+        idempotency_store=first_store,
+    )
+    first = first_sandbox.invoke(action, permit, first_correction)
+    assert first_sandbox.dispatch_count == 1
+    first_store.close()
+
+    restarted_store = SQLiteTaskEventStore(database)
+    restarted_correction = CorrectionAuthority(restarted_store)
+    restarted_sandbox = _CountingSandbox(
+        tmp_path,
+        idempotency_store=restarted_store,
+    )
+    replay = restarted_sandbox.invoke(action, permit, restarted_correction)
+
+    assert replay == first
+    assert replay.receipt.receipt_id == first.receipt.receipt_id
+    assert replay.output == first.output
+    assert restarted_sandbox.dispatch_count == 0
+    assert target.read_text(encoding="utf-8") == "after\n"
+
+
+def test_shell_dispatch_window_becomes_unknown_and_never_resends(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    script = tmp_path / "bump.py"
+    script.write_text(
+        "from pathlib import Path\n"
+        "path = Path('counter.txt')\n"
+        "value = int(path.read_text()) if path.exists() else 0\n"
+        "path.write_text(str(value + 1))\n",
+        encoding="utf-8",
+    )
+    store = SQLiteTaskEventStore(database)
+    correction = CorrectionAuthority(store)
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.shell",
+        arguments={"command": "python3 bump.py"},
+        idempotency_key="unknown-shell",
+    )
+    crashing_store = _CrashBeforeOutcomeStore(store)
+    first_sandbox = _CountingSandbox(
+        tmp_path,
+        idempotency_store=crashing_store,
+        shell_allowlist=("python3 bump.py",),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated crash before outcome seal"):
+        first_sandbox.invoke(action, permit, correction)
+
+    assert first_sandbox.dispatch_count == 1
+    assert (tmp_path / "counter.txt").read_text(encoding="utf-8") == "1"
+    store.close()
+
+    restarted_store = SQLiteTaskEventStore(database)
+    restarted_correction = CorrectionAuthority(restarted_store)
+    restarted_sandbox = _CountingSandbox(
+        tmp_path,
+        idempotency_store=restarted_store,
+        shell_allowlist=("python3 bump.py",),
+    )
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW"):
+        restarted_sandbox.invoke(action, permit, restarted_correction)
+
+    assert restarted_sandbox.dispatch_count == 0
+    assert (tmp_path / "counter.txt").read_text(encoding="utf-8") == "1"
+
+
+def test_capability_dispatch_requires_a_durable_reservation_store(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    correction = CorrectionAuthority()
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key="missing-durable-store",
+    )
+
+    with pytest.raises(CapabilityDenied, match="durable idempotency store"):
+        WorkspaceSandbox(tmp_path).invoke(action, permit, correction)
+
+    assert target.read_text(encoding="utf-8") == "before\n"
 
 
 def test_workspace_denies_path_escape_and_unallowlisted_command(tmp_path) -> None:

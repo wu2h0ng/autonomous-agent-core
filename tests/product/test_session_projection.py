@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -319,19 +320,63 @@ def _append_pending(
         capability_id="workspace.read",
         arguments_json='{"path":"README.md"}',
     )
+    fingerprint = hashlib.sha256(
+        f"{proposal.capability_id}\n{proposal.arguments_json}".encode("utf-8")
+    ).hexdigest()
     _append(
         store,
         ref.task_id,
         TaskEventType.SESSION_APPROVAL_PENDING,
         {
             "session_id": ref.session_id,
+            "task_id": ref.task_id,
+            "run_id": ref.run_id,
+            "tenant_id": ref.tenant_id,
+            "workspace_id": ref.workspace_id,
             "turn_id": "turn:1",
             "provider_proposal": proposal.model_dump(mode="json"),
             "action": action.model_dump(mode="json"),
             "preview": "Read README.md",
             "action_digest": action_digest or action.action_digest(),
             "assistant_message_index": 1,
+            "proposal_index": 0,
+            "steps": 1,
+            "total_tokens": 10,
+            "seen_action_digests": {fingerprint: 1},
+            "configuration_snapshot_id": "snapshot:1",
+            "configuration_snapshot_digest": "1" * 64,
+            "provider_profile_id": "provider:1",
+            "provider_profile_digest": "2" * 64,
+            "c7_epochs": action.observed_correction_epochs.model_dump(mode="json"),
             "requested_at": NOW.isoformat(),
+        },
+    )
+
+
+def _append_resolution(
+    store: SQLiteTaskEventStore,
+    ref: SessionRef,
+    *,
+    action_digest: str | None = None,
+) -> None:
+    action = _action(ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_APPROVAL_RESOLVED,
+        {
+            "session_id": ref.session_id,
+            "task_id": ref.task_id,
+            "run_id": ref.run_id,
+            "tenant_id": ref.tenant_id,
+            "workspace_id": ref.workspace_id,
+            "turn_id": "turn:1",
+            "action_digest": action_digest or action.action_digest(),
+            "proposal_id": "proposal:1",
+            "approval_id": "approval:1",
+            "disposition": "APPROVE",
+            "tool_message_index": 2,
+            "resolved_at": NOW.isoformat(),
         },
     )
 
@@ -646,6 +691,86 @@ def test_projector_rejects_pending_action_digest_mismatch(tmp_path: Path) -> Non
     _append_pending(store, ref, action_digest="0" * 64)
 
     with pytest.raises(SessionProjectionError, match="action digest"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_close_and_turn_completion_cannot_bypass_pending_approval(
+    tmp_path: Path,
+) -> None:
+    store, tasks, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_pending(store, ref)
+
+    with pytest.raises(InvalidTransitionError, match="unresolved pending"):
+        tasks.close_session(ref.task_id, ref.session_id)
+
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_TURN_COMPLETED,
+        {
+            "session_id": ref.session_id,
+            "turn_id": "turn:1",
+            "stop_reason": "forged",
+            "steps": 1,
+            "total_tokens": 10,
+        },
+    )
+    with pytest.raises(SessionProjectionError, match="unresolved approval"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_resolution_without_pending(tmp_path: Path) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_resolution(store, ref)
+
+    with pytest.raises(SessionProjectionError, match="no exact pending"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_public_writer_cannot_append_pending_or_resolution_events(
+    tmp_path: Path,
+) -> None:
+    store, tasks, ref = _opened_stream(tmp_path)
+
+    for event_type in (
+        TaskEventType.SESSION_APPROVAL_PENDING,
+        TaskEventType.SESSION_APPROVAL_RESOLVED,
+    ):
+        with pytest.raises(InvalidTransitionError, match="typed writer"):
+            tasks.append_event(
+                ref.task_id,
+                event_type,
+                {"session_id": ref.session_id},
+                correlation_id=ref.run_id,
+            )
+
+
+def test_projector_rejects_resolution_with_wrong_action_digest(
+    tmp_path: Path,
+) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_pending(store, ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 2,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content="result",
+                tool_call_id="proposal:1",
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+    _append_resolution(store, ref, action_digest="0" * 64)
+
+    with pytest.raises(SessionProjectionError, match="resolution binding"):
         SessionProjector(store).project(ref.task_id, ref.session_id)
 
 
