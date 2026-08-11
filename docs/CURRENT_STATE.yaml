@@ -3,6 +3,7 @@ schema_version: 2
 live_pins:
   origin_main_code_receipt: "3a70592ddee2e24af94f2da52903a5d73386b10d"
   spine_1_g7_evidence_head: "e1cf9c4cf7b001a9e37bf20494cc21a6a6177c6d"
+  spine_1_main_integration_receipt: "807a05902da6b95844c1693ed198de5618b117ff"
   spine_1_donor_ref: "94e2b5918d12d6592f34f3b14c44c29038a74029"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
@@ -17,12 +18,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-11T16:56:24+08:00"
+updated: "2026-08-11T17:18:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/spine1-data-agent-convergence-20260811 (isolated local integration candidate)"
-status: "SPINE-1 is an independently approved local bounded Agent OS integration candidate at e1cf9c4cf7b001a9e37bf20494cc21a6a6177c6d. Data Agent query, immutable report observation and proposal-only business action capabilities use the shared Task/Run, policy, approval, effect-custody and evidence spine while data semantics remain under domain_packs/data_agent. The approved donor ancestry is retained and the temporary _migration staging tree is removed. Full Product verification has no new failures against the frozen pre-import 19-failure baseline; repair-head review returned APPROVE after 9/9 invariant revalidation. The branch is UNPUSHED / UNMERGED / UNRELEASED and has no production, commercial, autonomy, self-improvement or general-intelligence claim."
+branch: "main (SPINE-1 integrated through receipt 807a0590; state receipt follows on main)"
+status: "SPINE-1 is independently approved and fast-forward integrated on Agent OS main through 807a05902da6b95844c1693ed198de5618b117ff. Data Agent query, immutable report observation and proposal-only business action capabilities use the shared Task/Run, policy, approval, effect-custody and evidence spine while data semantics remain under domain_packs/data_agent. The approved donor ancestry is retained and the temporary _migration staging tree is removed. Fresh Product verification returned 1947 passed, 1 skipped and the exact frozen 19 inherited failures with no new failure names; repair-head review returned APPROVE after 9/9 invariant revalidation. The integration is PUSHED / MAIN_INTEGRATED / UNRELEASED and has no production, commercial, autonomy, self-improvement or general-intelligence claim."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -50,11 +51,11 @@ current_phase:
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
-    status: "G1-G7_PASS_LOCAL_BOUNDED_CANDIDATE / G0_ROOT_PRIMARY_RECONCILIATION_PENDING / UNPUSHED / UNMERGED / UNRELEASED"
+    status: "G0-G7_PASS / INDEPENDENT_APPROVE / PUSHED / MAIN_INTEGRATED / UNRELEASED"
 
 verified_capabilities:
   data_agent_spine_1:
-    status: "IMPLEMENTED_TESTED_LOCAL_INTEGRATION_CANDIDATE / UNPUSHED / UNMERGED / UNRELEASED"
+    status: "IMPLEMENTED_TESTED_INDEPENDENTLY_APPROVED_MAIN_INTEGRATED / UNRELEASED"
     requirement_class: "P"
     secondary_classes: ["A", "E"]
     user_result: "A tenant-bound Agent OS Task can run a governed safe data query, consume an immutable report observation, or create an approval-bound business-action proposal through one shared Agent OS authority and evidence spine."
@@ -83,7 +84,7 @@ verified_capabilities:
       - "knowledge lifecycle"
       - "Customer-0/content-commerce assets"
       - "business action execution connectors"
-    boundary: "Local bounded integration evidence only. G0 remains open because the dirty parent primary authority files were not overwritten; no push, main merge, release, production, commercial, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
+    boundary: "Bounded main-integrated Product capability only. Root G0 is reconciled without overwriting the dirty primary checkout. No release, production, commercial, donor retirement, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
   installable_agent_surface:
     status: "MAIN_INTEGRATED / TECHNICAL_APPROVE / NOT_RELEASED"
     requirement_class: "P/E"
@@ -842,7 +843,7 @@ blockers:
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
     - "Natural-language/visual WorkflowGraph authoring, mature knowledge lifecycle, broad capabilities, marketplace and general coding-agent path are incomplete."
-    - "SPINE-1 is locally executed and independently approved on an isolated feature branch; root-primary G0 reconciliation, push, merge, release and production activation remain open."
+    - "SPINE-1 is main-integrated and root-primary G0 is reconciled; release, production activation, donor archival and broader Data Agent capability admission remain open."
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
@@ -883,7 +884,7 @@ next_actions:
   - priority: 3
     action: "Workflow RState evaluate≠admit is merged; PARK CAS/HSM/UI/provider run. Do not reopen unbound research freeze paths."
   - priority: 4
-    action: "Reconcile SPINE-1 into the root primary authority/worktree before any separately authorized push or merge; keep release and production activation gated and do not expand ADM/UCM/AWL/CLS breadth."
+    action: "Keep SPINE-1 release, production activation, donor archival and any broader Data Agent capability admission separately gated; do not expand ADM/UCM/AWL/CLS breadth."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
