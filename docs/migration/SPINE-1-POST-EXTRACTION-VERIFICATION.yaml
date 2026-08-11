@@ -1,0 +1,98 @@
+schema_version: 1
+program: T-P-OS-SPINE-1
+verified_at: "2026-08-11T16:05:00+08:00"
+code_head: dca6205255f7b7e8d7059b21313b12fe6134d373
+status: "G5_PASS / G6_PASS_BOUNDED_RETAINED_CAPABILITIES / G7_NOT_YET_RUN"
+
+ownership_result:
+  generic_runtime:
+    owner: packages/os_core
+    retained_from_donor: false
+    duplicated_subsystems_removed_from_current_runtime:
+      - task_run
+      - identity_tenant
+      - provider_gateway
+      - policy_approval_correction
+      - effect_custody
+      - trace_outcome
+  data_runtime:
+    owner: domain_packs/data_agent
+    retained_capabilities:
+      - data.query.safe
+      - data.report.observe
+      - data.action.propose
+    parked_without_live_consumer:
+      - donor_natural_language_intent_and_broad_semantic_catalog
+      - donor_knowledge_asset_lifecycle
+      - donor_content_commerce_and_customer_0_assets
+      - email_webhook_and_other_business_action_execution_connectors
+
+behavioral_gates:
+  - id: DATA-SQL-SAFETY
+    verdict: PASS
+    evidence: "sqlglot AST rules plus 12 frozen bypass classes; unsafe input never reaches CapabilityBroker"
+    owner: domain_packs/data_agent/sql_safety.py
+  - id: DATA-EVIDENCE-SEMANTICS
+    verdict: PASS_BOUNDED
+    evidence: "receipt/provider/metric/query/result lineage plus freshness/template confidence caps; rich semantic-graph catalog is PARKED"
+    owner: domain_packs/data_agent/evidence.py
+  - id: DATA-AUTHORITY-APPROVAL
+    verdict: PASS_SHARED_OWNER
+    evidence: "query uses shared PolicyKernel; business action creates external-exact ActionContract and WAITING_APPROVAL without connector execution"
+    owner: packages/os_core/src/agent_os_core/governance.py
+  - id: DATA-EFFECT-CUSTODY
+    verdict: PASS_SHARED_OWNER
+    evidence: "ActionPipeline.execute_observed records UNKNOWN receipt once and leaves resend decision unresolved"
+    owner: packages/os_core/src/agent_os_core/action_pipeline.py
+  - id: DATA-CHECKPOINT-RESUME
+    verdict: PASS_SHARED_OWNER
+    evidence: "canonical Agent OS Task/Run and existing recovery suite; donor checkpoint runtime not copied"
+    owner: packages/os_core/src/agent_os_core/task_service.py
+  - id: DATA-OUTCOME-TRACE
+    verdict: PASS_SHARED_OWNER
+    evidence: "ActionReceipt is durable generic evidence; DataEvidenceRef is a non-authoritative domain projection"
+    owner: packages/contracts/src/agent_os_contracts/outcome.py
+  - id: DATA-TENANT-API
+    verdict: PASS
+    evidence: "server-bound principal/tenant/workspace/run/outcome; client authority injection returns 400"
+    owner: apps/api_server
+  - id: DATA-DOMAIN-PACK
+    verdict: PASS_BOUNDED
+    evidence: "manifest and typed Metric/DataProduct/query/evidence/action contracts; Customer-0 assets are not in current runtime"
+    owner: domain_packs/data_agent
+  - id: DATA-IMMUTABLE-REPORT-FEED
+    verdict: PASS
+    evidence: "domain ownership move preserves immutable revisions, tenant binding, outbox, situated admission and no-effect proposal behavior"
+    owner: domain_packs/data_agent/report_adapter.py
+
+verification:
+  runtime:
+    python: "3.12.13"
+    uv: "0.11.23"
+    sqlglot: "30.13.0"
+  focused_data_report_and_api:
+    result: "287 passed"
+  focused_shared_security_and_responsibility:
+    result: "117 passed"
+  full_product_suite:
+    command: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
+    result: "1935 passed, 1 skipped, 19 failed in 151.33s"
+    report_sha256: 21da5da7ad7d0110ae02dac16872c28ae423c529b4044320b05db6d1ab50ba8b
+    failure_name_set_sha256: aef550fcd55d5b4716eb36f7238a13359769632e01e1285973d540c84bd4aea6
+    regression_verdict: "NO_NEW_FAILURES_AGAINST_FROZEN_PRE_IMPORT_19"
+    known_failure_families:
+      - "1 packaging metadata failure"
+      - "16 provider trajectory fixed-time expiry failures"
+      - "2 SPINE-0 fixed-time/expiry failures"
+  static_checks:
+    ruff: PASS
+    changed_scope_pyright: "0 errors, 0 warnings"
+  dependency_search:
+    runtime_import_from_staging_or_donor: false
+    product_import_from_research: false
+    os_core_import_from_domain_pack: false
+    fixture_only_matches:
+      - tests/product/test_product_research_boundary.py
+      - tests/product/test_spine1_capability_ownership.py
+
+claim_boundary: "This closes G5/G6 only for the explicitly retained bounded capabilities on an unpublished local branch. It is not pushed, merged, released, production-validated, commercially validated or autonomy evidence."

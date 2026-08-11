@@ -1,7 +1,7 @@
 schema_version: 1
 updated: "2026-08-11T14:40:00+08:00"
 program: "T-P-OS-SPINE-1"
-status: "G3_OWNERSHIP_FROZEN / PRE_IMPORT"
+status: "G5_G6_POST_EXTRACTION_OWNERSHIP / LOCAL_CANDIDATE"
 source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
 allowed_dispositions:
   - "KEEP_IN_AGENT_OS_CORE"
@@ -22,11 +22,11 @@ capabilities:
     contracts: ["BusinessIntent", "MetricContract", "SQLTemplate", "QueryPlan", "DataProduct"]
     failure_paths: ["unknown metric", "invalid semantic object", "unsupported or ambiguous query", "contract drift"]
     tests: ["tests.unit.test_domain_pack_sdk", "tests.unit.test_api_entrypoints", "tests.unit.test_trusted_loop"]
-    current_evidence: "G3 PASS within frozen 321-test suite"
+    current_evidence: "Bounded contracted-query subset implemented in DataAgentRequest/DataAgentRuntime; donor natural-language intent parser and broad semantic catalog are PARKED without a current Agent Surface consumer."
     target_owner: "domain_packs/data_agent/semantic"
     disposition: "MOVE_TO_DATA_AGENT_PACK"
     consumer: ["Data Agent decision/query path"]
-    residual_gap: "Typed adapter to shared Agent OS Task/Run input remains to be implemented."
+    residual_gap: "Advanced intent parsing/search/metric-catalog behavior is intentionally PARKED; it is not claimed by the bounded query surface."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_semantic_contracts"
     runtime_authority: true
@@ -41,15 +41,15 @@ capabilities:
     contracts: ["SQLSafetyPolicy", "SQLSafetyResult", "QueryPlan", "QueryResult"]
     failure_paths: ["non-read-only SQL", "multi-statement/comment bypass", "unbounded query", "unsupported provider", "executor failure"]
     tests: ["tests.unit.test_sql_safety", "tests.redteam.test_sql_safety_bypass", "tests.unit.test_agent_runtime_sql_checkpoint"]
-    current_evidence: "G3 PASS / 30 focused tests"
-    target_owner: "domain_packs/data_agent/query"
+    current_evidence: "Post-extraction PASS: sqlglot AST gate plus bypass tests and shared Task/Policy/CapabilityBroker query path."
+    target_owner: "domain_packs/data_agent/sql_safety.py + domain_packs/data_agent/runtime.py"
     disposition: "MOVE_TO_DATA_AGENT_PACK"
     consumer: ["Data Agent governed query path"]
-    residual_gap: "Database executors must enter only through CapabilityBroker; no direct Data runtime authority."
+    residual_gap: "No direct Data runtime authority remains; additional warehouse adapters require separately typed capabilities."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_sql_semantics"
     runtime_authority: true
-    post_migration_runtime_owners: ["domain_packs/data_agent/query"]
+    post_migration_runtime_owners: ["domain_packs/data_agent/runtime.py"]
 
   - capability_id: "P-DATA-EVIDENCE-PROJECTION"
     user_need_ref: "U-DATA-EXPLAINABLE-DECISION"
@@ -60,15 +60,15 @@ capabilities:
     contracts: ["MetricContractRef", "QueryResultSummary", "EvidenceChain", "EvidenceSemanticObjectRef", "ConfidenceScore"]
     failure_paths: ["missing lineage", "template mismatch", "stale result", "unsupported confidence evidence"]
     tests: ["tests.unit.test_evidence_builder_semantic", "tests.unit.test_trusted_loop", "tests.unit.test_http_app"]
-    current_evidence: "G3 PASS"
-    target_owner: "domain_packs/data_agent/evidence"
+    current_evidence: "Post-extraction PASS: receipt/provider/metric/query/result lineage and conservative confidence flags/caps are bypass-tested."
+    target_owner: "domain_packs/data_agent/evidence.py + domain_packs/data_agent/contracts.py"
     disposition: "MOVE_TO_DATA_AGENT_PACK"
     consumer: ["Data Agent result/report path"]
-    residual_gap: "Must project onto shared EvidenceRef/ObservedOutcome without redefining generic evidence authority."
+    residual_gap: "Rich semantic-graph lineage remains PARKED; generic receipt authority stays in Agent OS and Data evidence is a projection only."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_evidence_projection"
     runtime_authority: true
-    post_migration_runtime_owners: ["domain_packs/data_agent/evidence"]
+    post_migration_runtime_owners: ["domain_packs/data_agent/evidence.py"]
 
   - capability_id: "A-SHARED-TASK-RUN-ORCHESTRATION"
     user_need_ref: "U-AGENT-ONE-RESPONSIBILITY-SPINE"
@@ -132,19 +132,19 @@ capabilities:
     source_repo: "ai-native-business-data-agent-os"
     source_paths: ["action_connectors/email_connector", "action_connectors/webhook_connector", "action_connectors/manual_review", "action_connectors/action_record/connector.py"]
     source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
-    public_entrypoint: "Data Agent typed capability registrations"
+    public_entrypoint: "POST /v1/tasks/{task_id}/data-agent/actions:propose"
     contracts: ["ActionProposal", "ConsequencePreview", "ActionAlternative"]
     failure_paths: ["unsupported connector", "invalid payload", "approval missing", "UNKNOWN external effect"]
     tests: ["tests.unit.test_action_record_connector", "tests.unit.test_trusted_loop"]
-    current_evidence: "G3 PASS"
-    target_owner: "domain_packs/data_agent/actions"
+    current_evidence: "Post-extraction PASS for proposal-only ActionContract recording and external-exact approval wait; zero connector execution."
+    target_owner: "domain_packs/data_agent/runtime.py"
     disposition: "MOVE_TO_DATA_AGENT_PACK"
     consumer: ["Data Agent governed action path"]
-    residual_gap: "Each connector must be registered as a typed Agent OS capability; no direct execution route."
+    residual_gap: "Email/webhook execution connectors are PARKED until a tenant opts in and a typed capability, grant, rollback and UNKNOWN reconciliation gate exist."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_business_action_adapters"
     runtime_authority: true
-    post_migration_runtime_owners: ["domain_packs/data_agent/actions"]
+    post_migration_runtime_owners: ["domain_packs/data_agent/runtime.py"]
 
   - capability_id: "A-SHARED-PROVIDER-MODEL-GATEWAY"
     user_need_ref: "U-AGENT-PROVIDER-NEUTRAL-EXECUTION"
@@ -212,15 +212,15 @@ capabilities:
     contracts: ["ExternalReportEventResponse", "ExternalReportEventFeedResponse", "immutable report snapshot payload"]
     failure_paths: ["observer tenant/key mismatch", "legacy event without payload", "duplicate replay", "concurrent revision allocation"]
     tests: ["tests.unit.test_0017_report_snapshot_events", "tests.unit.test_0018_report_snapshot_event_payloads", "tests.unit.test_report_snapshot_events", "tests.unit.test_http_app", "tests.unit.test_openapi_contract"]
-    current_evidence: "G3 PASS / included in 321; donor source head 4449015"
-    target_owner: "domain_packs/data_agent/report_feed"
+    current_evidence: "Post-extraction PASS: 275 immutable report/situated observation tests before ownership move and 287 report plus API tests after move."
+    target_owner: "domain_packs/data_agent/report_adapter.py + report_admission.py + report_policy.py + situated.py"
     disposition: "MOVE_TO_DATA_AGENT_PACK"
     consumer: ["Data Agent external report observer"]
-    residual_gap: "Route must use shared Agent OS authentication/API composition and generic evidence/outcome refs."
+    residual_gap: "No runtime gap in the bounded immutable observation path; compatibility module names alias the same domain module objects."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_report_feed"
     runtime_authority: true
-    post_migration_runtime_owners: ["domain_packs/data_agent/report_feed"]
+    post_migration_runtime_owners: ["domain_packs/data_agent/report_adapter.py"]
 
   - capability_id: "P-DATA-KNOWLEDGE-ASSET-LIFECYCLE"
     user_need_ref: "U-DATA-REUSABLE-DECISION-KNOWLEDGE"
@@ -232,14 +232,14 @@ capabilities:
     failure_paths: ["unverified outcome", "cross-tenant asset", "invalid lifecycle transition", "stale quality evidence"]
     tests: ["tests.unit.test_http_app", "tests.unit.test_trusted_loop_outcome"]
     current_evidence: "G3 PASS for frozen public paths"
-    target_owner: "domain_packs/data_agent/knowledge"
-    disposition: "MOVE_TO_DATA_AGENT_PACK"
-    consumer: ["Data Agent decision reuse path"]
-    residual_gap: "Only Data decision semantics migrate; generic Agent OS memory/candidate promotion is not replaced."
+    target_owner: "Git history through the approved donor ancestry"
+    disposition: "PARK_NO_CONSUMER"
+    consumer: []
+    residual_gap: "No current Agent Surface consumer or held-out benefit gate; generic Agent OS candidate promotion remains authoritative and donor knowledge runtime is not activated."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_knowledge_lifecycle"
-    runtime_authority: true
-    post_migration_runtime_owners: ["domain_packs/data_agent/knowledge"]
+    runtime_authority: false
+    post_migration_runtime_owners: []
 
   - capability_id: "P-DATA-API-WORKSPACE-SURFACE"
     user_need_ref: "U-DATA-SINGLE-AGENT-SURFACE"
@@ -270,14 +270,14 @@ capabilities:
     failure_paths: ["invalid manifest", "missing provider/template", "domain asset imported by os_core"]
     tests: ["tests.unit.test_domain_pack_sdk"]
     current_evidence: "G3 PASS / 3 focused tests"
-    target_owner: "domain_packs/data_agent/packs/content_commerce"
-    disposition: "MOVE_TO_DATA_AGENT_PACK"
-    consumer: ["Data Agent content-commerce reference vertical"]
-    residual_gap: "FaSoLa remains fixture/reference data and cannot enter shared os_core."
+    target_owner: "Git history through the approved donor ancestry"
+    disposition: "PARK_NO_CONSUMER"
+    consumer: []
+    residual_gap: "No live product consumer; FaSoLa stays historical/reference-only and no Customer-0 asset enters current runtime."
     semantic_scope: "DATA_DOMAIN"
     authority_key: "data_domain_assets"
-    runtime_authority: true
-    post_migration_runtime_owners: ["domain_packs/data_agent/packs/content_commerce"]
+    runtime_authority: false
+    post_migration_runtime_owners: []
 
   - capability_id: "R-DATA-DONOR-HISTORICAL-ARTIFACTS"
     user_need_ref: "U-FOUNDER-MIGRATION-PROVENANCE"
