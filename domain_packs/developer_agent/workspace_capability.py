@@ -18,6 +18,7 @@ from agent_os_contracts import (
     CapabilitySpec,
     ReceiptStatus,
     SideEffectGuarantee,
+    content_digest,
 )
 from agent_os_core import CapabilityDenied, CapabilityEffect
 
@@ -829,8 +830,10 @@ class DeveloperWorkspaceAdapter:
             raise CapabilityDenied("only the allowlisted test commands are permitted")
         timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
         snapshot = args.get("selfdev_verification_snapshot")
+        verifier_bindings: list[dict[str, str]] | None = None
+        verifier_argv: list[str] | None = None
         if isinstance(snapshot, dict):
-            result = self._run_selfdev_tests_in_mirror(
+            result, verifier_bindings, verifier_argv = self._run_selfdev_tests_in_mirror(
                 command,
                 timeout,
                 snapshot,
@@ -853,6 +856,12 @@ class DeveloperWorkspaceAdapter:
             "stdout": result.stdout,
             "stderr": result.stderr,
         }
+        if verifier_bindings is not None and verifier_argv is not None:
+            report["verifier_bindings"] = verifier_bindings
+            report["verifier_binding_digest"] = content_digest(
+                {"verifier_bindings": verifier_bindings}
+            )
+            report["argv"] = verifier_argv
         output = _canonical_json_bytes(report)
         digest = _sha256(output)
         artifact = self.artifacts / digest
@@ -869,17 +878,81 @@ class DeveloperWorkspaceAdapter:
         command: str,
         timeout: int,
         snapshot: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> tuple[
+        subprocess.CompletedProcess[str],
+        list[dict[str, str]],
+        list[str],
+    ]:
         expected_head = str(snapshot.get("repository_head", ""))
-        raw_target_paths = snapshot.get("target_paths")
-        if isinstance(raw_target_paths, (list, tuple)) and raw_target_paths:
-            target_paths = tuple(str(path) for path in raw_target_paths)
-        else:
-            target_paths = (str(snapshot.get("target_path", "")),)
-        if any(not path for path in target_paths) or len(set(target_paths)) != len(
-            target_paths
+        if set(snapshot) != {
+            "repository_head",
+            "verifier_bindings",
+            "verifier_binding_digest",
+        }:
+            raise CapabilityDenied("SELFDEV verifier snapshot is malformed")
+        raw_bindings = snapshot.get("verifier_bindings")
+        if not isinstance(raw_bindings, (list, tuple)) or not 1 <= len(raw_bindings) <= 8:
+            raise CapabilityDenied("SELFDEV verifier binding set is invalid")
+        verifier_bindings: list[dict[str, str]] = []
+        base_blobs: list[bytes] = []
+        for raw_binding in raw_bindings:
+            if not isinstance(raw_binding, dict) or set(raw_binding) != {
+                "schema_version",
+                "path",
+                "base_blob_sha256",
+            } or raw_binding.get("schema_version") != "1.0":
+                raise CapabilityDenied("SELFDEV verifier binding is malformed")
+            path = str(raw_binding["path"])
+            digest = str(raw_binding["base_blob_sha256"])
+            if re.fullmatch(r"tests/product/test_[A-Za-z0-9_]+\.py", path) is None:
+                raise CapabilityDenied("SELFDEV verifier path is invalid")
+            tree = subprocess.run(
+                ["git", "-C", str(self.root), "ls-tree", expected_head, "--", path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            records = tuple(line for line in tree.stdout.splitlines() if line)
+            if tree.returncode != 0 or len(records) != 1 or "\t" not in records[0]:
+                raise CapabilityDenied("SELFDEV verifier base blob is unavailable")
+            metadata, recorded_path = records[0].split("\t", 1)
+            parts = metadata.split()
+            if (
+                len(parts) != 3
+                or parts[0] not in {"100644", "100755"}
+                or parts[1] != "blob"
+                or recorded_path != path
+            ):
+                raise CapabilityDenied("SELFDEV verifier base object is not a regular blob")
+            blob = subprocess.run(
+                ["git", "-C", str(self.root), "cat-file", "blob", parts[2]],
+                capture_output=True,
+                check=False,
+            )
+            oracle = self._safe_path(path)
+            if (
+                blob.returncode != 0
+                or _sha256(blob.stdout) != digest
+                or not oracle.is_file()
+                or oracle.is_symlink()
+                or _sha256(oracle.read_bytes()) != digest
+            ):
+                raise CapabilityDenied("SELFDEV verifier blob or worktree oracle drift")
+            verifier_bindings.append(
+                {
+                    "schema_version": "1.0",
+                    "path": path,
+                    "base_blob_sha256": digest,
+                }
+            )
+            base_blobs.append(blob.stdout)
+        target_paths = tuple(binding["path"] for binding in verifier_bindings)
+        if len(set(target_paths)) != len(target_paths):
+            raise CapabilityDenied("SELFDEV verifier binding paths must be unique")
+        if snapshot.get("verifier_binding_digest") != content_digest(
+            {"verifier_bindings": verifier_bindings}
         ):
-            raise CapabilityDenied("SELFDEV verifier target set is invalid")
+            raise CapabilityDenied("SELFDEV verifier binding digest drift")
         head = subprocess.run(
             ["git", "-C", str(self.root), "rev-parse", "HEAD"],
             capture_output=True,
@@ -888,9 +961,6 @@ class DeveloperWorkspaceAdapter:
         )
         if head.returncode != 0 or head.stdout.strip() != expected_head:
             raise CapabilityDenied("SELFDEV verifier repository HEAD drift")
-        targets = tuple(self._safe_path(path) for path in target_paths)
-        if any(not target.is_file() or target.is_symlink() for target in targets):
-            raise CapabilityDenied("SELFDEV verifier target is unavailable")
         sandbox_exec = shutil.which("sandbox-exec")
         if sandbox_exec is None:
             raise CapabilityDenied("SELFDEV verifier requires an OS filesystem sandbox")
@@ -910,10 +980,10 @@ class DeveloperWorkspaceAdapter:
                     ".pytest_cache",
                 ),
             )
-            for target_path, target in zip(target_paths, targets, strict=True):
-                mirrored_target = mirror / target_path
-                mirrored_target.parent.mkdir(parents=True, exist_ok=True)
-                mirrored_target.write_bytes(target.read_bytes())
+            for target_path, base_blob in zip(target_paths, base_blobs, strict=True):
+                mirrored_oracle = mirror / target_path
+                mirrored_oracle.parent.mkdir(parents=True, exist_ok=True)
+                mirrored_oracle.write_bytes(base_blob)
             sandbox_tmp = verification_root / "tmp"
             sandbox_home = verification_root / "home"
             runtime_site = verification_root / "runtime-site"
@@ -1000,18 +1070,21 @@ class DeveloperWorkspaceAdapter:
                 "NO_COLOR": "1",
                 "LANG": os.environ.get("LANG", "C.UTF-8"),
             }
-            return subprocess.run(
-                [
-                    sandbox_exec,
-                    "-p",
-                    profile,
-                    str(base_executable),
-                    "-S",
-                    "-m",
-                    "pytest",
-                    "-p",
-                    "no:cacheprovider",
-                ],
+            argv = [
+                sandbox_exec,
+                "-p",
+                profile,
+                str(base_executable),
+                "-S",
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "-q",
+                *target_paths,
+            ]
+            result = subprocess.run(
+                argv,
                 cwd=mirror,
                 capture_output=True,
                 text=True,
@@ -1019,6 +1092,7 @@ class DeveloperWorkspaceAdapter:
                 check=False,
                 env=environment,
             )
+            return result, verifier_bindings, [str(value) for value in argv]
 
 
 def _sha256(value: bytes) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,7 @@ from agent_os_contracts import (
     PersistentCommitmentState,
     ResponsibilityWorkRoute,
     SelfDevelopmentWorkSpec,
+    SelfDevelopmentVerifierBinding,
     SrlHelpResponseKind,
     TaskEventType,
     ProviderToolProposal,
@@ -82,6 +84,26 @@ from tests.product.test_mandate_outcome_portfolio import _budget
 AUTHORITY_BEARER = "test-only-agent-work-authority-bearer"
 
 
+def _test_verifier_bindings(
+    workspace: Path,
+    head: str,
+) -> tuple[SelfDevelopmentVerifierBinding, ...]:
+    path = "tests/product/test_selfdev_fixture.py"
+    blob = subprocess.run(
+        ["git", "-C", str(workspace), "show", f"{head}:{path}"],
+        check=False,
+        capture_output=True,
+    )
+    if blob.returncode != 0:
+        return ()
+    return (
+        SelfDevelopmentVerifierBinding(
+            path=path,
+            base_blob_sha256=hashlib.sha256(blob.stdout).hexdigest(),
+        ),
+    )
+
+
 def _verified_responsibility(
     tmp_path: Path,
     *,
@@ -112,6 +134,14 @@ def _verified_responsibility(
             "    source = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
             "    assert runpy.run_path(str(source))['VALUE'] is True\n",
             encoding="utf-8",
+        )
+    if selfdev_spec is not None and not selfdev_spec.verifier_bindings:
+        selfdev_spec = selfdev_spec.model_copy(
+            update={
+                "verifier_bindings": _test_verifier_bindings(
+                    tmp_path, selfdev_spec.repository_head
+                )
+            }
         )
     database, owner, admin = _apps(tmp_path)
     owner.provider_configured = True
@@ -721,6 +751,7 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
     )
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
@@ -743,8 +774,20 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
                     "repository_head": head,
                     "isolated_branch": branch,
                     "allowed_write_path": "packages/os_core/src/agent_os_core/selfdev_fixture.py",
-                    "verifier_command": "pytest",
-                    "rollback_strategy": "compensate_task",
+                        "verifier_command": "pytest",
+                        "verifier_bindings": [
+                            binding.model_dump(mode="json")
+                            for binding in spec.verifier_bindings
+                        ],
+                        "verifier_binding_digest": content_digest(
+                            {
+                                "verifier_bindings": [
+                                    binding.model_dump(mode="json")
+                                    for binding in spec.verifier_bindings
+                                ]
+                            }
+                        ),
+                        "rollback_strategy": "compensate_task",
                     "prohibited_effects": (
                         "main",
                         "master",
@@ -796,6 +839,7 @@ def test_selfdev_organ_admits_large_precise_multi_file_write_set(
 
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path=primary,
         edit_mode="agent_loop_precise",
@@ -822,6 +866,7 @@ def test_selfdev_precise_write_set_rejects_out_of_scope_change(
     isolated, branch, head = _linked_worktree(tmp_path)
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         edit_mode="agent_loop_precise",
@@ -892,6 +937,7 @@ def test_selfdev_organ_rejects_dirty_large_and_out_of_scope_changes(
     isolated, branch, head = _linked_worktree(tmp_path)
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
