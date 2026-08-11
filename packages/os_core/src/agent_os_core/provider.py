@@ -514,7 +514,7 @@ class OpenAICompatibleProvider(ProviderPort):
         *,
         request: ProviderRequest | ProviderDecisionRequest,
         on_text_delta: Callable[[str], None] | None,
-    ) -> ProviderResponse:
+    ) -> ProviderResponse | ProviderFailure:
         text_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
         response_id = f"response-{uuid4()}"
@@ -540,7 +540,12 @@ class OpenAICompatibleProvider(ProviderPort):
             try:
                 payload = json.loads(data)
             except json.JSONDecodeError:
-                continue
+                return self._failure(
+                    request,
+                    ProviderErrorCode.MALFORMED,
+                    "provider response malformed: JSONDecodeError",
+                    False,
+                )
             response_id = str(payload.get("id") or response_id)
             choices = payload.get("choices") or []
             if not choices:

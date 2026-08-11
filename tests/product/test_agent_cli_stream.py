@@ -13,6 +13,7 @@ from agent_os_contracts import (
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
+    ProviderResponse,
 )
 from agent_os_core import (
     AutoApproveGateway,
@@ -176,6 +177,7 @@ def test_openai_compatible_provider_parses_sse_deltas_and_tool_calls() -> None:
             os.environ["AGENT_OS_TEST_STREAM_SECRET"] = old
 
     assert deltas == ["Hel", "lo"]
+    assert isinstance(response, ProviderResponse)
     assert response.text == "Hello"
     assert len(response.tool_proposals) == 1
     proposal = response.tool_proposals[0]
