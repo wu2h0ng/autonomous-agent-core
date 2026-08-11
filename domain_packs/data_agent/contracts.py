@@ -70,6 +70,28 @@ class DataEvidenceRef(ContractModel):
     generic_evidence_ref: NonEmptyStr
     metric_contract_digest: Sha256Digest
     query_result_digest: Sha256Digest
+    provider_contract_id: NonEmptyStr
+    query_id: NonEmptyStr
+    sql_fingerprint: Sha256Digest
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    confidence_flags: tuple[NonEmptyStr, ...]
+    lineage_refs: tuple[NonEmptyStr, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_confidence_and_lineage(self) -> DataEvidenceRef:
+        flags = set(self.confidence_flags)
+        if "freshness_unknown" in flags and self.confidence_score > 0.60:
+            raise ValueError("unknown freshness confidence cap exceeded")
+        if "unverified_template" in flags and self.confidence_score > 0.55:
+            raise ValueError("unverified template confidence cap exceeded")
+        required_lineage = {
+            self.generic_evidence_ref,
+            self.provider_contract_id,
+            self.query_id,
+        }
+        if not required_lineage.issubset(self.lineage_refs):
+            raise ValueError("evidence lineage is incomplete")
+        return self
 
 
 class BusinessActionProposalRef(ContractModel):

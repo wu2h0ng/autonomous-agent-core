@@ -116,10 +116,36 @@ def test_completed_result_requires_evidence_and_observed_outcome() -> None:
             generic_evidence_ref="evidence-ref:gmv",
             metric_contract_digest="a" * 64,
             query_result_digest="b" * 64,
+            provider_contract_id="provider:data-warehouse",
+            query_id="query:gmv",
+            sql_fingerprint="c" * 64,
+            confidence_score=0.5,
+            confidence_flags=("freshness_unknown", "unverified_template"),
+            lineage_refs=(
+                "evidence-ref:gmv",
+                "provider:data-warehouse",
+                "query:gmv",
+            ),
         ),
         observed_outcome_id="observed-outcome:gmv",
     )
     assert result.failure_code is None
+
+
+def test_evidence_rejects_high_confidence_with_unknown_freshness() -> None:
+    with pytest.raises(ValidationError, match="unknown freshness confidence cap"):
+        DataEvidenceRef(
+            evidence_id="evidence:gmv",
+            generic_evidence_ref="evidence-ref:gmv",
+            metric_contract_digest="a" * 64,
+            query_result_digest="b" * 64,
+            provider_contract_id="provider:data-warehouse",
+            query_id="query:gmv",
+            sql_fingerprint="c" * 64,
+            confidence_score=0.9,
+            confidence_flags=("freshness_unknown",),
+            lineage_refs=("evidence-ref:gmv",),
+        )
 
 
 def test_os_core_ast_contains_no_data_domain_contracts_or_staging_imports() -> None:

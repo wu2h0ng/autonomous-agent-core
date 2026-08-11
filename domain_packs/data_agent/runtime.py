@@ -33,6 +33,7 @@ from .contracts import (
     SafeQueryResult,
 )
 from .errors import DataAgentDenied
+from .evidence import derive_data_confidence
 from .sql_safety import DataSQLSafetyChecker
 
 
@@ -248,11 +249,25 @@ class DataAgentRuntime:
             result.output,
             expected_query_id=request.safe_query.query_id,
         )
+        confidence = derive_data_confidence(row_count=query_result.row_count)
         evidence = DataEvidenceRef(
             evidence_id=f"data-evidence:{request.request_id}",
             generic_evidence_ref=result.receipt.receipt_id,
             metric_contract_digest=request.safe_query.metric.contract_digest,
             query_result_digest=query_result.query_result_digest,
+            provider_contract_id=request.safe_query.provider_contract_id,
+            query_id=query_result.query_id,
+            sql_fingerprint=query_result.sql_fingerprint,
+            confidence_score=confidence.score,
+            confidence_flags=confidence.flags,
+            lineage_refs=(
+                result.receipt.receipt_id,
+                request.safe_query.provider_contract_id,
+                query_result.query_id,
+                request.safe_query.metric.contract_digest,
+                query_result.sql_fingerprint,
+                query_result.query_result_digest,
+            ),
         )
         return DataAgentResult(
             request_id=request.request_id,

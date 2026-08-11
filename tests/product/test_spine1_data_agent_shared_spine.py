@@ -245,6 +245,16 @@ def test_valid_query_runs_through_real_policy_and_broker(tmp_path: Path) -> None
     assert result.query_result.row_count == 1
     assert result.evidence is not None
     assert result.evidence.generic_evidence_ref.startswith("receipt-")
+    assert result.evidence.provider_contract_id == "provider:sqlite"
+    assert result.evidence.query_id == "query:gmv"
+    assert result.evidence.sql_fingerprint == result.query_result.sql_fingerprint
+    assert result.evidence.confidence_score <= 0.55
+    assert set(result.evidence.confidence_flags) >= {
+        "freshness_unknown",
+        "unverified_template",
+    }
+    assert result.evidence.generic_evidence_ref in result.evidence.lineage_refs
+    assert "provider:sqlite" in result.evidence.lineage_refs
     assert result.observed_outcome_id == "observed:request:gmv"
     assert connector.execution_count == 1
     event_types = [event.event_type for event in app.store.read(request.task_id)]
