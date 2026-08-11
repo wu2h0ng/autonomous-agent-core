@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -27,6 +28,7 @@ from agent_os_contracts import (
     TaskEventDraft,
     TaskEventType,
     WorkflowGraph,
+    content_digest,
 )
 from agent_os_core import (
     InvalidTransitionError,
@@ -360,6 +362,25 @@ def _append_resolution(
     action_digest: str | None = None,
 ) -> None:
     action = _action(ref)
+    assistant = ProviderMessage(
+        role=ProviderMessageRole.ASSISTANT,
+        content="",
+        tool_calls=(
+            ProviderToolCall(
+                tool_call_id="proposal:1",
+                capability_id="workspace.read",
+                arguments_json='{"path":"README.md"}',
+            ),
+        ),
+    )
+    proposal = ProviderToolProposal(
+        proposal_id="proposal:1",
+        capability_id="workspace.read",
+        arguments_json='{"path":"README.md"}',
+    )
+    fingerprint = hashlib.sha256(
+        f"{proposal.capability_id}\n{proposal.arguments_json}".encode("utf-8")
+    ).hexdigest()
     _append(
         store,
         ref.task_id,
@@ -376,6 +397,18 @@ def _append_resolution(
             "approval_id": "approval:1",
             "disposition": "APPROVE",
             "tool_message_index": 2,
+            "assistant_message_index": 1,
+            "assistant_message_digest": content_digest(
+                assistant.model_dump(mode="json")
+            ),
+            "next_proposal_index": 1,
+            "steps": 1,
+            "total_tokens": 10,
+            "seen_action_digests": {fingerprint: 1},
+            "configuration_snapshot_id": "snapshot:1",
+            "configuration_snapshot_digest": "1" * 64,
+            "provider_profile_id": "provider:1",
+            "provider_profile_digest": "2" * 64,
             "resolved_at": NOW.isoformat(),
         },
     )
@@ -771,6 +804,92 @@ def test_projector_rejects_resolution_with_wrong_action_digest(
     _append_resolution(store, ref, action_digest="0" * 64)
 
     with pytest.raises(SessionProjectionError, match="resolution binding"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_exposes_exact_resolved_continuation_until_turn_completion(
+    tmp_path: Path,
+) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_pending(store, ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 2,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content="result",
+                tool_call_id="proposal:1",
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+    _append_resolution(store, ref)
+
+    projected = SessionProjector(store).project(ref.task_id, ref.session_id)
+
+    assert projected.pending_continuation is None
+    assert projected.resolved_continuation is not None
+    assert projected.resolved_continuation.turn_id == "turn:1"
+    assert projected.resolved_continuation.next_proposal_index == 1
+    assert projected.resolved_continuation.steps == 1
+    assert projected.resolved_continuation.total_tokens == 10
+    assert projected.resolved_continuation.source_action_digest == _action(
+        ref
+    ).action_digest()
+
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_TURN_COMPLETED,
+        {
+            "session_id": ref.session_id,
+            "turn_id": "turn:1",
+            "stop_reason": "completed",
+            "steps": 1,
+            "total_tokens": 10,
+        },
+    )
+    completed = SessionProjector(store).project(ref.task_id, ref.session_id)
+    assert completed.resolved_continuation is None
+
+
+def test_projector_rejects_tampered_resolved_continuation_cursor(
+    tmp_path: Path,
+) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_pending(store, ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 2,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content="result",
+                tool_call_id="proposal:1",
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+    _append_resolution(store, ref)
+    event = store.read(ref.task_id)[-1]
+    payload = event.decoded_payload()
+    payload["next_proposal_index"] = 0
+    store._db.execute(
+        "UPDATE task_events SET payload_json = ? WHERE event_id = ?",
+        (json.dumps(payload, sort_keys=True, separators=(",", ":")), event.event_id),
+    )
+    store._db.commit()
+
+    with pytest.raises(SessionProjectionError, match="continuation cursor"):
         SessionProjector(store).project(ref.task_id, ref.session_id)
 
 

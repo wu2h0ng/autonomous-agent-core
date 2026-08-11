@@ -90,6 +90,7 @@ from .protocol_ingress import (
 )
 from .recovery import build_recovery_snapshot
 from .session_projection import (
+    ProjectedResolvedContinuation,
     ProjectedSession,
     SessionProjectionError,
     SessionProjector,
@@ -143,6 +144,7 @@ from .mandate_responsibility import (
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
+    CapabilityEffectUnknown,
     CapabilityResult,
     WorkspaceSandbox,
 )
@@ -289,6 +291,7 @@ __all__ = [
     "SessionProjectionError",
     "SessionProjector",
     "ProjectedSession",
+    "ProjectedResolvedContinuation",
     "SituationalProposalError",
     "SituationalPersistenceConflict",
     "ProtocolIngressConflict",
@@ -393,6 +396,7 @@ __all__ = [
     "SQLiteMandateOutcomePortfolioStore",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
+    "CapabilityEffectUnknown",
     "CapabilityBroker",
     "CapabilityResult",
     "WorkspaceSandbox",

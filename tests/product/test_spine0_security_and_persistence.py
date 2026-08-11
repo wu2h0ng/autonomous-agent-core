@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import sqlite3
+import threading
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -131,6 +134,56 @@ class _CrashBeforeOutcomeStore:
         return self.delegate.put_idempotency(scope, key, response, created_at)
 
 
+class _EffectThenRaiseSandbox(_CountingSandbox):
+    def _dispatch(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        self.dispatch_count += 1
+        (self.root / "effect.txt").write_text("applied\n", encoding="utf-8")
+        raise RuntimeError("connector lost after effect")
+
+
+class _NonCanonicalOutputSandbox(_CountingSandbox):
+    def _dispatch(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        self.dispatch_count += 1
+        (self.root / "effect.txt").write_text("applied\n", encoding="utf-8")
+        return {"non_json": object()}
+
+
+class _BlockingSandbox(_CountingSandbox):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        idempotency_store: object,
+        entered: threading.Event,
+        release: threading.Event,
+    ) -> None:
+        super().__init__(root, idempotency_store=idempotency_store)
+        self.entered = entered
+        self.release = release
+
+    def _dispatch(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        self.dispatch_count += 1
+        self.entered.set()
+        if not self.release.wait(timeout=5):
+            raise AssertionError("test did not release blocked dispatch")
+        return WorkspaceSandbox._dispatch(self, capability_id, args, action_key)
+
+
 def test_sqlite_idempotency_survives_reopen(tmp_path) -> None:
     path = tmp_path / "state.sqlite3"
     first = SQLiteTaskEventStore(path)
@@ -182,6 +235,193 @@ def test_known_capability_outcome_replays_original_receipt_and_output_without_di
     assert target.read_text(encoding="utf-8") == "after\n"
 
 
+def test_sealed_historical_replay_does_not_depend_on_mutable_workspace_state(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    store = SQLiteTaskEventStore(database)
+    correction = CorrectionAuthority(store)
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key="immutable-history-edit",
+    )
+    first_sandbox = _CountingSandbox(tmp_path, idempotency_store=store)
+    first = first_sandbox.invoke(action, permit, correction)
+    target.write_text("later external state\n", encoding="utf-8")
+
+    replay_sandbox = _CountingSandbox(tmp_path, idempotency_store=store)
+    replay = replay_sandbox.invoke(action, permit, correction)
+
+    assert replay == first
+    assert replay_sandbox.dispatch_count == 0
+    assert target.read_text(encoding="utf-8") == "later external state\n"
+
+
+@pytest.mark.parametrize(
+    "sandbox_type",
+    (_EffectThenRaiseSandbox, _NonCanonicalOutputSandbox),
+)
+def test_post_dispatch_uncertainty_never_seals_a_failed_outcome(
+    tmp_path: Path,
+    sandbox_type: type[_CountingSandbox],
+) -> None:
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    correction = CorrectionAuthority(store)
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key=f"unknown-{sandbox_type.__name__}",
+    )
+    sandbox = sandbox_type(tmp_path, idempotency_store=store)
+
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as caught:
+        sandbox.invoke(action, permit, correction)
+
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
+    assert sandbox.dispatch_count == 1
+    assert (tmp_path / "effect.txt").read_text(encoding="utf-8") == "applied\n"
+    assert store.get_idempotency(
+        "capability-reservation.v1", action.idempotency_key
+    ) is not None
+    assert store.get_idempotency(
+        "capability-outcome.v1", action.idempotency_key
+    ) is None
+
+    restarted = _CountingSandbox(tmp_path, idempotency_store=store)
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as replay:
+        restarted.invoke(action, permit, correction)
+    assert replay.value.__class__.__name__ == "CapabilityEffectUnknown"
+    assert restarted.dispatch_count == 0
+
+
+def test_two_sqlite_connections_allow_only_one_reserved_dispatch(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    first_store = SQLiteTaskEventStore(database)
+    second_store = SQLiteTaskEventStore(database)
+    first_correction = CorrectionAuthority(first_store)
+    second_correction = CorrectionAuthority(second_store)
+    action, permit = _workspace_action(
+        first_correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key="two-connection-reservation",
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    first = _BlockingSandbox(
+        tmp_path,
+        idempotency_store=first_store,
+        entered=entered,
+        release=release,
+    )
+    second = _CountingSandbox(tmp_path, idempotency_store=second_store)
+    first_results: list[object] = []
+    first_errors: list[BaseException] = []
+
+    def invoke_first() -> None:
+        try:
+            first_results.append(first.invoke(action, permit, first_correction))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            first_errors.append(exc)
+
+    thread = threading.Thread(target=invoke_first)
+    thread.start()
+    assert entered.wait(timeout=5)
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW"):
+        second.invoke(action, permit, second_correction)
+    assert second.dispatch_count == 0
+    release.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert first_errors == []
+    assert len(first_results) == 1
+    replay = second.invoke(action, permit, second_correction)
+    assert replay == first_results[0]
+    assert first.dispatch_count == 1
+    assert second.dispatch_count == 0
+    assert target.read_text(encoding="utf-8") == "after\n"
+
+
+@pytest.mark.parametrize("tamper_kind", ("digest", "binding"))
+def test_capability_outcome_tamper_fails_closed_without_dispatch(
+    tmp_path: Path,
+    tamper_kind: str,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    store = SQLiteTaskEventStore(database)
+    correction = CorrectionAuthority(store)
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key=f"tamper-{tamper_kind}",
+    )
+    _CountingSandbox(tmp_path, idempotency_store=store).invoke(
+        action, permit, correction
+    )
+    stored = store.get_idempotency("capability-outcome.v1", action.idempotency_key)
+    assert stored is not None
+    if tamper_kind == "digest":
+        stored["output"] = {"tampered": True}
+    else:
+        stored["action_id"] = "action:forged"
+        without_digest = {
+            key: value for key, value in stored.items() if key != "record_digest"
+        }
+        stored["record_digest"] = hashlib.sha256(
+            json.dumps(
+                without_digest,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE idempotency_keys SET response_json = ? WHERE scope = ? AND key = ?",
+            (
+                json.dumps(stored, sort_keys=True),
+                "capability-outcome.v1",
+                action.idempotency_key,
+            ),
+        )
+        connection.commit()
+
+    replay = _CountingSandbox(tmp_path, idempotency_store=store)
+    with pytest.raises(CapabilityDenied, match="capability|outcome|digest") as caught:
+        replay.invoke(action, permit, correction)
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
+    assert replay.dispatch_count == 0
+
+
 def test_shell_dispatch_window_becomes_unknown_and_never_resends(
     tmp_path: Path,
 ) -> None:
@@ -209,8 +449,9 @@ def test_shell_dispatch_window_becomes_unknown_and_never_resends(
         shell_allowlist=("python3 bump.py",),
     )
 
-    with pytest.raises(RuntimeError, match="simulated crash before outcome seal"):
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as caught:
         first_sandbox.invoke(action, permit, correction)
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
 
     assert first_sandbox.dispatch_count == 1
     assert (tmp_path / "counter.txt").read_text(encoding="utf-8") == "1"

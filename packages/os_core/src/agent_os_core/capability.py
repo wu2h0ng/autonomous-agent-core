@@ -8,11 +8,9 @@ import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
-from uuid import uuid4
 
 from agent_os_contracts import (
     ActionContract,
@@ -23,18 +21,13 @@ from agent_os_contracts import (
     SideEffectGuarantee,
 )
 
+from ._action_outcome import (
+    CapabilityDenied,
+    CapabilityEffectUnknown,
+    CapabilityResult,
+    DurableActionOutcomeRepository,
+)
 from .governance import CorrectionReadPort
-
-
-class CapabilityDenied(PermissionError):
-    pass
-
-
-@dataclass(frozen=True)
-class CapabilityResult:
-    receipt: ActionReceipt
-    output: dict[str, object]
-    permit: ActionPermit
 
 
 class CapabilityPort(Protocol):
@@ -74,7 +67,11 @@ class CapabilityBroker:
             return None
         result = replay(action)
         if result is not None and not result.permit.matches(action):
-            raise CapabilityDenied("stored capability outcome permit/action mismatch")
+            raise CapabilityEffectUnknown(
+                action,
+                reason_code="OUTCOME_PERMIT_MISMATCH",
+                detail="stored capability outcome permit/action mismatch",
+            )
         return result
 
 
@@ -87,7 +84,11 @@ class WorkspaceSandbox:
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = Path(artifacts or self.root / ".agent-os-artifacts").resolve()
         self.artifacts.mkdir(parents=True, exist_ok=True)
-        self._idempotency_store = idempotency_store
+        self._outcomes = (
+            DurableActionOutcomeRepository(idempotency_store)
+            if idempotency_store is not None
+            else None
+        )
         self._shell_allowlist = (
             tuple(shell_allowlist)
             if shell_allowlist is not None
@@ -162,10 +163,6 @@ class WorkspaceSandbox:
             )
         return specs
 
-    _RESERVATION_SCOPE = "capability-reservation.v1"
-    _OUTCOME_SCOPE = "capability-outcome.v1"
-    _LEGACY_SCOPE = "capability"
-
     def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("permit does not match action")
@@ -178,43 +175,65 @@ class WorkspaceSandbox:
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
             raise CapabilityDenied("capability arguments must be an object")
-        reserved = self._reserve(action)
+        if self._outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required before capability dispatch"
+            )
+        # Deterministic argument, allowlist, path, and current-state checks run
+        # before reservation. Once dispatch begins, an exception can no longer
+        # prove that no effect happened and therefore remains UNKNOWN.
+        self._preflight(action.capability_id, args, action.idempotency_key)
+        reserved = self._outcomes.reserve(action)
         if isinstance(reserved, CapabilityResult):
             return reserved
         reservation = reserved
-        output: dict[str, object]
         try:
             # C7 is sampled again after the durable reservation and immediately
-            # before dispatch. A changed epoch is sealed as a known denial; it
-            # never leaves an ambiguous reservation that a restart could resend.
+            # before dispatch. Once reservation exists, every unsealed path is
+            # treated conservatively as unknown and can never auto-resend.
             self._validate_correction(action, permit, correction)
-            output = self._canonical_output(
+        except Exception as exc:
+            raise self._outcomes.unknown(
+                action,
+                reason_code="PRE_DISPATCH_CORRECTION_CHANGED",
+                detail=f"{type(exc).__name__}: {exc}",
+                reservation=reservation,
+            ) from exc
+        try:
+            output = self._outcomes.canonical_output(
                 self._dispatch(
                     action.capability_id,
                     args,
                     action.idempotency_key,
                 )
             )
-            status = (
-                ReceiptStatus.COMPENSATED
-                if action.capability_id == "workspace.compensate_patch"
-                else ReceiptStatus.SUCCEEDED
-            )
-            error_code = "error:none"
         except Exception as exc:
-            output = {"error": f"{type(exc).__name__}: {exc}"}
-            status = ReceiptStatus.FAILED
-            error_code = type(exc).__name__
+            raise self._outcomes.unknown(
+                action,
+                reason_code="POST_DISPATCH_UNCERTAIN",
+                detail=f"{type(exc).__name__}: {exc}",
+                reservation=reservation,
+            ) from exc
         receipt = self._build_receipt(
             action,
             permit,
             reservation,
             output,
-            status=status,
-            error_code=error_code,
+            status=(
+                ReceiptStatus.COMPENSATED
+                if action.capability_id == "workspace.compensate_patch"
+                else ReceiptStatus.SUCCEEDED
+            ),
+            error_code="error:none",
             attempt=attempt,
         )
-        return self._seal_outcome(action, reservation, permit, receipt, output)
+        return self._outcomes.seal(
+            action,
+            reservation,
+            permit,
+            receipt,
+            output,
+        )
 
     def replay(self, action: ActionContract) -> CapabilityResult | None:
         """Return a sealed result or fail closed for an unresolved dispatch window.
@@ -223,30 +242,30 @@ class WorkspaceSandbox:
         sealed outcome is never interpreted as success and never dispatched again.
         """
 
-        if self._idempotency_store is None:
+        if self._outcomes is None:
             return None
-        outcome = self._get_record(self._OUTCOME_SCOPE, action.idempotency_key)
-        reservation = self._get_record(
-            self._RESERVATION_SCOPE,
-            action.idempotency_key,
-        )
-        if outcome is not None:
-            if reservation is None:
-                raise CapabilityDenied("capability outcome lacks durable reservation")
-            return self._load_outcome(action, reservation, outcome)
-        if reservation is not None:
-            self._validate_reservation(action, reservation)
-            raise CapabilityDenied(
-                "UNKNOWN_REQUIRES_REVIEW: capability dispatch was reserved but "
-                "no terminal outcome was sealed; automatic resend is forbidden"
-            )
-        legacy = self._get_record(self._LEGACY_SCOPE, action.idempotency_key)
-        if legacy is not None:
-            raise CapabilityDenied(
-                "UNKNOWN_REQUIRES_REVIEW: legacy capability result lacks an "
-                "original durable receipt; automatic replay is forbidden"
-            )
-        return None
+        return self._outcomes.replay(action)
+
+    def reconcile_effect(
+        self,
+        action: ActionContract,
+        result: CapabilityResult,
+    ) -> None:
+        """Read current local evidence without altering or replaying history."""
+
+        args = json.loads(action.arguments_json)
+        if not isinstance(args, dict):
+            raise CapabilityDenied("capability arguments must be an object")
+        if (
+            result.receipt.status is ReceiptStatus.SUCCEEDED
+            and action.capability_id in {"workspace.apply_patch", "workspace.edit"}
+        ):
+            self._validate_cached_patch_effect(args, result.output)
+        elif (
+            result.receipt.status is ReceiptStatus.COMPENSATED
+            and action.capability_id == "workspace.compensate_patch"
+        ):
+            self._validate_cached_compensation_effect(args, result.output)
 
     @staticmethod
     def _validate_correction(
@@ -266,222 +285,6 @@ class WorkspaceSandbox:
             or current_epochs != action.observed_correction_epochs
         ):
             raise CapabilityDenied("stale correction epoch")
-
-    def _reserve(
-        self,
-        action: ActionContract,
-    ) -> dict[str, object] | CapabilityResult:
-        if self._idempotency_store is None:
-            raise CapabilityDenied(
-                "durable idempotency store is required before capability dispatch"
-            )
-        now = datetime.now(timezone.utc)
-        reservation = self._with_record_digest(
-            {
-                "schema_version": self._RESERVATION_SCOPE,
-                "state": "RESERVED",
-                "reservation_id": f"reservation-{uuid4()}",
-                "receipt_id": f"receipt-{uuid4()}",
-                "action_id": action.action_id,
-                "action_digest": action.action_digest(),
-                "idempotency_key": action.idempotency_key,
-                "capability_id": action.capability_id,
-                "intent_fingerprint": _intent_fingerprint(action),
-                "reserved_at": now.isoformat(),
-            }
-        )
-        if not self._put_record(
-            self._RESERVATION_SCOPE,
-            action.idempotency_key,
-            reservation,
-            now,
-        ):
-            replayed = self.replay(action)
-            if replayed is not None:
-                return replayed
-            raise CapabilityDenied("capability reservation conflict")
-        return reservation
-
-    def _seal_outcome(
-        self,
-        action: ActionContract,
-        reservation: dict[str, object],
-        permit: ActionPermit,
-        receipt: ActionReceipt,
-        output: dict[str, object],
-    ) -> CapabilityResult:
-        now = datetime.now(timezone.utc)
-        outcome = self._with_record_digest(
-            {
-                "schema_version": self._OUTCOME_SCOPE,
-                "state": receipt.status.value,
-                "reservation_id": reservation["reservation_id"],
-                "action_id": action.action_id,
-                "action_digest": action.action_digest(),
-                "idempotency_key": action.idempotency_key,
-                "capability_id": action.capability_id,
-                "intent_fingerprint": _intent_fingerprint(action),
-                "permit": permit.model_dump(mode="json"),
-                "receipt": receipt.model_dump(mode="json"),
-                "output": output,
-                "sealed_at": now.isoformat(),
-            }
-        )
-        if not self._put_record(
-            self._OUTCOME_SCOPE,
-            action.idempotency_key,
-            outcome,
-            now,
-        ):
-            stored = self._get_record(self._OUTCOME_SCOPE, action.idempotency_key)
-            if stored is None:
-                raise CapabilityDenied("capability outcome seal conflict")
-            return self._load_outcome(action, reservation, stored)
-        return CapabilityResult(receipt=receipt, output=output, permit=permit)
-
-    def _load_outcome(
-        self,
-        action: ActionContract,
-        reservation: dict[str, object],
-        outcome: dict[str, object],
-    ) -> CapabilityResult:
-        self._validate_reservation(action, reservation)
-        required = {
-            "schema_version",
-            "state",
-            "reservation_id",
-            "action_id",
-            "action_digest",
-            "idempotency_key",
-            "capability_id",
-            "intent_fingerprint",
-            "permit",
-            "receipt",
-            "output",
-            "sealed_at",
-            "record_digest",
-        }
-        self._validate_record(outcome, required, self._OUTCOME_SCOPE)
-        bindings = {
-            "reservation_id": reservation["reservation_id"],
-            "action_id": action.action_id,
-            "action_digest": action.action_digest(),
-            "idempotency_key": action.idempotency_key,
-            "capability_id": action.capability_id,
-            "intent_fingerprint": _intent_fingerprint(action),
-        }
-        if any(outcome.get(field) != value for field, value in bindings.items()):
-            if outcome.get("intent_fingerprint") != bindings["intent_fingerprint"]:
-                raise CapabilityDenied(
-                    "idempotency key reused for a different action intent"
-                )
-            raise CapabilityDenied("capability outcome/action binding mismatch")
-        permit_value = outcome.get("permit")
-        receipt_value = outcome.get("receipt")
-        output_value = outcome.get("output")
-        if not isinstance(permit_value, dict) or not isinstance(receipt_value, dict):
-            raise CapabilityDenied("invalid capability outcome contracts")
-        if not isinstance(output_value, dict):
-            raise CapabilityDenied("invalid capability outcome output")
-        try:
-            permit = ActionPermit.model_validate(permit_value)
-            receipt = ActionReceipt.model_validate(receipt_value)
-        except ValueError as exc:
-            raise CapabilityDenied("invalid capability outcome contract") from exc
-        if not permit.matches(action):
-            raise CapabilityDenied("stored capability permit/action mismatch")
-        if (
-            receipt.receipt_id != reservation["receipt_id"]
-            or receipt.action_id != action.action_id
-            or receipt.action_digest != action.action_digest()
-            or receipt.permit_id != permit.permit_id
-            or receipt.tenant_id != action.tenant_id
-            or receipt.workspace_id != action.workspace_id
-            or receipt.connector_id != action.capability_id
-            or receipt.idempotency_key != action.idempotency_key
-            or receipt.status.value != outcome["state"]
-        ):
-            raise CapabilityDenied("stored capability receipt/action mismatch")
-        output = self._canonical_output(output_value)
-        args = json.loads(action.arguments_json)
-        if (
-            receipt.status is ReceiptStatus.SUCCEEDED
-            and action.capability_id in {"workspace.apply_patch", "workspace.edit"}
-        ):
-            self._validate_cached_patch_effect(args, output)
-        elif (
-            receipt.status is ReceiptStatus.COMPENSATED
-            and action.capability_id == "workspace.compensate_patch"
-        ):
-            self._validate_cached_compensation_effect(args, output)
-        return CapabilityResult(receipt=receipt, output=output, permit=permit)
-
-    def _validate_reservation(
-        self,
-        action: ActionContract,
-        reservation: dict[str, object],
-    ) -> None:
-        required = {
-            "schema_version",
-            "state",
-            "reservation_id",
-            "receipt_id",
-            "action_id",
-            "action_digest",
-            "idempotency_key",
-            "capability_id",
-            "intent_fingerprint",
-            "reserved_at",
-            "record_digest",
-        }
-        self._validate_record(reservation, required, self._RESERVATION_SCOPE)
-        if reservation.get("intent_fingerprint") != _intent_fingerprint(action):
-            raise CapabilityDenied("idempotency key reused for a different action intent")
-        expected = {
-            "state": "RESERVED",
-            "action_id": action.action_id,
-            "action_digest": action.action_digest(),
-            "idempotency_key": action.idempotency_key,
-            "capability_id": action.capability_id,
-        }
-        if any(reservation.get(field) != value for field, value in expected.items()):
-            raise CapabilityDenied("capability reservation/action binding mismatch")
-        if not all(
-            isinstance(reservation.get(field), str) and reservation[field]
-            for field in ("reservation_id", "receipt_id", "reserved_at")
-        ):
-            raise CapabilityDenied("invalid capability reservation identity")
-
-    @staticmethod
-    def _with_record_digest(record: dict[str, object]) -> dict[str, object]:
-        return {
-            **record,
-            "record_digest": _sha256(_canonical_json_bytes(record)),
-        }
-
-    @staticmethod
-    def _validate_record(
-        record: dict[str, object],
-        required: set[str],
-        schema_version: str,
-    ) -> None:
-        if set(record) != required or record.get("schema_version") != schema_version:
-            raise CapabilityDenied("invalid durable capability record fields")
-        claimed = record.get("record_digest")
-        without_digest = {
-            key: value for key, value in record.items() if key != "record_digest"
-        }
-        if not isinstance(claimed, str) or claimed != _sha256(
-            _canonical_json_bytes(without_digest)
-        ):
-            raise CapabilityDenied("durable capability record digest mismatch")
-
-    @staticmethod
-    def _canonical_output(output: dict[str, object]) -> dict[str, object]:
-        decoded = json.loads(_canonical_json_bytes(output))
-        if not isinstance(decoded, dict):
-            raise CapabilityDenied("capability output must be a JSON object")
-        return decoded
 
     def _build_receipt(
         self,
@@ -513,29 +316,6 @@ class WorkspaceSandbox:
             occurred_at=datetime.now(timezone.utc),
         )
 
-    def _get_record(self, scope: str, key: str) -> dict[str, object] | None:
-        getter = getattr(self._idempotency_store, "get_idempotency", None)
-        if getter is None:
-            raise CapabilityDenied("durable idempotency store is not readable")
-        stored = getter(scope, key)
-        if stored is None:
-            return None
-        if not isinstance(stored, dict):
-            raise CapabilityDenied("invalid durable capability record")
-        return stored
-
-    def _put_record(
-        self,
-        scope: str,
-        key: str,
-        record: dict[str, object],
-        created_at: datetime,
-    ) -> bool:
-        setter = getattr(self._idempotency_store, "put_idempotency", None)
-        if setter is None:
-            raise CapabilityDenied("durable idempotency store is not writable")
-        return bool(setter(scope, key, record, created_at.isoformat()))
-
     def _dispatch(self, capability_id: str, args: dict[str, object], action_key: str) -> dict[str, object]:
         if capability_id == "workspace.read":
             path = self._safe_path(str(args.get("path", "")))
@@ -562,6 +342,40 @@ class WorkspaceSandbox:
             if not target.exists():
                 target.write_bytes(content)
             return {"artifact_ids": (f"artifact:{digest}",), "digest": digest}
+        raise CapabilityDenied(f"capability is not registered: {capability_id}")
+
+    def _preflight(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        if capability_id == "workspace.read":
+            path = self._safe_path(str(args.get("path", "")))
+            if not path.is_file():
+                raise FileNotFoundError(str(args.get("path")))
+            return
+        if capability_id == "workspace.apply_patch":
+            self._preflight_apply_patch(args, action_key)
+            return
+        if capability_id == "workspace.edit":
+            patch_args = self._edit_patch_args(args)
+            self._preflight_apply_patch(patch_args, action_key)
+            return
+        if capability_id == "workspace.search":
+            self._preflight_search(args)
+            return
+        if capability_id == "workspace.shell":
+            self._preflight_shell(args)
+            return
+        if capability_id == "workspace.compensate_patch":
+            self._preflight_compensate_patch(args)
+            return
+        if capability_id == "workspace.run_tests":
+            self._preflight_run_tests(args)
+            return
+        if capability_id == "artifact.write":
+            return
         raise CapabilityDenied(f"capability is not registered: {capability_id}")
 
     def read_artifact_bytes(self, artifact_id: str) -> bytes | None:
@@ -680,6 +494,57 @@ class WorkspaceSandbox:
             "manifest_sha256": manifest_sha256,
             "replayed": False,
         }
+
+    def _preflight_apply_patch(
+        self,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        path = self._safe_path(str(args.get("path", "")))
+        content_bytes = str(args.get("content", "")).encode("utf-8")
+        relative_path = str(path.relative_to(self.root))
+        key_digest = _sha256(action_key.encode("utf-8"))
+        compensation_ref = f"compensation:{key_digest}"
+        snapshot_dir = self.artifacts / "compensation" / key_digest
+        applied_sha256 = _sha256(content_bytes)
+        if snapshot_dir.exists():
+            manifest, _, state, _ = self._load_snapshot(compensation_ref)
+            if state == "COMPENSATED":
+                raise CapabilityDenied("patch was already compensated and cannot replay")
+            if manifest["action_key_sha256"] != key_digest:
+                raise CapabilityDenied("snapshot action key binding mismatch")
+            if manifest["relative_path"] != relative_path:
+                raise CapabilityDenied("snapshot path binding mismatch")
+            if manifest["applied_sha256"] != applied_sha256:
+                raise CapabilityDenied(
+                    "idempotency key reused for different patch content"
+                )
+            current_matches_applied = (
+                path.exists() and _sha256(path.read_bytes()) == applied_sha256
+            )
+            before_existed = bool(manifest["before_existed"])
+            current_matches_before = (
+                path.exists()
+                and before_existed
+                and _sha256(path.read_bytes()) == manifest["before_sha256"]
+            ) or (not path.exists() and not before_existed)
+            if state == "PREPARED" and not (
+                current_matches_before or current_matches_applied
+            ):
+                raise CapabilityDenied(
+                    "workspace changed outside the prepared patch replay"
+                )
+            if state == "APPLIED" and not current_matches_applied:
+                raise CapabilityDenied(
+                    "APPLIED snapshot no longer matches the patch effect"
+                )
+            return
+        expected = args.get("expected_sha256")
+        before_existed = path.exists()
+        before_bytes = path.read_bytes() if before_existed else b""
+        actual = _sha256(before_bytes) if before_existed else None
+        if expected is not None and expected != actual:
+            raise CapabilityDenied("workspace changed since proposal")
 
     def _validate_cached_patch_effect(
         self,
@@ -811,6 +676,42 @@ class WorkspaceSandbox:
             "replayed": current_is_before,
         }
 
+    def _preflight_compensate_patch(self, args: dict[str, object]) -> None:
+        relative_path = str(args.get("path", ""))
+        target = self._safe_path(relative_path)
+        action_key = str(args.get("original_action_key", ""))
+        compensation_ref = str(args.get("compensation_ref", ""))
+        expected_manifest_sha256 = str(args.get("manifest_sha256", ""))
+        manifest, _, state, _ = self._load_snapshot(
+            compensation_ref,
+            expected_manifest_sha256=expected_manifest_sha256,
+        )
+        if manifest["action_key_sha256"] != _sha256(action_key.encode("utf-8")):
+            raise CapabilityDenied("snapshot action key binding mismatch")
+        if manifest["relative_path"] != relative_path:
+            raise CapabilityDenied("snapshot path binding mismatch")
+        applied_sha256 = str(manifest["applied_sha256"])
+        before_existed = bool(manifest["before_existed"])
+        before_sha256 = str(manifest["before_sha256"])
+        current_is_applied = (
+            target.exists() and _sha256(target.read_bytes()) == applied_sha256
+        )
+        current_is_before = (
+            target.exists()
+            and before_existed
+            and _sha256(target.read_bytes()) == before_sha256
+        ) or (not target.exists() and not before_existed)
+        if state == "COMPENSATED":
+            if not current_is_before:
+                raise CapabilityDenied(
+                    "COMPENSATED snapshot is terminal and target has changed"
+                )
+            return
+        if state != "APPLIED":
+            raise CapabilityDenied("patch snapshot is not in APPLIED state")
+        if not current_is_applied and not current_is_before:
+            raise CapabilityDenied("target changed after patch; compensation refused")
+
     def _persist_snapshot(
         self,
         snapshot_dir: Path,
@@ -931,6 +832,12 @@ class WorkspaceSandbox:
             temp_path.unlink(missing_ok=True)
 
     def _edit(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        return self._apply_patch(self._edit_patch_args(args), action_key)
+
+    def _edit_patch_args(
+        self,
+        args: dict[str, object],
+    ) -> dict[str, object]:
         relative_path = str(args.get("path", ""))
         path = self._safe_path(relative_path)
         if not path.is_file():
@@ -953,7 +860,7 @@ class WorkspaceSandbox:
         }
         if args.get("expected_sha256") is not None:
             patch_args["expected_sha256"] = args["expected_sha256"]
-        return self._apply_patch(patch_args, action_key)
+        return patch_args
 
     _SEARCH_SKIP_DIRS = frozenset({".git", ".agent-os-artifacts", "node_modules", "__pycache__", ".venv"})
     _SEARCH_MAX_RESULTS = 200
@@ -1045,6 +952,29 @@ class WorkspaceSandbox:
             return {"mode": "grep", "matches": output, "truncated": truncated}
         raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
 
+    def _preflight_search(self, args: dict[str, object]) -> None:
+        mode = str(args.get("mode", ""))
+        base_value = str(args.get("path", "") or ".")
+        base = self.root if base_value == "." else self._safe_path(base_value)
+        if mode == "ls":
+            if not base.is_dir():
+                raise FileNotFoundError(base_value)
+            return
+        if mode == "glob":
+            if not str(args.get("pattern", "")):
+                raise CapabilityDenied("workspace.search glob requires a pattern")
+            return
+        if mode == "grep":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                raise CapabilityDenied("workspace.search grep requires a pattern")
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise CapabilityDenied(f"invalid grep pattern: {exc}") from exc
+            return
+        raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
+
     def _is_safe_search_candidate(self, candidate: Path) -> bool:
         if candidate.is_symlink():
             return False
@@ -1086,6 +1016,12 @@ class WorkspaceSandbox:
             "digest": digest,
         }
 
+    def _preflight_shell(self, args: dict[str, object]) -> None:
+        command = " ".join(str(args.get("command", "")).split())
+        if command not in self._shell_allowlist:
+            raise CapabilityDenied("command is not in the shell allowlist")
+        int(str(args.get("timeout_seconds", 120)))
+
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
         allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
@@ -1110,6 +1046,14 @@ class WorkspaceSandbox:
         if not artifact.exists():
             artifact.write_bytes(output)
         return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
+
+    @staticmethod
+    def _preflight_run_tests(args: dict[str, object]) -> None:
+        command = str(args.get("command", ""))
+        allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
+        if command not in allowed:
+            raise CapabilityDenied("only the allowlisted test commands are permitted")
+        int(str(args.get("timeout_seconds", 120)))
 
 
 def _sha256(value: bytes) -> str:
@@ -1148,25 +1092,6 @@ def _canonical_json_bytes(value: object) -> bytes:
         separators=(",", ":"),
         ensure_ascii=False,
     ).encode("utf-8")
-
-
-def _intent_fingerprint(action: ActionContract) -> str:
-    return _sha256(
-        _canonical_json_bytes(
-            {
-                "tenant_id": action.tenant_id,
-                "workspace_id": action.workspace_id,
-                "principal_id": action.principal_id,
-                "run_id": action.run_id,
-                "node_id": action.node_id,
-                "capability_id": action.capability_id,
-                "capability_version": action.capability_version,
-                "arguments_json": action.arguments_json,
-                "policy_version": action.policy_version,
-                "expected_outcome_id": action.expected_outcome_id,
-            }
-        )
-    )
 
 
 def _fsync_directory(path: Path) -> None:

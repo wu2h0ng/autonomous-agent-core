@@ -1569,7 +1569,28 @@ class AgentOSApplication:
         projected = self.tasks.project_session(session.task_id, session_id)
         pending = projected.pending_continuation
         if pending is None:
-            raise InvalidTransitionError("session has no pending approval")
+            resolved = projected.resolved_continuation
+            if resolved is None:
+                raise InvalidTransitionError("session has no pending approval")
+            recorded = self.tasks.resolved_session_approval(
+                session.task_id,
+                resolved,
+            )
+            if (
+                action_digest != resolved.source_action_digest
+                or disposition is not recorded.disposition
+                or reason != recorded.reason
+                or recorded.actor_id != self.principal.principal_id
+                or recorded.actor_role is not self.principal.role
+            ):
+                raise InvalidTransitionError(
+                    "approval retry does not match the exact durable decision"
+                )
+            return loop.resume_resolved_continuation(
+                session,
+                action_digest=action_digest,
+                disposition=disposition,
+            )
         if action_digest != pending.action.action_digest():
             raise InvalidTransitionError(
                 "approval digest does not match the pending action"

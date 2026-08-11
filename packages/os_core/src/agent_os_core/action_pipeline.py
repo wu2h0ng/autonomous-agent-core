@@ -17,8 +17,12 @@ from agent_os_contracts import (
     TaskEventType,
 )
 
-from .capability import CapabilityBroker, CapabilityResult
-from .errors import RunExecutionError
+from .capability import (
+    CapabilityBroker,
+    CapabilityEffectUnknown,
+    CapabilityResult,
+)
+from .errors import InvalidTransitionError, RunExecutionError
 from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .task_service import TaskService
 
@@ -97,15 +101,57 @@ class ActionPipeline:
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
             )
-        replayed = self._broker.replay(action)
-        if replayed is not None:
-            self._tasks._recover_action_receipt(
+        try:
+            recorded = self._tasks._find_exact_action_receipt(
                 action.task_id,
-                action=action,
-                permit=replayed.permit,
-                receipt=replayed.receipt,
-                writer_token=self._tasks._runtime_writer_token,
+                action,
             )
+        except InvalidTransitionError as exc:
+            raise CapabilityEffectUnknown(
+                action,
+                reason_code="TASK_RECEIPT_CORRUPT",
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
+        replayed = self._broker.replay(action)
+        if recorded is not None:
+            if replayed is None:
+                raise CapabilityEffectUnknown(
+                    action,
+                    reason_code="TASK_RECEIPT_WITHOUT_OUTCOME",
+                    detail=(
+                        "Task receipt exists without the exact sealed capability "
+                        "outcome; automatic dispatch is forbidden"
+                    ),
+                )
+            if (
+                replayed.permit != recorded.permit
+                or replayed.receipt != recorded.receipt
+            ):
+                raise CapabilityEffectUnknown(
+                    action,
+                    reason_code="RECEIPT_OUTCOME_CONFLICT",
+                    detail="Task receipt and sealed capability outcome conflict",
+                )
+            return self._finish_result(
+                action,
+                replayed,
+                record_artifacts=record_artifacts,
+            )
+        if replayed is not None:
+            try:
+                self._tasks._recover_action_receipt(
+                    action.task_id,
+                    action=action,
+                    permit=replayed.permit,
+                    receipt=replayed.receipt,
+                    writer_token=self._tasks._runtime_writer_token,
+                )
+            except InvalidTransitionError as exc:
+                raise CapabilityEffectUnknown(
+                    action,
+                    reason_code="OUTCOME_TASK_TRUTH_CONFLICT",
+                    detail=f"{type(exc).__name__}: {exc}",
+                ) from exc
             return self._finish_result(
                 action,
                 replayed,

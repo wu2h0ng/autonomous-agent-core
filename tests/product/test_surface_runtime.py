@@ -18,6 +18,7 @@ from agent_os_contracts import (
     TurnId,
 )
 from agent_os_core import (
+    AgentLoop,
     AgentLoopConfig,
     AutoApproveGateway,
     ChatSession,
@@ -668,3 +669,334 @@ def test_correction_between_approval_and_execution_fails_closed(
         if message.role is ProviderMessageRole.TOOL
     )
     assert "CORRECTION_HALTED" in tool_message.content
+
+
+def test_unknown_effect_keeps_pending_and_stops_provider_continuation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, session, pending = _pending_edit(tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=(("must not replan", ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    dispatches = 0
+
+    def effect_then_disconnect(
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        nonlocal dispatches
+        dispatches += 1
+        (tmp_path / "unknown-effect.txt").write_text(
+            "effect may have happened\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError("connector disconnected after effect")
+
+    monkeypatch.setattr(app.sandbox, "_dispatch", effect_then_disconnect)
+    result = app.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+    )
+
+    assert result.stop_reason == "unknown_requires_review"
+    assert dispatches == 1
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert projected.pending_approval == pending
+    assert not any(
+        message.role is ProviderMessageRole.TOOL for message in projected.history
+    )
+    assert _event_count(
+        app, session.task_id, TaskEventType.SESSION_APPROVAL_RESOLVED
+    ) == 0
+    assert _event_count(
+        app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED
+    ) == 0
+    run = app.tasks.get_task(session.task_id).run
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+
+    retry = app.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+    )
+    assert retry.stop_reason == "unknown_requires_review"
+    assert dispatches == 1
+    assert app.provider.requests == []
+    with pytest.raises(InvalidTransitionError, match="UNKNOWN_REQUIRES_REVIEW"):
+        app.resume_task(session.task_id)
+
+
+def test_non_deferred_unknown_stops_without_tool_reply_or_replan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    app = chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    proposal(
+                        "call-edit",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+            ("must not replan", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("unknown", AutoApproveGateway())
+    dispatches = 0
+
+    def effect_then_disconnect(
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        nonlocal dispatches
+        dispatches += 1
+        (tmp_path / "unknown-effect.txt").write_text("applied\n", encoding="utf-8")
+        raise RuntimeError("connector disconnected after effect")
+
+    monkeypatch.setattr(app.sandbox, "_dispatch", effect_then_disconnect)
+    result = loop.run_turn(session, "edit")
+
+    assert result.stop_reason == "unknown_requires_review"
+    assert dispatches == 1
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 1
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert not any(
+        message.role is ProviderMessageRole.TOOL for message in projected.history
+    )
+    assert projected.resumable_turn_id == result.turn_id.turn_id
+    run = app.tasks.get_task(session.task_id).run
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+
+
+def test_reject_after_c7_change_clears_pending_and_allows_replan(
+    tmp_path: Path,
+) -> None:
+    app, session, pending = _pending_edit(tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=(("rejected after correction", ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    app.correction.correct(
+        "capability",
+        "workspace.edit",
+        "operator correction before rejection",
+    )
+
+    result = app.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.REJECT,
+        reason="reject stale proposal",
+    )
+
+    assert result.stop_reason == "completed"
+    assert result.text == "rejected after correction"
+    assert _receipt_count(app, session.task_id) == 0
+    assert SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    ).pending_approval is None
+
+
+def test_cancel_after_c7_change_clears_pending_and_ends_turn(
+    tmp_path: Path,
+) -> None:
+    app, session, _pending = _pending_edit(tmp_path)
+    app.correction.correct(
+        "capability",
+        "workspace.edit",
+        "operator correction before cancellation",
+    )
+
+    cancelled = app.cancel_task(session.task_id)
+
+    assert cancelled.run is not None
+    assert cancelled.run.status is RunStatus.CANCELLED
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert projected.pending_approval is None
+    assert projected.pending_continuation is None
+    assert projected.resumable_turn_id is None
+    assert _receipt_count(app, session.task_id) == 0
+
+
+def test_stale_recorded_approve_remains_rejectable_after_c7_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, session, pending = _pending_edit(tmp_path)
+    original_execute = ActionPipeline.execute
+
+    def crash_before_execute(*_args: object, **_kwargs: object) -> None:
+        raise _ProcessCrash("approval persisted")
+
+    monkeypatch.setattr(ActionPipeline, "execute", crash_before_execute)
+    with pytest.raises(_ProcessCrash, match="approval persisted"):
+        app.decide_session_approval(
+            session.session_id,
+            action_digest=pending.action_digest,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="reviewed exact edit",
+        )
+    monkeypatch.setattr(ActionPipeline, "execute", original_execute)
+    app.correction.correct(
+        "capability",
+        "workspace.edit",
+        "operator correction after approval persistence",
+    )
+
+    with pytest.raises(InvalidTransitionError, match="C7|correction|stale"):
+        app.decide_session_approval(
+            session.session_id,
+            action_digest=pending.action_digest,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="reviewed exact edit",
+        )
+
+    app.provider = DeterministicProvider(
+        scripted=(("safely rejected", ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    rejected = app.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.REJECT,
+        reason="reject after correction",
+    )
+    assert rejected.stop_reason == "completed"
+    assert rejected.text == "safely rejected"
+    assert _receipt_count(app, session.task_id) == 0
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+@pytest.mark.parametrize("resume_mode", ("decision", "turn"))
+def test_restart_after_resolution_batch_resumes_exact_remaining_cursor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    resume_mode: str,
+) -> None:
+    (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    app1 = chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    proposal(
+                        "call-edit",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                    proposal(
+                        "call-read",
+                        "workspace.read",
+                        {"path": "fixture.txt"},
+                    ),
+                ),
+            ),
+        ),
+    )
+    session, loop = app1.open_chat_session("two tools", DeferredApprovalGateway())
+    waiting = loop.run_turn(session, "edit then read")
+    pending = SessionProjector(app1.store).project(
+        session.task_id,
+        session.session_id,
+    ).pending_approval
+    assert waiting.stop_reason == "approval_required"
+    assert pending is not None
+    original_drive = AgentLoop._drive
+
+    def crash_after_resolution(*_args: object, **_kwargs: object) -> None:
+        raise _ProcessCrash("after resolution batch")
+
+    monkeypatch.setattr(AgentLoop, "_drive", crash_after_resolution)
+    with pytest.raises(_ProcessCrash, match="resolution batch"):
+        app1.decide_session_approval(
+            session.session_id,
+            action_digest=pending.action_digest,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="reviewed exact edit",
+        )
+    monkeypatch.setattr(AgentLoop, "_drive", original_drive)
+
+    checkpoint = SessionProjector(app1.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert checkpoint.pending_approval is None
+    assert checkpoint.resolved_continuation is not None
+    assert checkpoint.resolved_continuation.next_proposal_index == 1
+    assert checkpoint.resolved_continuation.steps == 1
+    app1.store.close()
+
+    app2 = chat_app(tmp_path, scripted=(("continued exactly", ()),))
+    if resume_mode == "decision":
+        resumed = app2.decide_session_approval(
+            session.session_id,
+            action_digest=pending.action_digest,
+            disposition=ApprovalDisposition.APPROVE,
+            reason="reviewed exact edit",
+        )
+    else:
+        restored, restored_loop = app2.restore_chat_session(
+            session.session_id,
+            DeferredApprovalGateway(),
+        )
+        resumed = restored_loop.resume_turn(
+            restored,
+            TurnId(
+                turn_id=waiting.turn_id.turn_id,
+                session_id=session.session_id,
+            ),
+        )
+
+    assert resumed.stop_reason == "completed"
+    assert resumed.text == "continued exactly"
+    assert resumed.steps == 2
+    assert _receipt_count(app2, session.task_id) == 2
+    projected = SessionProjector(app2.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    tool_ids = [
+        message.tool_call_id
+        for message in projected.history
+        if message.role is ProviderMessageRole.TOOL
+    ]
+    assert tool_ids == ["call-edit", "call-read"]
+    assert projected.resolved_continuation is None
+    assert projected.resumable_turn_id is None

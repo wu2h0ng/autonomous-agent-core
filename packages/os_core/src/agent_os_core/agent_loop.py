@@ -31,12 +31,19 @@ from agent_os_contracts import (
 )
 
 from .action_pipeline import ActionPipeline
-from .capability import CapabilityBroker, WorkspaceSandbox
-from .governance import CorrectionReadPort, PolicyKernel
+from .capability import (
+    CapabilityBroker,
+    CapabilityEffectUnknown,
+    WorkspaceSandbox,
+)
 from .errors import InvalidTransitionError, RunExecutionError
+from .governance import CorrectionReadPort, PolicyKernel
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
-from .session_projection import ProjectedApprovalContinuation
+from .session_projection import (
+    ProjectedApprovalContinuation,
+    ProjectedResolvedContinuation,
+)
 from .task_service import TaskService
 
 # Tool surface exposed to the model during chat turns. The model may only ever
@@ -281,13 +288,120 @@ class AgentLoop:
             session.task_id,
             session.session_id,
         )
+        if projected.history != tuple(self._history):
+            raise InvalidTransitionError(
+                "resumed turn does not bind the restored session history"
+            )
         if projected.pending_continuation is not None:
             raise ValueError(
                 "pending approval must resume through resume_pending_approval"
             )
-        result = self._drive(session, turn_id)
+        unknown = self._tasks._unknown_session_action(
+            session.task_id,
+            session.session_id,
+        )
+        if unknown is not None:
+            if unknown["turn_id"] != turn_id.turn_id:
+                raise InvalidTransitionError(
+                    "unknown action does not bind the resumed turn"
+                )
+            unknown_steps = unknown["steps"]
+            unknown_tokens = unknown["total_tokens"]
+            if (
+                isinstance(unknown_steps, bool)
+                or not isinstance(unknown_steps, int)
+                or isinstance(unknown_tokens, bool)
+                or not isinstance(unknown_tokens, int)
+            ):
+                raise InvalidTransitionError(
+                    "unknown action has invalid durable counters"
+                )
+            return TurnResult(
+                turn_id=turn_id,
+                text="capability effect requires external reconciliation",
+                steps=unknown_steps,
+                stop_reason="unknown_requires_review",
+                total_tokens=unknown_tokens,
+            )
+        resolved = projected.resolved_continuation
+        if resolved is None:
+            result = self._drive(session, turn_id)
+        else:
+            result = self._drive_resolved_continuation(
+                session,
+                turn_id,
+                resolved,
+            )
         self._complete_turn(session, turn_id, result)
         return result
+
+    def resume_resolved_continuation(
+        self,
+        session: ChatSession,
+        *,
+        action_digest: str,
+        disposition: ApprovalDisposition,
+    ) -> TurnResult:
+        """Idempotently continue an already committed approval resolution."""
+
+        self._require_session_binding(session)
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        resolved = projected.resolved_continuation
+        if (
+            resolved is None
+            or resolved.source_action_digest != action_digest
+            or resolved.disposition is not disposition
+        ):
+            raise InvalidTransitionError(
+                "approval retry does not bind the resolved continuation"
+            )
+        return self.resume_turn(
+            session,
+            TurnId(
+                turn_id=resolved.turn_id,
+                session_id=session.session_id,
+            ),
+        )
+
+    def _drive_resolved_continuation(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        resolved: ProjectedResolvedContinuation,
+    ) -> TurnResult:
+        if (
+            resolved.turn_id != turn_id.turn_id
+            or resolved.assistant_message_index >= len(self._history)
+        ):
+            raise InvalidTransitionError(
+                "resolved continuation does not bind the resumed turn"
+            )
+        assistant = self._history[resolved.assistant_message_index]
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=call.tool_call_id,
+                capability_id=call.capability_id,
+                arguments_json=call.arguments_json,
+            )
+            for call in assistant.tool_calls
+        )
+        if resolved.next_proposal_index > len(proposals):
+            raise InvalidTransitionError("resolved continuation cursor is invalid")
+        return self._drive(
+            session,
+            turn_id,
+            steps=resolved.steps,
+            total_tokens=resolved.total_tokens,
+            seen_action_digests=dict(resolved.seen_action_digests),
+            continuation=(
+                proposals,
+                resolved.next_proposal_index,
+                resolved.assistant_message_index,
+            ),
+        )
 
     def _complete_turn(
         self,
@@ -295,7 +409,10 @@ class AgentLoop:
         turn_id: TurnId,
         result: TurnResult,
     ) -> None:
-        if result.stop_reason == "approval_required":
+        if result.stop_reason in {
+            "approval_required",
+            "unknown_requires_review",
+        }:
             return
         self._tasks.append_event(
             session.task_id,
@@ -332,7 +449,6 @@ class AgentLoop:
             raise InvalidTransitionError(
                 "pending approval does not bind the restored session history"
             )
-        self._validate_pending_runtime(session, pending)
         if (
             approval.action_digest != pending.action.action_digest()
             or approval.tenant_id != pending.action.tenant_id
@@ -345,6 +461,13 @@ class AgentLoop:
             raise InvalidTransitionError(
                 "approval decision does not bind the exact pending action"
             )
+        self._validate_pending_runtime(
+            session,
+            pending,
+            require_current_c7=(
+                approval.disposition is ApprovalDisposition.APPROVE
+            ),
+        )
         bound_approval = self._tasks.record_or_reuse_session_approval(
             session.task_id,
             session.session_id,
@@ -370,6 +493,18 @@ class AgentLoop:
                     approval=bound_approval,
                     record_artifacts=False,
                 )
+            except CapabilityEffectUnknown as unknown:
+                return self._pause_for_unknown(
+                    session,
+                    TurnId(
+                        turn_id=pending.turn_id,
+                        session_id=session.session_id,
+                    ),
+                    pending.proposal.proposal_id,
+                    unknown,
+                    steps=pending.steps,
+                    total_tokens=pending.total_tokens,
+                )
             except Exception as exc:
                 tool_message = self._tool_message(
                     pending.proposal,
@@ -388,38 +523,18 @@ class AgentLoop:
             tool_message=tool_message,
         )
         self._history.append(tool_message)
-        assistant = self._history[pending.assistant_message_index]
-        proposals = tuple(
-            ProviderToolProposal(
-                proposal_id=call.tool_call_id,
-                capability_id=call.capability_id,
-                arguments_json=call.arguments_json,
-            )
-            for call in assistant.tool_calls
-        )
         turn_id = TurnId(
             turn_id=pending.turn_id,
             session_id=session.session_id,
         )
-        result = self._drive(
-            session,
-            turn_id,
-            steps=pending.steps,
-            total_tokens=pending.total_tokens,
-            seen_action_digests=dict(pending.seen_action_digests),
-            continuation=(
-                proposals,
-                pending.proposal_index + 1,
-                pending.assistant_message_index,
-            ),
-        )
-        self._complete_turn(session, turn_id, result)
-        return result
+        return self.resume_turn(session, turn_id)
 
     def _validate_pending_runtime(
         self,
         session: ChatSession,
         pending: ProjectedApprovalContinuation,
+        *,
+        require_current_c7: bool,
     ) -> None:
         aggregate = self._tasks.get_task(session.task_id)
         run = aggregate.run
@@ -427,7 +542,7 @@ class AgentLoop:
         if (
             run is None
             or snapshot is None
-            or run.status.value != "WAITING_APPROVAL"
+            or run.status.value not in {"WAITING_APPROVAL", "PAUSED"}
             or run.run_id != session.run_id
             or run.configuration_snapshot_id
             != pending.configuration_snapshot_id
@@ -443,6 +558,8 @@ class AgentLoop:
             raise InvalidTransitionError(
                 "pending approval configuration/provider binding mismatch"
             )
+        if not require_current_c7:
+            return
         current_epochs = self._correction.snapshot(
             session.task_id,
             session.run_id,
@@ -547,6 +664,15 @@ class AgentLoop:
                         proposal,
                         seen_action_digests,
                     )
+                except CapabilityEffectUnknown as unknown:
+                    return self._pause_for_unknown(
+                        session,
+                        turn_id,
+                        proposal.proposal_id,
+                        unknown,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                    )
                 except ApprovalRequired as required:
                     self._tasks.record_session_approval_pending(
                         session.task_id,
@@ -603,6 +729,33 @@ class AgentLoop:
             text=final_text,
             steps=steps,
             stop_reason=stop_reason,
+            total_tokens=total_tokens,
+        )
+
+    def _pause_for_unknown(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        proposal_id: str,
+        unknown: CapabilityEffectUnknown,
+        *,
+        steps: int,
+        total_tokens: int,
+    ) -> TurnResult:
+        self._tasks.pause_session_for_unknown_action(
+            session.task_id,
+            session.session_id,
+            turn_id=turn_id.turn_id,
+            proposal_id=proposal_id,
+            action=unknown.action,
+            steps=steps,
+            total_tokens=total_tokens,
+        )
+        return TurnResult(
+            turn_id=turn_id,
+            text=str(unknown),
+            steps=steps,
+            stop_reason="unknown_requires_review",
             total_tokens=total_tokens,
         )
 
@@ -788,6 +941,8 @@ class AgentLoop:
                 approval=approval,
                 record_artifacts=False,
             )
+        except CapabilityEffectUnknown:
+            raise
         except Exception as exc:
             return self._tool_message(
                 proposal,

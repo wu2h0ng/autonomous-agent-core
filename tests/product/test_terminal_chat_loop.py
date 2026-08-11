@@ -29,10 +29,13 @@ from agent_os_core import (
     AgentLoopConfig,
     AutoApproveGateway,
     CapabilityBroker,
+    CapabilityDenied,
     DeterministicProvider,
     PolicyInput,
     InvalidTransitionError,
+    SQLiteTaskEventStore,
     SessionProjector,
+    WorkspaceSandbox,
 )
 from agent_os_core.action_pipeline import ActionPipeline
 
@@ -76,6 +79,25 @@ def _tool_messages(loop) -> list:
         for message in loop.history
         if message.role is ProviderMessageRole.TOOL
     ]
+
+
+class _DispatchCountingSandbox(WorkspaceSandbox):
+    def __init__(self, root: Path, *, idempotency_store: object) -> None:
+        super().__init__(root, idempotency_store=idempotency_store)
+        self.dispatch_count = 0
+
+    def _dispatch(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        self.dispatch_count += 1
+        return super()._dispatch(capability_id, args, action_key)
+
+
+class _ReceiptCrash(BaseException):
+    pass
 
 
 def test_multi_turn_edit_applies_and_records_governance(tmp_path: Path) -> None:
@@ -196,6 +218,146 @@ def test_known_action_outcome_replay_writes_no_second_policy_or_receipt(
     ) == before_receipts
 
 
+def test_outcome_only_recovery_appends_original_receipt_without_second_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
+        ),
+    )
+    sandbox = _DispatchCountingSandbox(tmp_path, idempotency_store=app.store)
+    app.sandbox = sandbox
+    session, loop = app.open_chat_session("outcome only", AutoApproveGateway())
+    original_record = app.tasks._record_action_receipt
+
+    def crash_before_task_receipt(*_args: object, **_kwargs: object) -> None:
+        raise _ReceiptCrash("outcome sealed before Task receipt")
+
+    monkeypatch.setattr(
+        app.tasks,
+        "_record_action_receipt",
+        crash_before_task_receipt,
+    )
+    with pytest.raises(_ReceiptCrash, match="outcome sealed"):
+        loop.run_turn(session, "search")
+    monkeypatch.setattr(app.tasks, "_record_action_receipt", original_record)
+
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    assert sandbox.dispatch_count == 1
+    assert not any(
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+        for event in events
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+
+    replay = pipeline.execute(
+        action,
+        app.principal,
+        capability_spec=sandbox.specs()[action.capability_id],
+        record_artifacts=False,
+    )
+
+    assert replay.receipt.receipt_id
+    assert sandbox.dispatch_count == 1
+    after = app.store.read(session.task_id)
+    assert sum(
+        event.event_type is TaskEventType.POLICY_DECIDED for event in after
+    ) == 1
+    assert sum(
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in after
+    ) == 1
+
+
+def test_task_receipt_without_capability_outcome_stops_before_policy_or_dispatch(
+    tmp_path: Path,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+            ("done", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("receipt only", AutoApproveGateway())
+    loop.run_turn(session, "edit")
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    before_policy = sum(
+        event.event_type is TaskEventType.POLICY_DECIDED for event in events
+    )
+    empty_outcome_store = SQLiteTaskEventStore(tmp_path / "empty-outcome.sqlite3")
+    sandbox = _DispatchCountingSandbox(
+        tmp_path,
+        idempotency_store=empty_outcome_store,
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as caught:
+        pipeline.execute(
+            action,
+            app.principal,
+            capability_spec=sandbox.specs()[action.capability_id],
+            record_artifacts=False,
+        )
+
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
+    assert sandbox.dispatch_count == 0
+    assert sum(
+        event.event_type is TaskEventType.POLICY_DECIDED
+        for event in app.store.read(session.task_id)
+    ) == before_policy
+
+
 def test_action_receipt_identity_conflict_and_duplicate_fail_closed(
     tmp_path: Path,
 ) -> None:
@@ -272,13 +434,14 @@ def test_action_receipt_identity_conflict_and_duplicate_fail_closed(
         app.correction,
         app._chat_grants(),
     )
-    with pytest.raises(InvalidTransitionError, match="multiple durable receipts"):
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as caught:
         pipeline.execute(
             action,
             app.principal,
             capability_spec=app.sandbox.specs()[action.capability_id],
             record_artifacts=False,
         )
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
 
 
 def test_end_to_end_fixes_failing_test_and_returns_green_result(

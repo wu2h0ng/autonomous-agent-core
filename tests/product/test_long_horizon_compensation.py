@@ -313,22 +313,30 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    sandbox.invoke(compensation_action, compensation_permit, correction)
+    compensated = sandbox.invoke(
+        compensation_action,
+        compensation_permit,
+        correction,
+    )
 
-    with pytest.raises(CapabilityDenied, match="already compensated"):
-        WorkspaceSandbox(tmp_path, idempotency_store=store).invoke(
-            action,
-            permit,
-            correction,
-        )
-
+    restarted = WorkspaceSandbox(tmp_path, idempotency_store=store)
+    replayed = restarted.invoke(action, permit, correction)
+    assert replayed == applied
     assert target.read_text(encoding="utf-8") == "before\n"
+    with pytest.raises(CapabilityDenied, match="already compensated"):
+        restarted.reconcile_effect(action, replayed)
+
     target.write_text("after\n", encoding="utf-8")
+    compensation_replay = restarted.invoke(
+        compensation_action,
+        compensation_permit,
+        correction,
+    )
+    assert compensation_replay == compensated
     with pytest.raises(CapabilityDenied, match="cached compensation"):
-        WorkspaceSandbox(tmp_path, idempotency_store=store).invoke(
+        restarted.reconcile_effect(
             compensation_action,
-            compensation_permit,
-            correction,
+            compensation_replay,
         )
     assert target.read_text(encoding="utf-8") == "after\n"
 
