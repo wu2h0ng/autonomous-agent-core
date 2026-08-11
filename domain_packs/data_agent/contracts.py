@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -98,6 +99,48 @@ class BusinessActionProposalRef(ContractModel):
     proposal_id: NonEmptyStr
     action_digest: Sha256Digest
     capability_id: NonEmptyStr
+    approval_requirement: Literal["external_exact"] = "external_exact"
+    consequence_preview: NonEmptyStr
+    alternatives: tuple[NonEmptyStr, ...] = Field(min_length=1)
+
+
+class BusinessActionProposalRequest(ContractModel):
+    request_id: NonEmptyStr
+    principal: PrincipalIdentity
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    expected_outcome_id: NonEmptyStr
+    target_capability_id: NonEmptyStr
+    payload_json: NonEmptyStr
+    consequence_preview: NonEmptyStr
+    alternatives: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    risk_tier: int = Field(ge=1, le=5)
+
+    @field_validator("payload_json", mode="after")
+    @classmethod
+    def _canonicalize_payload(cls, value: str) -> str:
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("payload_json must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("payload_json must encode an object")
+        return canonical_json(payload)
+
+    @model_validator(mode="after")
+    def _bind_principal_scope(self) -> BusinessActionProposalRequest:
+        if (
+            self.principal.tenant_id != self.tenant_id
+            or self.principal.workspace_id != self.workspace_id
+        ):
+            raise ValueError("principal scope must match action proposal scope")
+        if not self.target_capability_id.startswith("data.action."):
+            raise ValueError("target capability must be Data Agent action-scoped")
+        if self.target_capability_id == "data.action.propose":
+            raise ValueError("proposal capability cannot target itself")
+        return self
 
 
 class DataAgentRequest(ContractModel):
@@ -162,6 +205,7 @@ class DataAgentResult(ContractModel):
 
 __all__ = [
     "BusinessActionProposalRef",
+    "BusinessActionProposalRequest",
     "DataAgentRequest",
     "DataAgentResult",
     "DataAgentStatus",

@@ -18,6 +18,7 @@ from agent_os_contracts import (
     PrincipalRole,
     ReceiptStatus,
     ResourceBudget,
+    RunStatus,
     TaskEventType,
     WorkflowGraph,
 )
@@ -26,6 +27,7 @@ from agent_os_core.capability import CapabilityBroker, CapabilityEffect, Capabil
 from agent_os_core.governance import CorrectionAuthority, PolicyKernel
 from apps.api_server.app import AgentOSApplication
 from domain_packs.data_agent.contracts import (
+    BusinessActionProposalRequest,
     DataAgentRequest,
     DataAgentStatus,
     MetricContractRef,
@@ -149,9 +151,18 @@ def _runtime(
                 capability=DATA_QUERY_CAPABILITY_ID,
                 idempotency=IdempotencyMode.IDEMPOTENT,
             ),
+            NodeSpec(
+                node_id="data-action-proposal",
+                kind=NodeKind.TOOL,
+                capability="data.action.propose",
+                idempotency=IdempotencyMode.IDEMPOTENT,
+            ),
             NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
         ),
-        edges=(EdgeSpec(source="data-query", target="done"),),
+        edges=(
+            EdgeSpec(source="data-query", target="data-action-proposal"),
+            EdgeSpec(source="data-action-proposal", target="done"),
+        ),
     )
     app.commit_task(
         task.task_id,
@@ -166,7 +177,10 @@ def _runtime(
                 "accepted_at": now,
                 "deliverables": ["query result"],
                 "acceptance_criteria": ["evidence recorded"],
-                "authority_scopes": [DATA_QUERY_CAPABILITY_ID],
+                "authority_scopes": [
+                    DATA_QUERY_CAPABILITY_ID,
+                    "data.action.propose",
+                ],
                 "budget": {
                     "max_cost_usd": "0",
                     "max_duration_seconds": 30,
@@ -332,6 +346,43 @@ def test_correction_halt_blocks_query_before_connector(tmp_path: Path) -> None:
     with pytest.raises(DataAgentDenied, match="POLICY_DENIED"):
         runtime.execute(request)
 
+    assert connector.execution_count == 0
+
+
+def test_business_action_is_proposal_only_and_enters_exact_approval_wait(
+    tmp_path: Path,
+) -> None:
+    request = _request()
+    connector = SQLiteDataQueryCapability(_database(tmp_path))
+    runtime, request, app = _runtime(tmp_path, request, connector)
+    proposal_request = BusinessActionProposalRequest(
+        request_id="request:notify-finance",
+        principal=request.principal,
+        tenant_id=request.tenant_id,
+        workspace_id=request.workspace_id,
+        task_id=request.task_id,
+        run_id=request.run_id,
+        expected_outcome_id=request.expected_outcome_id,
+        target_capability_id="data.action.email",
+        payload_json='{"report_id":"report:gmv"}',
+        consequence_preview="Send the governed GMV report to finance reviewers.",
+        alternatives=("Do nothing", "Create a draft without sending"),
+        risk_tier=2,
+    )
+
+    result = runtime.propose_action(proposal_request)
+
+    assert result.status is DataAgentStatus.AWAITING_APPROVAL
+    assert result.action_proposal is not None
+    assert result.action_proposal.capability_id == "data.action.email"
+    assert result.action_proposal.approval_requirement == "external_exact"
+    aggregate = app.tasks.get_task(request.task_id)
+    assert aggregate.run is not None
+    assert aggregate.run.status is RunStatus.WAITING_APPROVAL
+    pending = app.tasks.pending_action(request.task_id)
+    assert pending is not None
+    assert pending.action_digest() == result.action_proposal.action_digest
+    assert pending.capability_id == "data.action.propose"
     assert connector.execution_count == 0
 
 

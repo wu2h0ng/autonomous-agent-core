@@ -122,7 +122,10 @@ from domain_packs.developer_agent import (
     DeveloperWorkspaceAdapter,
     manifest as developer_agent_manifest,
 )
-from domain_packs.data_agent.contracts import DataAgentRequest
+from domain_packs.data_agent.contracts import (
+    BusinessActionProposalRequest,
+    DataAgentRequest,
+)
 from domain_packs.data_agent.runtime import (
     DATA_QUERY_CAPABILITY_ID,
     DataAgentRuntime,
@@ -889,6 +892,39 @@ class AgentOSApplication:
             }
         )
         return self.data_agent_runtime.execute(request).model_dump(mode="json")
+
+    def propose_data_agent_action(
+        self,
+        task_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.data_agent_runtime is None:
+            raise ValueError("Data Agent action proposal capability is not configured")
+        allowed_fields = {
+            "request_id",
+            "target_capability_id",
+            "payload_json",
+            "consequence_preview",
+            "alternatives",
+            "risk_tier",
+        }
+        if set(payload) - allowed_fields:
+            raise ValueError("Data Agent action proposal contains forbidden fields")
+        aggregate = self.tasks.get_task(task_id)
+        if aggregate.run is None or aggregate.expected_outcome is None:
+            raise ValueError("Data Agent action proposal requires an active Task run")
+        request = BusinessActionProposalRequest.model_validate(
+            {
+                **payload,
+                "principal": self.principal.model_dump(mode="json"),
+                "tenant_id": self.principal.tenant_id,
+                "workspace_id": self.principal.workspace_id,
+                "task_id": task_id,
+                "run_id": aggregate.run.run_id,
+                "expected_outcome_id": aggregate.expected_outcome.expected_outcome_id,
+            }
+        )
+        return self.data_agent_runtime.propose_action(request).model_dump(mode="json")
 
     def create_mandate_workspace_record(
         self, payload: dict[str, Any]

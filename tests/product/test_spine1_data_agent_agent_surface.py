@@ -90,9 +90,18 @@ def _active_query_task(app: AgentOSApplication) -> str:
                 capability=DATA_QUERY_CAPABILITY_ID,
                 idempotency=IdempotencyMode.IDEMPOTENT,
             ),
+            NodeSpec(
+                node_id="data-action-proposal",
+                kind=NodeKind.TOOL,
+                capability="data.action.propose",
+                idempotency=IdempotencyMode.IDEMPOTENT,
+            ),
             NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
         ),
-        edges=(EdgeSpec(source="data-query", target="done"),),
+        edges=(
+            EdgeSpec(source="data-query", target="data-action-proposal"),
+            EdgeSpec(source="data-action-proposal", target="done"),
+        ),
     )
     app.commit_task(
         task.task_id,
@@ -107,7 +116,10 @@ def _active_query_task(app: AgentOSApplication) -> str:
                 "accepted_at": now,
                 "deliverables": ["query result"],
                 "acceptance_criteria": ["evidence recorded"],
-                "authority_scopes": [DATA_QUERY_CAPABILITY_ID],
+                "authority_scopes": [
+                    DATA_QUERY_CAPABILITY_ID,
+                    "data.action.propose",
+                ],
                 "budget": {
                     "max_cost_usd": "0",
                     "max_duration_seconds": 30,
@@ -205,6 +217,23 @@ def test_data_agent_query_uses_unified_task_surface_and_server_bound_scope(
                 {**payload, "tenant_id": "tenant:attacker"},
             )
         assert denied.value.code == 400
+
+        proposal = _post(
+            base,
+            f"/v1/tasks/{task_id}/data-agent/actions:propose",
+            {
+                "request_id": "request:notify-finance",
+                "target_capability_id": "data.action.email",
+                "payload_json": '{"report_id":"report:gmv"}',
+                "consequence_preview": "Send the governed report to finance.",
+                "alternatives": ["Do nothing", "Create a draft"],
+                "risk_tier": 2,
+            },
+        )
+        assert proposal["status"] == "AWAITING_APPROVAL"
+        action_proposal = proposal["action_proposal"]
+        assert isinstance(action_proposal, dict)
+        assert action_proposal["approval_requirement"] == "external_exact"
     finally:
         server.shutdown()
         server.server_close()

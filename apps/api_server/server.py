@@ -749,12 +749,17 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:2] == ["v1", "tasks"]
-                and parts[3:] == ["data-agent", "query:run"]
+                and parts[3] == "data-agent"
+                and parts[4] in {"query:run", "actions:propose"}
             ):
                 application = self._read_application()
                 if application is None:
                     return
-                result = application.run_data_agent_query(parts[2], body)
+                result = (
+                    application.run_data_agent_query(parts[2], body)
+                    if parts[4] == "query:run"
+                    else application.propose_data_agent_action(parts[2], body)
+                )
                 self._json(200, result)
                 return
             if (

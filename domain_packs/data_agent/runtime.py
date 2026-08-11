@@ -14,7 +14,9 @@ from agent_os_contracts import (
     CapabilitySpec,
     ReceiptStatus,
     ResourceBudget,
+    RunStatus,
     SideEffectGuarantee,
+    TaskEventType,
 )
 from agent_os_contracts.common import canonical_json
 from agent_os_core.capability import (
@@ -26,6 +28,8 @@ from agent_os_core.task_service import TaskService
 from pydantic import ValidationError
 
 from .contracts import (
+    BusinessActionProposalRef,
+    BusinessActionProposalRequest,
     DataAgentRequest,
     DataAgentResult,
     DataAgentStatus,
@@ -38,6 +42,7 @@ from .sql_safety import DataSQLSafetyChecker
 
 
 DATA_QUERY_CAPABILITY_ID = "data.query.safe"
+DATA_ACTION_PROPOSAL_CAPABILITY_ID = "data.action.propose"
 
 
 class SQLiteDataQueryCapability:
@@ -283,6 +288,95 @@ class DataAgentRuntime:
             resend_attempts=0,
         )
 
+    def propose_action(
+        self,
+        request: BusinessActionProposalRequest,
+    ) -> DataAgentResult:
+        aggregate = self._tasks.get_task(request.task_id)
+        if (
+            aggregate.goal is None
+            or aggregate.run is None
+            or aggregate.expected_outcome is None
+            or aggregate.workflow is None
+            or aggregate.commitment is None
+        ):
+            raise DataAgentDenied("TASK_BINDING_INCOMPLETE")
+        if (
+            aggregate.goal.tenant_id != request.tenant_id
+            or aggregate.goal.workspace_id != request.workspace_id
+            or aggregate.run.run_id != request.run_id
+            or aggregate.expected_outcome.expected_outcome_id
+            != request.expected_outcome_id
+        ):
+            raise DataAgentDenied("TASK_BINDING_MISMATCH")
+        proposal_nodes = tuple(
+            node
+            for node in aggregate.workflow.nodes
+            if node.node_id == "data-action-proposal"
+            and node.capability == DATA_ACTION_PROPOSAL_CAPABILITY_ID
+        )
+        if (
+            len(proposal_nodes) != 1
+            or DATA_ACTION_PROPOSAL_CAPABILITY_ID
+            not in aggregate.commitment.authority_scopes
+        ):
+            raise DataAgentDenied("ACTION_PROPOSAL_NOT_AUTHORIZED")
+        if aggregate.run.status in {RunStatus.CREATED, RunStatus.QUEUED}:
+            self._tasks.update_run_status(
+                request.task_id,
+                RunStatus.RUNNING,
+                event_type=TaskEventType.RUN_QUEUED,
+                active_node_id="data-action-proposal",
+            )
+        elif aggregate.run.status is not RunStatus.RUNNING:
+            raise DataAgentDenied("ACTION_PROPOSAL_RUN_NOT_EXECUTABLE")
+        action = self._pipeline.build_action(
+            task_id=request.task_id,
+            run_id=request.run_id,
+            node_id="data-action-proposal",
+            capability_id=DATA_ACTION_PROPOSAL_CAPABILITY_ID,
+            principal=request.principal,
+            args={
+                "target_capability_id": request.target_capability_id,
+                "payload": json.loads(request.payload_json),
+                "consequence_preview": request.consequence_preview,
+                "alternatives": list(request.alternatives),
+            },
+            expected=aggregate.expected_outcome,
+            envelope_id=f"envelope:{request.request_id}",
+            risk_tier=request.risk_tier,
+            estimated_budget=ResourceBudget(
+                max_cost_usd=Decimal("0"),
+                max_duration_seconds=30,
+                max_provider_tokens=0,
+                max_tool_calls=0,
+            ),
+            approval_requirement="external_exact",
+        )
+        self._pipeline.record_action_proposed(action)
+        self._tasks.update_run_status(
+            request.task_id,
+            RunStatus.WAITING_APPROVAL,
+            event_type=TaskEventType.APPROVAL_REQUESTED,
+            active_node_id="data-action-proposal",
+        )
+        return DataAgentResult(
+            request_id=request.request_id,
+            task_id=request.task_id,
+            run_id=request.run_id,
+            tenant_id=request.tenant_id,
+            workspace_id=request.workspace_id,
+            status=DataAgentStatus.AWAITING_APPROVAL,
+            trace_id=f"trace:{request.request_id}",
+            action_proposal=BusinessActionProposalRef(
+                proposal_id=action.action_id,
+                action_digest=action.action_digest(),
+                capability_id=request.target_capability_id,
+                consequence_preview=request.consequence_preview,
+                alternatives=request.alternatives,
+            ),
+        )
+
     @staticmethod
     def _validated_query_result(
         output: Mapping[str, object],
@@ -334,6 +428,7 @@ class DataAgentRuntime:
 
 __all__ = [
     "DATA_QUERY_CAPABILITY_ID",
+    "DATA_ACTION_PROPOSAL_CAPABILITY_ID",
     "DataAgentDenied",
     "DataAgentRuntime",
     "DataSQLSafetyChecker",
