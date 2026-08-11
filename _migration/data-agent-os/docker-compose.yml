@@ -1,0 +1,87 @@
+# docker-compose.yml — AI Native Business Data Agent OS
+#
+# One-command deployment: docker compose up -d
+#
+# Services:
+#   api_server  — FastAPI Trusted Loop backend (port 8000)
+#   frontend    — Next.js workspace UI (port 3000)
+#   postgres    — PostgreSQL 16 with pgvector (port 5432)
+#
+# Access:
+#   Frontend UI:  http://localhost:3000
+#   API docs:     http://localhost:8000/docs
+#   API OpenAPI:  http://localhost:8000/openapi.json
+
+services:
+  # ── PostgreSQL with pgvector ─────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent_os}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_os_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_os}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_os} -d ${POSTGRES_DB:-agent_os}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ── FastAPI Trusted Loop API ─────────────────────────────────────────────
+  api_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # 12-factor runtime configuration
+      AGENT_OS_STORE_BACKEND: postgres
+      AGENT_OS_EXECUTOR: ${AGENT_OS_EXECUTOR:-sqlite}
+      AGENT_OS_DOMAIN_PACK: domain_packs/content_commerce
+      # SQLAlchemy DSN for psycopg3
+      AGENT_OS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agent_os}:${POSTGRES_PASSWORD:-agent_os_secret}@postgres:5432/${POSTGRES_DB:-agent_os}
+      # Authentication keys
+      AGENT_OS_API_KEY: ${AGENT_OS_API_KEY:-dev-internal-key}
+      AGENT_OS_EXTERNAL_API_KEY: ${AGENT_OS_EXTERNAL_API_KEY:-dev-external-key}
+      AGENT_OS_OPERATOR_API_KEY: ${AGENT_OS_OPERATOR_API_KEY:-dev-operator-key}
+      # LLM / embedding keys (optional, for model gateway integration)
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ── Next.js Workspace Frontend ───────────────────────────────────────────
+  frontend:
+    build:
+      context: apps/workspace/frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_RUN_KEY: ${NEXT_PUBLIC_RUN_KEY:-dev-internal-key}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_RUN_KEY: ${NEXT_PUBLIC_RUN_KEY:-dev-internal-key}
+    depends_on:
+      api_server:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local

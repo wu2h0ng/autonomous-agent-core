@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>外部世界学习知识地图 · AI / Data / Agent</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#111a36; --panel2:#0c1430;
+    --ink:#e8edff; --muted:#9aa6cf; --line:#1e2b54; --accent:#5b8cff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:radial-gradient(1200px 800px at 70% -10%,#16224a 0%,var(--bg) 55%);color:var(--ink);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  #app{display:flex;height:100vh;width:100vw}
+  #side{width:344px;min-width:344px;height:100%;background:linear-gradient(180deg,var(--panel) 0%,var(--panel2) 100%);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+  .brand{padding:18px 18px 12px;border-bottom:1px solid var(--line)}
+  .brand h1{font-size:15px;margin:0 0 5px;letter-spacing:.2px}
+  .brand p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.55}
+  .search{padding:12px 16px 6px}
+  .search input{width:100%;background:#0a1228;border:1px solid var(--line);color:var(--ink);
+    padding:9px 12px;border-radius:8px;font-size:13px;outline:none}
+  .search input:focus{border-color:var(--accent)}
+  .sect-title{padding:10px 18px 4px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .legend{padding:2px 12px 8px;overflow-y:auto}
+  .leg{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer;user-select:none;font-size:12.5px;transition:.15s}
+  .leg:hover{background:#16224a}
+  .leg.act{background:#16224a;border:1px solid rgba(91,140,255,.45)}
+  .leg.off{opacity:.38}
+  .dot{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 8px currentColor}
+  .leg .n{margin-left:auto;font-size:11px;color:var(--muted)}
+  .paths{padding:0 12px 10px;overflow-y:auto;max-height:168px}
+  .path-btn{width:100%;text-align:left;margin:0 0 7px;padding:9px 10px;border:1px solid var(--line);background:#0a1228;border-radius:8px;cursor:pointer;color:var(--ink);transition:.15s}
+  .path-btn:hover{border-color:#5b8cff}
+  .path-btn.active{border-color:#5b8cff;background:#16224a;box-shadow:0 0 0 1px rgba(91,140,255,.25)}
+  .path-btn b{display:block;font-size:12.5px;margin-bottom:3px}
+  .path-btn span{display:block;font-size:11px;color:var(--muted);line-height:1.45}
+  .foot{margin-top:auto;padding:12px 18px;border-top:1px solid var(--line);font-size:10.5px;color:var(--muted);line-height:1.6}
+  .foot b{color:var(--ink)}
+  .edge-leg{margin-top:8px;line-height:1.9}
+  .edge-leg span{display:inline-flex;align-items:center;gap:6px;margin-right:10px}
+  .edge-leg i{display:inline-block;width:20px;height:0;flex:none}
+  #stage{position:relative;flex:1;height:100%}
+  canvas{display:block;width:100%;height:100%;cursor:grab}
+  canvas:active{cursor:grabbing}
+  .hud{position:absolute;top:14px;left:16px;display:flex;gap:8px;flex-wrap:wrap;z-index:5}
+  .chip{background:rgba(13,20,44,.82);border:1px solid var(--line);color:var(--muted);padding:6px 11px;border-radius:20px;
+    font-size:11.5px;cursor:pointer;backdrop-filter:blur(6px);transition:.15s}
+  .chip:hover{color:var(--ink);border-color:var(--accent)}
+  .chip.act{color:#fff;border-color:var(--accent);background:rgba(91,140,255,.22)}
+  .ctrls{position:absolute;bottom:16px;left:16px;display:flex;gap:8px;z-index:5}
+  .ctrls button{width:34px;height:34px;border-radius:9px;background:rgba(13,20,44,.85);border:1px solid var(--line);
+    color:var(--ink);font-size:16px;cursor:pointer;backdrop-filter:blur(6px)}
+  .ctrls button:hover{border-color:var(--accent)}
+  #detail{position:absolute;top:0;right:0;height:100%;width:430px;background:linear-gradient(180deg,#101935 0%,#0b1430 100%);
+    border-left:1px solid var(--line);transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+    z-index:20;display:flex;flex-direction:column;box-shadow:-20px 0 50px rgba(0,0,0,.4)}
+  #detail.open{transform:translateX(0)}
+  .d-head{padding:20px 22px 16px;border-bottom:1px solid var(--line)}
+  .d-cat{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);margin-bottom:9px;
+    padding:3px 10px;border-radius:20px;border:1px solid var(--line)}
+  .d-star{display:inline-block;margin-left:7px;color:#ffd166;font-size:11px}
+  .d-head h2{margin:0;font-size:18px;line-height:1.3}
+  .d-body{padding:8px 22px 28px;overflow-y:auto}
+  .d-block{margin-top:18px}
+  .d-block .lbl{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;font-weight:600}
+  .d-block .txt{font-size:13px;line-height:1.66;color:#d4ddff}
+  .d-block ul.txt{margin:0;padding-left:18px}
+  .d-block ul.txt li{margin:4px 0}
+  .d-block code{background:#0a1228;border:1px solid var(--line);padding:1px 6px;border-radius:5px;font-size:11.5px;color:#9fd0ff}
+  .rel{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}
+  .rel a{font-size:12px;color:#bcd0ff;background:#0a1228;border:1px solid var(--line);padding:5px 10px;border-radius:7px;
+    cursor:pointer;transition:.15s;text-decoration:none}
+  .rel a:hover{border-color:var(--accent);color:#fff}
+  .d-close{position:absolute;top:16px;right:18px;cursor:pointer;color:var(--muted);font-size:22px;line-height:1;background:none;border:none}
+  .d-close:hover{color:#fff}
+  .tip{position:absolute;pointer-events:none;background:rgba(8,14,32,.95);border:1px solid var(--line);color:var(--ink);
+    padding:6px 10px;border-radius:7px;font-size:12px;z-index:30;display:none;max-width:240px;line-height:1.4;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  @media(max-width:900px){#side{width:240px;min-width:240px}#detail{width:300px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand">
+      <h1>外部世界学习知识地图</h1>
+      <p>面向<b style="color:#e8edff">当今世界的公开知识体系</b>：基础原理、技术前沿、行业玩家与商业动态。<b style="color:#9fd0ff">不含项目内文档</b>。每节点：学什么 · 为什么 · 局限 · 业界方向 · 突破思路 · 外部资料。⭐ = 优先必修。</p>
+    </div>
+    <div class="search"><input id="q" placeholder="搜索：LangGraph / NL2SQL / 可观测性 / 局限"/></div>
+    <div class="sect-title">学习路径 · 点击高亮</div>
+    <div class="paths" id="paths"></div>
+    <div class="sect-title">学习领域 · 点击筛选 · Ctrl 多选</div>
+    <div class="legend" id="legend"></div>
+    <div class="foot">
+      <b>用法</b>：按 1→5 路径顺序学。领域：单击单选，Ctrl+单击多选，再点已选项取消。<br/>
+      <b>连线</b>：
+      <div class="edge-leg">
+        <span><i style="border-top:2px solid rgba(77,208,225,.7)"></i>前置</span>
+        <span><i style="border-top:1px solid rgba(120,140,200,.35)"></i>关联</span>
+        <span><i style="border-top:1px dashed rgba(255,107,107,.55)"></i>对照</span>
+      </div>
+    </div>
+  </aside>
+
+  <div id="stage">
+    <div class="hud">
+      <div class="chip act" data-view="all">全部</div>
+      <div class="chip" data-view="tech">技术认知</div>
+      <div class="chip" data-view="industry">行业格局与动态</div>
+      <div class="chip" data-view="biz">商业·融资·组织</div>
+      <div class="chip" data-view="deep">技术深潜</div>
+      <div class="chip" data-view="priority">⭐ 优先必修</div>
+    </div>
+    <canvas id="cv"></canvas>
+    <div class="ctrls">
+      <button id="zin" title="放大">＋</button>
+      <button id="zout" title="缩小">－</button>
+      <button id="reset" title="复位">⟳</button>
+    </div>
+    <div class="tip" id="tip"></div>
+
+    <div id="detail">
+      <button class="d-close" id="dclose">×</button>
+      <div class="d-head">
+        <span class="d-cat" id="dcat"></span>
+        <h2 id="dtitle"></h2>
+      </div>
+      <div class="d-body" id="dbody"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ====== 学习领域（颜色 + 视图分组）======
+const CATS = {
+  ai:    {name:"AI / LLM 技术素养", color:"#5b8cff", group:"tech"},
+  data:  {name:"数据与语义基础设施", color:"#4dd0e1", group:"tech"},
+  entai: {name:"企业级 AI 落地", color:"#06d6a0", group:"tech"},
+  land:  {name:"行业格局 / 玩家认知", color:"#ff6b6b", group:"industry"},
+  mkt:   {name:"市场动态与时机判断", color:"#a0e060", group:"industry"},
+  buyer: {name:"企业买家与采购", color:"#f4a261", group:"biz"},
+  gtm:   {name:"GTM 与品类设计", color:"#e0aaff", group:"biz"},
+  fund:  {name:"融资与投资人叙事", color:"#ffd166", group:"biz"},
+  org:   {name:"组织与人才", color:"#ff8fa3", group:"biz"},
+  mind:  {name:"战略思维 / 心智模型", color:"#b388ff", group:"biz"},
+  stack: {name:"关键技术栈深潜", color:"#ff9f43", group:"tech"},
+};
+
+// deep:true = 「技术深潜」视图专用节点
+
+// p:true = ⭐ 优先必修。how 仅含外部公开资料，不含任何项目内文档。limits/frontier/breakthrough=局限·方向·突破
+const N = [
+  // ---------- AI / LLM 技术素养 ----------
+  {id:"ai_taxonomy", c:"ai", p:1, r:13, l:"AI 技术路线总览",
+   def:"AI 是更大学科集合：符号 AI、搜索与规划、机器学习、深度学习、强化学习、生成式 AI、基础模型、Agent。LLM 只是其中一条路线。",
+   why:"把 AI 等同于 LLM 会误判技术选型、成本结构与竞争边界。必须先建立全景再深入子领域。",
+   limits:"学科庞杂易迷失；非 LLM 路线常被忽视；「AI=大模型」叙事掩盖规则/优化/传统 ML 的适用场景。",
+   frontier:"复合架构成主流：LLM+检索+工具+规则+优化+workflow，而非单模型包打天下。",
+   breakthrough:"按任务选技术：预测/分类用 ML，规划用搜索+规则，理解生成用 LLM，执行用 workflow+网关。先问任务类型再问模型。",
+   how:"Berkeley AIMA 资源；Deep Learning Book；Stanford AI Index；Karpathy《Intro to LLMs》作 LLM 子集入门。",
+   req:[],
+   rel:["llm_cap","model_landscape","agent_arch","decision_engine","macro_ai"]},
+  {id:"llm_cap", c:"ai", p:1, r:15, l:"LLM 能力与边界",
+   req:["ai_taxonomy"],
+   def:"Transformer 直觉、上下文窗口、涌现能力、采样/温度；尤其搞清 LLM 擅长什么、必然不擅长什么（确定性计算、最新事实、严格口径）。",
+   why:"企业级 AI 可信能力全建立在『LLM 不可单独信任』之上。不懂边界就会过度承诺或被技术叙事忽悠。",
+   limits:"概率生成非计算引擎；上下文贵且会遗忘；知识有 cutoff；口径/权限需外挂系统；多步推理错误累积。",
+   frontier:"推理模型(o1类)、工具调用、长上下文、小模型端侧、LLM+检索+规则复合架构成主流。",
+   breakthrough:"LLM 定位成『理解+编排+解释』层，计算/决策/执行交给语义层+决策引擎+执行网关。用 Eval 约束而非盲目堆模型。",
+   how:"Karpathy《Intro to LLMs》《Let's build GPT》(YouTube)；3Blue1Brown 神经网络系列；Anthropic / OpenAI 官方文档；《这就是 ChatGPT》(Wolfram)。",
+   rel:["reliability","agent_arch","eval_sci","model_landscape","decision_engine"]},
+  {id:"agent_arch", c:"ai", p:1, r:14, l:"Agent 架构与设计模式",
+   req:["llm_cap","context_eng"],
+   def:"ReAct、规划/反思、工具调用、多 Agent 协作、记忆与状态机；以及『何时不该用 Agent』。",
+   why:"Data/Business Agent 是 2024-2026 最热赛道。必须能判断架构取舍，识别真平台与套壳框架的差异。",
+   limits:"① Demo 强、生产弱：多数框架缺权限/审计/回滚。② 过度自治：LLM 当决策者不可复现、不可追责。③ 框架锁死：治理与证据链难贯穿。④ 成本失控：多步 loop token 爆炸。⑤ 有 trace 不等于有业务回归门禁。",
+   frontier:"业界从 prompt agent 转向 Agent OS / governed autonomy / durable execution / MCP / trace-driven ops。代表：OpenAI Agents SDK、LangGraph、Temporal、Palantir AIP。",
+   breakthrough:"Agent = 受控推理+工具编排层，非独立智能体。三层分离：洞察(分析/语义层)、决策(规则+优化)、执行(受治理网关)。反模式：能 workflow 不用 agent loop；能规则不用 LLM 决策；能单 Agent 不多 Agent 扯皮。",
+   how:"Anthropic《Building Effective Agents》(必读)；Lilian Weng《LLM Powered Autonomous Agents》；LangGraph/Temporal 文档只学概念不绑定；对比 OpenAI Practical Guide to Building Agents。",
+   rel:["llm_cap","mcp_interop","agent_gov","dev_paradigm","langgraph_ref","agent_runtime_os","paradigm_innovation","agent_obs","nl2sql","computer_use"]},
+  {id:"context_eng", c:"ai", r:11, l:"Context Engineering / RAG",
+   req:["llm_cap"],
+   def:"检索增强、chunking、rerank、长上下文管理、结构化检索 vs 向量近似检索的边界。",
+   why:"决定企业知识是真资产还是向量碎片。RAG 的局限推动了结构化语义层与 hybrid retrieval 的业界演进。",
+   how:"Eugene Yan 博客；Jason Liu (instructor/RAG)；Chip Huyen《AI Engineering》检索章节；Anthropic Contextual Retrieval 文章。",
+   rel:["vector_search","semantic_layer","reliability"]},
+  {id:"eval_sci", c:"ai", p:1, r:14, l:"评测科学 (Evals)",
+   def:"离线/在线评测、LLM-as-judge、golden set、回归集、人类标注、统计显著性；如何度量『更准了』。",
+   why:"Hamel Husain 等业界共识：没有 Eval 就没有可商业化的 AI。企业采购的核心门槛之一。",
+   limits:"LLM-as-judge 有偏见；golden set 腐化；评测覆盖≠生产安全；组件评测漏掉流程级失败；商业承诺难用单一分数表达。",
+   frontier:"agent trace eval、tool-call 正确性评测、业务 KPI 挂钩 eval、CI 门禁化、红队对抗评测。",
+   breakthrough:"三层评测：组件(检索/SQL)→流程(agent run)→业务(KPI)。失败样本沉淀为回归集。Eval 是产品能力，不是研发附属品。",
+   how:"Hamel Husain《Your AI product needs evals》(必读)；Chip Huyen《AI Engineering》eval 章；OpenAI Evals 仓库；关注 Eugene Yan。",
+   rel:["llm_cap","eval_driven","reliability","saas_metrics","agent_runtime_os"]},
+  {id:"inference_econ", c:"ai", r:11, l:"推理成本与 AI 经济学",
+   def:"token 成本结构、上下文/输出成本、prompt 缓存、批处理、蒸馏、单位经济(每次问答成本)。",
+   why:"决定毛利率与定价可行性。投资人会问单位经济；私有化客户会问算力账。不懂成本就定不出价、算不出 ROI。",
+   how:"Latent Space 播客；a16z《LLMflation》；Artificial Analysis(模型性价比对比)；各模型厂定价页对比；自己建一张『单次闭环成本』测算表。",
+   rel:["model_landscape","pricing","roi","saas_metrics"]},
+  {id:"model_landscape", c:"ai", r:11, l:"模型版图与选型",
+   def:"闭源(Claude/GPT/Gemini) vs 开源(Llama/Qwen/DeepSeek)、国产模型、serving(vLLM/Ollama)、能力-成本-合规权衡。",
+   why:"企业 AI 需要模型可替换与 BYO 能力。国产化、私有化场景尤其敏感。懂选型逻辑比记参数重要。",
+   how:"LMArena 排行榜；Artificial Analysis；Hugging Face；机器之心/量子位追国产模型；vLLM 文档了解 serving。",
+   rel:["llm_cap","inference_econ","procurement","regulation"]},
+  {id:"reliability", c:"ai", r:11, l:"幻觉 · 可靠性 · 可解释",
+   def:"幻觉成因、grounding、置信度校准、可解释性的真实边界(不要神化)。",
+   why:"企业决策 AI 的核心问题是『答案为什么可信』。必须懂可靠性边界，识别『假装可解释』的营销话术。",
+   how:"Anthropic 可解释性研究博客；各家 System Card / Model Card；Simon Willison 博客；关注 hallucination benchmark。",
+   rel:["llm_cap","eval_sci","evidence_xai"]},
+  {id:"finetune", c:"ai", r:10, l:"微调 vs 提示 vs 检索",
+   def:"何时该微调、何时 RAG、何时纯 prompt；成本、维护负担与收益对比。",
+   why:"避免团队陷入『动不动就微调』的资源黑洞；也避免对客户过度承诺『为你训练专属模型』。",
+   how:"OpenAI / Anthropic 微调指南；Chip Huyen《AI Engineering》；Hamel Husain 关于 fine-tuning 的实战文章。",
+   rel:["llm_cap","context_eng","inference_econ"]},
+
+  // ---------- 数据与语义基础设施 ----------
+  {id:"semantic_layer", c:"data", p:1, r:14, l:"语义层 / 指标层",
+   def:"Metrics Layer、headless BI、指标一致性、口径治理；语义层正成为 Agent 时代的公共上下文协议。",
+   why:"语义层是 Agent 时代的关键基础设施。dbt/Cube/ThoughtSpot OSI 等玩家的主战场，不懂就无法评估任何数据 AI 产品。",
+   how:"dbt Semantic Layer 文档；Cube.dev 博客；Benn Stancil (substack《benn.substack》)；ThoughtSpot Open Semantic Interchange 资料。",
+   rel:["data_fabric","lineage_gov","read_aloudata","mcp_interop","nl2sql"]},
+  {id:"data_fabric", c:"data", r:11, l:"数据编织 / NoETL / 虚拟化",
+   def:"Data Fabric、data virtualization、联邦查询、NoETL、自适应物化；让数据『不搬家也能用』。",
+   why:"Data Fabric/NoETL 是 2023-2026 数据栈最热叙事之一。懂它在解决什么才能判断是真创新还是营销造词。",
+   how:"Gartner《Data Fabric》报告摘要；Aloudata 官网白皮书/发布稿；Denodo 资料；对比 NoETL 与传统 ETL。",
+   rel:["semantic_layer","lakehouse","read_aloudata"]},
+  {id:"lakehouse", c:"data", r:10, l:"湖仓 / 现代数据栈",
+   def:"Lakehouse、Iceberg/Delta、Snowflake/Databricks 架构、Modern Data Stack 全景。",
+   why:"企业大多已有 Snowflake/Databricks/传统数仓。任何数据 AI 产品都需理解在位栈才能谈接入与上位。",
+   how:"Databricks / Snowflake 技术博客；《Designing Data-Intensive Applications》(DDIA，数据系统圣经)；a16z《Emerging Architectures for Modern Data Infra》。",
+   rel:["data_fabric","hyperscaler","lineage_gov"]},
+  {id:"lineage_gov", c:"data", r:10, l:"数据血缘与治理",
+   def:"lineage、active metadata、data contract、catalog、数据质量；算子级血缘是 Aloudata BIG 的卖点。",
+   why:"证据链/可追溯的底层依赖血缘。也是企业治理采购的硬指标。",
+   how:"OpenLineage 文档；《Data Mesh》(Zhamak Dehghani)；Monte Carlo / Atlan 博客；了解 data contract 运动。",
+   rel:["semantic_layer","evidence_xai","read_aloudata"]},
+  {id:"ontology", c:"data", r:11, l:"Ontology / 知识图谱",
+   def:"本体建模、对象-关系-动作模型、property graph vs RDF、知识图谱与语义对象。",
+   why:"Palantir 用 Ontology 统一数据、对象与行动，是企业级 AI 最强参照。本体建模是长期差异化形态之一。",
+   how:"Palantir Ontology 文档(why-ontology)；《Knowledge Graphs》(Hogan 等，免费在线)；了解 Neo4j 基础概念。",
+   rel:["semantic_layer","read_palantir","vector_search"]},
+  {id:"vector_search", c:"data", r:9, l:"向量与检索",
+   def:"embedding、ANN、向量库、混合检索(关键词+向量+结构化)、rerank。",
+   why:"知识资产检索的底层技术，也是判断『RAG 玩具 vs 可治理检索』的基础。",
+   how:"pgvector 文档；bge-m3 / bge-reranker 模型卡；Pinecone 学习中心；对比 hybrid search 实践。",
+   rel:["context_eng","ontology"]},
+  {id:"nl2sql", c:"data", p:1, r:13, l:"NL2SQL / Text-to-Data",
+   def:"自然语言到 SQL、MQL、指标查询或数据 API；含 schema linking、口径约束、结果解释与 SQL 安全。",
+   why:"数据 Agent 最显性能力，也是 demo 最强、生产翻车最多的环节。必须独立理解其难点。",
+   limits:"难点在 schema/权限/口径/歧义，不在语法；直接生成 SQL 易绕过治理；评测基准与生产差距大。",
+   frontier:"从裸 NL2SQL 转向语义编译器、指标 DSL、查询规划器与交互式澄清。",
+   breakthrough:"中间语义表示再编译到 SQL；强制走语义层指标；SQL 验证+限制+解释三件套。",
+   how:"Spider 基准；Wren AI 文档；DB-GPT GitHub；ThoughtSpot/BigQuery 自然语言查询公开资料。",
+   req:["semantic_layer","llm_cap"],
+   rel:["semantic_layer","eval_sci","agent_arch","reliability","context_eng"]},
+
+  // ---------- 企业级 AI 落地 ----------
+  {id:"agent_gov", c:"entai", r:12, l:"Agent 治理与 Guardrails",
+   req:["agent_arch"],
+   def:"权限分级、dry-run、幂等、回滚、审批、kill switch、excessive agency 防护；Governed vs Autonomous。",
+   why:"企业不怕 AI 不够聪明，怕不可控。Governed autonomy 是 2025-2026 企业采购的核心主题。",
+   limits:"框架自带 guardrail 偏文本安全，难覆盖真实系统操作；审批流与企业 IAM 集成复杂；过度保守则无人愿用。",
+   frontier:"policy-as-code、risk-budgeted autonomy、operation-level approval、agent kill switch 标准化、decision lineage。",
+   breakthrough:"Policy 贯穿工具注册→决策→执行全链；按操作风险分级路由审批。竞争力不是更自动，而是『敢自动』。",
+   how:"OWASP《LLM Top 10》；NIST AI RMF；Google SAIF；Anthropic agent safety 文章；Palantir action guardrails 文档。",
+   rel:["agent_arch","ai_security","hitl","ciso_cio","exec_gateway","decision_engine"]},
+  {id:"evidence_xai", c:"entai", r:11, l:"可信 · 证据 · 决策溯源",
+   def:"evidence、citation、grounding、decision lineage；让每个结论可追溯到数据、口径、SQL 与限制。",
+   why:"可信 AI 的业界标准正在形成：citation、grounding、decision lineage。Palantir 是重要参照。",
+   how:"Palantir decision lineage 文档；RAG citation/attribution 实践；Anthropic 关于 grounding 的文章。",
+   rel:["reliability","lineage_gov","read_palantir","agent_gov"]},
+  {id:"hitl", c:"entai", r:10, l:"人机协同与审批",
+   def:"human-in-the-loop、信任校准、审批流、过度依赖(overreliance)与接管设计。",
+   why:"决定 AI 系统是辅助决策还是越权执行。HITL 设计是 enterprise agent 的标配能力。",
+   how:"Google PAIR《People+AI Guidebook》；Marvis 的『可见可接管』产品观；阅读 human-AI interaction 研究综述。",
+   rel:["agent_gov","ciso_cio","reliability"]},
+  {id:"mcp_interop", c:"entai", r:11, l:"MCP 与互操作协议",
+   def:"Model Context Protocol(tool/resource/prompt)、Open Semantic Interchange；语义与工具被外部 Agent 消费。",
+   why:"MCP 已成大厂标准动作(Snowflake/ThoughtSpot)。既是互操作机会，也是新的安全治理入口。",
+   limits:"协议不含权限/审计；工具描述难承载业务口径；过度暴露 API=攻击面扩大；实现质量参差。",
+   frontier:"MCP 成事实标准；OSI 平行的语义互操作；gateway+policy filter 企业标配。",
+   breakthrough:"三协议分工：MCP(工具面)、语义层(指标面)、执行网关(动作面)——不混为一谈。",
+   how:"Anthropic MCP 规范 (modelcontextprotocol.io)；Snowflake / ThoughtSpot MCP/OSI 公告；Anthropic MCP 入门教程。",
+   rel:["agent_arch","semantic_layer","hyperscaler","ai_security","mcp_deep","exec_gateway"]},
+  {id:"ai_security", c:"entai", r:11, l:"AI 安全与威胁模型",
+   def:"prompt injection、tool poisoning、数据外泄、供应链投毒、cross-agent confusion、model DoS。",
+   why:"企业采购的一票否决项。决策者需懂威胁模型，能在安全评审中识别真实风险与营销话术。",
+   how:"OWASP《LLM Top 10》；MITRE ATLAS；Simon Willison 关于 prompt injection 的系列博客；Anthropic 安全研究。",
+   rel:["agent_gov","procurement","ciso_cio","regulation"]},
+  {id:"eval_driven", c:"entai", r:10, l:"评测驱动交付",
+   def:"把 eval 做成 CI 门禁、模型/连接器/策略升级前必过回归、golden loop 验收。",
+   why:"Eval-driven delivery 是 AI 产品工程化的业界最佳实践，决定迭代是否可控。",
+   how:"Hamel Husain evals 系列；《AI Engineering》eval 章；借鉴软件 CI/CD 的回归门禁思想(DORA)。",
+   rel:["eval_sci","dev_paradigm","agent_gov","agent_obs"]},
+  {id:"agent_obs", c:"entai", r:12, l:"Agent 可观测性 / LLMOps",
+   def:"记录 agent 执行的输入、计划、工具调用、模型响应、成本、延迟、错误与人工反馈；AgentOps 实践。",
+   why:"没有 trace 就无法调试、评测、审计和解释生产事故。可观测性是企业 Agent 上线门槛。",
+   limits:"trace 量大难检索；多 vendor 工具碎片化；成本归因复杂；隐私与日志合规。",
+   frontier:"OpenTelemetry 统一；agent trace eval；成本/质量/延迟三维仪表盘；线上反馈回流 eval。",
+   breakthrough:"每次 run 有结构化 trace；模型/工具/检索/权限/输出分层观测；trace 驱动回归与产品迭代。",
+   how:"LangSmith 文档；Arize Phoenix；OpenTelemetry 官方文档；Langfuse 开源文档；Weights & Biases Weave。",
+   req:["agent_arch","eval_sci"],
+   rel:["eval_sci","eval_driven","agent_runtime_os","inference_econ","ai_security"]},
+
+  // ---------- 行业格局 / 玩家认知 ----------
+  {id:"read_palantir", c:"land", p:1, r:14, l:"读懂 Palantir 终局",
+   def:"Foundry / AIP / Ontology 打法、actions+writeback+human review+decision lineage、交付与商业模式、财报叙事。",
+   why:"企业级 AI+数据的终局参照。看懂 Palantir 就看懂 ontology+action+lineage 的完整形态。",
+   how:"Palantir 投资者材料 + 财报电话会(看叙事)；palantir.com/docs(Ontology/AIP)；Foundry bootcamp 视频；分析师对 PLTR 的拆解。",
+   rel:["ontology","evidence_xai","quad_target","mind_disruption"]},
+  {id:"read_aloudata", c:"land", p:1, r:13, l:"读懂 Aloudata / 国内数据 Agent",
+   def:"AIR(数据编织)/BIG(主动元数据)/CAN(NoETL 指标)/Agent(NL2MQL2SQL) 四条线与 NoETL 叙事。",
+   why:"国内数据智能/指标平台/AI BI 的代表玩家之一。理解其四条产品线是读懂中国市场的基础。",
+   how:"aloudata.com 产品页与发布稿(逐篇读)；爱分析/煜寒 等机构对其的访谈报告；对比其与 dbt/Denodo 的异同。",
+   rel:["data_fabric","semantic_layer","lineage_gov","cn_vs_global"]},
+  {id:"hyperscaler", c:"land", r:11, l:"大厂数据云动向",
+   def:"Snowflake Intelligence/Cortex『agentic enterprise control plane』、Databricks Genie、Microsoft Fabric Copilot。",
+   why:"数据云巨头正把 AI 内嵌进数据栈。懂其边界(云绑定、中立性)才能判断独立玩家的机会窗口。",
+   how:"Snowflake Summit / Databricks Data+AI Summit / Microsoft Build 的 keynote；三家工程博客；The Information 报道。",
+   rel:["lakehouse","mcp_interop","controlplane_war","cn_vs_global"]},
+  {id:"bi_incumbents", c:"land", r:11, l:"BI 在位者转身",
+   cmp:["read_palantir"],
+   def:"ThoughtSpot Spotter、Tableau Next/Agentforce、帆软 Dora『数字员工』、SmartBI 白泽 AgentBI。",
+   why:"BI 在位者拥有报表、权限、企业用户基础，正快速 AI 化。持续追踪其从分析到行动的边界。",
+   how:"各家发布会(Salesforce Dreamforce/Tableau Conf)；ThoughtSpot/Tableau 博客；帆软、SmartBI 公众号与发布稿。",
+   rel:["semantic_layer","controlplane_war","cn_vs_global"]},
+  {id:"oss_eco", c:"land", r:10, l:"开源生态追踪",
+   def:"DB-GPT、Wren AI、dbt、SQLMesh、Dagster、Temporal、LangGraph、OpenLineage；可拼局部但无成熟通用 OS。",
+   why:"开源决定什么能力会商品化。跟踪生态既为技术选型，也为判断市场结构。",
+   limits:"组件越多集成越脆；热门框架 12-18 月换代；开源强项是 demo 不是治理；许可证与供应链风险。",
+   frontier:"模块化 Agent 栈；MCP 连接器爆发；durable execution 基础设施化；semantic+agent 融合。",
+   breakthrough:"adopt/adapt/avoid 三分法：复用 commodity 组件；借鉴设计模式；警惕把可替换层当护城河。",
+   how:"GitHub trending(data/agent)；LangGraph/Temporal/dbt/OpenLineage 官方文档；Latent Space / MLOps Community 播客。",
+   rel:["data_fabric","mcp_interop","market_gap","langgraph_ref","paradigm_innovation"]},
+  {id:"cn_vs_global", c:"land", r:11, l:"中国 vs 全球市场差异",
+   def:"国产化/信创/私有化偏好、采购决策逻辑、本土玩家(帆软/Aloudata/SmartBI) vs 海外(Palantir/Snowflake)的不同打法。",
+   why:"决定你主攻哪个市场、用哪套叙事、接什么模型与部署形态。两个市场的『敢用前提』不同。",
+   how:"爱分析、量子位、36氪、机器之心(国内)；a16z/Sequoia/BVP(全球)；信通院行业报告；与本土 CIO 聊采购习惯。",
+   rel:["regulation","procurement","read_aloudata","hyperscaler"]},
+  {id:"ma_capital", c:"land", r:10, l:"资本与并购动态",
+   def:"谁在融、谁在被买(Salesforce 收 Tableau/Informatica、Databricks 系列收购、数据 Agent 融资轮)。",
+   why:"并购信号揭示巨头补短板的方向，也是判断赛道整合与退出路径的窗口。",
+   how:"The Information、Crunchbase、PitchBook 摘要；各家并购公告；关注 BVP / a16z 的赛道复盘。",
+   rel:["vc_thesis","controlplane_war","valuation","macro_ai"]},
+  {id:"industry_verticals", c:"land", r:11, l:"垂直行业场景",
+   def:"把 AI/Data Agent 映射到财务、销售运营、供应链、广告投放等具体工作流、角色、数据源与 KPI。",
+   why:"横向平台难早期获客；垂直场景才有强痛点、可复制模板与可量化 ROI。",
+   limits:"垂直化带来交付重；行业知识难编码；跨行业复用弱；监管行业差异大。",
+   frontier:"垂直 Agent 从 Copilot 走向可执行 workflow；行业模板+治理打包成产品。",
+   breakthrough:"选一个高数据密度、高预算、痛点量化行业打穿；用行业 KPI 而非通用 chat 指标验收。",
+   how:"McKinsey/BCG/Deloitte AI 行业报告；垂直 SaaS 案例研究；Salesforce/ServiceNow 行业云公开资料。",
+   rel:["read_palantir","bi_incumbents","roi","customer_dev","decision_engine","three_layer_loop"]},
+
+  // ---------- 市场动态与时机判断 ----------
+  {id:"adoption_cycle", c:"mkt", r:11, l:"技术采用周期 / 跨越鸿沟",
+   def:"创新者→早期采用者→鸿沟→早期主流；滩头阵地、整体产品(whole product)概念。",
+   why:"决定你先打哪类客户、怎么从 POC 标杆扩散到主流，不被『早期尝鲜』假象误导。",
+   how:"《跨越鸿沟》(Geoffrey Moore，必读)；配套《龙卷风暴》；Geoffrey Moore 官网文章与案例集。",
+   rel:["customer_dev","poc_paid","positioning","timing"]},
+  {id:"hype_cycle", c:"mkt", r:10, l:"炒作周期 / 分析师视角",
+   def:"Gartner Hype Cycle、Magic Quadrant、Forrester Wave；如何被分析师覆盖与影响采购。",
+   why:"企业采购看分析师象限。你要懂周期位置(避免泡沫顶买单)，并规划分析师关系。",
+   how:"Gartner / Forrester 公开报告摘要；Benedict Evans 年度演讲；自己判断 AI Agent 处在周期哪一段。",
+   rel:["ai_budget","timing","ciso_cio"]},
+  {id:"ai_budget", c:"mkt", p:1, r:12, l:"企业 AI 预算流向",
+   def:"企业 GenAI 支出去向、谁掌握预算、buy vs build、从创新预算转入常规预算的拐点。",
+   why:"钱往哪流决定卖给谁、卖什么包装。是判断市场时机与定价的事实基础。",
+   how:"Menlo Ventures《State of Generative AI in the Enterprise》(年度，必读)；McKinsey《State of AI》；a16z 企业买家调研；BVP State of the Cloud。",
+   rel:["how_ent_buy","timing","pricing","vc_thesis"]},
+  {id:"regulation", c:"mkt", p:1, r:12, l:"监管与合规趋势",
+   def:"数据安全法/个人信息保护法、等保 2.0、信创国产化、数据出境、EU AI Act、行业(金融/政务)特殊要求。",
+   why:"合规是国内企业采购的硬门槛。数据安全法、等保、信创、出境规则直接影响产品部署形态。",
+   how:"信通院报告；国家网信办/工信部文件原文；律所(如金杜/中伦)合规解读；EU AI Act 官方摘要。",
+   rel:["procurement","ai_security","cn_vs_global","model_landscape"]},
+  {id:"timing", c:"mkt", p:1, r:13, l:"时间窗口 / Why Now",
+   def:"判断『为什么是现在』：模型能力拐点、推理成本下降、企业从 demo 进入治理期、采购成熟度。",
+   why:"投资人第一问就是 why now；团队与节奏也由窗口决定。这是把所有市场信号收敛成判断的能力。",
+   how:"a16z / Sequoia AI thesis 文章；Stanford AI Index；Benedict Evans 年度技术演讲；McKinsey State of AI。",
+   rel:["ai_budget","adoption_cycle","vc_thesis","market_gap","macro_ai"]},
+  {id:"macro_ai", c:"mkt", r:11, l:"AI 宏观趋势与社会影响",
+   def:"AI 对劳动市场、生产率、教育、监管、能源消耗、地缘竞争和社会信任的影响；资本叙事 vs 真实采用。",
+   why:"长期战略不能只看产品功能。宏观趋势决定监管力度、人才供给、算力成本与社会接受度。",
+   limits:"预测极易过时；媒体炒作与真实采用混淆；政策突变难预判。",
+   frontier:"AI 扩散加速但信任/regulation/就业压力同步上升；算力与能源成新约束。",
+   breakthrough:"每季度读 AI Index/State of AI 校准判断；区分资本叙事、媒体热度、企业付费三件事。",
+   how:"Stanford AI Index；State of AI Report；International AI Safety Report；Benedict Evans 年度演讲。",
+   rel:["regulation","timing","model_landscape","ma_capital","ai_taxonomy"]},
+
+  // ---------- 企业买家与采购 ----------
+  {id:"how_ent_buy", c:"buyer", p:1, r:13, l:"企业如何买 AI",
+   def:"B2B 采购流程、决策链(冠军/经济买家/否决者/用户)、采购委员会、试点到合同的路径。",
+   why:"B2B AI 必须穿过采购链。不懂决策结构就会 POC 炼狱、无法规模化付费。",
+   how:"MEDDIC/MEDDPICC 方法论；《The Qualified Sales Leader》(John McMahon)；a16z《How enterprises buy》；Gartner 企业采购公开摘要。",
+   rel:["ciso_cio","poc_paid","roi","sales_motion"]},
+  {id:"ciso_cio", c:"buyer", r:11, l:"CIO / CISO 关注点",
+   def:"安全、合规、集成成本、TCO、供应商风险、可运维性；技术买家的真实顾虑清单。",
+   why:"AI 项目从『能不能做』转向『敢不敢用』，签字的是 CIO/CISO。要懂他们的语言。",
+   how:"与 3-5 位真实 CIO 做客户访谈(最有效)；Gartner CIO Agenda；a16z CISO 视角文章；安全问卷模板(SIG/CAIQ)。",
+   rel:["ai_security","procurement","how_ent_buy","agent_gov"]},
+  {id:"poc_paid", c:"buyer", r:11, l:"POC → 付费转化",
+   def:"POC 设计、量化成功标准、避免 pilot purgatory(试点炼狱)、从单点到生产部署。",
+   why:"多数企业 AI 死在 POC。不带成功标准与预算路径就会无限试点、无法 production。",
+   how:"a16z《pilot to production》；《跨越鸿沟》标杆客户法；McKinsey《Rewired》POC 章节；OpenView 企业 SaaS 转化报告。",
+   rel:["how_ent_buy","roi","customer_dev","adoption_cycle"]},
+  {id:"roi", c:"buyer", r:11, l:"ROI 论证与价值工程",
+   def:"量化价值、value selling、业务案例(business case)、成本对照(替代人力/提效/风控)。",
+   why:"2025-2026 企业开始砍掉没 ROI 的 AI 项目。价值必须翻译成可量化经济收益。",
+   how:"《The JOLT Effect》；Force Management 的 value framework；MEDDPICC 的 Metrics；与客户共建 ROI 模型表。",
+   rel:["pricing","inference_econ","how_ent_buy","saas_metrics"]},
+  {id:"procurement", c:"buyer", r:10, l:"安全采购门槛 / 私有化国产化",
+   def:"安全问卷、SOC2/ISO27001/等保、数据驻留、私有化交付、信创目录与国产模型适配。",
+   why:"国内中大型与政企采购的准入清单。SOC2/等保/信创是全球化 SaaS 进入国内市场的常见门槛。",
+   how:"等保 2.0 标准条款；SOC2 / ISO27001 入门指南；信创产品目录；研究竞品的合规资质页。",
+   rel:["regulation","ai_security","cn_vs_global","deploy_note"]},
+
+  // ---------- GTM 与品类设计 ----------
+  {id:"positioning", c:"gtm", p:1, r:13, l:"定位 (Positioning)",
+   def:"你到底属于哪个品类、对标谁、独特价值、避免落入『又一个 AgentBI』的功能清单比较。",
+   why:"AI 产品极易被降格为『又一个 chatbot/BI 插件』。定位决定溢价与竞争维度。",
+   how:"April Dunford《Obviously Awesome》+《Sales Pitch》；《Play Bigger》品类章节；a16z AI apps 定位案例文章。",
+   rel:["category","gtm_value_note","customer_dev","mind_platform"]},
+  {id:"category", c:"gtm", p:1, r:12, l:"品类设计",
+   def:"category design、point of view、做品类王而非红海竞争者；命名与教育市场。",
+   why:"品类创造 vs 红海竞争是 B2B 定价与融资的关键分野。Snowflake/Palantir 是经典品类创造案例。",
+   how:"《Play Bigger》(品类设计经典)；a16z 关于 category creation 的文章；研究 Snowflake/Palantir 如何造词。",
+   rel:["positioning","timing","mind_platform","vc_thesis"]},
+  {id:"pricing", c:"gtm", r:11, l:"定价模型",
+   def:"价值定价 vs 成本定价、席位/用量/结果(outcome)定价、分层套餐、AI 时代的 token 成本传导。",
+   why:"AI 产品定价是新难题(成本随用量浮动)。定价直接决定毛利与可融资性。",
+   how:"《Monetizing Innovation》(Simon-Kucher)；OpenView《SaaS Pricing》报告；关注 outcome-based pricing 讨论(a16z/Lenny)。",
+   rel:["inference_econ","roi","saas_metrics","sales_motion"]},
+  {id:"sales_motion", c:"gtm", r:10, l:"销售运动 PLG / SLG",
+   def:"产品驱动 vs 销售驱动 vs 混合、何时用哪种、企业级 land-and-expand。",
+   why:"企业 AI 多为高客单价、强治理场景，SLG/混合 GTM 常见。选错销售运动代价极高。",
+   how:"Bessemer / OpenView GTM 报告；《跨越鸿沟》；a16z GTM 系列；Lenny's Newsletter。",
+   rel:["how_ent_buy","pricing","ecosystem","positioning"]},
+  {id:"customer_dev", c:"gtm", r:11, l:"客户发现方法",
+   def:"客户访谈、问题验证、Jobs-to-be-Done 访谈、避免『确认偏误』式访谈。",
+   why:"客户发现是创业基本功。访谈方法不对会得到假信号，导致选错场景与产品方向。",
+   how:"《The Mom Test》(Rob Fitzpatrick，访谈圣经)；《The Four Steps to the Epiphany》(Steve Blank)；JTBD 访谈法(Bob Moesta)。",
+   rel:["poc_paid","positioning","adoption_cycle","mind_disruption"]},
+  {id:"ecosystem", c:"gtm", r:9, l:"渠道与生态伙伴",
+   def:"集成伙伴、云市场上架、SI/咨询渠道、Provider/Connector 生态。",
+   why:"Snowflake/Databricks 等证明企业软件靠生态放大。Connector/集成伙伴是规模化的常见路径。",
+   how:"各云 Marketplace(AWS/Azure/阿里云)上架规则；partner-led growth 资料；研究 Snowflake/Databricks 的伙伴生态。",
+   rel:["sales_motion","hyperscaler","oss_eco"]},
+
+  // ---------- 融资与投资人叙事 ----------
+  {id:"vc_thesis", c:"fund", p:1, r:13, l:"赛道投资人怎么看",
+   def:"VC 对 AI / data infra / 应用层的论点、看重的信号(团队/市场/why now/护城河)、当前热度与审美。",
+   why:"融资者必须懂投资人论点，才能把技术叙事映射到资本决策框架。",
+   how:"a16z(enterprise & AI 主题)、Sequoia《AI Ascent》、BVP《State of the Cloud》、高瓴/红杉中国观点；定期读其 thesis 文章。",
+   rel:["timing","moat_story","saas_metrics","valuation"]},
+  {id:"saas_metrics", c:"fund", r:11, l:"关键经营指标",
+   def:"ARR/NRR/毛利率/CAC 回收期/Magic Number/burn multiple/LTV-CAC；AI 时代毛利新挑战。",
+   why:"SaaS/AI 公司的经营健康度靠这套仪表盘衡量。经营者与投资者都依赖这些指标。",
+   how:"David Sacks(SaaStr/All-In)；Bessemer《Cloud 指标》；Christoph Janz 的 SaaS 指标系列；OpenView SaaS Benchmarks。",
+   rel:["pricing","roi","inference_econ","valuation"]},
+  {id:"moat_story", c:"fund", p:1, r:12, l:"护城河叙事",
+   def:"把『数据/证据/责任链/反馈/评测集复利』讲成可信护城河(转换成本、网络效应、规模经济、数据飞轮)。",
+   why:"AI 投资界最怕套壳无壁垒。护城河叙事需落到转换成本、数据飞轮、网络效应等可验证结构。",
+   how:"《7 Powers》(Hamilton Helmer)；NFX network effects 手册；a16z moats in AI 系列文章；Bessemer 护城河框架。",
+   rel:["seven_powers","vc_thesis","category","evidence_xai"]},
+  {id:"valuation", c:"fund", r:10, l:"估值与融资节奏",
+   def:"各轮估值逻辑、稀释、节奏(里程碑驱动)、term sheet 关键条款、稀释与控制权。",
+   why:"融太早/太贵都伤公司。懂 term sheet 关键条款是创业者的基本功。",
+   how:"《Venture Deals》(Brad Feld，必读)；YC Startup Library；与 2-3 位创始人前辈聊真实条款经验。",
+   rel:["vc_thesis","saas_metrics","ma_capital"]},
+
+  // ---------- 组织与人才 ----------
+  {id:"ai_native_org", c:"org", r:11, l:"AI 原生工程组织",
+   def:"平台型工程组织 vs 项目外包范式；Team Topologies；AI 时代 Kernel/Data/Agent/Security/Eval 分工趋势。",
+   why:"AI 原生公司的组织形态影响产品架构。项目制外包范式难以支撑平台型 AI 产品迭代。",
+   how:"《Team Topologies》(Skelton & Pais)；《An Elegant Puzzle》(Will Larson)；Will Larson 博客；DORA《Accelerate》组织篇章。",
+   rel:["hiring","dev_paradigm","agent_dev"]},
+  {id:"hiring", c:"org", r:10, l:"关键角色招聘",
+   def:"早期招谁(AI/数据/安全/解决方案架构师/首位销售)、招聘标准、创始团队互补。",
+   why:"早期错招核心岗位代价极高。Who methodology 是创业圈公认招聘框架。",
+   how:"《Who》(Geoff Smart 的 A-method)；YC 招聘指南；Keith Rabois/创始人关于早期招聘的访谈。",
+   rel:["ai_native_org","dev_paradigm"]},
+  {id:"dev_paradigm", c:"org", r:11, l:"研发范式 (Contract/Eval-driven)",
+   def:"contract-first、eval-driven、policy-by-default、高可信 AI 软件的工程纪律；DORA 研究延伸。",
+   why:"AI 产品工程化的业界共识：没有契约与评测门禁，迭代会退化为不可控的 prompt 调参。",
+   how:"《Accelerate》(DORA)；Pact/consumer-driven contracts 资料；Hamel Husain eval-driven 系列；Google Testing Blog。",
+   rel:["eval_driven","ai_native_org","agent_dev"]},
+  {id:"agent_dev", c:"org", r:10, l:"Agent 辅助开发治理",
+   def:"用 AI Agent(Claude Code/Cursor 等)做编码的工作流、edit 边界、审查与回归门禁。",
+   why:"agentic coding(Cursor/Claude Code/Copilot)正改变研发方式。无治理会引入回归与架构漂移。",
+   how:"Cursor / Claude Code 官方文档；GitHub Copilot enterprise 文档；Simon Willison agentic coding 博客；SWE-agent 论文。",
+   rel:["dev_paradigm","agent_arch","ai_native_org"]},
+
+  // ---------- 战略思维 / 心智模型 ----------
+  {id:"seven_powers", c:"mind", r:11, l:"7 Powers / 护城河理论",
+   def:"规模经济、网络效应、反向定位、转换成本、品牌、垄断资源、流程效率——七种持久竞争力。",
+   why:"判断哪种竞争优势可持续的经典框架。AI 公司多在转换成本、流程效率、网络效应间取舍。",
+   how:"《7 Powers》(Hamilton Helmer)；配套作者访谈/播客(Invest Like the Best)。",
+   rel:["moat_story","mind_platform","mind_disruption"]},
+  {id:"mind_disruption", c:"mind", r:11, l:"颠覆理论 / JTBD",
+   def:"颠覆式创新(低端/新市场)、待办任务(Jobs to be Done)、为何在位者看不见你。",
+   why:"数据/AI 工具链正在经历范式重构。颠覆理论与 JTBD 帮助判断切口与在位者盲区。",
+   how:"《创新者的窘境》《与运气竞争》(Clayton Christensen)；Bob Moesta 的 JTBD 访谈法。",
+   rel:["customer_dev","read_palantir","seven_powers","first_principles"]},
+  {id:"wardley", c:"mind", r:9, l:"Wardley Mapping",
+   def:"按『价值链 × 演进阶段』画地图，判断哪些自研、哪些用商品化组件、技术何时商品化。",
+   why:"判断技术何时商品化、何时该自研的经典工具。AI 栈各层演进速度极快，地图思维尤为重要。",
+   how:"Simon Wardley《Wardley Maps》(免费在线连载)；Learn Wardley Mapping 社区资源。",
+   rel:["first_principles","dev_paradigm","mind_platform"]},
+  {id:"mind_platform", c:"mind", r:10, l:"平台 vs 产品 vs 功能",
+   def:"识别『你是别人的功能、还是独立产品、还是平台』；平台化碾压与被收编的风险。",
+   why:"平台碾压是 B2B 软件的常态风险。Aggregation theory 解释巨头如何收编独立产品。",
+   how:"《Platform Revolution》；Ben Thompson(Stratechery)的 aggregation theory；『Is it a feature or a company?』的经典论辩。",
+   rel:["positioning","category","controlplane_war","seven_powers"]},
+  {id:"first_principles", c:"mind", r:10, l:"第一性原理 / 范式判断",
+   def:"从根本约束重新推导、识别真正的范式转移 vs 噪音、避免类比陷阱。",
+   why:"AI 领域噪音极大。最稀缺的能力是分清真拐点与炒作，并据此做战略判断。",
+   how:"Ben Thompson《Stratechery》(战略分析范本)；《思考，快与慢》(决策偏误)；练习为每个大决策写『第一性原理备忘录』。",
+   rel:["timing","wardley","mind_disruption"]},
+
+  // ---------- 行业/市场 衔接节点 ----------
+  {id:"controlplane_war", c:"land", r:11, l:"数据云控制面之争",
+   def:"Snowflake/Databricks/Microsoft 争夺『agentic enterprise 控制面』，把云内 Agent 能力标准化。",
+   why:"2025-2026 最热竞争维度：谁掌握 enterprise AI control plane。理解各家宣称与真实边界。",
+   how:"Snowflake Summit / Databricks Data+AI Summit / Microsoft Build keynote；The Information 深度报道；各家官方 engineering blog。",
+   rel:["hyperscaler","mind_platform","market_gap","mcp_interop"]},
+  {id:"market_gap", c:"mkt", r:12, l:"企业 AI 市场结构空位",
+   def:"观察：分析、决策、执行、治理四能力常被不同厂商割裂；尚无公认的统一 enterprise business-data OS 赢家。",
+   why:"理解产业结构才能判断新品类机会 vs 红海。空位判断需持续用公开信息验证，而非一次性结论。",
+   limits:"空位不等于机会；大厂可随时下沉；客户采购偏好可能只要单点工具；整合成本极高。",
+   frontier:"垂直 workflow agent、semantic control plane、governed action layer 各自涌现，整合者尚未出现。",
+   breakthrough:"用公开对标持续验证：Palantir(重交付)、数据云(云绑定)、BI(AI 化快但执行弱)、开源(拼不全治理)。空位在『整合』而非『单点更强』。",
+   how:"Gartner/Forrester 公开 MQ 摘要；Menlo Enterprise AI 报告；a16z data+AI 市场地图文章；每季度跟踪新融资与产品发布。",
+   rel:["timing","controlplane_war","oss_eco","category","read_palantir"]},
+  {id:"quad_target", c:"land", r:10, l:"竞争坐标系：分析→行动",
+   def:"经典二维：横轴 分析→行动，纵轴 单点工具→企业治理平台。Palantir/BI/数据云/Agent 框架可映射其上。",
+   why:"一张图定位所有玩家，是行业分析的基本功。避免只看功能清单不看坐标迁移。",
+   how:"自行绘制二维图；参考 Gartner MQ 维度；Ben Thompson 平台分析文章；每季度更新玩家位置。",
+   rel:["read_palantir","bi_incumbents","positioning"]},
+
+  // ---------- 采购衔接节点 ----------
+  {id:"deploy_note", c:"buyer", r:9, l:"部署形态认知 (SaaS→气隙)",
+   def:"Public/Dedicated/Hybrid SaaS、客户 VPC、私有化、气隙(air-gapped)各自的控制面/数据面/合规取舍。",
+   why:"国内大客户常要私有化/信创。部署形态直接影响成本结构、交付复杂度与毛利率。",
+   how:"NIST 云部署模型公开资料；AWS/Azure 私有化白皮书；Gartner 部署形态术语；研究主流 BI/数据平台私有化方案公开介绍。",
+   rel:["procurement","regulation","inference_econ"]},
+
+  // ---------- GTM 衔接节点 ----------
+  {id:"gtm_value_note", c:"gtm", r:9, l:"AI 产品价值表达反模式",
+   def:"业界常见翻车：主打『少写 SQL/替代人/全自动』；应主打可验证价值如可信结论、决策提速、治理与可追溯。",
+   why:"AI 产品极易被降格成功能对比。价值表达决定客户预期、采购审批与续约率。",
+   how:"April Dunford 价值翻译法；《Obviously Awesome》案例；a16z enterprise AI ROI 文章；McKinsey AI 价值衡量公开报告。",
+   rel:["positioning","roi","customer_dev"]},
+
+  // ---------- 关键技术栈深潜（局限·方向·突破，仅外部知识体系）----------
+  {id:"agent_runtime_os", c:"stack", p:1, deep:1, r:15, l:"Agent Runtime / Agent OS 本质",
+   req:["agent_arch","agent_obs"],
+   def:"Agent OS = 状态+记忆+工具+权限+计划+执行+审计+回滚+HITL 的可治理运行时；不是聊天 UI，也不是某个 Python 框架的包名。",
+   why:"判断企业 AI 终局形态的基础。不懂 Runtime 与框架的区别，就无法评估 Palantir/Snowflake/开源框架各自做到了哪一层。",
+   limits:"① 开源框架常与 LangChain 生态绑死，替换成本高。② 权限/审批/证据链/审计非框架一等公民。③ 有 trace 不等于有治理(审批/幂等/回滚)。④ 多 Agent 协作复杂度指数上升。⑤ 托管 SaaS Runtime 难满足私有化/气隙部署。",
+   frontier:"durable agent、computer use、tool sandbox、MCP 工具标准、trace-driven ops。Palantir AIP / Snowflake Cortex 争的是 enterprise control plane。",
+   breakthrough:"OS 内核思维：Runtime+Policy+Trace 是内核，Domain/Connector 是外围，图编排是可替换 adapter。Contract-first：每次工具调用可 schema 校验+eval 回归。新范式：企业 Agent = governed execution environment，不是 chatbot wrapper。",
+   how:"OpenAI《A Practical Guide to Building Agents》；Anthropic《Building Effective Agents》；Palantir AIP 文档；Temporal durable execution 概念；LangGraph workflows 文档(只学设计模式)。",
+   rel:["agent_arch","langgraph_ref","durable_exec","exec_gateway","decision_engine","agent_gov","eval_sci"]},
+
+  {id:"langgraph_ref", c:"stack", p:1, deep:1, r:14, l:"LangGraph 与 Agent 框架",
+   req:["agent_runtime_os"],
+   cmp:["openai_agents_sdk"],
+   def:"LangGraph 是 LangChain 系的 Agent/工作流状态图框架：节点=步骤、边=转移，支持 checkpoint、HITL、子图与持久执行。",
+   why:"2024-2026 最流行的 Agent 编排框架之一。必须懂其能力与硬局限，才能判断何时借鉴、何时自建。",
+   limits:"① 与 LangChain/LangSmith 深度耦合。② 企业治理(权限/审批/审计)需大量自建。③ 复杂图难回归评测与版本迁移。④ 长流程 token 成本高。⑤ 幂等/补偿/跨系统事务非开箱。⑥ 『有框架=快』常变后期重写。",
+   frontier:"durable execution、interrupt/resume、MCP 集成、hosted platform、supervisor 多 Agent。平行物：OpenAI Agents SDK(更轻)、Temporal(基础设施)、Inngest(事件驱动)。趋势：框架变薄，治理变厚。",
+   breakthrough:"提取三模式：状态机、checkpoint、HITL interrupt——可迁入任何自研 Runtime。分层：图只调度，Policy/Evidence/Eval 在图外拦截。核心问题：企业要 agent graph，还是 decision lineage + governed action？",
+   how:"LangGraph 官方 docs(workflows/durable execution/HITL)；GitHub issues 看生产痛点；LangChain Blog；对比 OpenAI Agents SDK 设计差异。",
+   rel:["agent_runtime_os","durable_exec","openai_agents_sdk","agent_arch","dev_paradigm"]},
+
+  {id:"openai_agents_sdk", c:"stack", deep:1, r:12, l:"OpenAI Agents SDK / 多框架横评",
+   cmp:["langgraph_ref"],
+   def:"OpenAI Agents SDK、CrewAI、AutoGen、PydanticAI、Microsoft Agent Framework 等：定义 agent、handoff、tool、guardrail 的快速构建层。",
+   why:"建立横向判断力，避免被单一 vendor 或『多 Agent 角色扮演』叙事绑架。",
+   limits:"① handoff/tool call 易学，企业治理难补。② CrewAI/AutoGen demo 强、生产稳定性弱。③ 与模型/API 生态绑定。④ 不管指标口径、SQL 安全、血缘。⑤ tool poisoning、excessive agency 需自建防护。",
+   frontier:"轻量 SDK + 强 trace + MCP 兼容 + 托管 runtime。竞争焦点转向企业工具链集成，而非 agent 角色数量。",
+   breakthrough:"框架价值在设计模式，不在依赖。横向比：tracing、HITL、tool schema、guardrail、持久执行、私有化。用 domain tool 封装业务能力，而非用 Crew 模拟组织架构。",
+   how:"OpenAI Agents SDK 官方文档；Microsoft AutoGen 文档；CrewAI docs；快速 demo 后自问：SOC2 审批链、幂等执行框架提供了什么？",
+   rel:["langgraph_ref","agent_runtime_os","mcp_interop","agent_gov"]},
+
+  {id:"durable_exec", c:"stack", deep:1, r:13, l:"持久执行 Temporal / 长流程",
+   def:"Durable execution：工作流状态持久化、故障恢复、定时/重试/补偿、saga；代表 Temporal、Cadence、AWS Step Functions、LangGraph checkpoint。",
+   why:"企业 Agent 多是跨天、跨系统、需审批的长流程。无持久执行则难以生产落地。",
+   limits:"① Temporal 等集群运维成本高。② 确定性 workflow 与 LLM 不确定性交界难测。③ workflow 代码升级兼容性难。④ 业务方难读懂代码级 workflow。⑤ 只保执行可靠性，不保推理正确性。",
+   frontier:"Temporal 成 agentic workflow 底层；LangGraph/Inngest 借鉴其语义；AI step as activity 模式成熟；云厂商托管 durable runtime。",
+   breakthrough:"分层：LLM 步骤=短事务+幂等工具调用；业务流程=durable workflow。AI 失败可重试+HITL，不污染 saga。durability 是执行层属性，不是智能属性。",
+   how:"Temporal 官方 docs(workflow/activity/saga)；Cadence 文档；LangGraph durable execution；Stripe/Netflix Temporal 案例分享。",
+   rel:["langgraph_ref","exec_gateway","three_layer_loop","agent_gov"]},
+
+  {id:"exec_gateway", c:"stack", p:1, deep:1, r:14, l:"企业执行网关 (Action Gateway)",
+   req:["decision_engine","agent_gov"],
+   def:"把已审批的决策/计划转化为跨系统实际动作的受治理执行层：API/MCP 聚合、幂等、重试、回滚、异步队列、执行审计。业界代表：Palantir Actions、Salesforce Agentforce、Workato、enterprise n8n/Zapier。",
+   why:"『分析→行动』跃迁的基础设施层。理解执行网关才能判断 RPA、iPaaS、Agent 执行的真实边界。",
+   limits:"① 外部 API 脆弱、变更频繁。② 业务系统未必原生幂等。③ 部分动作不可逆。④ 执行层被攻破=真实业务损失。⑤ 执行正确但决策错误时危害更大。⑥ connector 生态质量参差。",
+   frontier:"enterprise action fabric、MCP gateway 聚合、idempotent execution plane、computer use 与 API 执行融合。",
+   breakthrough:"严格执行/决策分离：网关只接受签名/审批后的 action plan，不直接听 LLM。防护链：dry-run → 审批 → 限额 → 执行 → 验证 → 反馈。范式：Governed API mesh，不是 RPA 2.0。",
+   how:"Palantir action types 文档；Salesforce Agentforce 资料；MCP 规范(modelcontextprotocol.io)；Zapier/n8n enterprise 文档；OWASP LLM Top 10(工具执行风险)。",
+   rel:["decision_engine","mcp_interop","agent_gov","durable_exec","evidence_xai"]},
+
+  {id:"decision_engine", c:"stack", p:1, deep:1, r:14, l:"决策引擎 (BRMS / 优化)",
+   req:["semantic_layer","nl2sql"],
+   def:"把分析洞察+业务规则+约束转化为可执行决策：规则引擎(Drools/IBM ODM)+多目标优化+风险评估+方案生成+审批分流。广泛用于金融风控、广告出价、供应链补货。",
+   why:"判断『何时可自动决策、何时必须人工』的基础。混淆 LLM 与决策引擎是当前 Agent 落地最大误区之一。",
+   limits:"① 规则爆炸难维护。② 多目标冲突无唯一最优。③ 优化结果难向业务解释。④ 洞察延迟导致决策翻车。⑤ LLM 做决策失去确定性与审计。⑥ 自动决策的责任归属需制度设计。",
+   frontier:"hybrid decisioning(规则+优化+ML+LLM 解释)、decision lineage、scenario simulation、risk-budgeted autonomy。",
+   breakthrough:"LLM 不进入决策核心：规则+优化出方案，LLM 只解释。分级自治：低风险自动、高风险审批。闭环：执行结果回流→更新规则权重，而非盲目 fine-tune。范式：Decision Engine = 企业政策编译器。",
+   how:"Drools 文档；IBM Operational Decision Manager 资料；《Handbook of Metaheuristics》选读；Google OR-Tools；Palantir action guardrails；广告程序化购买行业报告。",
+   rel:["exec_gateway","semantic_layer","agent_gov","hitl","evidence_xai"]},
+
+  {id:"mcp_deep", c:"stack", deep:1, r:13, l:"MCP 深潜与工具互操作",
+   def:"Model Context Protocol：Host-Client-Server 架构，标准化 tools/resources/prompts 连接。Anthropic 发起，Snowflake/ThoughtSpot 等跟进。",
+   why:"Agent 工具生态正在协议化。懂 MCP 才能判断互操作机会与安全风险。",
+   limits:"① 安全非内置。② 协议年轻、实现参差。③ tool schema 难表达业务口径。④ 过度暴露 API=攻击面扩大。⑤ 协议≠生态控制权。",
+   frontier:"MCP 成 agent tool 事实标准；OSI 平行语义协议；gateway+policy filter 企业标配。",
+   breakthrough:"MCP 作治理边界：只暴露 Policy 裁剪后的 operation 子集。双协议分工：MCP(工具面)+语义层(指标面)。Governed Tool Adapter，非 raw API 包装。",
+   how:"modelcontextprotocol.io 规范；Anthropic MCP 文档；Snowflake MCP 发布公告；OWASP GenAI Security。",
+   rel:["mcp_interop","exec_gateway","ai_security","agent_runtime_os"]},
+
+  {id:"computer_use", c:"stack", deep:1, r:12, l:"Computer Use / 桌面自动化",
+   def:"AI 通过 GUI、浏览器、桌面应用执行操作：Anthropic computer use、OpenAI operator 类能力、浏览器自动化、RPA 融合。",
+   why:"2025-2026 前沿：从 API 执行扩展到『操作任意界面』。与安全、执行网关、桌面壳强相关。",
+   limits:"脆弱(UI 变更即失败)；延迟高；安全面极大；难审计；企业合规阻力强。",
+   frontier:"browser agent、computer use API、与 MCP/执行网关融合；sandbox 隔离成标配。",
+   breakthrough:"默认 sandbox+录屏+审批；优先 API 执行，computer use 作补充；与 HITL 强绑定。",
+   how:"Anthropic computer use 文档；OpenAI operator 公开资料；Playwright 文档；OWASP LLM Top 10。",
+   req:["agent_arch","exec_gateway"],
+   rel:["exec_gateway","agent_runtime_os","desktop_shell","ai_security","hitl"]},
+  {id:"desktop_shell", c:"stack", deep:1, r:12, l:"Electron / Tauri 桌面壳",
+   def:"Electron(Chromium+Node)与 Tauri(Rust+系统 WebView)封装跨平台桌面应用。常用于 IDE、协作工具、本地 Agent/Connector 客户端。",
+   why:"企业本地部署、凭证采集、气隙环境常涉及桌面端。需懂技术选型与真实边界，避免过度投入壳层。",
+   limits:"① Electron 体积大、内存高、Chromium 攻击面大。② 壳不解决 AI 治理/语义/评测。③ 企业分发/签名/杀毒兼容成本。④ 跨平台适配负担。⑤ 壳内写业务逻辑导致双轨维护。",
+   frontier:"Tauri 2.0 轻量化；on-device AI；secure IPC 连本地服务；desktop agent 与 cloud control plane 分离。",
+   breakthrough:"壳与后端分离：桌面只承载凭证安全存储、本地采集、离线缓存、升级通道；核心逻辑放本地服务/云端。优先 Tauri(轻量)，Electron 在需完整 Chromium/Node 生态时用。Desktop 是部署形态，不是产品定义。",
+   how:"Electron 官方 docs；Tauri 官方 docs；VS Code 架构分析文章；1Password 客户端技术博客；对比 Slack/Discord 桌面技术选型公开分享。",
+   rel:["deploy_note","agent_runtime_os","procurement"]},
+
+  {id:"three_layer_loop", c:"stack", deep:1, r:11, l:"分析→决策→执行 三层架构",
+   def:"业界闭环自动化的经典分层：Analytics/Insight(分析洞察) → Decision(规则+优化) → Execution(受治理执行) → 业务反馈 → 再分析。Palantir、广告自动化、供应链优化均近似此结构。",
+   why:"理解为何『单一 Agent 包打天下』在生产的失败率极高。这是判断架构成熟度的标尺。",
+   limits:"① 层间契约复杂。② 端到端延迟高(小时/天级)。③ 组织权责阻力。④ 冷启动无反馈数据。⑤ 过度自动化放大声誉风险。",
+   frontier:"closed-loop business automation、decision lineage、supervised autonomy 分级、vertical ops agents。",
+   breakthrough:"三层分治、各层独立评测：分析用数据 golden set，决策用回放测试，执行用幂等/回滚测试。口号：『分析可信、决策可审、执行可控』。这比堆更多 Agent 角色更接近生产 reality。",
+   how:"Palantir decision lineage 文档；McKinsey 闭环运营报告；Gartner 关于 AI-driven operations 公开摘要；程序化广告 RTB/决策系统科普文章。",
+   rel:["decision_engine","exec_gateway","evidence_xai","agent_gov","market_gap"]},
+
+  {id:"paradigm_innovation", c:"mind", p:1, deep:1, r:15, l:"范式创新方法论",
+   def:"从根本约束出发，识别真范式转移 vs 噪音；研究局限是为了找到可开创的新架构与新品类。",
+   why:"AI 领域噪音极大。稀缺能力是：在所有人学同样框架时，判断什么该自建、借鉴或放弃。",
+   limits:"① 类比陷阱。② 框架 FOMO。③ 局部最优拼不出系统。④ 学术/博客热点已 commoditize。⑤ 客户口头需求≠范式机会。",
+   frontier:"composite AI(LLM+规则+优化+workflow)；governed autonomy；evidence-native software；semantic control plane；vertical OS。",
+   breakthrough:"五问法：根本约束？哪层偷懒？框架消失后内核是什么？哪层有付费意愿？什么今天难但明天必需？实践：adopt/adapt/avoid 三分法 + Wardley Map 标 commodity vs differentiator。",
+   how:"Christensen《创新者的窘境》；Hamilton Helmer《7 Powers》；Simon Wardley Maps(免费在线)；Ben Thompson Stratechery；a16z AI apps 系列文章。",
+   rel:["first_principles","wardley","agent_runtime_os","category","mind_disruption","market_gap"]},
+];
+
+// ====== 五条分阶段学习路径 ======
+const PATHS=[
+  {id:"p1",title:"1. 判断力底座",desc:"AI谱系、LLM边界、模型版图、可靠性、评测、宏观趋势",nodes:["ai_taxonomy","llm_cap","model_landscape","reliability","eval_sci","macro_ai"]},
+  {id:"p2",title:"2. 数据与 Agent 核心",desc:"语义层、RAG、NL2SQL、Agent架构、MCP、治理、可观测",nodes:["semantic_layer","context_eng","nl2sql","vector_search","agent_arch","mcp_interop","agent_gov","agent_obs","eval_driven"]},
+  {id:"p3",title:"3. 技术深潜",desc:"Runtime、LangGraph、三层架构、决策/执行、Computer Use",nodes:["agent_runtime_os","langgraph_ref","durable_exec","three_layer_loop","decision_engine","exec_gateway","computer_use","paradigm_innovation"]},
+  {id:"p4",title:"4. 行业格局",desc:"Palantir、数据云、BI、国内玩家、开源、垂直场景",nodes:["read_palantir","ontology","hyperscaler","bi_incumbents","read_aloudata","oss_eco","controlplane_war","industry_verticals","quad_target"]},
+  {id:"p5",title:"5. 商业化闭环",desc:"预算、时机、采购、POC、ROI、定位、融资",nodes:["ai_budget","timing","how_ent_buy","poc_paid","roi","positioning","category","vc_thesis","saas_metrics"]},
+];
+
+// ====== 边类型：requires(前置) / related(关联) / competes(对照) ======
+const EDGE_STYLES={
+  requires:{color:"rgba(77,208,225,.55)",width:2,dash:[],alpha:1},
+  related:{color:"rgba(120,140,200,.22)",width:1,dash:[],alpha:.85},
+  competes:{color:"rgba(255,107,107,.42)",width:1.2,dash:[6,4],alpha:.9},
+};
+const edges=[]; const edgeSeen=new Set();
+function pushEdge(from,to,type){
+  if(from===to)return; const k=type+"|"+from+"|"+to; if(edgeSeen.has(k))return; edgeSeen.add(k);
+  edges.push({from,to,type});
+}
+const idset=new Set(N.map(n=>n.id));
+N.forEach(n=>{
+  (n.req||[]).forEach(r=>{ if(idset.has(r)) pushEdge(r,n.id,"requires"); });
+  (n.rel||[]).forEach(r=>{ if(idset.has(r)) pushEdge(n.id,r,"related"); });
+  (n.cmp||[]).forEach(r=>{ if(idset.has(r)) pushEdge(n.id,r,"competes"); });
+});
+
+const PRIORITY=new Set(N.filter(n=>n.p).map(n=>n.id));
+const DEEP=new Set(N.filter(n=>n.deep).map(n=>n.id));
+
+// ====== 按领域固定布局 ======
+const LAYOUT={
+  ai:[0.20,0.23], data:[0.37,0.21], stack:[0.56,0.23], entai:[0.74,0.30],
+  land:[0.22,0.62], mkt:[0.44,0.48], buyer:[0.12,0.46], gtm:[0.33,0.78],
+  fund:[0.50,0.74], org:[0.66,0.58], mind:[0.54,0.38]
+};
+const CLUSTER_R={land:0.12,gtm:0.11,default:0.095};
+
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+let W,H,DPR;
+function resize(){ DPR=window.devicePixelRatio||1; W=cv.clientWidth; H=cv.clientHeight; cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); initLayout(); }
+const nodes=N.map(n=>({...n,x:W/2,y:H/2}));
+const nmap=Object.fromEntries(nodes.map(n=>[n.id,n]));
+
+function initLayout(){
+  if(!W||!H)return;
+  const byCat={};
+  nodes.forEach(n=>(byCat[n.c]=byCat[n.c]||[]).push(n));
+  Object.entries(byCat).forEach(([cat,arr])=>{
+    arr.sort((a,b)=>(b.r||10)-(a.r||10));
+    const [cx,cy]=LAYOUT[cat]||[0.5,0.5];
+    const baseX=cx*W, baseY=cy*H;
+    const radius=Math.min(W,H)*(CLUSTER_R[cat]||CLUSTER_R.default);
+    arr.forEach((n,i)=>{
+      const angle=(2*Math.PI*i/Math.max(arr.length,1))-Math.PI/2;
+      const scale=0.82+0.18*((n.r||10)/15);
+      n.x=baseX+Math.cos(angle)*radius*scale;
+      n.y=baseY+Math.sin(angle)*radius*scale;
+    });
+  });
+}
+
+let view="all", activePath=null, catFocus=new Set(), selected=null, hover=null, dim=null;
+let cam={x:0,y:0,k:1}, target={x:0,y:0,k:1};
+const pathNodeSet=()=>activePath?new Set((PATHS.find(p=>p.id===activePath)||{}).nodes||[]):null;
+
+function nodeVisible(n){
+  if(catFocus.size && !catFocus.has(n.c)) return false;
+  const g=CATS[n.c].group;
+  if(view==="tech" && g!=="tech") return false;
+  if(view==="industry" && g!=="industry") return false;
+  if(view==="biz" && g!=="biz") return false;
+  if(view==="priority" && !PRIORITY.has(n.id)) return false;
+  if(view==="deep" && !DEEP.has(n.id) && n.c!=="stack") return false;
+  return true;
+}
+
+function edgeVisible(e){
+  const a=nmap[e.from], b=nmap[e.to];
+  return a&&b&&nodeVisible(a)&&nodeVisible(b);
+}
+
+function pathEdgeHot(e){
+  if(!activePath)return false;
+  const nodes=PATHS.find(p=>p.id===activePath).nodes;
+  const si=nodes.indexOf(e.from), ti=nodes.indexOf(e.to);
+  return (si>=0&&ti>=0) && (Math.abs(si-ti)===1 || e.type==="requires");
+}
+
+let dragging=null;
+function tick(){
+  cam.x+=(target.x-cam.x)*0.12; cam.y+=(target.y-cam.y)*0.12; cam.k+=(target.k-cam.k)*0.12;
+}
+function toScreen(n){ return {x:(n.x-W/2)*cam.k+W/2+cam.x, y:(n.y-H/2)*cam.k+H/2+cam.y}; }
+function toWorld(px,py){ return {x:(px-W/2-cam.x)/cam.k+W/2, y:(py-H/2-cam.y)/cam.k+H/2}; }
+
+const neigh={}; nodes.forEach(n=>neigh[n.id]=new Set());
+edges.forEach(e=>{ neigh[e.from].add(e.to); neigh[e.to].add(e.from); });
+
+function drawClusterLabels(){
+  ctx.save();
+  ctx.font='11px "PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  Object.entries(LAYOUT).forEach(([cat,[cx,cy]])=>{
+    if(catFocus.size && !catFocus.has(cat))return;
+    const c=CATS[cat]; if(!c)return;
+    const has=nodes.some(n=>n.c===cat&&nodeVisible(n));
+    if(!has)return;
+    const x=cx*W*cam.k+(W/2)*(1-cam.k)+cam.x, y=cy*H*cam.k+(H/2)*(1-cam.k)+cam.y-radiusOffset(cat);
+    ctx.fillStyle="rgba(154,166,207,.55)";
+    ctx.fillText(c.name,x,y);
+  });
+  ctx.restore();
+}
+function radiusOffset(cat){ return (CLUSTER_R[cat]||CLUSTER_R.default)*Math.min(W,H)*cam.k+18; }
+
+function drawEdge(e){
+  const a=nmap[e.from], b=nmap[e.to];
+  const A=toScreen(a), B=toScreen(b);
+  const st=EDGE_STYLES[e.type]||EDGE_STYLES.related;
+  const conn=dim&&(dim===e.from||dim===e.to);
+  const pathHot=pathEdgeHot(e);
+  const faded=dim&&!conn;
+  const pathDim=activePath&&!pathHot&&!conn;
+  ctx.save();
+  ctx.globalAlpha=faded?0.05:pathDim?0.12:conn||pathHot?1:st.alpha;
+  ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y);
+  ctx.strokeStyle=conn?"rgba(120,160,255,.7)":pathHot?"rgba(130,220,255,.75)":st.color;
+  ctx.lineWidth=(conn||pathHot)?st.width+0.6:st.width;
+  ctx.setLineDash(st.dash);
+  ctx.stroke();
+  if(e.type==="requires"&&!faded&&!pathDim){
+    const ang=Math.atan2(B.y-A.y,B.x-A.x), ax=B.x-Math.cos(ang)*14, ay=B.y-Math.sin(ang)*14;
+    ctx.beginPath(); ctx.moveTo(B.x,B.y); ctx.lineTo(ax-Math.cos(ang-0.45)*6,ay-Math.sin(ang-0.45)*6);
+    ctx.moveTo(B.x,B.y); ctx.lineTo(ax-Math.cos(ang+0.45)*6,ay-Math.sin(ang+0.45)*6);
+    ctx.strokeStyle=conn||pathHot?"rgba(130,220,255,.9)":"rgba(77,208,225,.75)";
+    ctx.lineWidth=1.5; ctx.setLineDash([]); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ["related","competes","requires"].forEach(t=>edges.filter(e=>e.type===t&&edgeVisible(e)).forEach(drawEdge));
+  drawClusterLabels();
+  const ps=pathNodeSet();
+  nodes.forEach(n=>{
+    if(!nodeVisible(n))return;
+    const P=toScreen(n), col=CATS[n.c].color;
+    const conn=dim&&(dim===n.id||neigh[n.id].has(dim));
+    const pathIn=ps&&ps.has(n.id);
+    const faded=dim&&!conn;
+    const pathDim=activePath&&!pathIn&&!conn;
+    const r=n.r*cam.k*(n.id===hover?1.18:1);
+    ctx.globalAlpha=faded?0.15:pathDim?0.28:1;
+    ctx.beginPath(); ctx.arc(P.x,P.y,r+6,0,7); ctx.fillStyle=col+"22"; ctx.fill();
+    ctx.beginPath(); ctx.arc(P.x,P.y,r,0,7);
+    ctx.fillStyle=(n.id===selected)?"#fff":pathIn&&activePath?col:col; ctx.fill();
+    if(n.p){ ctx.lineWidth=2; ctx.strokeStyle="#ffd166"; ctx.beginPath(); ctx.arc(P.x,P.y,r,0,7); ctx.stroke(); }
+    if(pathIn&&activePath){ ctx.lineWidth=2; ctx.strokeStyle="#82d7ce"; ctx.beginPath(); ctx.arc(P.x,P.y,r+1,0,7); ctx.stroke(); }
+    if(n.id===selected){ ctx.lineWidth=3; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(P.x,P.y,r+2,0,7); ctx.stroke(); }
+    if(cam.k>0.45||n.r>=12||n.id===hover||conn||pathIn){
+      ctx.globalAlpha=faded?0.25:pathDim?0.35:1;
+      ctx.fillStyle=faded?"#6b78a8":"#dde6ff";
+      ctx.font=`${Math.max(10,Math.min(13,11*cam.k))}px "PingFang SC","Microsoft YaHei",sans-serif`;
+      ctx.textAlign="center"; ctx.textBaseline="top";
+      const lbl=(n.p?"⭐":"")+(n.l.length>15?n.l.slice(0,14)+"…":n.l);
+      ctx.fillText(lbl,P.x,P.y+r+3);
+    }
+    ctx.globalAlpha=1;
+  });
+}
+function loop(){ tick(); draw(); requestAnimationFrame(loop); }
+
+// ====== 交互 ======
+let dragMoved=false, panStart=null;
+function pickNode(px,py){ for(let i=nodes.length-1;i>=0;i--){ const n=nodes[i]; if(!nodeVisible(n))continue;
+  const P=toScreen(n), r=n.r*cam.k+4; if((px-P.x)**2+(py-P.y)**2<=r*r) return n; } return null; }
+cv.addEventListener("mousedown",e=>{ const r=cv.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
+  const n=pickNode(px,py); dragMoved=false; if(n)dragging=n; else panStart={x:e.clientX,y:e.clientY,cx:target.x,cy:target.y}; });
+window.addEventListener("mousemove",e=>{ const r=cv.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
+  if(dragging){ const w=toWorld(px,py); dragging.x=w.x; dragging.y=w.y; dragging.vx=0;dragging.vy=0; dragMoved=true; return; }
+  if(panStart){ target.x=panStart.cx+(e.clientX-panStart.x); target.y=panStart.cy+(e.clientY-panStart.y); dragMoved=true; return; }
+  const n=pickNode(px,py); hover=n?n.id:null; dim=hover; cv.style.cursor=n?"pointer":"grab";
+  const tip=document.getElementById("tip");
+  if(n){ tip.style.display="block"; tip.style.left=(px+16)+"px"; tip.style.top=(py+12)+"px";
+    tip.innerHTML=`<b style="color:${CATS[n.c].color}">${n.p?"⭐ ":""}${n.l}</b><br><span style="color:#9aa6cf;font-size:11px">${CATS[n.c].name}</span>`;
+  } else tip.style.display="none"; });
+window.addEventListener("mouseup",()=>{ if(dragging&&!dragMoved)openDetail(dragging); else if(panStart&&!dragMoved)closeDetail();
+  dragging=null; panStart=null; });
+cv.addEventListener("wheel",e=>{ e.preventDefault(); const f=e.deltaY<0?1.12:0.89; target.k=Math.max(0.3,Math.min(3,target.k*f)); },{passive:false});
+zin.onclick=()=>target.k=Math.min(3,target.k*1.25);
+zout.onclick=()=>target.k=Math.max(0.3,target.k*0.8);
+
+// ====== 详情面板 ======
+function openDetail(n){
+  selected=n.id; dim=n.id;
+  document.getElementById("detail").classList.add("open");
+  const c=CATS[n.c];
+  document.getElementById("dcat").innerHTML=`<span class="dot" style="background:${c.color};color:${c.color}"></span>${c.name}`;
+  document.getElementById("dtitle").innerHTML=n.l+(n.p?'<span class="d-star">⭐ 优先必修</span>':'');
+  const linkBtn=(id,lbl,col)=>`<a data-go="${id}" style="border-color:${col}55">${lbl}</a>`;
+  const reqs=(n.req||[]).filter(r=>nmap[r]).map(r=>linkBtn(r,nmap[r].l,"#4dd0e1")).join("");
+  const rels=(n.rel||[]).filter(r=>nmap[r]).map(r=>linkBtn(r,nmap[r].l,"#9aa6cf")).join("");
+  const cmps=(n.cmp||[]).filter(r=>nmap[r]).map(r=>linkBtn(r,nmap[r].l,"#ff6b6b")).join("");
+  const blk=(lbl,col,txt)=>txt?`<div class="d-block"><div class="lbl" style="color:${col}">${lbl}</div><div class="txt">${esc(txt)}</div></div>`:"";
+  document.getElementById("dbody").innerHTML=`
+    ${blk("学什么","#4dd0e1",n.def)}
+    ${blk("为什么重要","#06d6a0",n.why)}
+    ${blk("局限与陷阱","#ff6b6b",n.limits)}
+    ${blk("业界方向","#5b8cff",n.frontier)}
+    ${blk("突破思路 · 新范式","#b388ff",n.breakthrough)}
+    ${blk("怎么学 · 外部资源","#ffd166",n.how)}
+    ${reqs?`<div class="d-block"><div class="lbl" style="color:#4dd0e1">前置依赖</div><div class="rel">${reqs}</div></div>`:""}
+    ${rels?`<div class="d-block"><div class="lbl" style="color:#9aa6cf">关联主题</div><div class="rel">${rels}</div></div>`:""}
+    ${cmps?`<div class="d-block"><div class="lbl" style="color:#ff6b6b">对照/竞品</div><div class="rel">${cmps}</div></div>`:""}
+    ${!reqs&&!rels&&!cmps?'<div class="d-block"><div class="lbl" style="color:#9aa6cf">关联</div><div class="rel"><span style="color:#6b78a8;font-size:12px">—</span></div></div>':""}`;
+  document.querySelectorAll(".rel a").forEach(a=>a.onclick=()=>{ const t=nmap[a.dataset.go]; if(t){ openDetail(t);
+    target.x=-((t.x-W/2)*target.k); target.y=-((t.y-H/2)*target.k);} });
+}
+function closeDetail(){ document.getElementById("detail").classList.remove("open"); selected=null; dim=hover; }
+document.getElementById("dclose").onclick=closeDetail;
+function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])).replace(/`([^`]+)`/g,"<code>$1</code>"); }
+
+function syncLegend(){
+  document.querySelectorAll(".leg").forEach(el=>{
+    const k=el.dataset.cat;
+    el.classList.toggle("act", catFocus.has(k));
+    el.classList.toggle("off", catFocus.size>0 && !catFocus.has(k));
+  });
+}
+function focusCategories(){
+  const pts=nodes.filter(n=>catFocus.has(n.c));
+  if(!pts.length)return;
+  const mx=pts.reduce((s,n)=>s+n.x,0)/pts.length, my=pts.reduce((s,n)=>s+n.y,0)/pts.length;
+  target.x=-((mx-W/2)*target.k); target.y=-((my-H/2)*target.k);
+}
+// ====== 图例（单击单选 · Ctrl 多选）======
+const legend=document.getElementById("legend");
+Object.entries(CATS).forEach(([k,c])=>{
+  const cnt=nodes.filter(n=>n.c===k).length;
+  const el=document.createElement("div"); el.className="leg"; el.dataset.cat=k;
+  el.innerHTML=`<span class="dot" style="background:${c.color};color:${c.color}"></span><span>${c.name}</span><span class="n">${cnt}</span>`;
+  el.onclick=(e)=>{
+    activePath=null; dim=null;
+    document.querySelectorAll(".path-btn").forEach(x=>x.classList.remove("active"));
+    view="all";
+    document.querySelectorAll(".chip").forEach(ch=>ch.classList.toggle("act",ch.dataset.view==="all"));
+    const multi=e.ctrlKey||e.metaKey;
+    if(multi){
+      if(catFocus.has(k)) catFocus.delete(k);
+      else catFocus.add(k);
+    } else if(catFocus.size===1 && catFocus.has(k)){
+      catFocus.clear();
+    } else {
+      catFocus.clear();
+      catFocus.add(k);
+    }
+    if(catFocus.size) focusCategories();
+    syncLegend();
+  };
+  legend.appendChild(el);
+});
+
+function focusPath(pathId){
+  const p=PATHS.find(x=>x.id===pathId); if(!p)return;
+  const pts=p.nodes.map(id=>nmap[id]).filter(Boolean);
+  if(!pts.length)return;
+  const mx=pts.reduce((s,n)=>s+n.x,0)/pts.length, my=pts.reduce((s,n)=>s+n.y,0)/pts.length;
+  target.x=-((mx-W/2)*target.k); target.y=-((my-H/2)*target.k);
+}
+
+// ====== 学习路径 ======
+const pathsEl=document.getElementById("paths");
+PATHS.forEach(p=>{
+  const b=document.createElement("button"); b.className="path-btn"; b.dataset.path=p.id;
+  b.innerHTML=`<b>${p.title}</b><span>${p.desc}</span>`;
+  b.onclick=()=>{
+    document.querySelectorAll(".path-btn").forEach(x=>x.classList.remove("active"));
+    if(activePath===p.id){ activePath=null; dim=null; syncLegend(); target={x:0,y:0,k:1}; return; }
+    activePath=p.id; view="all"; catFocus.clear(); dim=null;
+    document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("act",c.dataset.view==="all"));
+    syncLegend(); b.classList.add("active"); focusPath(p.id);
+  };
+  pathsEl.appendChild(b);
+});
+
+// ====== 视图切换 ======
+document.querySelectorAll(".chip").forEach(ch=>ch.onclick=()=>{
+  document.querySelectorAll(".chip").forEach(c=>c.classList.remove("act"));
+  ch.classList.add("act"); view=ch.dataset.view; activePath=null; catFocus.clear();
+  document.querySelectorAll(".path-btn").forEach(x=>x.classList.remove("active"));
+  syncLegend(); target={x:0,y:0,k:1}; });
+
+// ====== 搜索 ======
+const qel=document.getElementById("q");
+qel.addEventListener("input",e=>{ const q=e.target.value.trim().toLowerCase();
+  if(!q){ dim=null; return; }
+  activePath=null; catFocus.clear(); syncLegend();
+  document.querySelectorAll(".path-btn").forEach(x=>x.classList.remove("active"));
+  const hit=nodes.find(n=>nodeVisible(n)&&[n.l,n.def,n.why,n.limits,n.frontier,n.breakthrough,n.how].join(" ").toLowerCase().includes(q));
+  if(hit){ dim=hit.id; target.x=-((hit.x-W/2)*target.k); target.y=-((hit.y-H/2)*target.k); } });
+qel.addEventListener("keydown",e=>{ if(e.key==="Enter"){ const q=e.target.value.trim().toLowerCase();
+  const hit=nodes.find(n=>n.l.toLowerCase().includes(q)); if(hit)openDetail(hit); } });
+
+reset.onclick=()=>{ target={x:0,y:0,k:1}; activePath=null; catFocus.clear(); dim=null; view="all";
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("act",c.dataset.view==="all"));
+  document.querySelectorAll(".path-btn").forEach(x=>x.classList.remove("active"));
+  syncLegend(); initLayout(); };
+
+window.addEventListener("resize",resize);
+resize();
+loop();
+</script>
+</body>
+</html>

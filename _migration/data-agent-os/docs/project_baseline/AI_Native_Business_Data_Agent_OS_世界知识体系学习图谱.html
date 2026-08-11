@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Native Business Data Agent OS · 世界知识体系学习图谱</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230a0d12'/%3E%3Cpath d='M14 40L28 16l8 15 6-9 10 18H14z' fill='%237aa2ff'/%3E%3Ccircle cx='28' cy='16' r='4' fill='%2329c4b5'/%3E%3C/svg%3E" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0d12;
+    --panel:#101722;
+    --panel2:#131c29;
+    --ink:#edf3f8;
+    --muted:#9aa9b6;
+    --line:#263545;
+    --ai:#7aa2ff;
+    --data:#29c4b5;
+    --agent:#ffbf66;
+    --infra:#b88cff;
+    --security:#ff6b7a;
+    --industry:#58d68d;
+    --business:#f0df5c;
+    --capital:#ff8f5f;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+  body{background:
+    radial-gradient(900px 520px at 78% 8%,rgba(122,162,255,.18),transparent 58%),
+    radial-gradient(720px 520px at 12% 88%,rgba(41,196,181,.12),transparent 58%),
+    linear-gradient(145deg,#090c11 0%,#0e131b 45%,#0b1118 100%)}
+  button,input{font:inherit}
+  a{color:inherit}
+  .app{display:grid;grid-template-columns:330px minmax(0,1fr) 410px;height:100vh}
+  .left,.right{background:linear-gradient(180deg,rgba(16,23,34,.96),rgba(12,18,27,.96));border-color:var(--line);border-style:solid;min-height:0}
+  .left{border-width:0 1px 0 0;display:flex;flex-direction:column}
+  .right{border-width:0 0 0 1px;display:flex;flex-direction:column}
+  .brand{padding:18px 18px 14px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#82d7ce;margin-bottom:8px}
+  h1{font-size:19px;line-height:1.25;margin:0 0 10px}
+  .brand p{font-size:12px;line-height:1.65;margin:0;color:var(--muted)}
+  .search{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+  .search input{width:100%;height:38px;border:1px solid var(--line);background:#0a1119;color:var(--ink);border-radius:8px;padding:0 12px;outline:none}
+  .search input:focus{border-color:#78a6ff;box-shadow:0 0 0 3px rgba(122,162,255,.12)}
+  .section{padding:13px 16px 8px;color:var(--muted);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+  .filters,.paths,.legend{padding:0 12px 8px;overflow:auto}
+  .filters{display:flex;gap:7px;flex-wrap:wrap}
+  .chip,.path,.legend-item{border:1px solid var(--line);background:#0c131d;color:#c9d4df;border-radius:8px;cursor:pointer;transition:.16s}
+  .chip{padding:7px 10px;font-size:12px}
+  .chip.active{background:#223653;border-color:#78a6ff;color:white}
+  .path{width:100%;text-align:left;margin:0 0 8px;padding:10px 11px}
+  .path b{display:block;font-size:13px;margin-bottom:4px}
+  .path span{display:block;font-size:11.5px;line-height:1.45;color:var(--muted)}
+  .path.active{border-color:#82d7ce;background:#10262a}
+  .legend-item{display:flex;align-items:center;gap:9px;padding:8px 10px;margin-bottom:7px;font-size:12.5px}
+  .legend-item.off{opacity:.34}
+  .dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 14px currentColor;flex:none}
+  .count{margin-left:auto;color:var(--muted);font-size:11px}
+  .foot{margin-top:auto;padding:13px 17px;border-top:1px solid var(--line);font-size:11.5px;line-height:1.65;color:var(--muted)}
+  .stage{position:relative;min-width:0;min-height:0}
+  .topbar{position:absolute;z-index:5;left:18px;right:18px;top:14px;display:flex;justify-content:space-between;gap:12px;pointer-events:none}
+  .metric-row{display:flex;gap:8px;flex-wrap:wrap}
+  .metric{pointer-events:auto;background:rgba(12,19,29,.78);border:1px solid var(--line);border-radius:8px;padding:8px 10px;backdrop-filter:blur(8px)}
+  .metric strong{display:block;font-size:15px}
+  .metric span{display:block;font-size:10.5px;color:var(--muted);margin-top:2px}
+  .toolbar{display:flex;gap:7px;pointer-events:auto}
+  .toolbar button{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:rgba(12,19,29,.8);color:var(--ink);cursor:pointer}
+  .toolbar button:hover{border-color:#78a6ff}
+  svg{display:block;width:100%;height:100%;cursor:grab}
+  svg:active{cursor:grabbing}
+  .cluster-label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;fill:#7d91a5;opacity:.72;paint-order:stroke;stroke:#071018;stroke-width:4px}
+  .cluster-ring{fill:rgba(255,255,255,.018);stroke:#263545;stroke-width:1;stroke-dasharray:4 6;opacity:.85}
+  .link{stroke:#405365;stroke-width:1;opacity:.28}
+  .link.hot{stroke:#91f1df;opacity:.95;stroke-width:1.8}
+  .node circle{stroke:rgba(255,255,255,.78);stroke-width:1.4;filter:drop-shadow(0 8px 18px rgba(0,0,0,.48))}
+  .node{cursor:pointer}
+  .node text{font-size:12px;font-weight:650;fill:#f2f7fb;paint-order:stroke;stroke:#071018;stroke-width:4px;stroke-linejoin:round;pointer-events:auto}
+  .node.priority circle{stroke:#f0df5c;stroke-width:2}
+  .node.dim{opacity:.13}
+  .node.hidden,.link.hidden{display:none}
+  .node.selected circle{stroke:white;stroke-width:2.5}
+  .right-head{padding:18px 19px 14px;border-bottom:1px solid var(--line)}
+  .right-head .tag{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:4px 9px;font-size:11px;color:var(--muted);margin-bottom:10px}
+  .right h2{font-size:20px;line-height:1.28;margin:0 0 8px}
+  .right-head p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.6}
+  .right-body{padding:4px 19px 22px;overflow:auto}
+  .block{margin-top:18px}
+  .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#82d7ce;margin-bottom:7px}
+  .text{font-size:13px;line-height:1.7;color:#d8e1e9}
+  ul{margin:0;padding-left:18px}
+  li{font-size:13px;line-height:1.62;color:#d8e1e9;margin:5px 0}
+  .links{display:grid;grid-template-columns:1fr;gap:8px}
+  .resource{display:block;text-decoration:none;border:1px solid var(--line);background:#0b121b;border-radius:8px;padding:10px 11px}
+  .resource:hover{border-color:#78a6ff;background:#101b29}
+  .resource b{display:block;font-size:13px;margin-bottom:3px}
+  .resource span{display:block;font-size:11.5px;color:var(--muted)}
+  .pillrow{display:flex;flex-wrap:wrap;gap:7px}
+  .pill{border:1px solid var(--line);background:#0b121b;border-radius:999px;padding:6px 9px;font-size:12px;color:#dbe5ec;cursor:pointer}
+  .pill:hover{border-color:#82d7ce}
+  .empty{height:100%;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);padding:28px;line-height:1.7}
+  .mini-map{position:absolute;left:18px;bottom:18px;width:260px;background:rgba(12,19,29,.82);border:1px solid var(--line);border-radius:8px;padding:11px 12px;backdrop-filter:blur(8px)}
+  .mini-map b{font-size:12px}
+  .mini-map ol{margin:8px 0 0;padding-left:18px}
+  .mini-map li{font-size:11.5px;line-height:1.45;color:var(--muted)}
+  @media(max-width:1120px){
+    .app{grid-template-columns:280px minmax(0,1fr)}
+    .right{position:absolute;right:0;top:0;bottom:0;width:min(410px,92vw);z-index:12;transform:translateX(100%);transition:transform .22s ease}
+    .right.open{transform:translateX(0)}
+  }
+  @media(max-width:760px){
+    html,body{overflow:auto}
+    .app{display:block;height:auto}
+    .left{height:auto;border-right:0;border-bottom:1px solid var(--line)}
+    .stage{height:72vh}
+    .right{position:relative;width:auto;transform:none;border-left:0;border-top:1px solid var(--line)}
+    .mini-map{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="left">
+    <div class="brand">
+      <div class="eyebrow">World Knowledge System</div>
+      <h1>AI Native Business Data Agent OS 学习图谱</h1>
+      <p>这不是项目内部知识库，而是一张面向当今世界的学习地图：基础原理、技术前沿、产业玩家、商业竞争、监管安全与资本信号。</p>
+    </div>
+    <div class="search">
+      <input id="search" placeholder="搜索：RAG / MCP / 语义层 / Palantir / 预算 / 安全" />
+    </div>
+    <div class="section">学习路径</div>
+    <div class="paths" id="paths"></div>
+    <div class="section">知识域过滤</div>
+    <div class="filters" id="filters"></div>
+    <div class="section">领域图例</div>
+    <div class="legend" id="legend"></div>
+    <div class="foot">建议学习顺序：先掌握 AI 与数据底座，再学 Agent 运行时和治理，最后进入行业格局、商业竞争与资本动态。节点带有“必修”标记时，优先读官方资料。</div>
+  </aside>
+
+  <main class="stage">
+    <div class="topbar">
+      <div class="metric-row">
+        <div class="metric"><strong id="nodeCount">0</strong><span>知识节点</span></div>
+        <div class="metric"><strong id="linkCount">0</strong><span>依赖关系</span></div>
+        <div class="metric"><strong id="sourceCount">0</strong><span>外部资料入口</span></div>
+      </div>
+      <div class="toolbar">
+        <button id="zoomIn" title="放大">+</button>
+        <button id="zoomOut" title="缩小">-</button>
+        <button id="reset" title="复位">⌂</button>
+      </div>
+    </div>
+    <svg id="map" role="img" aria-label="AI Native Business Data Agent OS 世界知识体系图谱"></svg>
+    <div class="mini-map">
+      <b>读图规则</b>
+      <ol>
+        <li>节点越大，越靠近产品实现与商业成功的核心。</li>
+        <li>高亮路径用于阶段学习，不是项目内文档链接。</li>
+        <li>右侧“外部资料”全部跳转原网页。</li>
+      </ol>
+    </div>
+  </main>
+
+  <aside class="right" id="detail">
+    <div class="empty">点击任意节点，查看定义、为什么重要、学习要点、前沿信号和外部资料链接。</div>
+  </aside>
+</div>
+
+<script>
+const cats = {
+  ai:{name:"AI 基础与模型",color:"var(--ai)",group:"tech"},
+  data:{name:"数据与语义系统",color:"var(--data)",group:"tech"},
+  agent:{name:"Agent 与 Agent OS",color:"var(--agent)",group:"tech"},
+  infra:{name:"工程与基础设施",color:"var(--infra)",group:"tech"},
+  security:{name:"安全治理与监管",color:"var(--security)",group:"risk"},
+  industry:{name:"行业格局与玩家",color:"var(--industry)",group:"market"},
+  business:{name:"商业竞争与 GTM",color:"var(--business)",group:"market"},
+  capital:{name:"资本与宏观动态",color:"var(--capital)",group:"market"}
+};
+
+const nodes = [
+ {id:"ai_taxonomy",cat:"ai",level:"foundation",priority:true,size:18,title:"AI 技术路线总览",def:"AI 是更大的学科集合，包含符号 AI、搜索与规划、机器学习、深度学习、强化学习、生成式 AI、基础模型与 Agent。LLM 只是其中一条重要路线。",why:"如果把所有 AI 都等同于 LLM，会误判产品可用技术、成本结构、数据需求和竞争边界。",learn:["区分 AI、机器学习、深度学习、生成式 AI、基础模型、LLM、Agent。","知道什么时候用规则/优化/传统 ML 比 LLM 更稳、更便宜。","从任务类型选择技术：预测、分类、检索、规划、生成、控制、决策支持。"],frontier:"前沿 AI 系统正在走向复合架构：LLM + 检索 + 工具 + 规则 + 优化器 + 工作流，而不是单模型包打天下。",links:[["AIMA","https://aima.cs.berkeley.edu/","经典 AI 教材与资源"],["Deep Learning Book","https://www.deeplearningbook.org/","深度学习基础"],["Stanford AI Index","https://hai.stanford.edu/ai-index","年度 AI 技术与产业数据"]],rel:["model_architectures","transformer","model_landscape","agent_runtime"]},
+ {id:"model_architectures",cat:"ai",level:"foundation",priority:true,size:17,title:"模型架构谱系",def:"现代 AI 模型架构包括 Transformer、CNN、RNN/LSTM、State Space Model、Diffusion、GAN、GNN、MoE、强化学习策略网络和混合架构。",why:"架构决定模型擅长的输入、时序长度、推理成本、可解释性、部署方式和工程边界。",learn:["Transformer 强在并行训练和注意力检索，但长上下文成本高。","Diffusion 更常用于图像/视频/生成式媒体，GNN 更适合图结构，SSM/RWKV 类路线关注长序列效率。","MoE 是扩展模型容量和推理成本的工程路线，不是独立智能范式。"],frontier:"非 Transformer 路线并未消失，SSM/Mamba、RWKV、混合 attention-SSM、MoE、多模态 diffusion-transformer 都在探索成本与能力边界。",links:[["Mamba Paper","https://arxiv.org/abs/2312.00752","选择性状态空间模型"],["RWKV Wiki","https://wiki.rwkv.com/","RNN-like Transformer 替代路线"],["Distill Diffusion Models","https://distill.pub/2017/aia/","生成模型直观学习"]],rel:["llm_architecture","transformer","inference_econ","model_landscape"]},
+ {id:"llm_architecture",cat:"ai",level:"foundation",priority:true,size:17,title:"LLM 架构差异",def:"LLM 是面向语言/序列建模的大模型类别，主流多为 decoder-only Transformer，但也存在 encoder-decoder、MoE、SSM/RWKV、混合架构和小语言模型路线。",why:"做产品选模型时，不能只问是不是 LLM，要问架构、上下文、工具能力、成本、部署和数据安全是否适配任务。",learn:["decoder-only 适合通用生成与对话，encoder/encoder-decoder 在理解、翻译、检索等场景仍有价值。","MoE 通过激活部分专家降低推理成本，但带来路由、负载和部署复杂性。","SSM/RWKV 类路线关注长序列线性复杂度，但生态成熟度和能力边界要单独评估。"],frontier:"LLM 正从单一 dense Transformer 走向推理模型、多模态模型、MoE、长上下文、端侧小模型和混合序列架构并存。",links:[["Attention Is All You Need","https://arxiv.org/abs/1706.03762","Transformer 原论文"],["Mamba Paper","https://arxiv.org/abs/2312.00752","非 Transformer 长序列路线"],["Hugging Face Course","https://huggingface.co/learn/nlp-course/chapter1/1","模型类型与 NLP 基础"]],rel:["transformer","model_architectures","model_landscape","inference_econ"]},
+ {id:"transformer",cat:"ai",level:"foundation",priority:true,size:17,title:"Transformer 架构与能力边界",def:"理解注意力机制、token、上下文窗口、预训练、指令微调、采样与能力边界。Transformer 是当前 LLM 主流架构，但不是 AI 或 LLM 的全部。",why:"没有这个底座，就无法判断主流大模型能力、成本、可靠性和产品边界；但也必须知道它只是架构谱系中的一类。",learn:["把 LLM 看成概率生成系统，而不是数据库或计算器。","区分知识召回、推理、工具调用、确定性计算四类能力。","能向客户解释为什么裸模型不能直接用于生产决策，以及为什么某些任务不该用 LLM。"],frontier:"长上下文、多模态、推理模型、工具调用、MoE 和低成本小模型并行演进，Transformer 也在和 SSM、检索、工具系统组成混合架构。",links:[["The Illustrated Transformer","https://jalammar.github.io/illustrated-transformer/","直观理解 Transformer"],["Stanford CS25","https://web.stanford.edu/class/cs25/","Transformer 体系课程"],["Attention Is All You Need","https://arxiv.org/abs/1706.03762","Transformer 原论文"]],rel:["ai_taxonomy","llm_architecture","model_landscape","rag","evals"]},
+ {id:"model_landscape",cat:"ai",level:"foundation",priority:true,size:16,title:"全球模型版图与选型",def:"理解闭源模型、开源模型、国产模型、推理模型、多模态模型、端侧模型和 serving 生态。",why:"模型选型直接影响成本、合规、产品体验和企业采购可行性。",learn:["按任务选择模型，而不是按榜单盲选。","比较能力、延迟、上下文、价格、数据安全、部署方式。","关注模型能力商品化后，应用层差异化在哪里。"],frontier:"2026 年模型竞争从单纯能力榜转向推理效率、工具使用、多模态行动和企业集成。",links:[["Stanford AI Index","https://hai.stanford.edu/ai-index","年度 AI 产业和技术数据"],["Artificial Analysis","https://artificialanalysis.ai/","模型价格、速度、质量对比"],["Hugging Face Open LLM Leaderboard","https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard","开源模型观察"]],rel:["inference_econ","evals","open_source_ai"]},
+ {id:"rag",cat:"ai",level:"core",priority:true,size:17,title:"RAG 与 Context Engineering",def:"检索增强生成、混合检索、重排、引用、上下文压缩和结构化上下文编排。",why:"企业知识和业务数据不能只靠模型记忆，必须把正确上下文送到模型面前。",learn:["RAG 不是向量库，而是检索、权限、口径、证据和评测的系统工程。","混合检索通常比纯向量更可靠。","引用与证据链是企业信任的核心。"],frontier:"从普通 RAG 走向 agentic RAG、graph RAG、contextual retrieval 和语义层驱动的结构化检索。",links:[["Anthropic Contextual Retrieval","https://www.anthropic.com/news/contextual-retrieval","上下文检索实践"],["Eugene Yan RAG","https://eugeneyan.com/writing/llm-patterns/","LLM/RAG 产品模式"],["Microsoft GraphRAG","https://microsoft.github.io/graphrag/","GraphRAG 开源文档"]],rel:["semantic_layer","vector_db","evals","agent_observability"]},
+ {id:"evals",cat:"ai",level:"core",priority:true,size:18,title:"AI 评测科学 Evals",def:"离线评测、在线评测、golden set、LLM-as-judge、回归集、任务成功率、统计显著性。",why:"没有评测，就无法商业化。企业客户要的不是 demo，而是可复现、可监控、可回归的质量。",learn:["先定义任务成功，再定义模型分数。","把错误样本沉淀为回归集。","区分组件评测、流程评测和业务结果评测。"],frontier:"评测正在从 prompt 对比走向 agent trace、工具调用正确性、业务 KPI 和安全评测。",links:[["Hamel Husain: Evals","https://hamel.dev/blog/posts/evals/","AI 产品评测实践"],["OpenAI Evals","https://github.com/openai/evals","开源 eval 框架"],["DeepLearning.AI Evaluation","https://www.deeplearning.ai/short-courses/evaluating-debugging-generative-ai/","生成式 AI 评测课程"]],rel:["agent_observability","agent_governance","aiops"]},
+ {id:"inference_econ",cat:"ai",level:"core",priority:true,size:15,title:"推理成本与 AI 经济学",def:"token 成本、上下文成本、缓存、批处理、路由、小模型、蒸馏、单位经济。",why:"AI 产品可能赢在体验，死在毛利。懂成本结构才能设计价格、套餐和架构。",learn:["每个核心 workflow 都要测算单次成本。","缓存、模型路由和任务拆分比单纯换便宜模型更重要。","成本要和客户价值、SLA、权限策略一起设计。"],frontier:"模型价格下降不等于成本问题消失，复杂 agent 的多步调用会放大推理支出。",links:[["OpenAI Pricing","https://openai.com/api/pricing/","官方价格"],["Anthropic Pricing","https://www.anthropic.com/pricing","Claude 价格"],["vLLM Docs","https://docs.vllm.ai/","开源推理服务"]],rel:["pricing","model_landscape","aiops"]},
+ {id:"semantic_layer",cat:"data",level:"core",priority:true,size:18,title:"语义层与指标层",def:"Metrics Layer、headless BI、统一口径、维度指标建模、业务语义和数据访问协议。",why:"Business Data Agent 的核心不是聊天，而是让 Agent 理解业务口径并稳定查询数据。",learn:["指标口径是企业数据系统的社会契约。","语义层要同时服务 BI、人和 Agent。","自然语言分析要落到可审计的 SQL/指标计算。"],frontier:"语义层正在从 BI 配套能力变成 Agent 时代的上下文控制面。",links:[["dbt Semantic Layer","https://docs.getdbt.com/docs/use-dbt-semantic-layer/dbt-sl","dbt 指标语义层"],["Cube Semantic Layer","https://cube.dev/docs/product/semantic-layer","开源语义层"],["MetricFlow","https://docs.getdbt.com/docs/build/metricflow-time-spine","指标建模参考"]],rel:["nl2sql","data_security","rag","bi_stack"]},
+ {id:"nl2sql",cat:"data",level:"core",priority:true,size:15,title:"NL2SQL / Text-to-Data",def:"自然语言到 SQL、MQL、指标查询或数据 API 的转换，包括 schema linking、口径约束和结果解释。",why:"这是数据 Agent 最显性的能力，也是最容易 demo 很强、生产翻车的地方。",learn:["NL2SQL 的难点不是语法，而是 schema、权限、口径和歧义消解。","最好让模型生成中间语义表示，再编译到 SQL。","必须对 SQL 做验证、限制和解释。"],frontier:"从直接生成 SQL 走向语义编译器、指标 DSL、查询规划器和交互式澄清。",links:[["Spider Benchmark","https://yale-lily.github.io/spider","经典 Text-to-SQL 基准"],["Wren AI","https://docs.getwren.ai/","开源 Text-to-SQL/语义建模"],["DB-GPT","https://github.com/eosphoros-ai/DB-GPT","开源数据智能框架"]],rel:["semantic_layer","evals","data_security"]},
+ {id:"ontology",cat:"data",level:"frontier",priority:true,size:16,title:"Ontology / 知识图谱",def:"实体、关系、动作、规则和本体建模，用于表达业务对象和业务过程。",why:"如果语义层解决指标口径，本体层解决业务对象、关系与行动语义，是长期壁垒的重要形态。",learn:["不要为了知识图谱而知识图谱，要从业务对象和决策动作出发。","Property Graph 更灵活，RDF/OWL 标准化更强。","知识图谱要和权限、血缘、指标、事件一起工作。"],frontier:"企业级 AI 正在把 Ontology 从数据建模推向 Agent 可操作世界模型。",links:[["Palantir Ontology","https://www.palantir.com/docs/foundry/ontology/overview/","Foundry Ontology 官方文档"],["Neo4j Graph Data Science","https://neo4j.com/docs/graph-data-science/current/","图数据库与图算法"],["W3C RDF","https://www.w3.org/RDF/","RDF 标准"]],rel:["palantir","semantic_layer","agent_observability"]},
+ {id:"lakehouse",cat:"data",level:"foundation",priority:false,size:13,title:"Lakehouse 与现代数据栈",def:"数据仓库、数据湖、Lakehouse、ETL/ELT、数据建模、数据质量和数据产品。",why:"Agent 只能在数据基础设施之上工作。不了解现代数据栈，就无法设计数据接入和治理。",learn:["区分计算、存储、编排、建模、治理和消费层。","关注数据质量、血缘和权限，而不只是接入。","理解 Snowflake、Databricks、BigQuery、Fabric 的平台逻辑。"],frontier:"数据平台正在把 AI、BI、治理和应用开发合并成企业数据控制面。",links:[["Databricks Lakehouse","https://www.databricks.com/glossary/data-lakehouse","Lakehouse 概念"],["Snowflake Docs","https://docs.snowflake.com/","Snowflake 文档"],["Microsoft Fabric","https://learn.microsoft.com/en-us/fabric/","Fabric 官方文档"]],rel:["hyperscalers","semantic_layer","data_fabric"]},
+ {id:"data_fabric",cat:"data",level:"frontier",priority:false,size:13,title:"Data Fabric / Data Mesh",def:"跨系统数据连接、元数据驱动、主动治理、分布式数据产品和数据虚拟化。",why:"企业数据分散在 ERP、CRM、数据仓库和 SaaS 中，Agent OS 必须理解跨系统数据现实。",learn:["Data Fabric 偏技术和元数据连接，Data Mesh 偏组织和数据产品责任。","不要把 NoETL 当魔法，本质是连接、语义、治理和计算权衡。","跨源分析最大的难点是口径、权限和性能。"],frontier:"AI Agent 让 Data Fabric 从数据集成概念变成实时上下文供应链。",links:[["Gartner Data Fabric","https://www.gartner.com/en/information-technology/glossary/data-fabric","Gartner 概念"],["Zhamak Dehghani Data Mesh","https://martinfowler.com/articles/data-mesh-principles.html","Data Mesh 原始思想"],["Denodo Data Virtualization","https://www.denodo.com/en/data-virtualization","数据虚拟化参考"]],rel:["lakehouse","data_security","aloudata"]},
+ {id:"mcp",cat:"agent",level:"frontier",priority:true,size:18,title:"MCP 与工具互操作",def:"Model Context Protocol 将模型/助手与外部工具、数据源、资源和 prompt 标准化连接。",why:"MCP 正在成为 Agent 工具生态的重要协议，但它也是企业安全和权限治理的新入口。",learn:["理解 Host、Client、Server、Tools、Resources 的角色。","MCP 不是安全本身，需要额外认证、授权、沙箱和审计。","判断哪些能力应开放给外部 agent，哪些必须封闭治理。"],frontier:"MCP 已从单厂协议走向更广泛生态，同时安全设计和企业治理会成为关键分水岭。",links:[["Anthropic MCP Announcement","https://www.anthropic.com/news/model-context-protocol","MCP 发布说明"],["MCP Docs","https://modelcontextprotocol.io/","MCP 官方文档"],["Anthropic MCP Docs","https://docs.anthropic.com/en/docs/mcp","Anthropic 文档"]],rel:["agent_runtime","tool_security","openai_agents"]},
+ {id:"agent_runtime",cat:"agent",level:"core",priority:true,size:18,title:"Agent Runtime / Agent OS",def:"Agent 的运行时，包括状态、记忆、工具、权限、计划、执行、审计、回滚和人机协同。",why:"真正的 Agent OS 不是聊天框，而是一个可治理的执行环境。",learn:["区分 workflow、agent loop 和 autonomous agent。","生产系统更需要受控 autonomy，而非无限自由。","状态机、持久执行、审计日志和权限边界是核心工程。"],frontier:"前沿正在从 prompt agent 转向 durable agent、computer use、tool sandbox、trace-driven ops 和多 agent 协调。",links:[["OpenAI Practical Guide to Building Agents","https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf","官方 Agent 构建指南"],["Anthropic Building Effective Agents","https://www.anthropic.com/engineering/building-effective-agents","Agent 工程原则"],["LangGraph Workflows and Agents","https://docs.langchain.com/oss/python/langgraph/workflows-agents","工作流/Agent 图"]],rel:["workflow_orchestration","mcp","agent_governance","agent_observability"]},
+ {id:"workflow_orchestration",cat:"agent",level:"core",priority:true,size:15,title:"工作流编排与持久执行",def:"状态机、任务队列、事件驱动、重试、补偿、审批、调度和长运行任务。",why:"企业 Agent 多数不是一次问答，而是跨系统、跨角色、跨时间的业务流程。",learn:["长流程必须可暂停、可恢复、可审计。","把不确定 AI 步骤和确定性业务步骤分离。","审批和补偿机制比自动化比例更重要。"],frontier:"Durable execution 正在成为 agentic workflow 的基础设施关键词。",links:[["Temporal Docs","https://docs.temporal.io/","持久执行平台"],["Dagster Docs","https://docs.dagster.io/","数据工作流编排"],["LangGraph Durable Execution","https://langchain-ai.github.io/langgraph/concepts/durable_execution/","Agent 图持久执行"]],rel:["agent_runtime","agent_governance","aiops"]},
+ {id:"openai_agents",cat:"agent",level:"frontier",priority:false,size:13,title:"Agents SDK / Agent 框架",def:"OpenAI Agents SDK、LangGraph、CrewAI、AutoGen 等框架用于构建工具调用、handoff 和多 agent 工作流。",why:"框架是实现加速器，但不是壁垒。壁垒在业务工具、数据语义、评测和治理。",learn:["学习框架的设计思想，不被单一框架绑定。","比较 tracing、handoff、tool schema、guardrails 和 HITL 能力。","把框架层当可替换层，把业务层当核心资产。"],frontier:"Agent 框架正在向轻量 SDK、可观测 trace、托管运行时和 MCP 兼容演进。",links:[["OpenAI Agents SDK","https://openai.github.io/openai-agents-python/","Python SDK 文档"],["Microsoft AutoGen","https://microsoft.github.io/autogen/stable/","多 Agent 框架"],["CrewAI Docs","https://docs.crewai.com/","Agent 编排框架"]],rel:["agent_runtime","mcp","evals"]},
+ {id:"agent_governance",cat:"security",level:"core",priority:true,size:16,title:"Agent 治理与 Guardrails",def:"权限分级、dry-run、审批、幂等、回滚、kill switch、审计和风险策略。",why:"企业不怕 AI 不够聪明，怕 AI 聪明但不可控。治理是采购准入条件。",learn:["高风险动作必须有人类确认或策略审批。","工具调用要有最小权限和可追溯日志。","Guardrails 要覆盖输入、计划、工具、输出和事后审计。"],frontier:"Agent 风险从文本输出安全扩展到真实系统操作安全。",links:[["NIST AI RMF","https://www.nist.gov/itl/ai-risk-management-framework","AI 风险管理框架"],["OWASP LLM Top 10","https://owasp.org/www-project-top-10-for-large-language-model-applications/","LLM 应用风险"],["Google Secure AI Framework","https://safety.google/cybersecurity-advancements/saif/","安全 AI 框架"]],rel:["tool_security","ai_regulation","workflow_orchestration","procurement"]},
+ {id:"tool_security",cat:"security",level:"frontier",priority:true,size:15,title:"工具安全与 Prompt Injection",def:"提示注入、工具投毒、权限绕过、数据外泄、供应链风险和跨 agent 混淆。",why:"Agent 一旦能调用工具，攻击面从文本扩展到企业系统。",learn:["把不可信内容和可信指令分层处理。","工具参数要验证，执行要沙箱，输出要审计。","外部网页、邮件、文档都可能包含恶意指令。"],frontier:"MCP、浏览器自动化、代码执行和企业 SaaS 工具链会成为新安全边界。",links:[["OWASP GenAI Security","https://genai.owasp.org/","GenAI 安全项目"],["Prompt Injection Guide","https://www.promptingguide.ai/risks/adversarial","提示注入基础"],["Lakera Gandalf","https://gandalf.lakera.ai/","交互式安全学习"]],rel:["mcp","agent_governance","data_security"]},
+ {id:"data_security",cat:"security",level:"core",priority:true,size:14,title:"企业数据安全与权限",def:"RBAC/ABAC、行列级权限、数据脱敏、审计、数据出境、租户隔离和密钥管理。",why:"数据 Agent 直接触达企业核心数据，安全能力决定能否进生产。",learn:["权限必须在数据源、语义层、工具层和输出层贯穿。","不要让模型成为权限绕过通道。","审计日志要能解释谁问了什么、用了哪些数据、得到什么结论。"],frontier:"AI 数据治理正在从静态访问控制转向上下文感知、任务感知和策略驱动。",links:[["Microsoft Purview","https://learn.microsoft.com/en-us/purview/","数据治理参考"],["Snowflake Governance","https://docs.snowflake.com/en/user-guide/security-column-intro","列级安全"],["AWS Data Governance","https://aws.amazon.com/what-is/data-governance/","数据治理概念"]],rel:["semantic_layer","agent_governance","procurement"]},
+ {id:"ai_regulation",cat:"security",level:"foundation",priority:true,size:14,title:"AI 监管与合规",def:"EU AI Act、NIST AI RMF、中国生成式 AI 与数据法规、行业监管和企业审计要求。",why:"合规是企业采购的一票否决项，也是产品部署模式和市场选择的约束。",learn:["区分模型合规、数据合规、行业合规和交付合规。","国内市场要关注网信、数据安全、等保、信创和行业监管。","海外市场要关注 EU AI Act、隐私和跨境数据。"],frontier:"监管正在从模型发布扩展到 AI 系统生命周期、透明度、责任和风险分级。",links:[["EU AI Act","https://artificialintelligenceact.eu/","欧盟 AI 法案资料"],["NIST AI RMF","https://www.nist.gov/itl/ai-risk-management-framework","美国 AI 风险框架"],["国家网信办","https://www.cac.gov.cn/","中国网信监管入口"]],rel:["agent_governance","data_security","procurement"]},
+ {id:"agent_observability",cat:"infra",level:"core",priority:true,size:15,title:"Agent 可观测性与 Trace",def:"记录每次 agent 执行的输入、计划、工具调用、模型响应、成本、延迟、错误和人工反馈。",why:"没有 trace，就无法调试、评测、审计和解释生产事故。",learn:["每次执行都应有 run id 和结构化 trace。","把模型、工具、检索、权限和输出分开观测。","线上反馈要回流到 eval 和产品迭代。"],frontier:"AgentOps 正在成为 AI 应用工程化的关键类别。",links:[["LangSmith","https://docs.smith.langchain.com/","LLM/Agent 可观测"],["Arize Phoenix","https://docs.arize.com/phoenix","开源 LLM observability"],["OpenTelemetry","https://opentelemetry.io/docs/","通用可观测标准"]],rel:["evals","aiops","agent_runtime"]},
+ {id:"aiops",cat:"infra",level:"core",priority:false,size:14,title:"AI 工程化与 LLMOps",def:"模型路由、提示版本、评测门禁、CI/CD、灰度、监控、缓存、成本控制和反馈闭环。",why:"AI 产品要持续迭代，工程纪律决定长期交付质量。",learn:["Prompt、RAG、模型和工具都要版本化。","上线前跑回归集，上线后看业务指标。","模型升级不是配置替换，而是一次产品发布。"],frontier:"LLMOps 正在和传统 DevOps/DataOps/MLOps 合并，形成 AI-native 工程平台。",links:[["Weights & Biases Weave","https://wandb.ai/site/weave/","LLM 应用追踪"],["Humanloop Docs","https://humanloop.com/docs","Prompt/eval 管理"],["Langfuse","https://langfuse.com/docs","开源 LLM observability"]],rel:["evals","agent_observability","inference_econ"]},
+ {id:"vector_db",cat:"infra",level:"foundation",priority:false,size:12,title:"向量数据库与混合检索",def:"Embeddings、ANN、稀疏检索、重排、元数据过滤、权限过滤和召回评测。",why:"RAG 的底层能力之一，但不能把向量库误认为完整知识系统。",learn:["向量相似不等于业务正确。","元数据和权限过滤常常比 embedding 更重要。","BM25 + vector + rerank 是常见强基线。"],frontier:"检索系统正在向多向量、稀疏稠密混合、图检索和长上下文融合发展。",links:[["Pinecone Learn","https://www.pinecone.io/learn/","向量检索学习"],["Qdrant Docs","https://qdrant.tech/documentation/","向量数据库"],["Weaviate Docs","https://weaviate.io/developers/weaviate","向量数据库"]],rel:["rag","semantic_layer","nl2sql"]},
+ {id:"palantir",cat:"industry",level:"frontier",priority:true,size:18,title:"Palantir Foundry / AIP",def:"Ontology、Foundry、AIP、决策链、人机协同、企业级行动系统和高接触交付模式。",why:"这是企业 AI + 数据操作系统的最强参照之一。它不是 MVP 竞品，但代表终局方向。",learn:["研究它如何把数据、业务对象、权限和行动统一起来。","理解 Bootcamp 式销售和高价值交付。","看清它的强项，也看清中小企业和轻量化机会。"],frontier:"Palantir 正把 AI 从分析推向运营执行和决策链闭环。",links:[["Palantir AIP","https://www.palantir.com/platforms/aip/","AIP 官方页面"],["Palantir Foundry Docs","https://www.palantir.com/docs/foundry/","Foundry 文档"],["Palantir Investor Relations","https://investors.palantir.com/","财报和投资者材料"]],rel:["ontology","enterprise_ai","gtm_strategy"]},
+ {id:"hyperscalers",cat:"industry",level:"frontier",priority:true,size:16,title:"云与数据平台巨头",def:"Snowflake、Databricks、Microsoft Fabric、Google BigQuery、AWS 等平台正在把 AI 能力内嵌到数据栈。",why:"它们会从底座向上吞 BI、Agent 和应用层，是平台化竞争压力来源。",learn:["它们优势是数据位置、算力、客户关系和生态。","它们弱点是跨栈、深业务定制和中立性。","你的机会往往在跨平台、业务语义和垂直场景。"],frontier:"数据平台正在竞争 enterprise AI control plane。",links:[["Snowflake Cortex AI","https://docs.snowflake.com/en/user-guide/snowflake-cortex/overview","Snowflake AI"],["Databricks Mosaic AI","https://docs.databricks.com/en/generative-ai/index.html","Databricks AI"],["Microsoft Fabric Copilot","https://learn.microsoft.com/en-us/fabric/get-started/copilot-fabric-overview","Fabric Copilot"]],rel:["lakehouse","semantic_layer","bi_stack"]},
+ {id:"bi_stack",cat:"industry",level:"core",priority:true,size:15,title:"BI 与 Analytics 玩家",def:"Tableau、Power BI、ThoughtSpot、Looker、帆软、Smartbi 等分析平台正在 AI 化。",why:"数据 Agent 的入口竞争很可能来自 BI 工具，而不是纯 Agent 公司。",learn:["BI 厂商拥有报表、权限、数据模型和企业用户。","它们弱点是行动执行、跨系统工作流和深业务自动化。","要研究从分析到行动的边界在哪里。"],frontier:"BI 正从 dashboard 转向 conversational analytics、agentic BI 和自动洞察。",links:[["ThoughtSpot Spotter","https://www.thoughtspot.com/product/spotter","AI BI 参考"],["Tableau Next","https://www.tableau.com/products/tableau-next","Salesforce/Tableau AI"],["Microsoft Power BI Copilot","https://learn.microsoft.com/en-us/power-bi/create-reports/copilot-introduction","Power BI Copilot"]],rel:["semantic_layer","gtm_strategy","hyperscalers"]},
+ {id:"aloudata",cat:"industry",level:"frontier",priority:true,size:14,title:"国内数据 Agent 与指标平台",def:"国内数据智能、指标平台、AI BI、NoETL、数据编织和企业数据 Agent 玩家。",why:"国内市场的竞品、客户预期、价格体系和合规要求与海外不同。",learn:["跟踪国内厂商如何包装 AI BI、指标平台和数据编织。","重点看交付方式、客户行业、私有化能力和信创适配。","不要只看功能，重点看销售和交付打法。"],frontier:"国内企业更重私有化、行业模板、交付能力和合规背书。",links:[["Aloudata 官网","https://www.aloudata.com/","国内数据智能玩家"],["帆软 FineBI","https://www.fanruan.com/finebi","国内 BI 代表"],["Smartbi","https://www.smartbi.com.cn/","国内 BI/分析平台"]],rel:["data_fabric","bi_stack","procurement"]},
+ {id:"open_source_ai",cat:"industry",level:"frontier",priority:false,size:13,title:"开源生态与可组合工具",def:"LangGraph、DB-GPT、Wren AI、LlamaIndex、Haystack、Dagster、Temporal、OpenLineage 等。",why:"开源生态决定你能复用什么，也暴露哪些能力会快速商品化。",learn:["用开源加速，但不要把可替换组件当核心壁垒。","长期壁垒在业务语义、客户数据、评测集、工作流和交付经验。","持续跟踪 GitHub、社区和框架迁移趋势。"],frontier:"开源 Agent 和数据工具会越来越模块化，集成能力本身变得重要。",links:[["LlamaIndex Docs","https://docs.llamaindex.ai/","数据/Agent 框架"],["Haystack Docs","https://docs.haystack.deepset.ai/","RAG 框架"],["OpenLineage","https://openlineage.io/","数据血缘标准"]],rel:["openai_agents","aiops","semantic_layer"]},
+ {id:"enterprise_ai",cat:"business",level:"core",priority:true,size:17,title:"企业 AI 采用与预算",def:"企业 GenAI 支出、预算归属、buy vs build、从试点到规模化、应用层和基础设施支出结构。",why:"商业成功要跟着预算走。谁有预算，谁背 KPI，谁有否决权，决定 GTM。",learn:["区分创新预算、部门预算和 IT 平台预算。","企业 AI 采用普遍，但规模化价值仍是难点。","Agent 项目要绑定收入、成本、风险或效率指标。"],frontier:"2025/2026 的企业 AI 主题是从 pilot 走向 workflow transformation，但多数公司仍在爬坡。",links:[["Menlo 2025 Enterprise AI","https://menlovc.com/perspective/2025-the-state-of-generative-ai-in-the-enterprise/","企业 GenAI 支出报告"],["McKinsey State of AI 2025","https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai","全球 AI 采用调查"],["Bessemer State of Cloud","https://www.bvp.com/atlas/state-of-the-cloud","云与 AI 商业趋势"]],rel:["procurement","roi","gtm_strategy"]},
+ {id:"procurement",cat:"business",level:"core",priority:true,size:15,title:"企业采购与安全评审",def:"Champion、经济买家、CIO/CISO、采购、法务、数据负责人、业务负责人和试点验收流程。",why:"B2B AI 产品不是用户喜欢就能买，必须穿过采购、合规、安全和 ROI。",learn:["明确谁使用、谁付钱、谁否决。","试点要有验收指标、时间窗口和转付费路径。","安全文档、权限设计和部署方式要提前准备。"],frontier:"AI 采购从实验工具转向核心系统后，安全和治理审查会更严格。",links:[["a16z AI Enterprise Buying","https://a16z.com/ai-enterprise-buying/","企业 AI 采购观察"],["CISA AI Security","https://www.cisa.gov/ai","AI 安全政策入口"],["SOC 2 Overview","https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services","企业安全审计基础"]],rel:["data_security","agent_governance","poc_paid"]},
+ {id:"poc_paid",cat:"business",level:"core",priority:true,size:16,title:"POC 到付费转化",def:"从 demo、MVP、POC、试点、生产部署到年度合同的路径设计。",why:"很多 AI 产品死在 POC。真正目标不是证明能做，而是证明值得买、能上线、可扩展。",learn:["POC 前先定义付费条件和成功指标。","优先做能接真实数据、真实流程、真实角色的窄场景。","POC 结束时要能交付 ROI 报告和上线计划。"],frontier:"企业开始减少“玩具 demo”，更看重 workflow ROI 和治理能力。",links:[["First Round B2B Sales","https://review.firstround.com/the-founders-guide-to-b2b-sales/","B2B 销售基础"],["Y Combinator Sales","https://www.ycombinator.com/library/5K-how-to-sell","创业销售"],["OpenView PLG SaaS","https://openviewpartners.com/blog/","SaaS GTM 资料"]],rel:["roi","procurement","gtm_strategy"]},
+ {id:"roi",cat:"business",level:"core",priority:true,size:14,title:"ROI 与价值证明",def:"节省工时、降低错误、增加收入、缩短周期、减少风险、提升决策质量和合规收益。",why:"企业 AI 项目越来越要证明经济价值，尤其是从创新预算转常规预算时。",learn:["ROI 公式要和业务流程绑定，不能只算 token 或人效。","用前后对照、用户队列和业务指标做证据。","把不可量化价值转成风险降低或决策质量指标。"],frontier:"AI ROI 正从个人效率工具转向流程级和组织级价值衡量。",links:[["McKinsey Rewired","https://www.mckinsey.com/capabilities/mckinsey-digital/our-insights/rewired-to-outcompete","数字化转型价值"],["DORA Metrics","https://dora.dev/","工程效率指标"],["Nielsen Norman AI UX","https://www.nngroup.com/topic/artificial-intelligence-and-ux/","AI 用户体验与价值"]],rel:["enterprise_ai","poc_paid","pricing"]},
+ {id:"gtm_strategy",cat:"business",level:"core",priority:true,size:17,title:"定位、差异化与 GTM",def:"ICP、细分市场、痛点、竞争定位、销售动作、渠道、价格包装和扩张路径。",why:"技术强不等于商业成功。你必须选择一个能赢的切入点，而不是和所有巨头正面打。",learn:["先选一个高痛点、高数据密度、有预算、有复用性的场景。","差异化要落在客户愿意付钱的价值上。","避免“AI Chatbot for everything”的空泛定位。"],frontier:"Agent 产品竞争会从功能演示转向垂直 workflow、数据控制、企业治理和分发渠道。",links:[["April Dunford Positioning","https://www.aprildunford.com/","定位方法"],["a16z AI Apps","https://a16z.com/ai-apps/","AI 应用商业观察"],["Lenny's Newsletter","https://www.lennysnewsletter.com/","产品/GTM 案例"]],rel:["bi_stack","palantir","pricing","enterprise_ai"]},
+ {id:"pricing",cat:"business",level:"core",priority:false,size:13,title:"AI SaaS 定价与包装",def:"seat-based、usage-based、workflow-based、outcome-based、平台费、私有化部署费和服务费。",why:"AI 成本和客户价值都不稳定，传统 SaaS 定价常常不够用。",learn:["不要只按 token 成本定价，要按客户业务价值定价。","高价值 enterprise 场景通常需要平台费 + 用量 + 服务/交付组合。","把成本上限、使用配额和 SLA 写进包装。"],frontier:"AI 应用正在从 seat 定价走向 usage、agent task、workflow 和 outcome 混合模型。",links:[["OpenView SaaS Benchmarks","https://openviewpartners.com/blog/category/benchmarks/","SaaS 指标与定价"],["Usage-Based Pricing Guide","https://www.usagebasedpricing.com/","用量定价资源"],["Bessemer AI Pricing","https://www.bvp.com/atlas","云/AI 商业分析"]],rel:["inference_econ","roi","gtm_strategy"]},
+ {id:"capital_market",cat:"capital",level:"frontier",priority:true,size:15,title:"AI 资本市场与并购",def:"AI 融资、基础模型资本开支、应用层估值、数据平台并购和巨头补短板方向。",why:"资本动态揭示市场共识、泡沫、退出路径和竞争格局变化。",learn:["关注资金流向：模型、算力、数据基础设施、应用、垂直行业。","并购通常暴露巨头战略缺口。","资本热度不能替代客户付费事实。"],frontier:"AI 投资持续集中在基础模型和基础设施，同时应用层需要证明可持续收入和毛利。",links:[["CB Insights AI","https://www.cbinsights.com/research/artificial-intelligence/","AI 投融资观察"],["PitchBook AI Reports","https://pitchbook.com/news/reports","资本市场报告"],["The Information AI","https://www.theinformation.com/topics/artificial-intelligence","AI 商业新闻"]],rel:["enterprise_ai","hyperscalers","gtm_strategy"]},
+ {id:"macro_ai",cat:"capital",level:"frontier",priority:true,size:14,title:"AI 宏观趋势与社会影响",def:"AI 对劳动市场、生产率、教育、监管、能源、地缘竞争和社会信任的影响。",why:"长期战略不能只看产品功能，要理解技术扩散、政策变化和社会接受度。",learn:["每季度读一次 AI Index / State of AI。","区分真实采用、资本叙事和媒体炒作。","关注人才、能源、算力、政策和公众信任。"],frontier:"AI 扩散速度极快，但社会信任、就业冲击和监管压力同步上升。",links:[["Stanford AI Index 2026","https://hai.stanford.edu/ai-index","年度 AI 指数"],["State of AI Report","https://www.stateof.ai/","年度 AI 趋势报告"],["International AI Safety Report","https://www.gov.uk/government/publications/international-ai-safety-report-2025","国际 AI 安全报告"]],rel:["ai_regulation","capital_market","model_landscape"]},
+ {id:"industry_verticals",cat:"industry",level:"core",priority:false,size:13,title:"行业场景：财务、销售、供应链、运营",def:"把 AI/Data Agent 映射到具体行业工作流、角色、数据源和 KPI。",why:"横向平台很难早期获客，垂直场景才能形成强痛点和可复制模板。",learn:["财务看准确性、审计和合规。","销售运营看收入、线索、预测和 CRM 数据质量。","供应链看异常、计划、库存和跨系统协调。"],frontier:"垂直 AI Agent 会从 Copilot 走向可执行 workflow，但需要深行业知识和交付模板。",links:[["McKinsey AI Insights","https://www.mckinsey.com/capabilities/quantumblack/our-insights","行业 AI 研究"],["BCG AI","https://www.bcg.com/capabilities/artificial-intelligence/overview","咨询公司行业视角"],["Deloitte AI","https://www2.deloitte.com/us/en/insights/focus/cognitive-technology.html","行业 AI 报告"]],rel:["gtm_strategy","roi","enterprise_ai"]}
+];
+
+const paths = [
+  {id:"foundation",title:"1. 基础知识：先建立判断力",desc:"AI 技术路线、模型架构谱系、LLM 差异、RAG、数据栈、语义层。",nodes:["ai_taxonomy","model_architectures","llm_architecture","transformer","model_landscape","rag","lakehouse","semantic_layer","vector_db"]},
+  {id:"agentos",title:"2. 技术前沿：Agent OS 能力栈",desc:"Runtime、MCP、工作流、框架、可观测、评测。",nodes:["agent_runtime","mcp","workflow_orchestration","openai_agents","agent_observability","evals"]},
+  {id:"governance",title:"3. 企业级：安全、治理、合规",desc:"Guardrails、工具安全、数据权限、监管、采购审查。",nodes:["agent_governance","tool_security","data_security","ai_regulation","procurement"]},
+  {id:"market",title:"4. 行业格局：看清谁会竞争",desc:"Palantir、云数据平台、BI、国内玩家、开源生态。",nodes:["palantir","hyperscalers","bi_stack","aloudata","open_source_ai"]},
+  {id:"business",title:"5. 商业成功：从知识到赢",desc:"企业预算、POC 转付费、ROI、GTM、定价、资本动态。",nodes:["enterprise_ai","poc_paid","roi","gtm_strategy","pricing","capital_market","macro_ai"]}
+];
+
+const links = [];
+for(const n of nodes){
+  (n.rel||[]).forEach(target=>links.push({source:n.id,target}));
+}
+
+let activeGroup = "all";
+let activePath = null;
+let selected = null;
+const svg = document.getElementById("map");
+const detail = document.getElementById("detail");
+const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+svg.appendChild(g);
+const clusterG = document.createElementNS("http://www.w3.org/2000/svg","g");
+const linkG = document.createElementNS("http://www.w3.org/2000/svg","g");
+const nodeG = document.createElementNS("http://www.w3.org/2000/svg","g");
+g.append(clusterG,linkG,nodeG);
+let width=0,height=0,scale=1,tx=0,ty=0,dragging=false,dragStart=null;
+let centers = {};
+
+function catColor(cat){ return getComputedStyle(document.documentElement).getPropertyValue(cats[cat].color.replace("var(","").replace(")","")).trim() || cats[cat].color; }
+function visibleNodes(){
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const pathSet = activePath ? new Set(paths.find(p=>p.id===activePath).nodes) : null;
+  return nodes.filter(n=>{
+    const groupOk = activeGroup==="all" || cats[n.cat].group===activeGroup || n.cat===activeGroup || (activeGroup==="priority" && n.priority);
+    const pathOk = !pathSet || pathSet.has(n.id);
+    const qOk = !q || [n.title,n.def,n.why,n.frontier,n.cat].join(" ").toLowerCase().includes(q);
+    return groupOk && pathOk && qOk;
+  });
+}
+function layout(){
+  width = svg.clientWidth; height = svg.clientHeight;
+  centers = {
+    ai:[width*.24,height*.28], data:[width*.43,height*.28], agent:[width*.64,height*.31], infra:[width*.74,height*.52],
+    security:[width*.62,height*.72], industry:[width*.36,height*.70], business:[width*.22,height*.55], capital:[width*.48,height*.53]
+  };
+  const byCat = {};
+  nodes.forEach(n=>(byCat[n.cat] ||= []).push(n));
+  Object.entries(byCat).forEach(([cat,arr])=>{
+    const [cx,cy]=centers[cat];
+    arr.forEach((n,i)=>{
+      const angle = (Math.PI*2*i/arr.length) + (cat.length*.37);
+      const radius = Math.max(58, Math.min(118, 42 + arr.length*10));
+      n.x = cx + Math.cos(angle)*radius;
+      n.y = cy + Math.sin(angle)*radius;
+    });
+  });
+}
+function applyTransform(){ g.setAttribute("transform",`translate(${tx} ${ty}) scale(${scale})`); }
+function render(){
+  layout();
+  clusterG.innerHTML = "";
+  linkG.innerHTML = "";
+  nodeG.innerHTML = "";
+  const v = new Set(visibleNodes().map(n=>n.id));
+  document.getElementById("nodeCount").textContent = nodes.length;
+  document.getElementById("linkCount").textContent = links.length;
+  document.getElementById("sourceCount").textContent = nodes.reduce((s,n)=>s+n.links.length,0);
+  Object.entries(cats).forEach(([id,cat])=>{
+    const visibleInCat = nodes.some(n=>n.cat===id && v.has(n.id));
+    if(!visibleInCat) return;
+    const [cx,cy] = centers[id];
+    const ring = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    ring.setAttribute("class","cluster-ring");
+    ring.setAttribute("cx",cx); ring.setAttribute("cy",cy); ring.setAttribute("r",id==="industry"||id==="business" ? 132 : 118);
+    clusterG.appendChild(ring);
+    const label = document.createElementNS("http://www.w3.org/2000/svg","text");
+    label.setAttribute("class","cluster-label");
+    label.setAttribute("x",cx-64); label.setAttribute("y",cy-(id==="industry"||id==="business" ? 142 : 128));
+    label.textContent = cat.name;
+    clusterG.appendChild(label);
+  });
+  for(const l of links){
+    const s = nodes.find(n=>n.id===l.source), t = nodes.find(n=>n.id===l.target);
+    if(!s || !t) continue;
+    const el = document.createElementNS("http://www.w3.org/2000/svg","line");
+    el.setAttribute("x1",s.x); el.setAttribute("y1",s.y); el.setAttribute("x2",t.x); el.setAttribute("y2",t.y);
+    const hot = selected && (selected.id===s.id || selected.id===t.id);
+    el.setAttribute("class",`link ${!v.has(s.id)||!v.has(t.id)?"hidden":""} ${hot?"hot":""}`);
+    linkG.appendChild(el);
+  }
+  for(const n of nodes){
+    const group = document.createElementNS("http://www.w3.org/2000/svg","g");
+    group.setAttribute("class",`node ${n.priority?"priority":""} ${selected?.id===n.id?"selected":""} ${!v.has(n.id)?"hidden":""}`);
+    group.setAttribute("transform",`translate(${n.x} ${n.y})`);
+    group.dataset.id=n.id;
+    const circle = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    circle.setAttribute("r",n.size);
+    circle.setAttribute("fill",catColor(n.cat));
+    const text = document.createElementNS("http://www.w3.org/2000/svg","text");
+    text.setAttribute("x",n.size+7); text.setAttribute("y","4");
+    text.textContent = n.title;
+    group.append(circle,text);
+    group.addEventListener("click",()=>selectNode(n.id));
+    nodeG.appendChild(group);
+  }
+  document.querySelectorAll(".node:not(.hidden)").forEach(el => {
+    el.style.opacity = "1";
+    el.style.visibility = "visible";
+  });
+}
+function selectNode(id){
+  selected = nodes.find(n=>n.id===id);
+  render();
+  const cat = cats[selected.cat];
+  detail.classList.add("open");
+  detail.innerHTML = `
+    <div class="right-head">
+      <div class="tag"><span class="dot" style="color:${catColor(selected.cat)}"></span>${cat.name} · ${selected.level}${selected.priority ? " · 必修" : ""}</div>
+      <h2>${selected.title}</h2>
+      <p>${selected.def}</p>
+    </div>
+    <div class="right-body">
+      <div class="block"><div class="label">为什么重要</div><div class="text">${selected.why}</div></div>
+      <div class="block"><div class="label">你要学会什么</div><ul>${selected.learn.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+      <div class="block"><div class="label">技术/行业前沿信号</div><div class="text">${selected.frontier}</div></div>
+      <div class="block"><div class="label">外部资料：点击直达原网页</div><div class="links">${selected.links.map(([name,url,desc])=>`<a class="resource" href="${url}" target="_blank" rel="noopener"><b>${name}</b><span>${desc}</span></a>`).join("")}</div></div>
+      <div class="block"><div class="label">相关节点</div><div class="pillrow">${(selected.rel||[]).map(id=>nodes.find(n=>n.id===id)).filter(Boolean).map(n=>`<button class="pill" data-id="${n.id}">${n.title}</button>`).join("")}</div></div>
+    </div>`;
+  detail.querySelectorAll(".pill").forEach(p=>p.addEventListener("click",()=>selectNode(p.dataset.id)));
+  gsap.fromTo(".right-head,.block",{x:18,autoAlpha:0},{x:0,autoAlpha:1,duration:.34,stagger:.045,ease:"power2.out"});
+}
+function initControls(){
+  const filters = document.getElementById("filters");
+  [["all","全部"],["tech","技术知识"],["risk","安全治理"],["market","行业商业"],["priority","必修节点"]].forEach(([id,label])=>{
+    const b=document.createElement("button"); b.className=`chip ${id==="all"?"active":""}`; b.textContent=label;
+    b.addEventListener("click",()=>{activeGroup=id; activePath=null; document.querySelectorAll(".chip").forEach(x=>x.classList.remove("active")); b.classList.add("active"); document.querySelectorAll(".path").forEach(x=>x.classList.remove("active")); render();});
+    filters.appendChild(b);
+  });
+  const pathsEl = document.getElementById("paths");
+  paths.forEach(p=>{
+    const b=document.createElement("button"); b.className="path"; b.innerHTML=`<b>${p.title}</b><span>${p.desc}</span>`;
+    b.addEventListener("click",()=>{activePath=activePath===p.id?null:p.id; document.querySelectorAll(".path").forEach(x=>x.classList.remove("active")); if(activePath)b.classList.add("active"); render();});
+    pathsEl.appendChild(b);
+  });
+  const legend = document.getElementById("legend");
+  Object.entries(cats).forEach(([id,c])=>{
+    const item=document.createElement("button"); item.className="legend-item";
+    item.innerHTML=`<span class="dot" style="color:${catColor(id)}"></span><span>${c.name}</span><span class="count">${nodes.filter(n=>n.cat===id).length}</span>`;
+    item.addEventListener("click",()=>{activeGroup=id; activePath=null; document.querySelectorAll(".chip").forEach(x=>x.classList.remove("active")); document.querySelectorAll(".path").forEach(x=>x.classList.remove("active")); render();});
+    legend.appendChild(item);
+  });
+  document.getElementById("search").addEventListener("input",render);
+  document.getElementById("zoomIn").addEventListener("click",()=>{scale=Math.min(2.5,scale*1.18); applyTransform();});
+  document.getElementById("zoomOut").addEventListener("click",()=>{scale=Math.max(.55,scale*.84); applyTransform();});
+  document.getElementById("reset").addEventListener("click",()=>{scale=1;tx=0;ty=0;applyTransform();});
+  svg.addEventListener("mousedown",e=>{dragging=true;dragStart=[e.clientX-tx,e.clientY-ty];});
+  window.addEventListener("mousemove",e=>{if(!dragging)return;tx=e.clientX-dragStart[0];ty=e.clientY-dragStart[1];applyTransform();});
+  window.addEventListener("mouseup",()=>dragging=false);
+  svg.addEventListener("wheel",e=>{e.preventDefault(); const old=scale; scale=Math.max(.55,Math.min(2.5,scale*(e.deltaY>0?.9:1.1))); const r=svg.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top; tx=mx-(mx-tx)*scale/old; ty=my-(my-ty)*scale/old; applyTransform();},{passive:false});
+}
+window.addEventListener("resize",()=>{render();applyTransform();});
+initControls();
+render();
+applyTransform();
+</script>
+</body>
+</html>

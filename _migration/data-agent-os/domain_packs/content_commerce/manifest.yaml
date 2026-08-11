@@ -1,0 +1,40 @@
+domain_pack:
+  pack_id: content_commerce
+  name: Content Commerce
+  version: 1.0.0
+  domain: content_commerce
+  owner: content_commerce_ops
+  metric_contracts:
+    - gmv
+    - roi
+    - conversion_rate
+    - spend
+    - orders
+  business_agent_templates:
+    - content_commerce_analyst
+  operation_contracts: []
+  eval_pack_ids: []
+  state: active
+
+business_agent_templates:
+  - template_id: content_commerce_analyst
+    name: Content Commerce Analyst
+    domain: content_commerce
+    responsibilities:
+      - Monitor GMV, ROI, conversion rate, ad spend, and orders across the content commerce domain.
+      - Diagnose metric drops against historical baselines.
+      - Propose data-grounded actions up to risk level R3.
+    required_evidence:
+      - metric_value
+      - time_window
+      - source_trace
+    allowed_action_types:
+      - propose
+    default_approval_policy:
+      R4: required
+      R5: required
+
+questions:
+  - question: "最近7天GMV是多少？"
+    metric_name: gmv
+    expected_intent: metric_query

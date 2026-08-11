@@ -1,0 +1,182 @@
+[
+  {
+    "metric_name": "gmv",
+    "display_name": "GMV",
+    "definition": "Gross merchandise value from paid orders within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "CNY",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"],
+    "data_classification": "internal",
+    "verified_queries": [
+      {
+        "template_id": "content_commerce_metric_daily",
+        "metric_name": "gmv",
+        "sql": "select order_date, sum(paid_amount) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+        "required_parameters": ["start_date", "end_date", "limit"],
+        "required_time_parameters": ["start_date", "end_date"],
+        "default_limit": 100,
+        "max_limit": 1000,
+        "allow_select_star": false
+      }
+    ],
+    "quality_contract": {
+      "freshness": "1d",
+      "null_rate": "<1%",
+      "owner": "data_platform"
+    },
+    "action_candidates": [
+      {
+        "action_id": "alert_gmv_drop",
+        "trigger": "value < threshold",
+        "risk_level": "R2",
+        "description": "Notify ops when GMV drops below threshold."
+      }
+    ],
+    "feedback_metric": "gmv"
+  },
+  {
+    "metric_name": "roi",
+    "display_name": "ROI",
+    "definition": "Return on advertising investment within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "ratio",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"],
+    "data_classification": "internal",
+    "verified_queries": [
+      {
+        "template_id": "content_commerce_roi_daily",
+        "metric_name": "roi",
+        "sql": "select order_date, sum(paid_amount) / sum(spend) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+        "required_parameters": ["start_date", "end_date", "limit"],
+        "required_time_parameters": ["start_date", "end_date"],
+        "default_limit": 100,
+        "max_limit": 1000,
+        "allow_select_star": false
+      }
+    ],
+    "quality_contract": {
+      "freshness": "1d",
+      "null_rate": "<2%",
+      "owner": "data_platform"
+    },
+    "action_candidates": [
+      {
+        "action_id": "reallocate_ad_spend",
+        "trigger": "roi < 1.0",
+        "risk_level": "R3",
+        "description": "Propose reallocating spend away from low-ROI channels."
+      }
+    ],
+    "feedback_metric": "roi"
+  },
+  {
+    "metric_name": "conversion_rate",
+    "display_name": "Conversion Rate",
+    "definition": "Paid order conversion rate within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "ratio",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"],
+    "data_classification": "internal",
+    "verified_queries": [
+      {
+        "template_id": "content_commerce_conversion_rate_daily",
+        "metric_name": "conversion_rate",
+        "sql": "select order_date, 1.0 * count(order_id) / sum(visits) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+        "required_parameters": ["start_date", "end_date", "limit"],
+        "required_time_parameters": ["start_date", "end_date"],
+        "default_limit": 100,
+        "max_limit": 1000,
+        "allow_select_star": false
+      }
+    ],
+    "quality_contract": {
+      "freshness": "1d",
+      "null_rate": "<1%",
+      "owner": "data_platform"
+    },
+    "action_candidates": [
+      {
+        "action_id": "diagnose_conversion_drop",
+        "trigger": "conversion_rate < baseline",
+        "risk_level": "R2",
+        "description": "Propose a diagnosis workflow when conversion drops."
+      }
+    ],
+    "feedback_metric": "conversion_rate"
+  },
+  {
+    "metric_name": "spend",
+    "display_name": "Ad Spend",
+    "definition": "Advertising spend within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "CNY",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"],
+    "data_classification": "internal",
+    "verified_queries": [
+      {
+        "template_id": "content_commerce_spend_daily",
+        "metric_name": "spend",
+        "sql": "select order_date, sum(spend) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+        "required_parameters": ["start_date", "end_date", "limit"],
+        "required_time_parameters": ["start_date", "end_date"],
+        "default_limit": 100,
+        "max_limit": 1000,
+        "allow_select_star": false
+      }
+    ],
+    "quality_contract": {
+      "freshness": "1d",
+      "null_rate": "<1%",
+      "owner": "data_platform"
+    },
+    "action_candidates": [
+      {
+        "action_id": "pause_overspend_channel",
+        "trigger": "spend > budget",
+        "risk_level": "R3",
+        "description": "Propose pausing a channel that exceeds its daily budget."
+      }
+    ],
+    "feedback_metric": "spend"
+  },
+  {
+    "metric_name": "orders",
+    "display_name": "Orders",
+    "definition": "Count of paid orders within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "count",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"],
+    "data_classification": "internal",
+    "verified_queries": [
+      {
+        "template_id": "content_commerce_orders_daily",
+        "metric_name": "orders",
+        "sql": "select order_date, count(order_id) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+        "required_parameters": ["start_date", "end_date", "limit"],
+        "required_time_parameters": ["start_date", "end_date"],
+        "default_limit": 100,
+        "max_limit": 1000,
+        "allow_select_star": false
+      }
+    ],
+    "quality_contract": {
+      "freshness": "1d",
+      "null_rate": "<1%",
+      "owner": "data_platform"
+    },
+    "action_candidates": [
+      {
+        "action_id": "alert_orders_drop",
+        "trigger": "value < threshold",
+        "risk_level": "R2",
+        "description": "Notify ops when order count drops below threshold."
+      }
+    ],
+    "feedback_metric": "orders"
+  }
+]

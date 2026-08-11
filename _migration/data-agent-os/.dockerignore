@@ -1,0 +1,49 @@
+# .dockerignore — Exclude files from Docker build context
+# Keep the build context small for faster builds and smaller images.
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.ruff_cache/
+
+# Node / frontend build artifacts
+node_modules/
+apps/workspace/frontend/.next/
+apps/workspace/frontend/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Agent infrastructure (not needed in the container)
+.agent_runs/
+.worktrees/
+
+# Test artifacts
+.coverage
+htmlcov/
+
+# Documentation (not needed at runtime)
+docs/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (avoid recursive context)
+docker-compose*.yml
+Dockerfile
+
+# CI / release scripts (not needed at runtime)
+scripts/release_gate/
+
+# Examples (not part of the runtime)
+examples/

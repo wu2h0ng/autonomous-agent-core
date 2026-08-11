@@ -1,0 +1,15 @@
+# docker-compose.staging.yml — M7 internal pilot staging overlay (ADR-0013 flags ON)
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml --env-file .env.staging up -d
+#   AGENT_OS_SMOKE_STAGED_OUT=true ./scripts/smoke-test.sh --no-start
+#
+# Staged-out capabilities are enabled for trace-chain verification only.
+# Production / default pilot profile must keep these flags off.
+
+services:
+  api_server:
+    environment:
+      AGENT_OS_FULL_BPM_WORKFLOW: "true"
+      AGENT_OS_MCP_GATEWAY: "true"
+      AGENT_OS_R4_R5_AUTO_EXECUTION: "true"

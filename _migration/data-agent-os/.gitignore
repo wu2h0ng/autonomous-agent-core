@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+!.env.staging.example
+
+# Local agent and CI run artifacts
+.agent_runs/
+
+# macOS
+.DS_Store

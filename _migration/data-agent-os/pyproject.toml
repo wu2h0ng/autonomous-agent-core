@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-native-business-data-agent-os"
+version = "0.1.0"
+description = "Independent AI Native Business Data Agent OS implementation"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlglot>=30.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+]
+openai = [
+    "openai>=1.0.0",
+]
+http = [
+    "fastapi>=0.110.0",
+    "httpx>=0.27.0",
+    "uvicorn[standard]>=0.29.0",
+]
+observability = [
+    "opentelemetry-api>=1.24.0",
+]
+postgres = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+    "alembic>=1.13",
+]
+mysql = [
+    "sqlalchemy>=2.0",
+    "pymysql>=1.1",
+]
+clickhouse = [
+    "clickhouse-connect>=0.7",
+]
+feishu = [
+    "httpx>=0.27.0",
+]
+
+# This repo is a PYTHONPATH src-layout monorepo (see Makefile / CLAUDE.md): importable
+# packages live under packages/*/src, apps/*/src, etc. and are wired via PYTHONPATH, not
+# installed. The root project exists only to carry metadata + optional dev/runtime extras,
+# so it ships NO importable modules. Declaring an empty module set disables setuptools
+# flat-layout auto-discovery, which otherwise errors with "Multiple top-level packages
+# discovered" on `pip install -e .` (the CI install step).
+[tool.setuptools]
+py-modules = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = [
+  "apps/api_server/src",
+  "packages/os_core/src",
+  "packages/contracts/src",
+  "packages/sdk/src",
+  "tests"
+]
