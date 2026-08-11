@@ -1,6 +1,6 @@
 schema_version: 1
 program: T-P-OS-SPINE-1
-status: G4_HISTORY_IMPORTED_TO_STAGING
+status: G7_STAGING_REMOVED_LOCAL_CANDIDATE
 donor_sha: 94e2b5918d12d6592f34f3b14c44c29038a74029
 inventory_sha256: 7fc89748b112585633c121ec7523f1fe79c0eda57f80b6c9ed0ed5c5f45f90e8
 history_safety_report: docs/migration/SPINE-1-HISTORY-SAFETY-REPORT.json
@@ -31,6 +31,14 @@ history_import:
   changed_paths_outside_prefix: 0
   old_to_new_mapping: null
   history_rewritten: false
+staging_removal:
+  commit: 43ccbec54d603c3022ecb517f8936f0ffa849e64
+  removed_tracked_paths: 806
+  removed_prefix: _migration/data-agent-os
+  head_path_absent: true
+  donor_ancestry_preserved: true
+  recovery: "Restore any historical path from import commit 78f4f6134bf9c1620ba5a1ef70000355f9c88ac8; donor branch and objects were not deleted."
+post_extraction_verification: docs/migration/SPINE-1-POST-EXTRACTION-VERIFICATION.yaml
 invariants:
   donor_object_absent_before_import: true
   donor_is_ancestor_after_import: true
@@ -38,4 +46,4 @@ invariants:
   runtime_import_from_staging_allowed: false
   push_authorized: false
   main_merge_authorized: false
-boundary: G4 preserves the PASS-qualified donor history under a staging prefix only. Runtime extraction, G5/G6, staging removal, push, merge and release remain unauthorized or incomplete.
+boundary: G7 removes the staging checkout after bounded G5/G6 extraction while preserving PASS-qualified donor ancestry. The candidate remains local and unpublished; push, main merge, release and production activation are not authorized.

@@ -2,7 +2,12 @@ schema_version: 1
 program: T-P-OS-SPINE-1
 verified_at: "2026-08-11T16:05:00+08:00"
 code_head: dca6205255f7b7e8d7059b21313b12fe6134d373
-status: "G5_PASS / G6_PASS_BOUNDED_RETAINED_CAPABILITIES / G7_NOT_YET_RUN"
+status: "G5_PASS / G6_PASS_BOUNDED_RETAINED_CAPABILITIES / G7_PASS_LOCAL"
+g7:
+  staging_removal_commit: 43ccbec54d603c3022ecb517f8936f0ffa849e64
+  removed_tracked_paths: 806
+  staging_path_absent_at_head: true
+  donor_ancestry_preserved: true
 
 ownership_result:
   generic_runtime:
@@ -95,4 +100,4 @@ verification:
       - tests/product/test_product_research_boundary.py
       - tests/product/test_spine1_capability_ownership.py
 
-claim_boundary: "This closes G5/G6 only for the explicitly retained bounded capabilities on an unpublished local branch. It is not pushed, merged, released, production-validated, commercially validated or autonomy evidence."
+claim_boundary: "This closes G5-G7 locally only for the explicitly retained bounded capabilities on an unpublished branch. It is not pushed, merged, released, production-validated, commercially validated or autonomy evidence."
