@@ -1,6 +1,6 @@
 schema_version: 1
 program: T-P-OS-SPINE-1
-status: G2_PASS
+status: G4_HISTORY_IMPORTED_TO_STAGING
 donor_sha: 94e2b5918d12d6592f34f3b14c44c29038a74029
 inventory_sha256: 7fc89748b112585633c121ec7523f1fe79c0eda57f80b6c9ed0ed5c5f45f90e8
 history_safety_report: docs/migration/SPINE-1-HISTORY-SAFETY-REPORT.json
@@ -14,6 +14,28 @@ scanner:
     mode: GIT_LOG_OPTS_EXACT_REF
     log_opts: 94e2b5918d12d6592f34f3b14c44c29038a74029
     redacted: true
-import_commit: null
-imported_path: null
-boundary: No import is authorized unless status is G2_PASS.
+agent_os_pre_import_head: f4cc76ab0782b70a71b954c553bff727cf49a35f
+import_commit: 78f4f6134bf9c1620ba5a1ef70000355f9c88ac8
+import_parents:
+  - f4cc76ab0782b70a71b954c553bff727cf49a35f
+  - 94e2b5918d12d6592f34f3b14c44c29038a74029
+imported_path: _migration/data-agent-os
+history_import:
+  method: git_subtree_add_without_squash
+  source: /Users/mima1234/Documents/AI-Agent-Projects-data-agent-migration-source-20260811
+  source_ref: 94e2b5918d12d6592f34f3b14c44c29038a74029
+  donor_tree: 6d64ae1f59e862893a67d28fea27d9a8fd30e417
+  imported_prefix_tree: 6d64ae1f59e862893a67d28fea27d9a8fd30e417
+  reachable_objects: 6270
+  first_parent_changed_paths: 806
+  changed_paths_outside_prefix: 0
+  old_to_new_mapping: null
+  history_rewritten: false
+invariants:
+  donor_object_absent_before_import: true
+  donor_is_ancestor_after_import: true
+  imported_tree_byte_identical: true
+  runtime_import_from_staging_allowed: false
+  push_authorized: false
+  main_merge_authorized: false
+boundary: G4 preserves the PASS-qualified donor history under a staging prefix only. Runtime extraction, G5/G6, staging removal, push, merge and release remain unauthorized or incomplete.
