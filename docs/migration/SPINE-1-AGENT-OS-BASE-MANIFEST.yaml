@@ -103,4 +103,12 @@ g2_history_safety:
     - "docs/migration/SPINE-1-HISTORY-SAFETY-REPORT.json"
     - "docs/migration/SPINE-1-PROVENANCE-MANIFEST.yaml"
 
+pre_import_regression_baseline:
+  exact_head: "4a093d08fd0f31e1a7f5378a208c07b36cb524df"
+  result: "1900 passed, 1 skipped, 19 failed"
+  adjudication: "KNOWN_BASELINE_REPRODUCED / 11 new SPINE-1 gate tests passed / original 19 named failures unchanged"
+  failure_set: "1 packaging metadata failure, 16 provider trajectory fixed-time expiry failures, and 2 SPINE-0 fixed-time/expiry failures"
+  runtime_delta_since_selected_source_head: "NONE; only migration docs, scripts and bypass-detecting tests were added"
+  generated_artifact: "agent-os.sqlite3 was produced by the suite and moved to macOS Trash as agent-os-spine1-preimport-test-20260811.sqlite3."
+
 claim_boundary: "No Data Agent object may enter this branch until the sealed donor SHA passes G2 history-safety checks."
