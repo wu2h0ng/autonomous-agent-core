@@ -1,0 +1,309 @@
+schema_version: 1
+updated: "2026-08-11T14:40:00+08:00"
+program: "T-P-OS-SPINE-1"
+status: "G3_OWNERSHIP_FROZEN / PRE_IMPORT"
+source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+allowed_dispositions:
+  - "KEEP_IN_AGENT_OS_CORE"
+  - "EXTRACT_TO_SHARED_PACKAGE"
+  - "MOVE_TO_DATA_AGENT_PACK"
+  - "RETAIN_AS_HISTORICAL_EVIDENCE"
+  - "PARK_NO_CONSUMER"
+  - "DROP_DUPLICATE_AFTER_PROOF"
+  - "BLOCK_UNRESOLVED"
+
+capabilities:
+  - capability_id: "P-DATA-INTENT-SEMANTIC-DATAPRODUCT"
+    user_need_ref: "U-DATA-DECISION-CONTRACT"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/contracts/src/agent_os_contracts/trusted_loop.py", "packages/os_core/src/agent_os_core/intent_parser", "packages/os_core/src/agent_os_core/semantic_runtime", "packages/os_core/src/agent_os_core/data_product_compiler", "packages/os_core/src/agent_os_core/metric_contract_loader.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Data Agent run/search/metric-catalog entrypoints"
+    contracts: ["BusinessIntent", "MetricContract", "SQLTemplate", "QueryPlan", "DataProduct"]
+    failure_paths: ["unknown metric", "invalid semantic object", "unsupported or ambiguous query", "contract drift"]
+    tests: ["tests.unit.test_domain_pack_sdk", "tests.unit.test_api_entrypoints", "tests.unit.test_trusted_loop"]
+    current_evidence: "G3 PASS within frozen 321-test suite"
+    target_owner: "domain_packs/data_agent/semantic"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent decision/query path"]
+    residual_gap: "Typed adapter to shared Agent OS Task/Run input remains to be implemented."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_semantic_contracts"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/semantic"]
+
+  - capability_id: "P-DATA-SQL-SAFETY-QUERY"
+    user_need_ref: "U-DATA-SAFE-QUERY"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/sql_safety", "packages/os_core/src/agent_os_core/query_runtime", "apps/api_server/src/agent_os_api/*_executor.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "DataAgentRuntime.run_query via typed Agent OS capability"
+    contracts: ["SQLSafetyPolicy", "SQLSafetyResult", "QueryPlan", "QueryResult"]
+    failure_paths: ["non-read-only SQL", "multi-statement/comment bypass", "unbounded query", "unsupported provider", "executor failure"]
+    tests: ["tests.unit.test_sql_safety", "tests.redteam.test_sql_safety_bypass", "tests.unit.test_agent_runtime_sql_checkpoint"]
+    current_evidence: "G3 PASS / 30 focused tests"
+    target_owner: "domain_packs/data_agent/query"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent governed query path"]
+    residual_gap: "Database executors must enter only through CapabilityBroker; no direct Data runtime authority."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_sql_semantics"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/query"]
+
+  - capability_id: "P-DATA-EVIDENCE-PROJECTION"
+    user_need_ref: "U-DATA-EXPLAINABLE-DECISION"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/evidence_chain", "packages/contracts/src/agent_os_contracts/trusted_loop.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Data Agent result evidence cards and report projection"
+    contracts: ["MetricContractRef", "QueryResultSummary", "EvidenceChain", "EvidenceSemanticObjectRef", "ConfidenceScore"]
+    failure_paths: ["missing lineage", "template mismatch", "stale result", "unsupported confidence evidence"]
+    tests: ["tests.unit.test_evidence_builder_semantic", "tests.unit.test_trusted_loop", "tests.unit.test_http_app"]
+    current_evidence: "G3 PASS"
+    target_owner: "domain_packs/data_agent/evidence"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent result/report path"]
+    residual_gap: "Must project onto shared EvidenceRef/ObservedOutcome without redefining generic evidence authority."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_evidence_projection"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/evidence"]
+
+  - capability_id: "A-SHARED-TASK-RUN-ORCHESTRATION"
+    user_need_ref: "U-AGENT-ONE-RESPONSIBILITY-SPINE"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/trusted_loop.py", "packages/os_core/src/agent_os_core/agent_runtime", "packages/os_core/src/agent_os_core/workflow.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Agent Surface Task/Run path with DataAgentRuntime adapter"
+    contracts: ["TrustedLoopResult", "AgentRunContext", "RunStateSnapshot"]
+    failure_paths: ["invalid task/run binding", "stale checkpoint", "unsupported work route", "unsettled effect"]
+    tests: ["tests.unit.test_agent_runtime_replay_boundary", "tests.unit.test_trusted_loop"]
+    current_evidence: "Donor behavior characterized; Agent OS already owns Task/Run/Responsibility runtime."
+    target_owner: "packages/os_core/src/agent_os_core/task_service.py"
+    disposition: "DROP_DUPLICATE_AFTER_PROOF"
+    consumer: ["Developer Agent", "Data Agent"]
+    residual_gap: "Data trusted-loop sequencing must be expressed as a domain adapter/workflow over canonical Agent OS Task/Run."
+    semantic_scope: "GENERIC"
+    authority_key: "task_run_runtime"
+    runtime_authority: true
+    post_migration_runtime_owners: ["packages/os_core/src/agent_os_core/task_service.py"]
+
+  - capability_id: "A-SHARED-POLICY-APPROVAL-C7"
+    user_need_ref: "U-AGENT-GOVERNED-CONSEQUENTIAL-ACTION"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/policy_engine.py", "packages/os_core/src/agent_os_core/approval_router.py", "packages/os_core/src/agent_os_core/approval_lite", "packages/persistence/alembic/versions"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Agent OS PolicyKernel/CapabilityBroker plus authenticated approval surface"
+    contracts: ["PolicyEvaluationResult", "ApprovalDecision", "ApprovalAnalytics"]
+    failure_paths: ["unauthorized tenant", "expired/revoked/consumed approval", "policy drift", "correction epoch change"]
+    tests: ["tests.unit.test_policy_engine", "tests.unit.test_policy_engine_hardening", "tests.unit.test_policy_engine_trace", "tests.unit.test_sql_policy_approval_store"]
+    current_evidence: "G3 PASS / 42 focused tests; tenant-scoped donor fixes admitted"
+    target_owner: "packages/os_core/src/agent_os_core/governance.py"
+    disposition: "DROP_DUPLICATE_AFTER_PROOF"
+    consumer: ["Developer Agent", "Data Agent"]
+    residual_gap: "Data-specific risk/approval policy remains pack configuration; no donor approval runtime survives."
+    semantic_scope: "GENERIC"
+    authority_key: "policy_approval_correction"
+    runtime_authority: true
+    post_migration_runtime_owners: ["packages/os_core/src/agent_os_core/governance.py"]
+
+  - capability_id: "A-SHARED-EFFECT-CUSTODY"
+    user_need_ref: "U-AGENT-NO-SILENT-DUPLICATE-EFFECT"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["action_connectors/action_record", "packages/os_core/src/agent_os_core/operation_state_machine.py", "packages/os_core/src/agent_os_core/action_connectors"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "CapabilityBroker dispatch with reservation and ActionReceipt"
+    contracts: ["ActionRecord", "OperationTrace", "ActionConnectorResult"]
+    failure_paths: ["unknown effect", "response loss", "idempotency conflict", "cross-tenant history access", "receipt mismatch"]
+    tests: ["tests.unit.test_action_history", "tests.unit.test_action_record_connector", "tests.unit.test_trusted_loop"]
+    current_evidence: "G3 PASS / 63 focused tests"
+    target_owner: "packages/os_core/src/agent_os_core/capability.py"
+    disposition: "DROP_DUPLICATE_AFTER_PROOF"
+    consumer: ["Developer Agent", "Data Agent"]
+    residual_gap: "Donor reservation/UNKNOWN semantics must be proven through Agent OS receipts before donor classes are removed."
+    semantic_scope: "GENERIC"
+    authority_key: "effect_custody"
+    runtime_authority: true
+    post_migration_runtime_owners: ["packages/os_core/src/agent_os_core/capability.py"]
+
+  - capability_id: "P-DATA-BUSINESS-ACTION-ADAPTERS"
+    user_need_ref: "U-DATA-APPROVED-BUSINESS-ACTION"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["action_connectors/email_connector", "action_connectors/webhook_connector", "action_connectors/manual_review", "action_connectors/action_record/connector.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Data Agent typed capability registrations"
+    contracts: ["ActionProposal", "ConsequencePreview", "ActionAlternative"]
+    failure_paths: ["unsupported connector", "invalid payload", "approval missing", "UNKNOWN external effect"]
+    tests: ["tests.unit.test_action_record_connector", "tests.unit.test_trusted_loop"]
+    current_evidence: "G3 PASS"
+    target_owner: "domain_packs/data_agent/actions"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent governed action path"]
+    residual_gap: "Each connector must be registered as a typed Agent OS capability; no direct execution route."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_business_action_adapters"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/actions"]
+
+  - capability_id: "A-SHARED-PROVIDER-MODEL-GATEWAY"
+    user_need_ref: "U-AGENT-PROVIDER-NEUTRAL-EXECUTION"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/model_gateway", "packages/os_core/src/agent_os_core/embedding", "apps/api_server/src/agent_os_api/runtime_factory.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Agent OS ProviderContract and provider receipt path"
+    contracts: ["ProviderContractRef", "ProviderExecutionReceipt"]
+    failure_paths: ["provider unbound", "profile drift", "malformed output", "missing receipt"]
+    tests: ["tests.unit.test_agent_runtime_replay_boundary", "tests.unit.test_http_app"]
+    current_evidence: "Donor behavior characterized; Agent OS provider spine already exists."
+    target_owner: "packages/os_core/src/agent_os_core/provider.py"
+    disposition: "DROP_DUPLICATE_AFTER_PROOF"
+    consumer: ["Developer Agent", "Data Agent"]
+    residual_gap: "Data model prompts/config become pack configuration; donor gateway runtime is not retained."
+    semantic_scope: "GENERIC"
+    authority_key: "provider_gateway"
+    runtime_authority: true
+    post_migration_runtime_owners: ["packages/os_core/src/agent_os_core/provider.py"]
+
+  - capability_id: "A-SHARED-TENANT-IDENTITY"
+    user_need_ref: "U-AGENT-TENANT-ISOLATION"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/tenant", "packages/persistence/src/agent_os_persistence/tenant.py", "apps/api_server/src/agent_os_api/http_app.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Authenticated Agent OS principal/tenant/workspace binding"
+    contracts: ["Tenant", "ApiPrincipal"]
+    failure_paths: ["missing key", "cross-tenant same-ID confusion", "scope mismatch", "key aliasing"]
+    tests: ["tests.unit.test_tenant", "tests.unit.test_http_app"]
+    current_evidence: "G3 PASS; server-bound tenant fixes characterized"
+    target_owner: "packages/contracts/src/agent_os_contracts/authority.py"
+    disposition: "DROP_DUPLICATE_AFTER_PROOF"
+    consumer: ["Developer Agent", "Data Agent"]
+    residual_gap: "Data tenant must bind to canonical PrincipalIdentity; donor Tenant authority is removed."
+    semantic_scope: "GENERIC"
+    authority_key: "identity_tenant_scope"
+    runtime_authority: true
+    post_migration_runtime_owners: ["packages/contracts/src/agent_os_contracts/authority.py"]
+
+  - capability_id: "A-SHARED-TRACE-OUTCOME"
+    user_need_ref: "U-AGENT-AUDITABLE-OUTCOME"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/trace", "packages/os_core/src/agent_os_core/operation_trace", "apps/api_server/src/agent_os_api/outcome_service.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Agent OS EvidenceRef/ObservedOutcome/Trace projection"
+    contracts: ["TraceEvent", "RunTrace", "TrustedLoopOutcome"]
+    failure_paths: ["trace drift", "missing effect receipt", "unbound outcome", "forged verification"]
+    tests: ["tests.unit.test_workflow_trace_sink", "tests.unit.test_trusted_loop_outcome"]
+    current_evidence: "G3 PASS / 11 focused tests"
+    target_owner: "packages/contracts/src/agent_os_contracts/outcome.py"
+    disposition: "DROP_DUPLICATE_AFTER_PROOF"
+    consumer: ["Developer Agent", "Data Agent"]
+    residual_gap: "Data-specific evidence cards remain a pack projection; shared outcome authority stays generic."
+    semantic_scope: "GENERIC"
+    authority_key: "trace_outcome_authority"
+    runtime_authority: true
+    post_migration_runtime_owners: ["packages/contracts/src/agent_os_contracts/outcome.py"]
+
+  - capability_id: "P-DATA-IMMUTABLE-REPORT-FEED"
+    user_need_ref: "U-DATA-OBSERVE-REPORT-WITHOUT-RERUN"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["apps/api_server/src/agent_os_api/outcome_service.py", "apps/api_server/src/agent_os_api/http_app.py", "packages/persistence/alembic/versions/0017_report_snapshot_events.py", "packages/persistence/alembic/versions/0018_report_snapshot_event_payloads.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Tenant-bound external report event feed"
+    contracts: ["ExternalReportEventResponse", "ExternalReportEventFeedResponse", "immutable report snapshot payload"]
+    failure_paths: ["observer tenant/key mismatch", "legacy event without payload", "duplicate replay", "concurrent revision allocation"]
+    tests: ["tests.unit.test_0017_report_snapshot_events", "tests.unit.test_0018_report_snapshot_event_payloads", "tests.unit.test_report_snapshot_events", "tests.unit.test_http_app", "tests.unit.test_openapi_contract"]
+    current_evidence: "G3 PASS / included in 321; donor source head 4449015"
+    target_owner: "domain_packs/data_agent/report_feed"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent external report observer"]
+    residual_gap: "Route must use shared Agent OS authentication/API composition and generic evidence/outcome refs."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_report_feed"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/report_feed"]
+
+  - capability_id: "P-DATA-KNOWLEDGE-ASSET-LIFECYCLE"
+    user_need_ref: "U-DATA-REUSABLE-DECISION-KNOWLEDGE"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["packages/os_core/src/agent_os_core/knowledge_memory", "packages/os_core/src/agent_os_core/knowledge_retrieval", "packages/os_core/src/agent_os_core/adoption", "apps/api_server/src/agent_os_api/outcome_service.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Data Agent knowledge catalog/review/adopt/publish projections"
+    contracts: ["KnowledgeAsset", "adoption and quality projections"]
+    failure_paths: ["unverified outcome", "cross-tenant asset", "invalid lifecycle transition", "stale quality evidence"]
+    tests: ["tests.unit.test_http_app", "tests.unit.test_trusted_loop_outcome"]
+    current_evidence: "G3 PASS for frozen public paths"
+    target_owner: "domain_packs/data_agent/knowledge"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent decision reuse path"]
+    residual_gap: "Only Data decision semantics migrate; generic Agent OS memory/candidate promotion is not replaced."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_knowledge_lifecycle"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/knowledge"]
+
+  - capability_id: "P-DATA-API-WORKSPACE-SURFACE"
+    user_need_ref: "U-DATA-SINGLE-AGENT-SURFACE"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["apps/api_server/src/agent_os_api/http_app.py", "apps/workspace/frontend"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Agent Surface Data Agent mode and authenticated Data routes"
+    contracts: ["RunRequest", "RunResponse", "RunReportResponse", "BlockedResponse"]
+    failure_paths: ["invalid request", "unauthorized scope", "blocked trusted loop", "unsafe external projection"]
+    tests: ["tests.unit.test_api_entrypoints", "tests.unit.test_http_app", "tests.unit.test_openapi_contract"]
+    current_evidence: "G3 PASS / 140 focused tests"
+    target_owner: "domain_packs/data_agent/api"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Agent Surface Data Agent user flow"]
+    residual_gap: "Must mount into the existing Agent OS composition; no second FastAPI app or product shell."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_surface_routes"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/api"]
+
+  - capability_id: "P-DATA-DOMAIN-PACK-ASSETS"
+    user_need_ref: "U-DATA-INSTALLABLE-DOMAIN-KNOWLEDGE"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["domain_packs/content_commerce", "packages/contracts/src/agent_os_contracts/domain_pack.py"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Data Agent domain pack registration"
+    contracts: ["DomainPack", "BusinessAgentTemplate", "MetricContract", "SemanticObject"]
+    failure_paths: ["invalid manifest", "missing provider/template", "domain asset imported by os_core"]
+    tests: ["tests.unit.test_domain_pack_sdk"]
+    current_evidence: "G3 PASS / 3 focused tests"
+    target_owner: "domain_packs/data_agent/packs/content_commerce"
+    disposition: "MOVE_TO_DATA_AGENT_PACK"
+    consumer: ["Data Agent content-commerce reference vertical"]
+    residual_gap: "FaSoLa remains fixture/reference data and cannot enter shared os_core."
+    semantic_scope: "DATA_DOMAIN"
+    authority_key: "data_domain_assets"
+    runtime_authority: true
+    post_migration_runtime_owners: ["domain_packs/data_agent/packs/content_commerce"]
+
+  - capability_id: "R-DATA-DONOR-HISTORICAL-ARTIFACTS"
+    user_need_ref: "U-FOUNDER-MIGRATION-PROVENANCE"
+    source_repo: "ai-native-business-data-agent-os"
+    source_paths: ["docs", ".agent_runs", "research", "project_baseline"]
+    source_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+    public_entrypoint: "Git history and SPINE-1 provenance manifest only"
+    contracts: ["historical evidence; no runtime contract"]
+    failure_paths: ["evidence deletion", "historical narrative treated as current product truth"]
+    tests: ["scripts.spine1.history_inventory", "scripts.spine1.history_safety_gate"]
+    current_evidence: "G2 PASS"
+    target_owner: "Git history reachable through the SPINE-1 import commit"
+    disposition: "RETAIN_AS_HISTORICAL_EVIDENCE"
+    consumer: ["Founder/CTO audit and provenance"]
+    residual_gap: "Historical docs must not remain a current-state or runtime source after staging removal."
+    semantic_scope: "HISTORICAL"
+    authority_key: "historical_provenance"
+    runtime_authority: false
+    post_migration_runtime_owners: []
+
+validation:
+  validator: "scripts/spine1/validate_capability_ownership.py"
+  invariants:
+    - "Every runtime authority row has exactly one post-migration owner."
+    - "Metric, SQL, DataProduct and business-action semantics never target packages/os_core."
+    - "Shared extraction requires at least two named consumers."
+    - "Donor Task/Run, policy/approval, provider, effect, tenant and trace/outcome runtimes are duplicates to remove after behavioral proof."
+
+claim_boundary: "This matrix freezes ownership intent before import. DROP_DUPLICATE_AFTER_PROOF rows cannot be deleted until G5/G6 tests demonstrate equivalent shared-spine behavior."
