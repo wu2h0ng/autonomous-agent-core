@@ -174,7 +174,7 @@ class AgentLoop:
         grants: dict[str, Any],
         principal: PrincipalIdentity,
         gateway: ConfirmationGateway,
-        session_ref: SessionRef,
+        session: ChatSession,
         config: AgentLoopConfig | None = None,
         initial_history: tuple[ProviderMessage, ...] | None = None,
         message_sink: Callable[
@@ -190,7 +190,7 @@ class AgentLoop:
         self._sandbox = sandbox
         self._principal = principal
         self._gateway = gateway
-        self._session_ref = session_ref
+        self._session = session
         self._config = config or AgentLoopConfig()
         self._broker = CapabilityBroker(sandbox, correction)
         self._actions = ActionPipeline(
@@ -228,6 +228,8 @@ class AgentLoop:
 
     def run_turn(self, session: ChatSession, user_input: str) -> TurnResult:
         self._require_session_binding(session)
+        if self._resumable_turn_ids:
+            raise ValueError("session already has an open durable turn")
         turn_id = TurnId(
             turn_id=f"turn-{uuid4()}",
             session_id=session.session_id,
@@ -277,7 +279,7 @@ class AgentLoop:
         return result
 
     def _require_session_binding(self, session: ChatSession) -> None:
-        if session.ref != self._session_ref:
+        if session != self._session:
             raise ValueError("chat session binding mismatch")
 
     def _drive(self, session: ChatSession, turn_id: TurnId) -> TurnResult:

@@ -15,6 +15,7 @@ from agent_os_contracts import (
     SessionRef,
     TaskEvent,
     TaskEventType,
+    content_digest,
 )
 
 from .errors import AgentOSCoreError
@@ -26,16 +27,85 @@ class SessionProjectionError(AgentOSCoreError):
 
 
 @dataclass(frozen=True)
+class SessionLoopConfig:
+    max_steps_per_turn: int
+    max_provider_retries: int
+    max_turn_tokens: int
+    max_context_chars: int
+    loop_detection_threshold: int
+    system_prompt: str
+
+    def __post_init__(self) -> None:
+        positive_limits = (
+            self.max_steps_per_turn,
+            self.max_turn_tokens,
+            self.max_context_chars,
+            self.loop_detection_threshold,
+        )
+        if any(type(value) is not int or value <= 0 for value in positive_limits):
+            raise ValueError("session loop configuration limits must be positive")
+        if (
+            type(self.max_provider_retries) is not int
+            or self.max_provider_retries < 0
+        ):
+            raise ValueError(
+                "session loop provider retries must be a non-negative integer"
+            )
+        if not isinstance(self.system_prompt, str) or not self.system_prompt:
+            raise ValueError("session loop system prompt must be non-empty")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "max_steps_per_turn": self.max_steps_per_turn,
+            "max_provider_retries": self.max_provider_retries,
+            "max_turn_tokens": self.max_turn_tokens,
+            "max_context_chars": self.max_context_chars,
+            "loop_detection_threshold": self.loop_detection_threshold,
+            "system_prompt": self.system_prompt,
+        }
+
+    def digest(self) -> str:
+        return content_digest(self.payload())
+
+    @classmethod
+    def from_open_payload(cls, payload: Mapping[str, Any]) -> SessionLoopConfig:
+        raw_config = payload.get("agent_loop_config")
+        if not isinstance(raw_config, dict):
+            raise SessionProjectionError("session configuration payload is missing")
+        expected_keys = {
+            "max_steps_per_turn",
+            "max_provider_retries",
+            "max_turn_tokens",
+            "max_context_chars",
+            "loop_detection_threshold",
+            "system_prompt",
+        }
+        if set(raw_config) != expected_keys:
+            raise SessionProjectionError("session configuration fields are invalid")
+        try:
+            config = cls(**raw_config)
+        except (TypeError, ValueError) as exc:
+            raise SessionProjectionError(
+                f"session configuration values are invalid: {exc}"
+            ) from exc
+        if payload.get("agent_loop_config_digest") != config.digest():
+            raise SessionProjectionError("session configuration digest mismatch")
+        return config
+
+
+@dataclass(frozen=True)
 class ProjectedSession:
     ref: SessionRef
     envelope_id: str
     expected_outcome_id: str
+    loop_config: SessionLoopConfig
     history: tuple[ProviderMessage, ...]
     next_message_index: int
     opened_sequence: int
     last_sequence: int
     closed: bool
     pending_approval: PendingSurfaceApproval | None
+    resumable_turn_id: str | None
 
 
 class SessionProjector:
@@ -65,6 +135,7 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
     ref: SessionRef | None = None
     envelope_id: str | None = None
     expected_outcome_id: str | None = None
+    loop_config: SessionLoopConfig | None = None
     opened_sequence: int | None = None
     last_sequence = 0
     closed = False
@@ -72,6 +143,10 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
     pending_approval: PendingSurfaceApproval | None = None
     outstanding_tool_calls: dict[str, tuple[str, str]] = {}
     seen_tool_call_ids: set[str] = set()
+    user_turns: dict[str, str] = {}
+    started_turns: set[str] = set()
+    completed_turns: set[str] = set()
+    open_turn_id: str | None = None
 
     for event in events:
         try:
@@ -87,6 +162,7 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                 ref = session
                 envelope_id = _required_str(payload, "envelope_id")
                 expected_outcome_id = _required_str(payload, "expected_outcome_id")
+                loop_config = SessionLoopConfig.from_open_payload(payload)
                 opened_sequence = event.sequence
                 continue
 
@@ -120,6 +196,27 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                     outstanding_tool_calls=outstanding_tool_calls,
                     seen_tool_call_ids=seen_tool_call_ids,
                 )
+                if message.role is ProviderMessageRole.USER:
+                    if turn_id is None:
+                        raise SessionProjectionError(
+                            "durable user message has invalid turn binding"
+                        )
+                    if turn_id in user_turns:
+                        raise SessionProjectionError(
+                            "durable turn has more than one user message"
+                        )
+                    if open_turn_id is not None:
+                        raise SessionProjectionError(
+                            "session has more than one open turn"
+                        )
+                    user_turns[turn_id] = message.content
+                elif (
+                    message.role
+                    in {ProviderMessageRole.ASSISTANT, ProviderMessageRole.TOOL}
+                    and turn_id is not None
+                    and turn_id != open_turn_id
+                ):
+                    raise SessionProjectionError("session message turn mismatch")
                 history.append(message)
                 continue
 
@@ -147,15 +244,38 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                     raise SessionProjectionError(
                         "cannot close with an unresolved pending approval"
                     )
+                if open_turn_id is not None:
+                    raise SessionProjectionError("cannot close with an open turn")
                 closed = True
                 continue
 
-            if event.event_type in {
-                TaskEventType.SESSION_TURN_STARTED,
-                TaskEventType.SESSION_TURN_COMPLETED,
-            }:
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
                 if closed:
                     raise SessionProjectionError("session event recorded after close")
+                turn_id = _required_str(payload, "turn_id")
+                user_text = _required_str(payload, "user_text")
+                if turn_id in started_turns:
+                    raise SessionProjectionError("duplicate session turn start")
+                if user_turns.get(turn_id) != user_text:
+                    raise SessionProjectionError(
+                        "session turn start does not bind one exact user message"
+                    )
+                if open_turn_id is not None:
+                    raise SessionProjectionError("session has more than one open turn")
+                started_turns.add(turn_id)
+                open_turn_id = turn_id
+                continue
+
+            if event.event_type is TaskEventType.SESSION_TURN_COMPLETED:
+                if closed:
+                    raise SessionProjectionError("session event recorded after close")
+                turn_id = _required_str(payload, "turn_id")
+                if turn_id != open_turn_id or turn_id in completed_turns:
+                    raise SessionProjectionError(
+                        "session turn completion has no exact open turn"
+                    )
+                completed_turns.add(turn_id)
+                open_turn_id = None
                 continue
 
             raise SessionProjectionError(
@@ -172,19 +292,27 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
         ref is None
         or envelope_id is None
         or expected_outcome_id is None
+        or loop_config is None
         or opened_sequence is None
     ):
         raise SessionProjectionError("session open event is missing")
+    orphaned_user_turns = set(user_turns) - started_turns
+    if orphaned_user_turns:
+        raise SessionProjectionError(
+            "durable user message has no matching turn start"
+        )
     return ProjectedSession(
         ref=ref,
         envelope_id=envelope_id,
         expected_outcome_id=expected_outcome_id,
+        loop_config=loop_config,
         history=tuple(history),
         next_message_index=len(history),
         opened_sequence=opened_sequence,
         last_sequence=last_sequence,
         closed=closed,
         pending_approval=pending_approval,
+        resumable_turn_id=open_turn_id,
     )
 
 

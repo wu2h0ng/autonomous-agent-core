@@ -158,8 +158,10 @@ def test_resume_turn_rejects_completed_turn_before_provider_call(
     assert loop.history == completed_history
 
 
+@pytest.mark.parametrize("tampered_binding", ("envelope", "expected"))
 def test_resume_turn_rejects_forged_chat_session_before_provider_call(
     tmp_path: Path,
+    tampered_binding: str,
 ) -> None:
     app = chat_app(tmp_path, scripted=(("must not run", ()),))
     session, loop = app.open_chat_session("scoped turn", AutoApproveGateway())
@@ -184,10 +186,20 @@ def test_resume_turn_rejects_forged_chat_session_before_provider_call(
     restored, restored_loop = app.restore_chat_session(
         session.session_id, AutoApproveGateway()
     )
-    forged = ChatSession(
-        ref=restored.ref.model_copy(update={"task_id": "task:forged"}),
-        envelope_id=restored.envelope_id,
-        expected=restored.expected,
+    forged = (
+        ChatSession(
+            ref=restored.ref,
+            envelope_id="envelope:forged",
+            expected=restored.expected,
+        )
+        if tampered_binding == "envelope"
+        else ChatSession(
+            ref=restored.ref,
+            envelope_id=restored.envelope_id,
+            expected=restored.expected.model_copy(
+                update={"expected_outcome_id": "expected:forged"}
+            ),
+        )
     )
 
     with pytest.raises(ValueError, match="session binding mismatch"):
@@ -195,6 +207,46 @@ def test_resume_turn_rejects_forged_chat_session_before_provider_call(
 
     assert isinstance(app.provider, DeterministicProvider)
     assert app.provider.requests == []
+
+
+def test_run_turn_rejects_when_durable_turn_is_already_open(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path, scripted=(("must not run", ()),))
+    session, loop = app.open_chat_session("one open turn", AutoApproveGateway())
+    started = TurnId(turn_id="turn:started", session_id=session.session_id)
+    app.tasks.record_session_message(
+        session.task_id,
+        session.session_id,
+        len(loop.history),
+        ProviderMessage(role=ProviderMessageRole.USER, content="durable user"),
+        turn_id=started.turn_id,
+    )
+    app.tasks.append_event(
+        session.task_id,
+        TaskEventType.SESSION_TURN_STARTED,
+        {
+            "turn_id": started.turn_id,
+            "session_id": session.session_id,
+            "user_text": "durable user",
+        },
+        correlation_id=session.run_id,
+    )
+    restored, restored_loop = app.restore_chat_session(
+        session.session_id, AutoApproveGateway()
+    )
+
+    with pytest.raises(ValueError, match="already has an open durable turn"):
+        restored_loop.run_turn(restored, "second request")
+
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+    assert (
+        SessionProjector(app.store)
+        .project(session.task_id, session.session_id)
+        .resumable_turn_id
+        == started.turn_id
+    )
 
 
 def test_history_does_not_advance_when_durable_sink_fails(

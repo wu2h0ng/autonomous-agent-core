@@ -35,9 +35,18 @@ from agent_os_core import (
     TaskAggregate,
     TaskService,
 )
+from agent_os_core.session_projection import SessionLoopConfig
 
 
 NOW = datetime(2026, 8, 11, 8, 0, tzinfo=timezone.utc)
+LOOP_CONFIG = SessionLoopConfig(
+    max_steps_per_turn=7,
+    max_provider_retries=1,
+    max_turn_tokens=9_000,
+    max_context_chars=4_000,
+    loop_detection_threshold=2,
+    system_prompt="frozen session prompt",
+)
 
 
 class DeterministicIdFactory:
@@ -173,7 +182,12 @@ def _opened_stream(
 ) -> tuple[SQLiteTaskEventStore, TaskService, SessionRef]:
     store, tasks, task, run, expected = committed_running_task(tmp_path)
     ref = _ref(task.task_id, run.run_id)
-    tasks.open_session(ref, "envelope:1", expected.expected_outcome_id)
+    tasks.open_session(
+        ref,
+        "envelope:1",
+        expected.expected_outcome_id,
+        loop_config=LOOP_CONFIG,
+    )
     return store, tasks, ref
 
 
@@ -245,6 +259,30 @@ def _append_assistant_tool_call(
             "session_id": ref.session_id,
             "message_index": 0,
             "message": ProviderMessage(
+                role=ProviderMessageRole.USER,
+                content="read the file",
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_TURN_STARTED,
+        {
+            "session_id": ref.session_id,
+            "turn_id": "turn:1",
+            "user_text": "read the file",
+        },
+    )
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 1,
+            "message": ProviderMessage(
                 role=ProviderMessageRole.ASSISTANT,
                 content="",
                 tool_calls=(
@@ -283,7 +321,7 @@ def _append_pending(
             "action": action.model_dump(mode="json"),
             "preview": "Read README.md",
             "action_digest": action_digest or action.action_digest(),
-            "assistant_message_index": 0,
+            "assistant_message_index": 1,
             "requested_at": NOW.isoformat(),
         },
     )
@@ -298,7 +336,12 @@ def test_projector_restores_exact_ordered_transcript(tmp_path: Path) -> None:
         tenant_id="tenant:local",
         workspace_id="workspace:local",
     )
-    tasks.open_session(ref, "envelope:1", expected.expected_outcome_id)
+    tasks.open_session(
+        ref,
+        "envelope:1",
+        expected.expected_outcome_id,
+        loop_config=LOOP_CONFIG,
+    )
     tasks.record_session_message(
         task.task_id,
         ref.session_id,
@@ -313,15 +356,27 @@ def test_projector_restores_exact_ordered_transcript(tmp_path: Path) -> None:
         ProviderMessage(role=ProviderMessageRole.USER, content="inspect"),
         turn_id="turn:1",
     )
+    tasks.append_event(
+        task.task_id,
+        TaskEventType.SESSION_TURN_STARTED,
+        {
+            "session_id": ref.session_id,
+            "turn_id": "turn:1",
+            "user_text": "inspect",
+        },
+        correlation_id=ref.session_id,
+    )
 
     restarted = SQLiteTaskEventStore(store.path)
     projected = SessionProjector(restarted).project(task.task_id, ref.session_id)
 
     assert projected.ref == ref
+    assert projected.loop_config == LOOP_CONFIG
+    assert projected.resumable_turn_id == "turn:1"
     assert [message.content for message in projected.history] == ["system", "inspect"]
     assert projected.next_message_index == 2
     assert projected.opened_sequence == 4
-    assert projected.last_sequence == 6
+    assert projected.last_sequence == 7
     assert projected.closed is False
     assert projected.pending_approval is None
     restarted.close()
@@ -340,6 +395,94 @@ def test_projector_rejects_duplicate_open(tmp_path: Path) -> None:
     _append(store, ref.task_id, TaskEventType.SESSION_OPENED, first_open)
 
     with pytest.raises(SessionProjectionError, match="duplicate open"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_open_config_with_unknown_field(tmp_path: Path) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    opened = store.read(ref.task_id)[-1]
+    payload = opened.decoded_payload()
+    payload["agent_loop_config"]["unknown"] = True
+    replacement = TaskEventDraft.build(
+        event_id=opened.event_id,
+        task_id=opened.task_id,
+        event_type=opened.event_type,
+        payload=payload,
+        occurred_at=opened.occurred_at,
+        correlation_id=opened.correlation_id,
+        causation_id=opened.causation_id,
+    )
+    store._db.execute(  # noqa: SLF001 - deliberate durable corruption fixture
+        "UPDATE task_events SET payload_json = ? WHERE event_id = ?",
+        (replacement.payload_json, opened.event_id),
+    )
+    store._db.commit()  # noqa: SLF001 - deliberate durable corruption fixture
+
+    with pytest.raises(SessionProjectionError, match="configuration fields"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_open_config_digest_mismatch(tmp_path: Path) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    opened = store.read(ref.task_id)[-1]
+    payload = opened.decoded_payload()
+    payload["agent_loop_config_digest"] = "0" * 64
+    replacement = TaskEventDraft.build(
+        event_id=opened.event_id,
+        task_id=opened.task_id,
+        event_type=opened.event_type,
+        payload=payload,
+        occurred_at=opened.occurred_at,
+        correlation_id=opened.correlation_id,
+        causation_id=opened.causation_id,
+    )
+    store._db.execute(  # noqa: SLF001 - deliberate durable corruption fixture
+        "UPDATE task_events SET payload_json = ? WHERE event_id = ?",
+        (replacement.payload_json, opened.event_id),
+    )
+    store._db.commit()  # noqa: SLF001 - deliberate durable corruption fixture
+
+    with pytest.raises(SessionProjectionError, match="configuration digest"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_two_open_turns(tmp_path: Path) -> None:
+    store, tasks, ref = _opened_stream(tmp_path)
+    for message_index, turn_id in enumerate(("turn:1", "turn:2")):
+        text = f"request {message_index}"
+        tasks.record_session_message(
+            ref.task_id,
+            ref.session_id,
+            message_index,
+            ProviderMessage(role=ProviderMessageRole.USER, content=text),
+            turn_id=turn_id,
+        )
+        tasks.append_event(
+            ref.task_id,
+            TaskEventType.SESSION_TURN_STARTED,
+            {
+                "session_id": ref.session_id,
+                "turn_id": turn_id,
+                "user_text": text,
+            },
+            correlation_id=ref.session_id,
+        )
+
+    with pytest.raises(SessionProjectionError, match="more than one open turn"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_orphan_user_turn(tmp_path: Path) -> None:
+    store, tasks, ref = _opened_stream(tmp_path)
+    tasks.record_session_message(
+        ref.task_id,
+        ref.session_id,
+        0,
+        ProviderMessage(role=ProviderMessageRole.USER, content="orphan"),
+        turn_id="turn:orphan",
+    )
+
+    with pytest.raises(SessionProjectionError, match="no matching turn start"):
         SessionProjector(store).project(ref.task_id, ref.session_id)
 
 
@@ -441,7 +584,7 @@ def test_pending_approval_is_aggregate_provenance_only(tmp_path: Path) -> None:
     assert rehydrated.run == before.run
     assert rehydrated.workflow == before.workflow
     assert rehydrated.expected_outcome == before.expected_outcome
-    assert rehydrated.sequence == before.sequence + 2
+    assert rehydrated.sequence == before.sequence + 4
 
 
 def test_projector_rejects_message_after_close(tmp_path: Path) -> None:
@@ -484,7 +627,12 @@ def test_open_writer_rejects_scope_mismatch_before_append(
     before = len(store.read(task.task_id))
 
     with pytest.raises(InvalidTransitionError, match="session scope mismatch"):
-        tasks.open_session(ref, "envelope:1", expected.expected_outcome_id)
+        tasks.open_session(
+            ref,
+            "envelope:1",
+            expected.expected_outcome_id,
+            loop_config=LOOP_CONFIG,
+        )
 
     assert len(store.read(task.task_id)) == before
 

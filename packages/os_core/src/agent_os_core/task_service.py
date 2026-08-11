@@ -48,7 +48,11 @@ from .errors import (
 )
 from .event_store import TaskEventStore
 from .governance import CorrectionGuard
-from .session_projection import SessionProjectionError, SessionProjector
+from .session_projection import (
+    SessionLoopConfig,
+    SessionProjectionError,
+    SessionProjector,
+)
 from .task_aggregate import TaskAggregate
 
 
@@ -421,6 +425,8 @@ class TaskService:
         ref: SessionRef,
         envelope_id: str,
         expected_outcome_id: str,
+        *,
+        loop_config: SessionLoopConfig,
     ) -> TaskAggregate:
         if not envelope_id.strip() or not expected_outcome_id.strip():
             raise ValueError("session envelope and expected outcome must be non-empty")
@@ -445,6 +451,8 @@ class TaskService:
                 "session": ref.model_dump(mode="json"),
                 "envelope_id": envelope_id,
                 "expected_outcome_id": expected_outcome_id,
+                "agent_loop_config": loop_config.payload(),
+                "agent_loop_config_digest": loop_config.digest(),
             },
             correlation_id=ref.session_id,
         )
