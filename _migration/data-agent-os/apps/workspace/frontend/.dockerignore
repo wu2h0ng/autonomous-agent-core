@@ -1,9 +1,0 @@
-# .dockerignore — Frontend build context exclusions
-node_modules/
-.next/
-.git
-.gitignore
-.env.local
-*.md
-AGENTS.md
-CLAUDE.md

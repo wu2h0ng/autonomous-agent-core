@@ -1,8 +1,0 @@
-{
-  "name": "ai-native-business-data-agent-os",
-  "private": true,
-  "version": "0.1.0",
-  "scripts": {
-    "test": "python -m unittest discover -s tests -p \"test_*.py\""
-  }
-}

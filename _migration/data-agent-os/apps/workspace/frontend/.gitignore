@@ -1,8 +1,0 @@
-# Playwright artifacts
-/test-results/
-/playwright-report/
-/blob-report/
-
-# Next.js / TypeScript generated files (never commit)
-next-env.d.ts
-*.tsbuildinfo
