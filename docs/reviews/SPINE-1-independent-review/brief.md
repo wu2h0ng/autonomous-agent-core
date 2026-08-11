@@ -4,7 +4,7 @@
 - Base before history import: `f4cc76ab0782b70a71b954c553bff727cf49a35f`
 - Approved donor: `94e2b5918d12d6592f34f3b14c44c29038a74029`
 - Track: Product / Architecture / Engineering review
-- Reviewer: Claude Opus through Claude Code, read-only
+- Reviewer: OpenCode 1.17.9 with `deepseek/deepseek-v4-pro`, read-only `plan`
 - Builder: Codex
 
 Review whether the bounded Data Agent migration correctly produces one Agent OS runtime with Data Agent as a domain pack, preserves shared authority ownership, introduces no unsafe bypass or regression, and supports only the recorded local-candidate claim.
