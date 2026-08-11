@@ -9,6 +9,7 @@ import threading
 from importlib import import_module
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from agent_os_contracts import (
@@ -25,6 +26,7 @@ from agent_os_core import (
     AutoApproveGateway,
     DeterministicProvider,
     PolicyInput,
+    SessionProjector,
 )
 
 from apps.api_server.app import AgentOSApplication
@@ -110,6 +112,10 @@ def test_multi_turn_edit_applies_and_records_governance(tmp_path: Path) -> None:
     assert TaskEventType.ACTION_PROPOSED in events
     assert TaskEventType.POLICY_DECIDED in events
     assert TaskEventType.ACTION_RECEIPT_RECORDED in events
+    projected = SessionProjector(app.store).project(
+        session.task_id, session.session_id
+    )
+    assert projected.history == loop.history
 
 
 def test_end_to_end_fixes_failing_test_and_returns_green_result(
@@ -438,13 +444,12 @@ def test_shell_does_not_inherit_provider_secrets(
 
 
 def test_loop_detection_stops_repeated_identical_proposals(tmp_path: Path) -> None:
-    repeated = _proposal("call-x", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (repeated,)),
-            ("", (repeated,)),
-            ("", (repeated,)),
+            ("", (_proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
+            ("", (_proposal("call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
+            ("", (_proposal("call-3", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
             ("should never reach", ()),
         ),
     )
@@ -835,13 +840,12 @@ def test_session_recovers_after_unauthorized_proposal_stop(tmp_path: Path) -> No
 
 
 def test_session_recovers_after_loop_detected_stop(tmp_path: Path) -> None:
-    repeated = _proposal("call-x", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (repeated,)),
-            ("", (repeated,)),
-            ("", (repeated,)),
+            ("", (_proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
+            ("", (_proposal("call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
+            ("", (_proposal("call-3", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
             ("recovered", ()),
         ),
     )
@@ -855,12 +859,13 @@ def test_session_recovers_after_loop_detected_stop(tmp_path: Path) -> None:
 
 
 def test_trailing_proposals_get_error_replies_on_stop(tmp_path: Path) -> None:
-    repeated = _proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
-    trailing = _proposal("call-2", "workspace.read", {"path": "fixture.txt"})
+    first = _proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
+    repeated = _proposal("call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
+    trailing = _proposal("call-3", "workspace.read", {"path": "fixture.txt"})
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (repeated,)),
+            ("", (first,)),
             ("", (repeated, trailing)),
             ("recovered", ()),
         ),
@@ -875,7 +880,7 @@ def test_trailing_proposals_get_error_replies_on_stop(tmp_path: Path) -> None:
 
     tool_messages = _tool_messages(loop)
     trailing_reply = next(
-        message for message in tool_messages if message.tool_call_id == "call-2"
+        message for message in tool_messages if message.tool_call_id == "call-3"
     )
     assert "not executed: loop_detected" in trailing_reply.content
     _assert_tool_blocks_closed(loop.history)
@@ -1109,7 +1114,7 @@ class _FailingProvider:
 def test_provider_retry_exhaustion_stops_turn(tmp_path: Path) -> None:
     app = _chat_app(tmp_path)
     failing = _FailingProvider(app.provider.invocation_binding)
-    app.provider = failing
+    app.provider = cast(Any, failing)
     session, loop = app.open_chat_session(
         "retry",
         AutoApproveGateway(),

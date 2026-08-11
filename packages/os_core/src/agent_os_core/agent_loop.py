@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
@@ -174,6 +175,10 @@ class AgentLoop:
         principal: PrincipalIdentity,
         gateway: ConfirmationGateway,
         config: AgentLoopConfig | None = None,
+        initial_history: tuple[ProviderMessage, ...] | None = None,
+        message_sink: Callable[
+            [ChatSession, int, ProviderMessage, str | None], None
+        ],
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -188,12 +193,30 @@ class AgentLoop:
         self._actions = ActionPipeline(
             tasks, self._broker, policy, correction, grants
         )
-        self._history: list[ProviderMessage] = [
-            ProviderMessage(
-                role=ProviderMessageRole.SYSTEM,
-                content=self._config.system_prompt,
+        history = (
+            initial_history
+            if initial_history is not None
+            else (
+                ProviderMessage(
+                    role=ProviderMessageRole.SYSTEM,
+                    content=self._config.system_prompt,
+                ),
             )
-        ]
+        )
+        system_indexes = tuple(
+            index
+            for index, message in enumerate(history)
+            if message.role is ProviderMessageRole.SYSTEM
+        )
+        if (
+            system_indexes != (0,)
+            or history[0].content != self._config.system_prompt
+        ):
+            raise ValueError(
+                "agent loop history requires exactly one leading frozen system prompt"
+            )
+        self._history = list(history)
+        self._message_sink = message_sink
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -207,8 +230,10 @@ class AgentLoop:
         text = user_input.strip()
         if not text:
             raise ValueError("user input must be non-empty")
-        self._history.append(
-            ProviderMessage(role=ProviderMessageRole.USER, content=text)
+        self._append_message(
+            session,
+            ProviderMessage(role=ProviderMessageRole.USER, content=text),
+            turn_id=turn_id.turn_id,
         )
         self._tasks.append_event(
             session.task_id,
@@ -220,6 +245,11 @@ class AgentLoop:
             },
             correlation_id=session.run_id,
         )
+        return self.resume_turn(session, turn_id)
+
+    def resume_turn(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
+        if turn_id.session_id != session.session_id:
+            raise ValueError("turn session binding mismatch")
         result = self._drive(session, turn_id)
         self._tasks.append_event(
             session.task_id,
@@ -263,12 +293,14 @@ class AgentLoop:
                 )
                 for proposal in response.tool_proposals
             )
-            self._history.append(
+            self._append_message(
+                session,
                 ProviderMessage(
                     role=ProviderMessageRole.ASSISTANT,
                     content=response.text,
                     tool_calls=tool_calls,
-                )
+                ),
+                turn_id=turn_id.turn_id,
             )
             if not response.tool_proposals:
                 stop_reason = "completed"
@@ -292,7 +324,11 @@ class AgentLoop:
                     proposal,
                     seen_action_digests,
                 )
-                self._history.append(tool_message)
+                self._append_message(
+                    session,
+                    tool_message,
+                    turn_id=turn_id.turn_id,
+                )
                 replied_proposal_ids.add(proposal.proposal_id)
                 if seen_action_digests and max(seen_action_digests.values()) >= (
                     self._config.loop_detection_threshold
@@ -309,11 +345,13 @@ class AgentLoop:
                 # (HTTP 400), which would make the session unrecoverable.
                 for proposal in proposals:
                     if proposal.proposal_id not in replied_proposal_ids:
-                        self._history.append(
+                        self._append_message(
+                            session,
                             self._tool_message(
                                 proposal,
                                 {"error": f"not executed: {stop_reason}"},
-                            )
+                            ),
+                            turn_id=turn_id.turn_id,
                         )
                 break
         return TurnResult(
@@ -323,6 +361,17 @@ class AgentLoop:
             stop_reason=stop_reason,
             total_tokens=total_tokens,
         )
+
+    def _append_message(
+        self,
+        session: ChatSession,
+        message: ProviderMessage,
+        *,
+        turn_id: str | None,
+    ) -> None:
+        index = len(self._history)
+        self._message_sink(session, index, message, turn_id)
+        self._history.append(message)
 
     def _call_provider(
         self, session: ChatSession, turn_id: TurnId, step: int

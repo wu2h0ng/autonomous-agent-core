@@ -94,6 +94,8 @@ from agent_os_core import (
     MandateResponsibilityProjector,
     SQLiteMandateOutcomePortfolioStore,
     SQLiteMandateResponsibilityStore,
+    SessionProjectionError,
+    SessionProjector,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -1370,6 +1372,7 @@ class AgentOSApplication:
             or aggregate.commitment is None
         ):
             raise RuntimeError("chat session run failed to start")
+        config = loop_config or AgentLoopConfig()
         session = ChatSession(
             ref=SessionRef(
                 session_id=f"session-{uuid4()}",
@@ -1381,21 +1384,23 @@ class AgentOSApplication:
             envelope_id=f"envelope-{uuid4()}",
             expected=aggregate.expected_outcome,
         )
-        grants = dict(self.grants)
-        for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
-            grant = grants.get(capability_id)
-            if grant is None:
-                raise RuntimeError(f"chat capability is not granted: {capability_id}")
-            if grant.max_risk_tier < max_tier:
-                # Elevate only the chat-scoped grant copies; the shared
-                # composition-root envelope stays at its declared ceiling.
-                grants[capability_id] = grant.model_copy(
-                    update={"max_risk_tier": max_tier}
-                )
-        chat_grants = {
-            capability_id: grants[capability_id]
-            for capability_id in CHAT_CAPABILITY_IDS
-        }
+        self.tasks.open_session(
+            session.ref,
+            session.envelope_id,
+            session.expected.expected_outcome_id,
+        )
+        system_message = ProviderMessage(
+            role=ProviderMessageRole.SYSTEM,
+            content=config.system_prompt,
+        )
+        self.tasks.record_session_message(
+            session.task_id,
+            session.session_id,
+            0,
+            system_message,
+            turn_id=None,
+        )
+        chat_grants = self._chat_grants()
         loop = AgentLoop(
             tasks=self.tasks,
             provider=self.provider,
@@ -1406,7 +1411,9 @@ class AgentOSApplication:
             grants=chat_grants,
             principal=self.principal,
             gateway=gateway,
-            config=loop_config,
+            config=config,
+            initial_history=(system_message,),
+            message_sink=self._record_chat_message,
         )
         self.tasks.append_event(
             task.task_id,
@@ -1422,6 +1429,123 @@ class AgentOSApplication:
             correlation_id=session.run_id,
         )
         return session, loop
+
+    def restore_chat_session(
+        self,
+        session_id: str,
+        gateway: ConfirmationGateway,
+    ) -> tuple[ChatSession, AgentLoop]:
+        """Restore one exact durable chat session without replaying prior turns."""
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before restoring a chat session"
+            )
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        matches: list[str] = []
+        for task_id in self.store.list_task_ids():
+            for event in self.store.read(task_id):
+                if event.event_type is not TaskEventType.SESSION_OPENED:
+                    continue
+                try:
+                    payload = event.decoded_payload()
+                except (TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        "invalid durable session open record"
+                    ) from exc
+                if payload.get("session_id") == session_id:
+                    matches.append(task_id)
+        if not matches:
+            raise SessionProjectionError("session not found")
+        if len(matches) != 1:
+            raise SessionProjectionError("duplicate durable session identity")
+
+        projected = SessionProjector(self.store).project(matches[0], session_id)
+        if projected.closed:
+            raise ValueError("cannot restore a closed chat session")
+        if (
+            projected.ref.tenant_id != self.principal.tenant_id
+            or projected.ref.workspace_id != self.principal.workspace_id
+        ):
+            raise PermissionError("chat session principal scope mismatch")
+
+        aggregate = self.tasks.get_task(projected.ref.task_id)
+        run = aggregate.run
+        expected = aggregate.expected_outcome
+        snapshot = aggregate.configuration_snapshot
+        if (
+            run is None
+            or expected is None
+            or snapshot is None
+            or projected.ref.run_id != run.run_id
+            or projected.expected_outcome_id != expected.expected_outcome_id
+        ):
+            raise ValueError("chat session durable scope mismatch")
+        if run.status in {RunStatus.SUCCEEDED, RunStatus.CANCELLED}:
+            raise ValueError("cannot restore a terminal chat Run")
+        self.task_configurations.assert_runtime_binding(
+            self.principal,
+            aggregate.task_id,
+            snapshot.snapshot_id,
+        )
+        try:
+            invocation_profile = self.provider.invocation_binding.provider_profile
+        except RuntimeError as exc:
+            raise ConnectionError("chat provider binding is unavailable") from exc
+        if invocation_profile != self.provider_profile:
+            raise ValueError("chat provider profile binding mismatch")
+
+        session = ChatSession(
+            ref=projected.ref,
+            envelope_id=projected.envelope_id,
+            expected=expected,
+        )
+        loop = AgentLoop(
+            tasks=self.tasks,
+            provider=self.provider,
+            provider_profile=self.provider_profile,
+            policy=self.policy,
+            correction=self.correction,
+            sandbox=self.sandbox,
+            grants=self._chat_grants(),
+            principal=self.principal,
+            gateway=gateway,
+            initial_history=projected.history,
+            message_sink=self._record_chat_message,
+        )
+        return session, loop
+
+    def _record_chat_message(
+        self,
+        session: ChatSession,
+        message_index: int,
+        message: ProviderMessage,
+        turn_id: str | None,
+    ) -> None:
+        self.tasks.record_session_message(
+            session.task_id,
+            session.session_id,
+            message_index,
+            message,
+            turn_id=turn_id,
+        )
+
+    def _chat_grants(self) -> dict[str, CapabilityGrant]:
+        grants = dict(self.grants)
+        for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
+            grant = grants.get(capability_id)
+            if grant is None:
+                raise RuntimeError(f"chat capability is not granted: {capability_id}")
+            if grant.max_risk_tier < max_tier:
+                # Elevate only the chat-scoped grant copies; the shared
+                # composition-root envelope stays at its declared ceiling.
+                grants[capability_id] = grant.model_copy(
+                    update={"max_risk_tier": max_tier}
+                )
+        return {
+            capability_id: grants[capability_id]
+            for capability_id in CHAT_CAPABILITY_IDS
+        }
 
     def pause_task(self, task_id: str):
         return self.tasks.update_run_status(
