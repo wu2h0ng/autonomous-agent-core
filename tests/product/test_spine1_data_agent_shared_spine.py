@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from threading import Barrier, BrokenBarrierError
 
 import pytest
 
 from agent_os_contracts import (
+    ActionContract,
     CapabilityGrant,
     CapabilityGrantStatus,
     EdgeSpec,
@@ -105,6 +109,64 @@ def _grant(request: DataAgentRequest) -> CapabilityGrant:
         granted_at=now,
         expires_at=now + timedelta(hours=1),
     )
+
+
+def _query_action() -> ActionContract:
+    authority = CorrectionAuthority(
+        tenant_id="tenant:acme",
+        workspace_id="workspace:finance",
+        written_by="tenant-admin:acme",
+    )
+    return ActionContract(
+        action_id="action:concurrent-query",
+        task_id="task:concurrent-query",
+        run_id="run:concurrent-query",
+        node_id="data-query",
+        principal_id="user:operator",
+        tenant_id="tenant:acme",
+        workspace_id="workspace:finance",
+        capability_id=DATA_QUERY_CAPABILITY_ID,
+        capability_version="1",
+        arguments_json=json.dumps(
+            {
+                "query_id": "query:concurrent",
+                "sql": "SELECT SUM(amount) AS gmv FROM main.orders LIMIT 100",
+                "parameters": {},
+                "provider_contract_id": "provider:sqlite",
+            }
+        ),
+        risk_tier=0,
+        idempotency_key="idempotency:concurrent-query",
+        estimated_budget=ResourceBudget(
+            max_cost_usd=Decimal("0"),
+            max_duration_seconds=30,
+            max_provider_tokens=0,
+            max_tool_calls=1,
+        ),
+        policy_version="policy-1",
+        observed_correction_epochs=authority.snapshot(
+            "task:concurrent-query",
+            "run:concurrent-query",
+            DATA_QUERY_CAPABILITY_ID,
+        ),
+        expected_outcome_id="expected:concurrent-query",
+        candidate_envelope_id="envelope:concurrent-query",
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+class _RacingCounter:
+    """Force two unprotected in-place increments to observe the same value."""
+
+    def __init__(self) -> None:
+        self._barrier = Barrier(2)
+
+    def __iadd__(self, increment: int) -> int:
+        try:
+            self._barrier.wait(timeout=0.2)
+        except BrokenBarrierError:
+            pass
+        return increment
 
 
 def _runtime(
@@ -275,6 +337,18 @@ def test_valid_query_runs_through_real_policy_and_broker(tmp_path: Path) -> None
     assert TaskEventType.ACTION_PROPOSED in event_types
     assert TaskEventType.POLICY_DECIDED in event_types
     assert TaskEventType.ACTION_RECEIPT_RECORDED in event_types
+
+
+def test_query_execution_count_preserves_concurrent_updates(tmp_path: Path) -> None:
+    connector = SQLiteDataQueryCapability(_database(tmp_path))
+    connector.execution_count = _RacingCounter()  # type: ignore[assignment]
+    action = _query_action()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        effects = tuple(pool.map(connector.execute, (action, action)))
+
+    assert all(effect.status is ReceiptStatus.SUCCEEDED for effect in effects)
+    assert connector.execution_count == 2
 
 
 class _UnknownEffectQueryCapability:

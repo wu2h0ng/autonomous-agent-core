@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from agent_os_contracts import (
@@ -56,6 +57,7 @@ class SQLiteDataQueryCapability:
     ) -> None:
         self._database = Path(database).resolve()
         self._checker = checker or DataSQLSafetyChecker()
+        self._execution_count_lock = Lock()
         self.execution_count = 0
 
     def specs(
@@ -133,7 +135,8 @@ class SQLiteDataQueryCapability:
             )
         finally:
             connection.close()
-        self.execution_count += 1
+        with self._execution_count_lock:
+            self.execution_count += 1
         rows_json = canonical_json(rows)
         return CapabilityEffect(
             status=ReceiptStatus.SUCCEEDED,

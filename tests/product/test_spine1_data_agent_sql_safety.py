@@ -74,6 +74,44 @@ def test_ast_gate_blocks_frozen_bypass_classes(
     assert expected_code in {issue.code for issue in result.issues}
 
 
+@pytest.mark.parametrize(
+    ("sql", "expected_code"),
+    [
+        ("PRAGMA table_info('orders')", "ONLY_SELECT"),
+        ("ATTACH DATABASE 'other.db' AS other", "PARSE_ERROR"),
+        ("DETACH DATABASE other", "PARSE_ERROR"),
+        (
+            "CREATE VIRTUAL TABLE sales.search USING fts5(content)",
+            "ONLY_SELECT",
+        ),
+        ("VACUUM", "ONLY_SELECT"),
+        ("REINDEX sales.orders", "ONLY_SELECT"),
+        ("CREATE INDEX idx_amount ON sales.orders(amount)", "ONLY_SELECT"),
+        ("DROP INDEX idx_amount", "ONLY_SELECT"),
+        ("CREATE VIEW sales.order_view AS SELECT 1", "ONLY_SELECT"),
+        ("DROP VIEW sales.order_view", "ONLY_SELECT"),
+        (
+            "SELECT amount /* hidden */ FROM sales.orders LIMIT 10",
+            "NO_SQL_COMMENTS",
+        ),
+    ],
+)
+def test_ast_gate_blocks_sqlite_specific_ddl_and_block_comments(
+    checker: DataSQLSafetyChecker,
+    sql: str,
+    expected_code: str,
+) -> None:
+    result = checker.check(
+        sql,
+        tuple(),
+        {},
+        required_time_parameters=tuple(),
+    )
+
+    assert not result.allowed
+    assert expected_code in {issue.code for issue in result.issues}
+
+
 def test_ast_gate_rejects_missing_and_unused_runtime_parameters(
     checker: DataSQLSafetyChecker,
 ) -> None:
