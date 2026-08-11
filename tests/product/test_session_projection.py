@@ -11,6 +11,8 @@ import pytest
 from agent_os_contracts import (
     ActionContract,
     AgentRun,
+    ApprovalDecision,
+    ApprovalDisposition,
     Commitment,
     CorrectionEpochVector,
     EdgeSpec,
@@ -23,6 +25,7 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderToolCall,
     ProviderToolProposal,
+    PrincipalRole,
     ResourceBudget,
     SessionRef,
     TaskEventDraft,
@@ -161,6 +164,8 @@ def _append(
     task_id: str,
     event_type: TaskEventType,
     payload: dict[str, object],
+    *,
+    correlation_id: str | None = None,
 ) -> None:
     events = store.read(task_id)
     store.append(
@@ -173,7 +178,11 @@ def _append(
                 event_type=event_type,
                 payload=payload,
                 occurred_at=NOW,
-                correlation_id=str(payload.get("session_id", task_id)),
+                correlation_id=(
+                    correlation_id
+                    if correlation_id is not None
+                    else str(payload.get("session_id", task_id))
+                ),
                 causation_id=events[-1].event_id,
             ),
         ),
@@ -381,6 +390,14 @@ def _append_resolution(
     fingerprint = hashlib.sha256(
         f"{proposal.capability_id}\n{proposal.arguments_json}".encode("utf-8")
     ).hexdigest()
+    approval_events = [
+        event
+        for event in store.read(ref.task_id)
+        if event.event_type is TaskEventType.APPROVAL_RECORDED
+        and event.decoded_payload().get("approval", {}).get("approval_id")
+        == "approval:1"
+    ]
+    approval_sequence = approval_events[0].sequence if approval_events else 1
     _append(
         store,
         ref.task_id,
@@ -395,6 +412,8 @@ def _append_resolution(
             "action_digest": action_digest or action.action_digest(),
             "proposal_id": "proposal:1",
             "approval_id": "approval:1",
+            "source_approval_sequence": approval_sequence,
+            "source_claim_id": "claim:1",
             "disposition": "APPROVE",
             "tool_message_index": 2,
             "assistant_message_index": 1,
@@ -410,6 +429,59 @@ def _append_resolution(
             "provider_profile_id": "provider:1",
             "provider_profile_digest": "2" * 64,
             "resolved_at": NOW.isoformat(),
+        },
+    )
+
+
+def _append_approval_claim(
+    store: SQLiteTaskEventStore,
+    ref: SessionRef,
+) -> None:
+    action = _action(ref)
+    approval = ApprovalDecision(
+        approval_id="approval:1",
+        tenant_id=ref.tenant_id,
+        workspace_id=ref.workspace_id,
+        action_digest=action.action_digest(),
+        actor_id="principal:local",
+        actor_role=PrincipalRole.PRINCIPAL,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="exact approval",
+        decided_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.APPROVAL_RECORDED,
+        {"approval": approval.model_dump(mode="json")},
+        correlation_id=ref.run_id,
+    )
+    approval_sequence = store.read(ref.task_id)[-1].sequence
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
+        {
+            "session_id": ref.session_id,
+            "task_id": ref.task_id,
+            "run_id": ref.run_id,
+            "tenant_id": ref.tenant_id,
+            "workspace_id": ref.workspace_id,
+            "turn_id": "turn:1",
+            "proposal_id": "proposal:1",
+            "action_id": action.action_id,
+            "action_digest": action.action_digest(),
+            "idempotency_key": action.idempotency_key,
+            "approval_id": approval.approval_id,
+            "approval_sequence": approval_sequence,
+            "claim_id": "claim:1",
+            "configuration_snapshot_id": "snapshot:1",
+            "configuration_snapshot_digest": "1" * 64,
+            "provider_profile_id": "provider:1",
+            "provider_profile_digest": "2" * 64,
+            "c7_epochs": action.observed_correction_epochs.model_dump(mode="json"),
+            "claimed_at": NOW.isoformat(),
         },
     )
 
@@ -786,6 +858,7 @@ def test_projector_rejects_resolution_with_wrong_action_digest(
     store, _, ref = _opened_stream(tmp_path)
     _append_assistant_tool_call(store, ref)
     _append_pending(store, ref)
+    _append_approval_claim(store, ref)
     _append(
         store,
         ref.task_id,
@@ -813,6 +886,7 @@ def test_projector_exposes_exact_resolved_continuation_until_turn_completion(
     store, _, ref = _opened_stream(tmp_path)
     _append_assistant_tool_call(store, ref)
     _append_pending(store, ref)
+    _append_approval_claim(store, ref)
     _append(
         store,
         ref.task_id,
@@ -864,6 +938,7 @@ def test_projector_rejects_tampered_resolved_continuation_cursor(
     store, _, ref = _opened_stream(tmp_path)
     _append_assistant_tool_call(store, ref)
     _append_pending(store, ref)
+    _append_approval_claim(store, ref)
     _append(
         store,
         ref.task_id,
@@ -890,6 +965,84 @@ def test_projector_rejects_tampered_resolved_continuation_cursor(
     store._db.commit()
 
     with pytest.raises(SessionProjectionError, match="continuation cursor"):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+@pytest.mark.parametrize(
+    ("field", "forged", "error"),
+    (
+        ("approval_id", "approval:forged", "decision binding"),
+        ("disposition", "REJECT", "decision binding"),
+        ("task_id", "task:forged", "scope mismatch"),
+    ),
+)
+def test_projector_rejects_tampered_resolution_approval_binding(
+    tmp_path: Path,
+    field: str,
+    forged: str,
+    error: str,
+) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_pending(store, ref)
+    _append_approval_claim(store, ref)
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.SESSION_MESSAGE_RECORDED,
+        {
+            "session_id": ref.session_id,
+            "message_index": 2,
+            "message": ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content="result",
+                tool_call_id="proposal:1",
+            ).model_dump(mode="json"),
+            "turn_id": "turn:1",
+        },
+    )
+    _append_resolution(store, ref)
+    event = store.read(ref.task_id)[-1]
+    payload = event.decoded_payload()
+    payload[field] = forged
+    replacement = TaskEventDraft.build(
+        event_id=event.event_id,
+        task_id=event.task_id,
+        event_type=event.event_type,
+        payload=payload,
+        occurred_at=event.occurred_at,
+        correlation_id=event.correlation_id,
+        causation_id=event.causation_id,
+    )
+    store._db.execute(  # noqa: SLF001 - deliberate durable corruption fixture
+        "UPDATE task_events SET payload_json = ? WHERE event_id = ?",
+        (replacement.payload_json, event.event_id),
+    )
+    store._db.commit()  # noqa: SLF001 - deliberate durable corruption fixture
+
+    with pytest.raises(SessionProjectionError, match=error):
+        SessionProjector(store).project(ref.task_id, ref.session_id)
+
+
+def test_projector_rejects_duplicate_approval_authority(tmp_path: Path) -> None:
+    store, _, ref = _opened_stream(tmp_path)
+    _append_assistant_tool_call(store, ref)
+    _append_pending(store, ref)
+    _append_approval_claim(store, ref)
+    approval = next(
+        event.decoded_payload()["approval"]
+        for event in store.read(ref.task_id)
+        if event.event_type is TaskEventType.APPROVAL_RECORDED
+    )
+    _append(
+        store,
+        ref.task_id,
+        TaskEventType.APPROVAL_RECORDED,
+        {"approval": approval},
+        correlation_id=ref.run_id,
+    )
+
+    with pytest.raises(SessionProjectionError, match="unique approval"):
         SessionProjector(store).project(ref.task_id, ref.session_id)
 
 

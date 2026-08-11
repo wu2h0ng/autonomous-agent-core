@@ -33,6 +33,7 @@ from agent_os_contracts import (
 from .action_pipeline import ActionPipeline
 from .capability import (
     CapabilityBroker,
+    CapabilityCorrectionBlocked,
     CapabilityEffectUnknown,
     WorkspaceSandbox,
 )
@@ -401,6 +402,7 @@ class AgentLoop:
                 resolved.next_proposal_index,
                 resolved.assistant_message_index,
             ),
+            continuation_checkpoint=resolved,
         )
 
     def _complete_turn(
@@ -413,6 +415,13 @@ class AgentLoop:
             "approval_required",
             "unknown_requires_review",
         }:
+            return
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        if projected.resumable_turn_id is None:
+            self._resumable_turn_ids.discard(turn_id.turn_id)
             return
         self._tasks.append_event(
             session.task_id,
@@ -461,6 +470,39 @@ class AgentLoop:
             raise InvalidTransitionError(
                 "approval decision does not bind the exact pending action"
             )
+        unknown = self._tasks._unknown_session_action(
+            session.task_id,
+            session.session_id,
+        )
+        if unknown is not None:
+            if (
+                unknown.get("turn_id") != pending.turn_id
+                or unknown.get("action_digest") != pending.action.action_digest()
+            ):
+                raise InvalidTransitionError(
+                    "unknown action does not bind the pending approval"
+                )
+            unknown_steps = unknown["steps"]
+            unknown_tokens = unknown["total_tokens"]
+            if (
+                isinstance(unknown_steps, bool)
+                or not isinstance(unknown_steps, int)
+                or isinstance(unknown_tokens, bool)
+                or not isinstance(unknown_tokens, int)
+            ):
+                raise InvalidTransitionError(
+                    "unknown action has invalid durable counters"
+                )
+            return TurnResult(
+                turn_id=TurnId(
+                    turn_id=pending.turn_id,
+                    session_id=session.session_id,
+                ),
+                text="capability effect requires external reconciliation",
+                steps=unknown_steps,
+                stop_reason="unknown_requires_review",
+                total_tokens=unknown_tokens,
+            )
         self._validate_pending_runtime(
             session,
             pending,
@@ -468,12 +510,17 @@ class AgentLoop:
                 approval.disposition is ApprovalDisposition.APPROVE
             ),
         )
-        bound_approval = self._tasks.record_or_reuse_session_approval(
+        current_run = self._tasks.get_task(session.task_id).run
+        if current_run is None:
+            raise InvalidTransitionError("pending approval requires an active Run")
+        run_was_paused = current_run.status.value == "PAUSED"
+        authority = self._tasks.record_or_reuse_session_approval(
             session.task_id,
             session.session_id,
             pending.action,
             approval,
         )
+        bound_approval = authority.approval
         if bound_approval.disposition is ApprovalDisposition.REJECT:
             tool_message = self._tool_message(
                 pending.proposal,
@@ -481,6 +528,27 @@ class AgentLoop:
                     "error": f"user rejected the proposed action: {bound_approval.reason}",
                     "rejected": True,
                 },
+            )
+        elif (
+            not authority.acquired
+            and approval.disposition is ApprovalDisposition.REJECT
+        ):
+            try:
+                result = self._actions.reconcile_before_policy(
+                    pending.action,
+                    record_artifacts=False,
+                )
+            except CapabilityEffectUnknown as unknown:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is in progress or requires review"
+                ) from unknown
+            if result is None:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is still in progress"
+                )
+            tool_message = self._tool_message(
+                pending.proposal,
+                _truncate_json(result.output),
             )
         else:
             try:
@@ -493,7 +561,28 @@ class AgentLoop:
                     approval=bound_approval,
                     record_artifacts=False,
                 )
+            except CapabilityCorrectionBlocked as blocked:
+                self._tasks.pause_session_for_claim_correction(
+                    session.task_id,
+                    session.session_id,
+                    pending=pending,
+                    approval=bound_approval,
+                )
+                return TurnResult(
+                    turn_id=TurnId(
+                        turn_id=pending.turn_id,
+                        session_id=session.session_id,
+                    ),
+                    text=str(blocked),
+                    steps=pending.steps,
+                    stop_reason="correction_blocked",
+                    total_tokens=pending.total_tokens,
+                )
             except CapabilityEffectUnknown as unknown:
+                if not authority.acquired:
+                    raise InvalidTransitionError(
+                        "APPROVE execution claim is in progress or requires review"
+                    ) from unknown
                 return self._pause_for_unknown(
                     session,
                     TurnId(
@@ -527,6 +616,17 @@ class AgentLoop:
             turn_id=pending.turn_id,
             session_id=session.session_id,
         )
+        if (
+            run_was_paused
+            and bound_approval.disposition is ApprovalDisposition.REJECT
+        ):
+            return TurnResult(
+                turn_id=turn_id,
+                text="action rejected; Run remains paused",
+                steps=pending.steps,
+                stop_reason="paused",
+                total_tokens=pending.total_tokens,
+            )
         return self.resume_turn(session, turn_id)
 
     def _validate_pending_runtime(
@@ -542,7 +642,14 @@ class AgentLoop:
         if (
             run is None
             or snapshot is None
-            or run.status.value not in {"WAITING_APPROVAL", "PAUSED"}
+            or (
+                require_current_c7
+                and run.status.value != "WAITING_APPROVAL"
+            )
+            or (
+                not require_current_c7
+                and run.status.value not in {"WAITING_APPROVAL", "PAUSED"}
+            )
             or run.run_id != session.run_id
             or run.configuration_snapshot_id
             != pending.configuration_snapshot_id
@@ -595,6 +702,7 @@ class AgentLoop:
             int,
         ]
         | None = None,
+        continuation_checkpoint: ProjectedResolvedContinuation | None = None,
     ) -> TurnResult:
         final_text = ""
         seen_action_digests = dict(seen_action_digests or {})
@@ -625,19 +733,36 @@ class AgentLoop:
                     for proposal in response.tool_proposals
                 )
                 assistant_message_index = len(self._history)
-                self._append_message(
-                    session,
-                    ProviderMessage(
-                        role=ProviderMessageRole.ASSISTANT,
-                        content=response.text,
-                        tool_calls=tool_calls,
-                    ),
-                    turn_id=turn_id.turn_id,
+                assistant_message = ProviderMessage(
+                    role=ProviderMessageRole.ASSISTANT,
+                    content=response.text,
+                    tool_calls=tool_calls,
                 )
                 if not response.tool_proposals:
                     stop_reason = "completed"
                     final_text = response.text
+                    self._tasks.record_session_final_message_and_complete(
+                        session.task_id,
+                        session.session_id,
+                        turn_id=turn_id.turn_id,
+                        message=assistant_message,
+                        stop_reason=stop_reason,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                    )
+                    self._history.append(assistant_message)
                     break
+                continuation_checkpoint = self._append_turn_progress(
+                    session,
+                    turn_id=turn_id.turn_id,
+                    message=assistant_message,
+                    continuation=continuation_checkpoint,
+                    assistant_message_index=assistant_message_index,
+                    next_proposal_index=0,
+                    steps=steps,
+                    total_tokens=total_tokens,
+                    seen_action_digests=seen_action_digests,
+                )
                 proposals = response.tool_proposals
                 start_index = 0
             else:
@@ -694,10 +819,16 @@ class AgentLoop:
                         stop_reason="approval_required",
                         total_tokens=total_tokens,
                     )
-                self._append_message(
+                continuation_checkpoint = self._append_turn_progress(
                     session,
-                    tool_message,
                     turn_id=turn_id.turn_id,
+                    message=tool_message,
+                    continuation=continuation_checkpoint,
+                    assistant_message_index=assistant_message_index,
+                    next_proposal_index=index + 1,
+                    steps=steps,
+                    total_tokens=total_tokens,
+                    seen_action_digests=seen_action_digests,
                 )
                 replied_proposal_ids.add(proposal.proposal_id)
                 if seen_action_digests and max(seen_action_digests.values()) >= (
@@ -713,15 +844,22 @@ class AgentLoop:
                 # Never leave dangling ASSISTANT tool_calls in history: a real
                 # provider rejects tool_calls without matching TOOL replies
                 # (HTTP 400), which would make the session unrecoverable.
-                for proposal in proposals:
+                for proposal_index, proposal in enumerate(proposals):
                     if proposal.proposal_id not in replied_proposal_ids:
-                        self._append_message(
+                        denial_message = self._tool_message(
+                            proposal,
+                            {"error": f"not executed: {stop_reason}"},
+                        )
+                        continuation_checkpoint = self._append_turn_progress(
                             session,
-                            self._tool_message(
-                                proposal,
-                                {"error": f"not executed: {stop_reason}"},
-                            ),
                             turn_id=turn_id.turn_id,
+                            message=denial_message,
+                            continuation=continuation_checkpoint,
+                            assistant_message_index=assistant_message_index,
+                            next_proposal_index=proposal_index + 1,
+                            steps=steps,
+                            total_tokens=total_tokens,
+                            seen_action_digests=seen_action_digests,
                         )
                 break
         return TurnResult(
@@ -769,6 +907,71 @@ class AgentLoop:
         index = len(self._history)
         self._message_sink(session, index, message, turn_id)
         self._history.append(message)
+
+    def _append_continuation_message(
+        self,
+        session: ChatSession,
+        *,
+        turn_id: str,
+        message: ProviderMessage,
+        continuation: ProjectedResolvedContinuation,
+        assistant_message_index: int,
+        next_proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> ProjectedResolvedContinuation:
+        self._tasks.record_session_continuation_message(
+            session.task_id,
+            session.session_id,
+            turn_id=turn_id,
+            message=message,
+            continuation=continuation,
+            assistant_message_index=assistant_message_index,
+            next_proposal_index=next_proposal_index,
+            steps=steps,
+            total_tokens=total_tokens,
+            seen_action_digests=seen_action_digests,
+        )
+        self._history.append(message)
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        advanced = projected.resolved_continuation
+        if advanced is None:
+            raise InvalidTransitionError(
+                "continuation checkpoint disappeared after durable append"
+            )
+        return advanced
+
+    def _append_turn_progress(
+        self,
+        session: ChatSession,
+        *,
+        turn_id: str,
+        message: ProviderMessage,
+        continuation: ProjectedResolvedContinuation | None,
+        assistant_message_index: int,
+        next_proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> ProjectedResolvedContinuation | None:
+        if continuation is None:
+            self._append_message(session, message, turn_id=turn_id)
+            return None
+        return self._append_continuation_message(
+            session,
+            turn_id=turn_id,
+            message=message,
+            continuation=continuation,
+            assistant_message_index=assistant_message_index,
+            next_proposal_index=next_proposal_index,
+            steps=steps,
+            total_tokens=total_tokens,
+            seen_action_digests=seen_action_digests,
+        )
 
     def _call_provider(
         self, session: ChatSession, turn_id: TurnId, step: int

@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from agent_os_contracts import (
     ActionContract,
     AgentRun,
+    ApprovalDecision,
     ApprovalDisposition,
     CorrectionEpochVector,
     PendingSurfaceApproval,
@@ -20,6 +21,7 @@ from agent_os_contracts import (
     SessionRef,
     TaskEvent,
     TaskEventType,
+    UtcDateTime,
     content_digest,
 )
 
@@ -127,6 +129,23 @@ class ProjectedApprovalContinuation:
 
 
 @dataclass(frozen=True)
+class ProjectedApprovalExecutionClaim:
+    claim_id: str
+    approval: ApprovalDecision
+    approval_sequence: int
+    turn_id: str
+    proposal_id: str
+    action_id: str
+    action_digest: str
+    idempotency_key: str
+    configuration_snapshot_id: str
+    configuration_snapshot_digest: str
+    provider_profile_id: str
+    provider_profile_digest: str
+    claimed_at: datetime
+
+
+@dataclass(frozen=True)
 class ProjectedResolvedContinuation:
     """Exact durable cursor after an approval TOOL/resolution batch commits."""
 
@@ -143,9 +162,16 @@ class ProjectedResolvedContinuation:
     provider_profile_digest: str
     source_action_digest: str
     source_approval_id: str
+    source_approval_sequence: int
+    source_approval: ApprovalDecision
+    source_claim_id: str | None
     disposition: ApprovalDisposition
     tool_message_index: int
+    checkpoint_message_index: int
+    checkpoint_message_digest: str
+    checkpoint_role: ProviderMessageRole
     resolved_at: datetime
+    checkpointed_at: datetime
 
 
 @dataclass(frozen=True)
@@ -161,6 +187,7 @@ class ProjectedSession:
     closed: bool
     pending_approval: PendingSurfaceApproval | None
     pending_continuation: ProjectedApprovalContinuation | None
+    approval_execution_claim: ProjectedApprovalExecutionClaim | None
     resolved_continuation: ProjectedResolvedContinuation | None
     resumable_turn_id: str | None
 
@@ -174,6 +201,7 @@ class SessionProjector:
             raise SessionProjectionError("task_id and session_id must be non-empty")
         events = self._event_store.read(task_id)
         session_events: list[TaskEvent] = []
+        approvals: dict[int, tuple[TaskEvent, ApprovalDecision]] = {}
         session_run_id: str | None = None
         for event in events:
             try:
@@ -182,6 +210,20 @@ class SessionProjector:
                 raise SessionProjectionError(
                     f"invalid event payload at sequence {event.sequence}: {exc}"
                 ) from exc
+            if event.event_type is TaskEventType.APPROVAL_RECORDED:
+                if set(payload) != {"approval"}:
+                    raise SessionProjectionError(
+                        f"invalid approval fields at sequence {event.sequence}"
+                    )
+                try:
+                    approvals[event.sequence] = (
+                        event,
+                        ApprovalDecision.model_validate(payload["approval"]),
+                    )
+                except (KeyError, ValidationError, TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        f"invalid approval at sequence {event.sequence}: {exc}"
+                    ) from exc
             if payload.get("session_id") == session_id:
                 session_events.append(event)
                 if event.event_type is TaskEventType.SESSION_OPENED:
@@ -204,10 +246,14 @@ class SessionProjector:
                 ):
                     session_events.append(event)
         session_events.sort(key=lambda event: event.sequence)
-        return _strict_project(tuple(session_events))
+        return _strict_project(tuple(session_events), approvals=approvals)
 
 
-def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
+def _strict_project(
+    events: Sequence[TaskEvent],
+    *,
+    approvals: Mapping[int, tuple[TaskEvent, ApprovalDecision]],
+) -> ProjectedSession:
     ref: SessionRef | None = None
     envelope_id: str | None = None
     expected_outcome_id: str | None = None
@@ -218,6 +264,7 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
     run_cancelled = False
     history: list[ProviderMessage] = []
     pending_continuation: ProjectedApprovalContinuation | None = None
+    approval_execution_claim: ProjectedApprovalExecutionClaim | None = None
     resolved_continuation: ProjectedResolvedContinuation | None = None
     outstanding_tool_calls: dict[str, tuple[str, str]] = {}
     seen_tool_call_ids: set[str] = set()
@@ -252,6 +299,7 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                         "session Run cancellation binding mismatch"
                     )
                 pending_continuation = None
+                approval_execution_claim = None
                 resolved_continuation = None
                 outstanding_tool_calls.clear()
                 open_turn_id = None
@@ -368,6 +416,25 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                 pending_continuation = next_pending
                 continue
 
+            if event.event_type is TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED:
+                if closed:
+                    raise SessionProjectionError("approval claimed after close")
+                if pending_continuation is None:
+                    raise SessionProjectionError(
+                        "approval execution claim has no exact pending approval"
+                    )
+                if approval_execution_claim is not None:
+                    raise SessionProjectionError(
+                        "pending approval has more than one execution claim"
+                    )
+                approval_execution_claim = _project_approval_execution_claim(
+                    payload,
+                    pending=pending_continuation,
+                    approvals=approvals,
+                    claim_sequence=event.sequence,
+                )
+                continue
+
             if event.event_type is TaskEventType.SESSION_APPROVAL_RESOLVED:
                 if closed:
                     raise SessionProjectionError("approval resolved after close")
@@ -381,8 +448,25 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
                     history=history,
                     outstanding_tool_calls=outstanding_tool_calls,
                     open_turn_id=open_turn_id,
+                    approvals=approvals,
+                    resolution_sequence=event.sequence,
+                    claim=approval_execution_claim,
                 )
                 pending_continuation = None
+                approval_execution_claim = None
+                continue
+
+            if event.event_type is TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT:
+                if closed or resolved_continuation is None:
+                    raise SessionProjectionError(
+                        "continuation checkpoint has no resolved open turn"
+                    )
+                resolved_continuation = _project_continuation_checkpoint(
+                    payload,
+                    current=resolved_continuation,
+                    history=history,
+                    open_turn_id=open_turn_id,
+                )
                 continue
 
             if event.event_type is TaskEventType.SESSION_CLOSED:
@@ -481,6 +565,7 @@ def _strict_project(events: Sequence[TaskEvent]) -> ProjectedSession:
             else None
         ),
         pending_continuation=pending_continuation,
+        approval_execution_claim=approval_execution_claim,
         resolved_continuation=resolved_continuation,
         resumable_turn_id=open_turn_id,
     )
@@ -640,21 +725,10 @@ def _project_pending_approval(
     total_tokens = _required_non_negative_int(payload, "total_tokens")
     if steps <= 0:
         raise SessionProjectionError("pending approval step count must be positive")
-    seen_value = payload["seen_action_digests"]
-    if not isinstance(seen_value, dict):
-        raise SessionProjectionError("pending approval loop state is invalid")
-    seen: list[tuple[str, int]] = []
-    for fingerprint, count in seen_value.items():
-        if (
-            not isinstance(fingerprint, str)
-            or len(fingerprint) != 64
-            or any(character not in "0123456789abcdef" for character in fingerprint)
-            or isinstance(count, bool)
-            or not isinstance(count, int)
-            or count <= 0
-        ):
-            raise SessionProjectionError("pending approval loop state is invalid")
-        seen.append((fingerprint, count))
+    seen = _parse_seen_action_digests(
+        payload["seen_action_digests"],
+        context="pending approval",
+    )
     expected_fingerprint = _proposal_fingerprint(proposal)
     if dict(seen).get(expected_fingerprint, 0) <= 0:
         raise SessionProjectionError("pending approval loop state omits proposal")
@@ -664,13 +738,7 @@ def _project_pending_approval(
         raise SessionProjectionError("pending approval C7 epochs are invalid") from exc
     if c7_epochs != action.observed_correction_epochs:
         raise SessionProjectionError("pending approval C7 epoch mismatch")
-    requested = PendingSurfaceApproval(
-        action_digest=action_digest,
-        capability_id=action.capability_id,
-        proposal_id=proposal.proposal_id,
-        preview=_required_str(payload, "preview"),
-        requested_at=payload["requested_at"],
-    ).requested_at
+    requested = _required_datetime(payload, "requested_at")
     return ProjectedApprovalContinuation(
         action=action,
         proposal=proposal,
@@ -680,7 +748,7 @@ def _project_pending_approval(
         proposal_index=proposal_index,
         steps=steps,
         total_tokens=total_tokens,
-        seen_action_digests=tuple(sorted(seen)),
+        seen_action_digests=seen,
         configuration_snapshot_id=_required_str(
             payload, "configuration_snapshot_id"
         ),
@@ -693,6 +761,94 @@ def _project_pending_approval(
     )
 
 
+def _project_approval_execution_claim(
+    payload: Mapping[str, Any],
+    *,
+    pending: ProjectedApprovalContinuation,
+    approvals: Mapping[int, tuple[TaskEvent, ApprovalDecision]],
+    claim_sequence: int,
+) -> ProjectedApprovalExecutionClaim:
+    expected_fields = {
+        "session_id",
+        "task_id",
+        "run_id",
+        "tenant_id",
+        "workspace_id",
+        "turn_id",
+        "proposal_id",
+        "action_id",
+        "action_digest",
+        "idempotency_key",
+        "approval_id",
+        "approval_sequence",
+        "claim_id",
+        "configuration_snapshot_id",
+        "configuration_snapshot_digest",
+        "provider_profile_id",
+        "provider_profile_digest",
+        "c7_epochs",
+        "claimed_at",
+    }
+    if set(payload) != expected_fields:
+        raise SessionProjectionError("approval execution claim fields are invalid")
+    approval_sequence = _required_positive_int(payload, "approval_sequence")
+    approval_event, approval = _unique_bound_approval(
+        approvals,
+        approval_sequence=approval_sequence,
+        before_sequence=claim_sequence,
+        context="approval execution claim",
+    )
+    if (
+        approval_event.task_id != pending.action.task_id
+        or approval_event.correlation_id != pending.action.run_id
+        or approval.approval_id != _required_str(payload, "approval_id")
+        or approval.disposition is not ApprovalDisposition.APPROVE
+        or approval.action_digest != pending.action.action_digest()
+        or approval.tenant_id != pending.action.tenant_id
+        or approval.workspace_id != pending.action.workspace_id
+    ):
+        raise SessionProjectionError("approval execution claim decision binding mismatch")
+    bindings = {
+        "task_id": pending.action.task_id,
+        "run_id": pending.action.run_id,
+        "tenant_id": pending.action.tenant_id,
+        "workspace_id": pending.action.workspace_id,
+        "turn_id": pending.turn_id,
+        "proposal_id": pending.proposal.proposal_id,
+        "action_id": pending.action.action_id,
+        "action_digest": pending.action.action_digest(),
+        "idempotency_key": pending.action.idempotency_key,
+        "configuration_snapshot_id": pending.configuration_snapshot_id,
+        "configuration_snapshot_digest": pending.configuration_snapshot_digest,
+        "provider_profile_id": pending.provider_profile_id,
+        "provider_profile_digest": pending.provider_profile_digest,
+    }
+    if any(payload.get(key) != value for key, value in bindings.items()):
+        raise SessionProjectionError("approval execution claim binding mismatch")
+    try:
+        c7_epochs = CorrectionEpochVector.model_validate(payload["c7_epochs"])
+    except ValidationError as exc:
+        raise SessionProjectionError("approval execution claim C7 epochs are invalid") from exc
+    if c7_epochs != pending.action.observed_correction_epochs:
+        raise SessionProjectionError("approval execution claim C7 binding mismatch")
+    claimed_at = _required_datetime(payload, "claimed_at")
+    return ProjectedApprovalExecutionClaim(
+        claim_id=_required_str(payload, "claim_id"),
+        approval=approval,
+        approval_sequence=approval_sequence,
+        turn_id=pending.turn_id,
+        proposal_id=pending.proposal.proposal_id,
+        action_id=pending.action.action_id,
+        action_digest=pending.action.action_digest(),
+        idempotency_key=pending.action.idempotency_key,
+        configuration_snapshot_id=pending.configuration_snapshot_id,
+        configuration_snapshot_digest=pending.configuration_snapshot_digest,
+        provider_profile_id=pending.provider_profile_id,
+        provider_profile_digest=pending.provider_profile_digest,
+        claimed_at=claimed_at,
+    )
+
+
 def _project_approval_resolution(
     payload: Mapping[str, Any],
     *,
@@ -700,6 +856,9 @@ def _project_approval_resolution(
     history: Sequence[ProviderMessage],
     outstanding_tool_calls: Mapping[str, tuple[str, str]],
     open_turn_id: str | None,
+    approvals: Mapping[int, tuple[TaskEvent, ApprovalDecision]],
+    resolution_sequence: int,
+    claim: ProjectedApprovalExecutionClaim | None,
 ) -> ProjectedResolvedContinuation:
     expected_fields = {
         "session_id",
@@ -711,6 +870,8 @@ def _project_approval_resolution(
         "action_digest",
         "proposal_id",
         "approval_id",
+        "source_approval_sequence",
+        "source_claim_id",
         "disposition",
         "tool_message_index",
         "assistant_message_index",
@@ -727,12 +888,51 @@ def _project_approval_resolution(
     }
     if set(payload) != expected_fields:
         raise SessionProjectionError("approval resolution fields are invalid")
-    disposition = ApprovalDisposition(payload["disposition"])
+    try:
+        disposition = ApprovalDisposition(payload["disposition"])
+    except (TypeError, ValueError) as exc:
+        raise SessionProjectionError(
+            "approval resolution disposition is invalid"
+        ) from exc
     if disposition not in {
         ApprovalDisposition.APPROVE,
         ApprovalDisposition.REJECT,
     }:
         raise SessionProjectionError("approval resolution disposition is invalid")
+    approval_sequence = _required_positive_int(
+        payload, "source_approval_sequence"
+    )
+    approval_event, approval = _unique_bound_approval(
+        approvals,
+        approval_sequence=approval_sequence,
+        before_sequence=resolution_sequence,
+        context="approval resolution",
+    )
+    source_claim_id = payload["source_claim_id"]
+    if source_claim_id is not None and (
+        not isinstance(source_claim_id, str) or not source_claim_id.strip()
+    ):
+        raise SessionProjectionError("approval resolution claim binding is invalid")
+    if (
+        approval_event.task_id != pending.action.task_id
+        or approval_event.correlation_id != pending.action.run_id
+        or approval.approval_id != _required_str(payload, "approval_id")
+        or approval.disposition is not disposition
+        or approval.action_digest != pending.action.action_digest()
+        or approval.tenant_id != pending.action.tenant_id
+        or approval.workspace_id != pending.action.workspace_id
+    ):
+        raise SessionProjectionError("approval resolution decision binding mismatch")
+    if disposition is ApprovalDisposition.APPROVE:
+        if (
+            claim is None
+            or source_claim_id != claim.claim_id
+            or approval_sequence != claim.approval_sequence
+            or approval != claim.approval
+        ):
+            raise SessionProjectionError("approval resolution claim binding mismatch")
+    elif claim is not None or source_claim_id is not None:
+        raise SessionProjectionError("rejected resolution cannot consume a claim")
     if (
         _required_str(payload, "turn_id") != pending.turn_id
         or open_turn_id != pending.turn_id
@@ -778,22 +978,11 @@ def _project_approval_resolution(
     total_tokens = _required_non_negative_int(payload, "total_tokens")
     if steps != pending.steps or total_tokens != pending.total_tokens:
         raise SessionProjectionError("approval resolution loop counters mismatch")
-    seen_value = payload["seen_action_digests"]
-    if not isinstance(seen_value, dict):
-        raise SessionProjectionError("approval resolution loop state is invalid")
-    seen: list[tuple[str, int]] = []
-    for fingerprint, count in seen_value.items():
-        if (
-            not isinstance(fingerprint, str)
-            or len(fingerprint) != 64
-            or any(character not in "0123456789abcdef" for character in fingerprint)
-            or isinstance(count, bool)
-            or not isinstance(count, int)
-            or count <= 0
-        ):
-            raise SessionProjectionError("approval resolution loop state is invalid")
-        seen.append((fingerprint, count))
-    if tuple(sorted(seen)) != pending.seen_action_digests:
+    seen = _parse_seen_action_digests(
+        payload["seen_action_digests"],
+        context="approval resolution",
+    )
+    if seen != pending.seen_action_digests:
         raise SessionProjectionError("approval resolution loop state mismatch")
     bindings = {
         "configuration_snapshot_id": pending.configuration_snapshot_id,
@@ -805,13 +994,7 @@ def _project_approval_resolution(
         raise SessionProjectionError(
             "approval resolution configuration/provider binding mismatch"
         )
-    resolved_at = PendingSurfaceApproval(
-        action_digest=pending.action.action_digest(),
-        capability_id=pending.action.capability_id,
-        proposal_id=pending.proposal.proposal_id,
-        preview=pending.preview,
-        requested_at=payload["resolved_at"],
-    ).requested_at
+    resolved_at = _required_datetime(payload, "resolved_at")
     return ProjectedResolvedContinuation(
         turn_id=pending.turn_id,
         assistant_message_index=assistant_message_index,
@@ -819,23 +1002,264 @@ def _project_approval_resolution(
         next_proposal_index=next_proposal_index,
         steps=steps,
         total_tokens=total_tokens,
-        seen_action_digests=tuple(sorted(seen)),
+        seen_action_digests=seen,
         configuration_snapshot_id=pending.configuration_snapshot_id,
         configuration_snapshot_digest=pending.configuration_snapshot_digest,
         provider_profile_id=pending.provider_profile_id,
         provider_profile_digest=pending.provider_profile_digest,
         source_action_digest=pending.action.action_digest(),
-        source_approval_id=_required_str(payload, "approval_id"),
+        source_approval_id=approval.approval_id,
+        source_approval_sequence=approval_sequence,
+        source_approval=approval,
+        source_claim_id=source_claim_id,
         disposition=disposition,
         tool_message_index=tool_message_index,
+        checkpoint_message_index=tool_message_index,
+        checkpoint_message_digest=content_digest(tool.model_dump(mode="json")),
+        checkpoint_role=ProviderMessageRole.TOOL,
         resolved_at=resolved_at,
+        checkpointed_at=resolved_at,
     )
+
+
+def _project_continuation_checkpoint(
+    payload: Mapping[str, Any],
+    *,
+    current: ProjectedResolvedContinuation,
+    history: Sequence[ProviderMessage],
+    open_turn_id: str | None,
+) -> ProjectedResolvedContinuation:
+    expected_fields = {
+        "session_id",
+        "task_id",
+        "run_id",
+        "tenant_id",
+        "workspace_id",
+        "turn_id",
+        "assistant_message_index",
+        "assistant_message_digest",
+        "next_proposal_index",
+        "steps",
+        "total_tokens",
+        "seen_action_digests",
+        "configuration_snapshot_id",
+        "configuration_snapshot_digest",
+        "provider_profile_id",
+        "provider_profile_digest",
+        "source_action_digest",
+        "source_approval_id",
+        "source_approval_sequence",
+        "source_claim_id",
+        "disposition",
+        "tool_message_index",
+        "resolved_at",
+        "checkpoint_message_index",
+        "checkpoint_message_digest",
+        "checkpoint_role",
+        "checkpointed_at",
+    }
+    if set(payload) != expected_fields:
+        raise SessionProjectionError("continuation checkpoint fields are invalid")
+    source_bindings = {
+        "turn_id": current.turn_id,
+        "configuration_snapshot_id": current.configuration_snapshot_id,
+        "configuration_snapshot_digest": current.configuration_snapshot_digest,
+        "provider_profile_id": current.provider_profile_id,
+        "provider_profile_digest": current.provider_profile_digest,
+        "source_action_digest": current.source_action_digest,
+        "source_approval_id": current.source_approval_id,
+        "source_approval_sequence": current.source_approval_sequence,
+        "source_claim_id": current.source_claim_id,
+        "disposition": current.disposition.value,
+        "tool_message_index": current.tool_message_index,
+    }
+    if open_turn_id != current.turn_id or any(
+        payload.get(key) != value for key, value in source_bindings.items()
+    ):
+        raise SessionProjectionError("continuation checkpoint source binding mismatch")
+    checkpoint_resolved_at = _required_datetime(payload, "resolved_at")
+    if checkpoint_resolved_at != current.resolved_at:
+        raise SessionProjectionError("continuation checkpoint resolution time mismatch")
+
+    assistant_index = _required_non_negative_int(
+        payload, "assistant_message_index"
+    )
+    if assistant_index >= len(history):
+        raise SessionProjectionError("continuation checkpoint assistant index is invalid")
+    assistant = history[assistant_index]
+    assistant_digest = _required_str(payload, "assistant_message_digest")
+    if (
+        assistant.role is not ProviderMessageRole.ASSISTANT
+        or content_digest(assistant.model_dump(mode="json")) != assistant_digest
+    ):
+        raise SessionProjectionError("continuation checkpoint assistant binding mismatch")
+    checkpoint_index = _required_non_negative_int(
+        payload, "checkpoint_message_index"
+    )
+    if checkpoint_index != len(history) - 1:
+        raise SessionProjectionError("continuation checkpoint message index mismatch")
+    checkpoint_message = history[checkpoint_index]
+    checkpoint_digest = _required_str(payload, "checkpoint_message_digest")
+    if content_digest(checkpoint_message.model_dump(mode="json")) != checkpoint_digest:
+        raise SessionProjectionError("continuation checkpoint message digest mismatch")
+    try:
+        checkpoint_role = ProviderMessageRole(payload["checkpoint_role"])
+    except (TypeError, ValueError) as exc:
+        raise SessionProjectionError(
+            "continuation checkpoint message role is invalid"
+        ) from exc
+    if checkpoint_message.role is not checkpoint_role:
+        raise SessionProjectionError("continuation checkpoint message role mismatch")
+
+    next_index = _required_non_negative_int(payload, "next_proposal_index")
+    steps = _required_non_negative_int(payload, "steps")
+    total_tokens = _required_non_negative_int(payload, "total_tokens")
+    seen = _parse_seen_action_digests(
+        payload["seen_action_digests"],
+        context="continuation checkpoint",
+    )
+    previous_seen = dict(current.seen_action_digests)
+    current_seen = dict(seen)
+    if any(current_seen.get(key, 0) < value for key, value in previous_seen.items()):
+        raise SessionProjectionError("continuation checkpoint loop state regressed")
+
+    is_initial = checkpoint_index == current.checkpoint_message_index
+    if is_initial:
+        if (
+            checkpoint_digest != current.checkpoint_message_digest
+            or checkpoint_role is not current.checkpoint_role
+            or assistant_index != current.assistant_message_index
+            or assistant_digest != current.assistant_message_digest
+            or next_index != current.next_proposal_index
+            or steps != current.steps
+            or total_tokens != current.total_tokens
+            or seen != current.seen_action_digests
+        ):
+            raise SessionProjectionError("initial continuation checkpoint mismatch")
+    elif checkpoint_index <= current.checkpoint_message_index:
+        raise SessionProjectionError("continuation checkpoint did not advance")
+    elif checkpoint_role is ProviderMessageRole.TOOL:
+        if (
+            assistant_index != current.assistant_message_index
+            or assistant_digest != current.assistant_message_digest
+            or next_index != current.next_proposal_index + 1
+            or next_index > len(assistant.tool_calls)
+            or steps != current.steps
+            or total_tokens != current.total_tokens
+        ):
+            raise SessionProjectionError("TOOL continuation checkpoint mismatch")
+        expected_call = assistant.tool_calls[current.next_proposal_index]
+        if checkpoint_message.tool_call_id != expected_call.tool_call_id:
+            raise SessionProjectionError("TOOL checkpoint proposal binding mismatch")
+    elif checkpoint_role is ProviderMessageRole.ASSISTANT:
+        if (
+            assistant_index != checkpoint_index
+            or not assistant.tool_calls
+            or next_index != 0
+            or steps != current.steps + 1
+            or total_tokens < current.total_tokens
+            or seen != current.seen_action_digests
+        ):
+            raise SessionProjectionError("ASSISTANT continuation checkpoint mismatch")
+    else:
+        raise SessionProjectionError("unsupported continuation checkpoint role")
+
+    checkpointed_at = _required_datetime(payload, "checkpointed_at")
+    return ProjectedResolvedContinuation(
+        turn_id=current.turn_id,
+        assistant_message_index=assistant_index,
+        assistant_message_digest=assistant_digest,
+        next_proposal_index=next_index,
+        steps=steps,
+        total_tokens=total_tokens,
+        seen_action_digests=seen,
+        configuration_snapshot_id=current.configuration_snapshot_id,
+        configuration_snapshot_digest=current.configuration_snapshot_digest,
+        provider_profile_id=current.provider_profile_id,
+        provider_profile_digest=current.provider_profile_digest,
+        source_action_digest=current.source_action_digest,
+        source_approval_id=current.source_approval_id,
+        source_approval_sequence=current.source_approval_sequence,
+        source_approval=current.source_approval,
+        source_claim_id=current.source_claim_id,
+        disposition=current.disposition,
+        tool_message_index=current.tool_message_index,
+        checkpoint_message_index=checkpoint_index,
+        checkpoint_message_digest=checkpoint_digest,
+        checkpoint_role=checkpoint_role,
+        resolved_at=current.resolved_at,
+        checkpointed_at=checkpointed_at,
+    )
+
+
+def _parse_seen_action_digests(
+    value: object,
+    *,
+    context: str,
+) -> tuple[tuple[str, int], ...]:
+    if not isinstance(value, dict):
+        raise SessionProjectionError(f"{context} loop state is invalid")
+    seen: list[tuple[str, int]] = []
+    for fingerprint, count in value.items():
+        if (
+            not isinstance(fingerprint, str)
+            or len(fingerprint) != 64
+            or any(character not in "0123456789abcdef" for character in fingerprint)
+            or isinstance(count, bool)
+            or not isinstance(count, int)
+            or count <= 0
+        ):
+            raise SessionProjectionError(f"{context} loop state is invalid")
+        seen.append((fingerprint, count))
+    return tuple(sorted(seen))
+
+
+def _unique_bound_approval(
+    approvals: Mapping[int, tuple[TaskEvent, ApprovalDecision]],
+    *,
+    approval_sequence: int,
+    before_sequence: int,
+    context: str,
+) -> tuple[TaskEvent, ApprovalDecision]:
+    record = approvals.get(approval_sequence)
+    if record is None or approval_sequence >= before_sequence:
+        raise SessionProjectionError(
+            f"{context} lacks one earlier exact approval"
+        )
+    event, approval = record
+    matching = tuple(
+        candidate
+        for candidate in approvals.values()
+        if candidate[1].action_digest == approval.action_digest
+    )
+    if len(matching) != 1:
+        raise SessionProjectionError(
+            f"{context} lacks one unique approval authority"
+        )
+    return event, approval
+
+
+_UTC_DATETIME_ADAPTER = TypeAdapter(UtcDateTime)
+
+
+def _required_datetime(payload: Mapping[str, Any], key: str) -> datetime:
+    try:
+        return _UTC_DATETIME_ADAPTER.validate_python(payload[key])
+    except (KeyError, ValidationError, TypeError, ValueError) as exc:
+        raise SessionProjectionError(f"{key} must be a UTC timestamp") from exc
 
 
 def _required_non_negative_int(payload: Mapping[str, Any], key: str) -> int:
     value = payload[key]
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise SessionProjectionError(f"{key} must be a non-negative integer")
+    return value
+
+
+def _required_positive_int(payload: Mapping[str, Any], key: str) -> int:
+    value = _required_non_negative_int(payload, key)
+    if value == 0:
+        raise SessionProjectionError(f"{key} must be a positive integer")
     return value
 
 

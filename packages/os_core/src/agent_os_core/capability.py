@@ -30,6 +30,10 @@ from ._action_outcome import (
 from .governance import CorrectionReadPort
 
 
+class CapabilityCorrectionBlocked(CapabilityDenied):
+    """C7 changed before an effect was dispatched."""
+
+
 class CapabilityPort(Protocol):
     """Generic capability dispatch interface. Core depends on this, not on WorkspaceSandbox."""
 
@@ -274,7 +278,7 @@ class WorkspaceSandbox:
         correction: CorrectionReadPort,
     ) -> None:
         if correction.halted(action.task_id, action.run_id, action.capability_id):
-            raise CapabilityDenied("correction authority is halted")
+            raise CapabilityCorrectionBlocked("correction authority is halted")
         current_epochs = correction.snapshot(
             action.task_id,
             action.run_id,
@@ -284,7 +288,7 @@ class WorkspaceSandbox:
             current_epochs != permit.correction_epochs
             or current_epochs != action.observed_correction_epochs
         ):
-            raise CapabilityDenied("stale correction epoch")
+            raise CapabilityCorrectionBlocked("stale correction epoch")
 
     def _build_receipt(
         self,

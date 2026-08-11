@@ -19,10 +19,11 @@ from agent_os_contracts import (
 
 from .capability import (
     CapabilityBroker,
+    CapabilityCorrectionBlocked,
     CapabilityEffectUnknown,
     CapabilityResult,
 )
-from .errors import InvalidTransitionError, RunExecutionError
+from .errors import RunExecutionError
 from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .task_service import TaskService
 
@@ -57,7 +58,7 @@ class ActionPipeline:
         envelope_id: str,
         risk_tier: int,
     ) -> ActionContract:
-        return ActionContract(
+        candidate = ActionContract(
             action_id=f"action-{uuid4()}",
             task_id=task_id,
             run_id=run_id,
@@ -84,6 +85,8 @@ class ActionPipeline:
             candidate_envelope_id=envelope_id,
             created_at=datetime.now(timezone.utc),
         )
+        reusable = self._tasks._find_reusable_proposed_action(task_id, candidate)
+        return reusable if reusable is not None else candidate
 
     def execute(
         self,
@@ -101,18 +104,130 @@ class ActionPipeline:
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
             )
+        replayed = self.reconcile_before_policy(
+            action,
+            record_artifacts=record_artifacts,
+        )
+        if replayed is not None:
+            return replayed
+        grant = (
+            self._grant[cid]
+            if isinstance(self._grant, dict)
+            else self._grant
+        )
+        bound_approval = (
+            approval
+            if approval is not None
+            and approval.action_digest == action.action_digest()
+            else None
+        )
+        decision = self._policy.decide(
+            action,
+            PolicyInput(
+                principal=principal,
+                grant=grant,
+                capability=capability_spec,
+                approval=bound_approval,
+            ),
+        )
+        self._tasks.append_event(
+            action.task_id,
+            TaskEventType.POLICY_DECIDED,
+            {"decision": decision.model_dump(mode="json")},
+            correlation_id=action.run_id,
+        )
+        if decision.verdict is not PolicyVerdict.ALLOW:
+            if (
+                bound_approval is not None
+                and "CORRECTION_HALTED" in decision.reason_codes
+            ):
+                raise CapabilityCorrectionBlocked(
+                    "C7 correction authority halted approved action execution"
+                )
+            raise PermissionError(
+                f"policy denied {cid}: {decision.reason_codes}"
+            )
+        aggregate = self._tasks.get_task(action.task_id)
+        lease_fence = (
+            aggregate.run.lease_fence if aggregate.run is not None else 0
+        )
+        try:
+            permit = self._policy.permit(
+                action, decision, grant, lease_fence=lease_fence
+            )
+        except PermissionError as exc:
+            current_epochs = self._correction.snapshot(
+                action.task_id,
+                action.run_id,
+                action.capability_id,
+            )
+            if bound_approval is not None and (
+                self._correction.halted(
+                    action.task_id,
+                    action.run_id,
+                    action.capability_id,
+                )
+                or current_epochs != action.observed_correction_epochs
+                or current_epochs != decision.correction_epochs
+            ):
+                raise CapabilityCorrectionBlocked(
+                    "C7 correction authority changed before permit"
+                ) from exc
+            raise
+        run_id = action.run_id
+        if lease_fence_fn is not None:
+            current_fence = lease_fence_fn(run_id)
+        else:
+            current_fence = lease_fence
+            store = getattr(self._tasks._event_store, "lease_fence", None)
+            if store is not None:
+                current_fence = store(run_id)
+        if current_fence != permit.lease_fence:
+            raise PermissionError("stale worker lease")
+        result = self._broker.invoke(action, permit)
+        self._tasks._record_action_receipt(
+            action.task_id,
+            action=action,
+            decision=decision,
+            permit=permit,
+            receipt=result.receipt,
+            writer_token=self._tasks._runtime_writer_token,
+        )
+        return self._finish_result(
+            action,
+            result,
+            record_artifacts=record_artifacts,
+        )
+
+    def reconcile_before_policy(
+        self,
+        action: ActionContract,
+        *,
+        record_artifacts: bool = False,
+    ) -> CapabilityResult | None:
+        """Resolve Task/capability truth without policy or capability dispatch."""
+
         try:
             recorded = self._tasks._find_exact_action_receipt(
                 action.task_id,
                 action,
             )
-        except InvalidTransitionError as exc:
+        except Exception as exc:
             raise CapabilityEffectUnknown(
                 action,
                 reason_code="TASK_RECEIPT_CORRUPT",
                 detail=f"{type(exc).__name__}: {exc}",
             ) from exc
-        replayed = self._broker.replay(action)
+        try:
+            replayed = self._broker.replay(action)
+        except CapabilityEffectUnknown:
+            raise
+        except Exception as exc:
+            raise CapabilityEffectUnknown(
+                action,
+                reason_code="CAPABILITY_OUTCOME_READ_FAILED",
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
         if recorded is not None:
             if replayed is None:
                 raise CapabilityEffectUnknown(
@@ -146,7 +261,7 @@ class ActionPipeline:
                     receipt=replayed.receipt,
                     writer_token=self._tasks._runtime_writer_token,
                 )
-            except InvalidTransitionError as exc:
+            except Exception as exc:
                 raise CapabilityEffectUnknown(
                     action,
                     reason_code="OUTCOME_TASK_TRUTH_CONFLICT",
@@ -157,67 +272,7 @@ class ActionPipeline:
                 replayed,
                 record_artifacts=record_artifacts,
             )
-        grant = (
-            self._grant[cid]
-            if isinstance(self._grant, dict)
-            else self._grant
-        )
-        bound_approval = (
-            approval
-            if approval is not None
-            and approval.action_digest == action.action_digest()
-            else None
-        )
-        decision = self._policy.decide(
-            action,
-            PolicyInput(
-                principal=principal,
-                grant=grant,
-                capability=capability_spec,
-                approval=bound_approval,
-            ),
-        )
-        self._tasks.append_event(
-            action.task_id,
-            TaskEventType.POLICY_DECIDED,
-            {"decision": decision.model_dump(mode="json")},
-            correlation_id=action.run_id,
-        )
-        if decision.verdict is not PolicyVerdict.ALLOW:
-            raise PermissionError(
-                f"policy denied {cid}: {decision.reason_codes}"
-            )
-        aggregate = self._tasks.get_task(action.task_id)
-        lease_fence = (
-            aggregate.run.lease_fence if aggregate.run is not None else 0
-        )
-        permit = self._policy.permit(
-            action, decision, grant, lease_fence=lease_fence
-        )
-        run_id = action.run_id
-        if lease_fence_fn is not None:
-            current_fence = lease_fence_fn(run_id)
-        else:
-            current_fence = lease_fence
-            store = getattr(self._tasks._event_store, "lease_fence", None)
-            if store is not None:
-                current_fence = store(run_id)
-        if current_fence != permit.lease_fence:
-            raise PermissionError("stale worker lease")
-        result = self._broker.invoke(action, permit)
-        self._tasks._record_action_receipt(
-            action.task_id,
-            action=action,
-            decision=decision,
-            permit=permit,
-            receipt=result.receipt,
-            writer_token=self._tasks._runtime_writer_token,
-        )
-        return self._finish_result(
-            action,
-            result,
-            record_artifacts=record_artifacts,
-        )
+        return None
 
     def _finish_result(
         self,
@@ -250,9 +305,4 @@ class ActionPipeline:
     def record_action_proposed(
         self, action: ActionContract
     ) -> None:
-        self._tasks.append_event(
-            action.task_id,
-            TaskEventType.ACTION_PROPOSED,
-            {"action": action.model_dump(mode="json")},
-            correlation_id=action.run_id,
-        )
+        self._tasks._record_or_reuse_action_proposed(action)

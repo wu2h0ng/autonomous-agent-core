@@ -293,6 +293,126 @@ def test_outcome_only_recovery_appends_original_receipt_without_second_dispatch(
     ) == 1
 
 
+def test_task_receipt_store_read_failure_is_typed_unknown_before_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (_proposal("call-1", "workspace.search", {"mode": "ls"}),),
+            ),
+            ("done", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("task read failure", AutoApproveGateway())
+    loop.run_turn(session, "search")
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    before_policy = sum(
+        event.event_type is TaskEventType.POLICY_DECIDED for event in events
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(app.sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+
+    def fail_task_read(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("transient Task store read failure")
+
+    monkeypatch.setattr(app.tasks, "_find_exact_action_receipt", fail_task_read)
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as caught:
+        pipeline.execute(
+            action,
+            app.principal,
+            capability_spec=app.sandbox.specs()[action.capability_id],
+            record_artifacts=False,
+        )
+
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
+    assert sum(
+        event.event_type is TaskEventType.POLICY_DECIDED
+        for event in app.store.read(session.task_id)
+    ) == before_policy
+
+
+def test_outcome_only_policy_codec_failure_is_typed_unknown_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (_proposal("call-1", "workspace.search", {"mode": "ls"}),),
+            ),
+        ),
+    )
+    sandbox = _DispatchCountingSandbox(tmp_path, idempotency_store=app.store)
+    app.sandbox = sandbox
+    session, loop = app.open_chat_session("policy codec failure", AutoApproveGateway())
+
+    def crash_before_task_receipt(*_args: object, **_kwargs: object) -> None:
+        raise _ReceiptCrash("outcome sealed before Task receipt")
+
+    monkeypatch.setattr(
+        app.tasks,
+        "_record_action_receipt",
+        crash_before_task_receipt,
+    )
+    with pytest.raises(_ReceiptCrash, match="outcome sealed"):
+        loop.run_turn(session, "search")
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    before_policy = sum(
+        event.event_type is TaskEventType.POLICY_DECIDED for event in events
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+
+    def fail_policy_codec(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("malformed durable PolicyDecision")
+
+    monkeypatch.setattr(app.tasks, "_recover_action_receipt", fail_policy_codec)
+    with pytest.raises(CapabilityDenied, match="UNKNOWN_REQUIRES_REVIEW") as caught:
+        pipeline.execute(
+            action,
+            app.principal,
+            capability_spec=sandbox.specs()[action.capability_id],
+            record_artifacts=False,
+        )
+
+    assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
+    assert sandbox.dispatch_count == 1
+    assert sum(
+        event.event_type is TaskEventType.POLICY_DECIDED
+        for event in app.store.read(session.task_id)
+    ) == before_policy
+
+
 def test_task_receipt_without_capability_outcome_stops_before_policy_or_dispatch(
     tmp_path: Path,
 ) -> None:

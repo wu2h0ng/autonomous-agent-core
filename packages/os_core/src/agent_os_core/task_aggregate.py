@@ -441,7 +441,9 @@ class TaskAggregate:
             TaskEventType.SESSION_OPENED,
             TaskEventType.SESSION_MESSAGE_RECORDED,
             TaskEventType.SESSION_APPROVAL_PENDING,
+            TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
             TaskEventType.SESSION_APPROVAL_RESOLVED,
+            TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
             TaskEventType.SESSION_CLOSED,
         }:
             # Session events are provenance and carry no aggregate state transition.
