@@ -9,24 +9,20 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from agent_os_contracts import (
-    ActionContract,
-    CapabilityGrant,
     CapabilitySpec,
-    PolicyVerdict,
     ReceiptStatus,
     ResourceBudget,
     SideEffectGuarantee,
 )
 from agent_os_contracts.common import canonical_json
 from agent_os_core.capability import (
-    CapabilityBroker,
     CapabilityDenied,
     CapabilityEffect,
 )
-from agent_os_core.governance import CorrectionReadPort, PolicyInput, PolicyKernel
+from agent_os_core.action_pipeline import ActionPipeline
+from agent_os_core.task_service import TaskService
 from pydantic import ValidationError
 
 from .contracts import (
@@ -184,43 +180,75 @@ class DataAgentRuntime:
     def __init__(
         self,
         *,
-        broker: CapabilityBroker,
-        policy: PolicyKernel,
-        correction: CorrectionReadPort,
+        tasks: TaskService,
+        pipeline: ActionPipeline,
         capability_spec: CapabilitySpec,
-        grant: CapabilityGrant,
         checker: DataSQLSafetyChecker | None = None,
     ) -> None:
-        self._broker = broker
-        self._policy = policy
-        self._correction = correction
+        self._tasks = tasks
+        self._pipeline = pipeline
         self._capability_spec = capability_spec
-        self._grant = grant
         self._checker = checker or DataSQLSafetyChecker()
 
     def execute(self, request: DataAgentRequest) -> DataAgentResult:
         self._checker.check(request.safe_query.sql)
-        action = self._build_action(request)
-        decision = self._policy.decide(
-            action,
-            PolicyInput(
-                principal=request.principal,
-                grant=self._grant,
-                capability=self._capability_spec,
-                now=datetime.now(timezone.utc),
+        aggregate = self._tasks.get_task(request.task_id)
+        if (
+            aggregate.goal is None
+            or aggregate.run is None
+            or aggregate.expected_outcome is None
+            or aggregate.workflow is None
+        ):
+            raise DataAgentDenied("TASK_BINDING_INCOMPLETE")
+        if (
+            aggregate.goal.tenant_id != request.tenant_id
+            or aggregate.goal.workspace_id != request.workspace_id
+            or aggregate.run.run_id != request.run_id
+            or aggregate.expected_outcome.expected_outcome_id
+            != request.expected_outcome_id
+        ):
+            raise DataAgentDenied("TASK_BINDING_MISMATCH")
+        query_nodes = tuple(
+            node
+            for node in aggregate.workflow.nodes
+            if node.node_id == "data-query"
+            and node.capability == DATA_QUERY_CAPABILITY_ID
+        )
+        if len(query_nodes) != 1:
+            raise DataAgentDenied("WORKFLOW_BINDING_MISMATCH")
+        query = request.safe_query
+        action = self._pipeline.build_action(
+            task_id=request.task_id,
+            run_id=request.run_id,
+            node_id="data-query",
+            capability_id=DATA_QUERY_CAPABILITY_ID,
+            principal=request.principal,
+            args={
+                "query_id": query.query_id,
+                "sql": query.sql,
+                "parameters": json.loads(query.parameters_json),
+                "provider_contract_id": query.provider_contract_id,
+            },
+            expected=aggregate.expected_outcome,
+            envelope_id=f"envelope:{request.request_id}",
+            risk_tier=0,
+            estimated_budget=ResourceBudget(
+                max_cost_usd=Decimal("0"),
+                max_duration_seconds=30,
+                max_provider_tokens=0,
+                max_tool_calls=1,
             ),
         )
-        if decision.verdict is not PolicyVerdict.ALLOW:
-            raise DataAgentDenied(f"POLICY_DENIED:{','.join(decision.reason_codes)}")
-        permit = self._policy.permit(
-            action,
-            decision,
-            self._grant,
-            lease_fence=0,
-            now=datetime.now(timezone.utc),
-        )
+        self._pipeline.record_action_proposed(action)
         try:
-            result = self._broker.invoke(action, permit)
+            result = self._pipeline.execute_observed(
+                action,
+                request.principal,
+                capability_spec=self._capability_spec,
+                record_artifacts=False,
+            )
+        except PermissionError as exc:
+            raise DataAgentDenied(f"POLICY_DENIED:{exc}") from exc
         except CapabilityDenied as exc:
             raise DataAgentDenied(f"CAPABILITY_DENIED:{exc}") from exc
         trace_id = f"trace:{request.request_id}"
@@ -319,46 +347,6 @@ class DataAgentRuntime:
             ValidationError,
         ) as exc:
             raise DataAgentDenied("MALFORMED_CAPABILITY_OUTPUT") from exc
-
-    def _build_action(self, request: DataAgentRequest) -> ActionContract:
-        query = request.safe_query
-        return ActionContract(
-            action_id=f"action-{uuid4()}",
-            task_id=request.task_id,
-            run_id=request.run_id,
-            node_id="data-query",
-            principal_id=request.principal.principal_id,
-            tenant_id=request.tenant_id,
-            workspace_id=request.workspace_id,
-            capability_id=DATA_QUERY_CAPABILITY_ID,
-            capability_version="1",
-            arguments_json=json.dumps(
-                {
-                    "query_id": query.query_id,
-                    "sql": query.sql,
-                    "parameters": json.loads(query.parameters_json),
-                    "provider_contract_id": query.provider_contract_id,
-                }
-            ),
-            risk_tier=0,
-            idempotency_key=f"{request.run_id}:data-query:{query.query_id}",
-            estimated_budget=ResourceBudget(
-                max_cost_usd=Decimal("0"),
-                max_duration_seconds=30,
-                max_provider_tokens=0,
-                max_tool_calls=1,
-            ),
-            policy_version=self._policy.policy_version,
-            observed_correction_epochs=self._correction.snapshot(
-                request.task_id,
-                request.run_id,
-                DATA_QUERY_CAPABILITY_ID,
-            ),
-            expected_outcome_id=request.expected_outcome_id,
-            candidate_envelope_id=f"envelope:{request.request_id}",
-            created_at=datetime.now(timezone.utc),
-        )
-
 
 __all__ = [
     "DATA_QUERY_CAPABILITY_ID",

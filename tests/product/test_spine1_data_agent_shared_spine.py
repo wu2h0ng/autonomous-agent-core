@@ -10,13 +10,21 @@ import pytest
 from agent_os_contracts import (
     CapabilityGrant,
     CapabilityGrantStatus,
+    EdgeSpec,
+    IdempotencyMode,
+    NodeKind,
+    NodeSpec,
     PrincipalIdentity,
     PrincipalRole,
     ReceiptStatus,
     ResourceBudget,
+    TaskEventType,
+    WorkflowGraph,
 )
+from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.capability import CapabilityBroker, CapabilityEffect, CapabilityPort
 from agent_os_core.governance import CorrectionAuthority, PolicyKernel
+from apps.api_server.app import AgentOSApplication
 from domain_packs.data_agent.contracts import (
     DataAgentRequest,
     DataAgentStatus,
@@ -98,29 +106,122 @@ def _grant(request: DataAgentRequest) -> CapabilityGrant:
 
 
 def _runtime(
+    tmp_path: Path,
     request: DataAgentRequest,
     connector: CapabilityPort,
     correction: CorrectionAuthority | None = None,
-) -> DataAgentRuntime:
+) -> tuple[DataAgentRuntime, DataAgentRequest, AgentOSApplication]:
     authority = correction or CorrectionAuthority(
         tenant_id=request.tenant_id,
         workspace_id=request.workspace_id,
         written_by="tenant-admin:acme",
     )
-    spec = connector.specs()[DATA_QUERY_CAPABILITY_ID]
-    return DataAgentRuntime(
-        broker=CapabilityBroker(connector, authority),
-        policy=PolicyKernel(authority),
-        correction=authority,
-        capability_spec=spec,
-        grant=_grant(request),
+    app = AgentOSApplication(
+        database=tmp_path / "agent-os.sqlite3",
+        workspace=tmp_path,
+        principal=request.principal,
     )
+    now = datetime.now(timezone.utc)
+    task = app.create_task(
+        {
+            "goal_id": "goal:data-query",
+            "tenant_id": request.tenant_id,
+            "workspace_id": request.workspace_id,
+            "created_by": request.principal.principal_id,
+            "created_at": now,
+            "statement": "query governed data",
+        }
+    )
+    workflow = WorkflowGraph(
+        schema_version="WorkflowGraph/dag_v1",
+        workflow_id=f"workflow:{task.task_id}",
+        version=1,
+        tenant_id=request.tenant_id,
+        workspace_id=request.workspace_id,
+        created_by=request.principal.principal_id,
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:data_agent.outcome:1",),
+        nodes=(
+            NodeSpec(
+                node_id="data-query",
+                kind=NodeKind.TOOL,
+                capability=DATA_QUERY_CAPABILITY_ID,
+                idempotency=IdempotencyMode.IDEMPOTENT,
+            ),
+            NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+        ),
+        edges=(EdgeSpec(source="data-query", target="done"),),
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": f"commitment:{task.task_id}",
+                "task_id": task.task_id,
+                "goal_id": "goal:data-query",
+                "tenant_id": request.tenant_id,
+                "workspace_id": request.workspace_id,
+                "accepted_by": request.principal.principal_id,
+                "accepted_at": now,
+                "deliverables": ["query result"],
+                "acceptance_criteria": ["evidence recorded"],
+                "authority_scopes": [DATA_QUERY_CAPABILITY_ID],
+                "budget": {
+                    "max_cost_usd": "0",
+                    "max_duration_seconds": 30,
+                    "max_provider_tokens": 0,
+                    "max_tool_calls": 1,
+                },
+                "risk_tier": 0,
+                "exit_conditions": ["outcome observed"],
+                "expires_at": now + timedelta(hours=1),
+            },
+            "workflow": workflow.model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": f"expected:{task.task_id}",
+                "task_id": task.task_id,
+                "tenant_id": request.tenant_id,
+                "workspace_id": request.workspace_id,
+                "evaluator_type": "data_agent.outcome",
+                "evaluator_version": "1",
+                "evidence_requirements": ["action receipt"],
+                "failure_semantics": ["unknown effect remains unresolved"],
+                "threshold": 1,
+                "observation_window_seconds": 60,
+                "frozen_at": now,
+            },
+        },
+    )
+    active = app.tasks.start_run(task.task_id)
+    assert active.run is not None and active.expected_outcome is not None
+    bound_request = request.model_copy(
+        update={
+            "task_id": task.task_id,
+            "run_id": active.run.run_id,
+            "expected_outcome_id": active.expected_outcome.expected_outcome_id,
+        }
+    )
+    spec = connector.specs()[DATA_QUERY_CAPABILITY_ID]
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(connector, authority),
+        PolicyKernel(authority),
+        authority,
+        _grant(bound_request),
+    )
+    runtime = DataAgentRuntime(
+        tasks=app.tasks,
+        pipeline=pipeline,
+        capability_spec=spec,
+    )
+    return runtime, bound_request, app
 
 
 def test_unsafe_sql_never_reaches_capability_broker(tmp_path: Path) -> None:
     request = _request("DELETE FROM orders")
     connector = SQLiteDataQueryCapability(_database(tmp_path))
-    runtime = _runtime(request, connector)
+    runtime, request, _ = _runtime(tmp_path, request, connector)
 
     with pytest.raises(DataAgentDenied, match="SQL_SAFETY_DENIED"):
         runtime.execute(request)
@@ -135,7 +236,8 @@ def test_valid_query_runs_through_real_policy_and_broker(tmp_path: Path) -> None
     request = _request()
     connector = SQLiteDataQueryCapability(_database(tmp_path))
 
-    result = _runtime(request, connector).execute(request)
+    runtime, request, app = _runtime(tmp_path, request, connector)
+    result = runtime.execute(request)
 
     assert result.status is DataAgentStatus.COMPLETED
     assert result.query_result is not None
@@ -145,6 +247,10 @@ def test_valid_query_runs_through_real_policy_and_broker(tmp_path: Path) -> None
     assert result.evidence.generic_evidence_ref.startswith("receipt-")
     assert result.observed_outcome_id == "observed:request:gmv"
     assert connector.execution_count == 1
+    event_types = [event.event_type for event in app.store.read(request.task_id)]
+    assert TaskEventType.ACTION_PROPOSED in event_types
+    assert TaskEventType.POLICY_DECIDED in event_types
+    assert TaskEventType.ACTION_RECEIPT_RECORDED in event_types
 
 
 class _UnknownEffectQueryCapability:
@@ -180,7 +286,8 @@ def test_unknown_effect_fails_closed_without_resend(tmp_path: Path) -> None:
         SQLiteDataQueryCapability(_database(tmp_path))
     )
 
-    result = _runtime(request, connector).execute(request)
+    runtime, request, _ = _runtime(tmp_path, request, connector)
+    result = runtime.execute(request)
 
     assert result.status is DataAgentStatus.HELP_REQUIRED
     assert result.failure_code == "EFFECT_UNKNOWN"
@@ -195,7 +302,8 @@ def test_malformed_success_output_fails_closed(tmp_path: Path) -> None:
     )
 
     with pytest.raises(DataAgentDenied, match="MALFORMED_CAPABILITY_OUTPUT"):
-        _runtime(request, connector).execute(request)
+        runtime, request, _ = _runtime(tmp_path, request, connector)
+        runtime.execute(request)
 
     assert connector.execution_count == 1
 
@@ -208,9 +316,154 @@ def test_correction_halt_blocks_query_before_connector(tmp_path: Path) -> None:
         workspace_id=request.workspace_id,
         written_by="tenant-admin:acme",
     )
+    runtime, request, _ = _runtime(tmp_path, request, connector, correction)
     correction.correct("task", request.task_id, "operator stop")
 
     with pytest.raises(DataAgentDenied, match="POLICY_DENIED"):
-        _runtime(request, connector, correction).execute(request)
+        runtime.execute(request)
 
     assert connector.execution_count == 0
+
+
+def test_shared_action_pipeline_records_unknown_receipt_without_forcing_resend(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    task = app.create_task(
+        {
+            "goal_id": "goal:data-query",
+            "tenant_id": app.principal.tenant_id,
+            "workspace_id": app.principal.workspace_id,
+            "created_by": app.principal.principal_id,
+            "created_at": now,
+            "statement": "query governed data",
+        }
+    )
+    workflow = WorkflowGraph(
+        schema_version="WorkflowGraph/dag_v1",
+        workflow_id="workflow:data-query",
+        version=1,
+        tenant_id=app.principal.tenant_id,
+        workspace_id=app.principal.workspace_id,
+        created_by=app.principal.principal_id,
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:data_agent.outcome:1",),
+        nodes=(
+            NodeSpec(
+                node_id="data-query",
+                kind=NodeKind.TOOL,
+                capability=DATA_QUERY_CAPABILITY_ID,
+                idempotency=IdempotencyMode.IDEMPOTENT,
+            ),
+            NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+        ),
+        edges=(EdgeSpec(source="data-query", target="done"),),
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": "commitment:data-query",
+                "task_id": task.task_id,
+                "goal_id": "goal:data-query",
+                "tenant_id": app.principal.tenant_id,
+                "workspace_id": app.principal.workspace_id,
+                "accepted_by": app.principal.principal_id,
+                "accepted_at": now,
+                "deliverables": ["query result"],
+                "acceptance_criteria": ["evidence recorded"],
+                "authority_scopes": [DATA_QUERY_CAPABILITY_ID],
+                "budget": {
+                    "max_cost_usd": "0",
+                    "max_duration_seconds": 30,
+                    "max_provider_tokens": 0,
+                    "max_tool_calls": 1,
+                },
+                "risk_tier": 0,
+                "exit_conditions": ["outcome observed"],
+                "expires_at": now + timedelta(hours=1),
+            },
+            "workflow": workflow.model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": "expected:data-query",
+                "task_id": task.task_id,
+                "tenant_id": app.principal.tenant_id,
+                "workspace_id": app.principal.workspace_id,
+                "evaluator_type": "data_agent.outcome",
+                "evaluator_version": "1",
+                "evidence_requirements": ["action receipt"],
+                "failure_semantics": ["unknown effect remains unresolved"],
+                "threshold": 1,
+                "observation_window_seconds": 60,
+                "frozen_at": now,
+            },
+        },
+    )
+    active = app.tasks.start_run(task.task_id)
+    assert active.run is not None and active.expected_outcome is not None
+    request = DataAgentRequest(
+        **{
+            **_request().model_dump(),
+            "principal": app.principal,
+            "tenant_id": app.principal.tenant_id,
+            "workspace_id": app.principal.workspace_id,
+            "task_id": task.task_id,
+            "run_id": active.run.run_id,
+            "expected_outcome_id": active.expected_outcome.expected_outcome_id,
+        }
+    )
+    connector = _UnknownEffectQueryCapability(
+        SQLiteDataQueryCapability(_database(tmp_path))
+    )
+    grant = _grant(request).model_copy(
+        update={
+            "budget_limit": ResourceBudget(
+                max_cost_usd=Decimal("0"),
+                max_duration_seconds=120,
+                max_provider_tokens=0,
+                max_tool_calls=1,
+            )
+        }
+    )
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(connector, app.correction),
+        app.policy,
+        app.correction,
+        grant,
+    )
+    action = pipeline.build_action(
+        task_id=task.task_id,
+        run_id=active.run.run_id,
+        node_id="data-query",
+        capability_id=DATA_QUERY_CAPABILITY_ID,
+        principal=app.principal,
+        args={
+            "query_id": request.safe_query.query_id,
+            "sql": request.safe_query.sql,
+            "parameters": {},
+            "provider_contract_id": "provider:sqlite",
+        },
+        expected=active.expected_outcome,
+        envelope_id="envelope:data-query",
+        risk_tier=0,
+    )
+    pipeline.record_action_proposed(action)
+
+    result = pipeline.execute_observed(
+        action,
+        app.principal,
+        capability_spec=connector.specs()[DATA_QUERY_CAPABILITY_ID],
+        record_artifacts=False,
+    )
+
+    assert result.receipt.status is ReceiptStatus.UNKNOWN
+    receipt_events = [
+        event
+        for event in app.store.read(task.task_id)
+        if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+    ]
+    assert len(receipt_events) == 1
+    assert connector.execution_count == 1

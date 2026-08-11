@@ -58,6 +58,7 @@ class ActionPipeline:
         expected: ExpectedOutcome,
         envelope_id: str,
         risk_tier: int,
+        estimated_budget: ResourceBudget | None = None,
         approval_requirement: Literal["policy", "external_exact"] = "policy",
     ) -> ActionContract:
         return ActionContract(
@@ -73,7 +74,8 @@ class ActionPipeline:
             arguments_json=json.dumps(args),
             risk_tier=risk_tier,
             idempotency_key=f"{run_id}:{node_id}",
-            estimated_budget=ResourceBudget(
+            estimated_budget=estimated_budget
+            or ResourceBudget(
                 max_cost_usd=Decimal("0"),
                 max_duration_seconds=120,
                 max_provider_tokens=0,
@@ -102,6 +104,43 @@ class ActionPipeline:
         execution_fence: Callable[[str], None] | None = None,
         effect_custody: EffectCustodyPort | None = None,
     ) -> CapabilityResult:
+        result = self.execute_observed(
+            action,
+            principal,
+            capability_spec,
+            approval,
+            lease_fence_fn=lease_fence_fn,
+            capability_id=capability_id,
+            record_artifacts=record_artifacts,
+            execution_fence=execution_fence,
+            effect_custody=effect_custody,
+        )
+        if result.receipt.status.value != "SUCCEEDED":
+            raise RunExecutionError(
+                f"tool failed: {result.receipt.error_code}: "
+                f"{result.output.get('error', '')}"
+            )
+        return result
+
+    def execute_observed(
+        self,
+        action: ActionContract,
+        principal: PrincipalIdentity,
+        capability_spec: Any | None = None,
+        approval: Any = None,
+        *,
+        lease_fence_fn: Callable[[str], int] | None = None,
+        capability_id: str | None = None,
+        record_artifacts: bool = True,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
+    ) -> CapabilityResult:
+        """Execute once, persist the receipt, and return every observed status.
+
+        Unlike :meth:`execute`, this seam does not translate FAILED or UNKNOWN
+        effects into an exception. Callers that reconcile effects need the
+        durable receipt before deciding whether another invocation is safe.
+        """
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
             raise RunExecutionError(
@@ -192,10 +231,7 @@ class ActionPipeline:
             ),
         )
         if result.receipt.status.value != "SUCCEEDED":
-            raise RunExecutionError(
-                f"tool failed: {result.receipt.error_code}: "
-                f"{result.output.get('error', '')}"
-            )
+            return result
         if not record_artifacts:
             # Chat-loop actions use ephemeral per-turn node ids (required for
             # idempotency uniqueness across repeated calls), which are not
