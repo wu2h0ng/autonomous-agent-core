@@ -2,7 +2,7 @@ schema_version: 2
 
 live_pins:
   origin_main_code_receipt: "3a70592ddee2e24af94f2da52903a5d73386b10d"
-  spine_1_g7_evidence_head: "d23c29066b280d3fd78737e89b2fd4a9226ee297"
+  spine_1_g7_evidence_head: "e1cf9c4cf7b001a9e37bf20494cc21a6a6177c6d"
   spine_1_donor_ref: "94e2b5918d12d6592f34f3b14c44c29038a74029"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
@@ -17,12 +17,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-11T15:54:15+08:00"
+updated: "2026-08-11T16:56:24+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/spine1-data-agent-convergence-20260811 (isolated local integration candidate)"
-status: "SPINE-1 is a local bounded Agent OS integration candidate at d23c29066b280d3fd78737e89b2fd4a9226ee297. Data Agent query, immutable report observation and proposal-only business action capabilities use the shared Task/Run, policy, approval, effect-custody and evidence spine while data semantics remain under domain_packs/data_agent. The approved donor ancestry is retained and the temporary _migration staging tree is removed. Full Product verification has no new failures against the frozen pre-import 19-failure baseline. The branch is UNPUSHED / UNMERGED / UNRELEASED and has no production, commercial, autonomy, self-improvement or general-intelligence claim."
+status: "SPINE-1 is an independently approved local bounded Agent OS integration candidate at e1cf9c4cf7b001a9e37bf20494cc21a6a6177c6d. Data Agent query, immutable report observation and proposal-only business action capabilities use the shared Task/Run, policy, approval, effect-custody and evidence spine while data semantics remain under domain_packs/data_agent. The approved donor ancestry is retained and the temporary _migration staging tree is removed. Full Product verification has no new failures against the frozen pre-import 19-failure baseline; repair-head review returned APPROVE after 9/9 invariant revalidation. The branch is UNPUSHED / UNMERGED / UNRELEASED and has no production, commercial, autonomy, self-improvement or general-intelligence claim."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -74,10 +74,10 @@ verified_capabilities:
       donor_ref: "94e2b5918d12d6592f34f3b14c44c29038a74029"
       import_commit: "78f4f6134bf9c1620ba5a1ef70000355f9c88ac8"
       staging_removal_commit: "43ccbec54d603c3022ecb517f8936f0ffa849e64"
-      evidence_head: "d23c29066b280d3fd78737e89b2fd4a9226ee297"
-      focused: "287 report/API passed; 117 shared security/responsibility passed; 8 ownership/boundary checks passed after G7"
+      evidence_head: "e1cf9c4cf7b001a9e37bf20494cc21a6a6177c6d"
+      focused: "412 Data Agent/report/API integration tests passed at repair head; 34 shared-spine/SQL-safety tests independently rerun"
       full_product: "1935 passed, 1 skipped, 19 failed; exact same frozen pre-import failure-name set"
-      quality: "Ruff clean and changed-scope Pyright 0 errors/0 warnings at the recorded verification point"
+      quality: "Ruff clean and changed-scope Pyright 0 errors/0 warnings; independent OpenCode/DeepSeek repair review APPROVE with 9/9 invariants PASS"
     parked_without_live_consumer:
       - "advanced natural-language semantic catalog"
       - "knowledge lifecycle"
@@ -634,11 +634,6 @@ parked_work:
     blocker: "v5 freezes semantic objects and one abstract final response per case, but no exact workspace/test bytes, phase-distinct Product provider contract, action-bearing trusted harness or atomic phase execution. A full successor also remains vulnerable to the same-information schedule-dispatcher reduction."
     reactivation: "Only after measured Customer-0 evidence identifies recovery/correction as a high-value bottleneck or founder explicitly casts a narrow Product recovery falsifier; start with a 36-episode non-result discriminator, not a new 432-case run."
     source: "../.agent_runs/lh-recovery-1a-task7-8-20260715/founder-portfolio-cast-20260715.md"
-  - id: "T-P-OS-SPINE-1"
-    track: "product"
-    status: "PARK / DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
-    blocker: "ADR-0054 G0-G7, donor pin, full-history safety/provenance scans, isolated migration plan, independent review and explicit founder push/merge authorization."
-    source: "docs/adr/ADR-0054-one-time-data-agent-history-migration.md"
   - id: "GOVERNED-CORE-EVOLUTION"
     track: "research_and_product_architecture"
     status: "PARK / FOUNDER_RATIFIED / DESIGN_AND_PLAN_ONLY / NO_RUNTIME_AUTHORIZATION"
@@ -847,7 +842,7 @@ blockers:
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
     - "Natural-language/visual WorkflowGraph authoring, mature knowledge lifecycle, broad capabilities, marketplace and general coding-agent path are incomplete."
-    - "SPINE-1 migration is not executed."
+    - "SPINE-1 is locally executed and independently approved on an isolated feature branch; root-primary G0 reconciliation, push, merge, release and production activation remain open."
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
@@ -870,7 +865,7 @@ claim_boundaries:
     - "ADM-P3 may be called implemented only as local promotion-decision and inert optional-prior infrastructure with production policy V1 all-DEFER. It is not production promotion/prior creation, activation, prior effectiveness, domain adaptation, learning or adaptive competence."
     - "ADM-P4 may be called implemented only as a local immutable Product-derived Task configuration and exact later-Run reference binding pending exact-head independent review. The prior is reference-only; this is not prior application, activation, adaptation, learning, transfer or adaptive competence."
     - "Do not claim Product Alpha, production readiness, Codex/Claude parity, superiority or general market validation."
-    - "Do not claim Data Agent migration, shared-spine completion, release or production deployment."
+    - "Do not claim merged/released Data Agent migration, production deployment, commercial validation or a complete general Agent OS from the local SPINE-1 candidate."
   research:
     - "G10 and CWM results remain narrow and cannot be called autonomy or general intelligence."
     - "SPINE-E2E-4 and the LH v5 prerequisite receipts do not establish parent long-horizon success, autonomy or AGI."
@@ -888,7 +883,7 @@ next_actions:
   - priority: 3
     action: "Workflow RState evaluate≠admit is merged; PARK CAS/HSM/UI/provider run. Do not reopen unbound research freeze paths."
   - priority: 4
-    action: "Keep SPINE-1, release and production activation gated; do not expand ADM/UCM/AWL/CLS breadth."
+    action: "Reconcile SPINE-1 into the root primary authority/worktree before any separately authorized push or merge; keep release and production activation gated and do not expand ADM/UCM/AWL/CLS breadth."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
