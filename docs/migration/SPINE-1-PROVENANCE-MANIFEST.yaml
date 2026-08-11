@@ -1,0 +1,19 @@
+schema_version: 1
+program: T-P-OS-SPINE-1
+status: G2_PASS
+donor_sha: 94e2b5918d12d6592f34f3b14c44c29038a74029
+inventory_sha256: 7fc89748b112585633c121ec7523f1fe79c0eda57f80b6c9ed0ed5c5f45f90e8
+history_safety_report: docs/migration/SPINE-1-HISTORY-SAFETY-REPORT.json
+report_digest: e3ff20f6e0f86f5d1a992913138fa9be00c9221c7a1f170dadaa488a9b1e7ec3
+scanner:
+  name: gitleaks
+  version: 8.29.1
+  binary_sha256: 6b4a0d6f46c72e3154f22223fcae893a72ae6ac951ea2d5736c5d7b001df9029
+  config_digest: 8de15ce91894abb8bdb55ffac1c7f440980b5024523512973345a3c33aa76b87
+  scope:
+    mode: GIT_LOG_OPTS_EXACT_REF
+    log_opts: 94e2b5918d12d6592f34f3b14c44c29038a74029
+    redacted: true
+import_commit: null
+imported_path: null
+boundary: No import is authorized unless status is G2_PASS.

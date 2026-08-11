@@ -1,7 +1,7 @@
 schema_version: 1
 updated: "2026-08-11T14:16:28+08:00"
 program: "T-P-OS-SPINE-1"
-status: "AGENT_OS_BASE_SEALED / G2_NOT_RUN / NO_DATA_AGENT_IMPORT"
+status: "AGENT_OS_BASE_SEALED / G2_PASS / NO_DATA_AGENT_IMPORT"
 
 base:
   repository: "autonomous-agent-core"
@@ -88,5 +88,19 @@ review:
   reviewer: "Codex self-review under Founder-confirmed inline execution"
   verdict: "ACCEPT_FOR_G2_TARGET_BASE"
   boundary: "This seals the target base only. It does not approve donor import, history rewrite, push, merge or release."
+
+g2_history_safety:
+  donor_sha: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+  verdict: "PASS"
+  inventory_sha256: "7fc89748b112585633c121ec7523f1fe79c0eda57f80b6c9ed0ed5c5f45f90e8"
+  scanner: "Gitleaks 8.29.1 / official archive checksum verified / exact-ref git log scan / redacted"
+  scanner_findings: 0
+  manual_findings: "4 resolved: 2 local-only credential fixtures, 1 SSH remote false email pattern, 1 digest false phone pattern"
+  unresolved_findings: 0
+  lfs_pointers: 0
+  oversized_blobs_over_10_mib: 0
+  evidence:
+    - "docs/migration/SPINE-1-HISTORY-SAFETY-REPORT.json"
+    - "docs/migration/SPINE-1-PROVENANCE-MANIFEST.yaml"
 
 claim_boundary: "No Data Agent object may enter this branch until the sealed donor SHA passes G2 history-safety checks."

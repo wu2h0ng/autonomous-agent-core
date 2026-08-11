@@ -1,0 +1,4 @@
+title = "SPINE-1 Gitleaks v8.29.1 default rules"
+
+[extend]
+useDefault = true
