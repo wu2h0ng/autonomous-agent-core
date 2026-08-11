@@ -78,6 +78,7 @@ from agent_os_core import (
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
+    ProjectedSession,
     MandateSteward,
     RunCoordinator,
     DomainCandidateSealer,
@@ -1411,10 +1412,12 @@ class AgentOSApplication:
             grants=chat_grants,
             principal=self.principal,
             gateway=gateway,
+            session_ref=session.ref,
             config=config,
             initial_history=(system_message,),
             message_sink=self._record_chat_message,
         )
+        config_payload = self._agent_loop_config_payload(config)
         self.tasks.append_event(
             task.task_id,
             TaskEventType.CANDIDATES_GENERATED,
@@ -1424,6 +1427,10 @@ class AgentOSApplication:
                     "generator_id": "terminal-chat-loop",
                     "generator_version": "1",
                     "allowed_capability_ids": sorted(CHAT_CAPABILITY_IDS),
+                    "session_ref_digest": content_digest(session.ref),
+                    "expected_outcome_id": session.expected.expected_outcome_id,
+                    "agent_loop_config": config_payload,
+                    "agent_loop_config_digest": content_digest(config_payload),
                 }
             },
             correlation_id=session.run_id,
@@ -1494,6 +1501,8 @@ class AgentOSApplication:
             raise ConnectionError("chat provider binding is unavailable") from exc
         if invocation_profile != self.provider_profile:
             raise ValueError("chat provider profile binding mismatch")
+        config = self._restore_agent_loop_config(projected)
+        resumable_turn_ids = self._restore_resumable_turn_ids(projected)
 
         session = ChatSession(
             ref=projected.ref,
@@ -1510,10 +1519,168 @@ class AgentOSApplication:
             grants=self._chat_grants(),
             principal=self.principal,
             gateway=gateway,
+            session_ref=session.ref,
+            config=config,
             initial_history=projected.history,
             message_sink=self._record_chat_message,
+            resumable_turn_ids=resumable_turn_ids,
         )
         return session, loop
+
+    @staticmethod
+    def _agent_loop_config_payload(
+        config: AgentLoopConfig,
+    ) -> dict[str, object]:
+        return {
+            "max_steps_per_turn": config.max_steps_per_turn,
+            "max_provider_retries": config.max_provider_retries,
+            "max_turn_tokens": config.max_turn_tokens,
+            "max_context_chars": config.max_context_chars,
+            "loop_detection_threshold": config.loop_detection_threshold,
+            "system_prompt": config.system_prompt,
+        }
+
+    def _restore_agent_loop_config(
+        self,
+        projected: ProjectedSession,
+    ) -> AgentLoopConfig:
+        matching_envelopes: list[dict[str, Any]] = []
+        for event in self.store.read(projected.ref.task_id):
+            if event.event_type is not TaskEventType.CANDIDATES_GENERATED:
+                continue
+            try:
+                payload = event.decoded_payload()
+            except (TypeError, ValueError) as exc:
+                raise SessionProjectionError(
+                    "invalid durable chat configuration envelope"
+                ) from exc
+            envelope = payload.get("envelope")
+            if (
+                isinstance(envelope, dict)
+                and envelope.get("envelope_id") == projected.envelope_id
+                and envelope.get("generator_id") == "terminal-chat-loop"
+            ):
+                matching_envelopes.append(envelope)
+        if len(matching_envelopes) != 1:
+            raise SessionProjectionError(
+                "chat session requires one durable configuration envelope"
+            )
+        envelope = matching_envelopes[0]
+        if (
+            envelope.get("session_ref_digest") != content_digest(projected.ref)
+            or envelope.get("expected_outcome_id")
+            != projected.expected_outcome_id
+        ):
+            raise SessionProjectionError("chat configuration scope binding mismatch")
+        raw_config = envelope.get("agent_loop_config")
+        if not isinstance(raw_config, dict):
+            raise SessionProjectionError("chat configuration payload is missing")
+        expected_keys = {
+            "max_steps_per_turn",
+            "max_provider_retries",
+            "max_turn_tokens",
+            "max_context_chars",
+            "loop_detection_threshold",
+            "system_prompt",
+        }
+        if set(raw_config) != expected_keys:
+            raise SessionProjectionError("chat configuration fields are invalid")
+        if envelope.get("agent_loop_config_digest") != content_digest(raw_config):
+            raise SessionProjectionError("chat configuration digest mismatch")
+        positive_int_fields = (
+            "max_steps_per_turn",
+            "max_turn_tokens",
+            "max_context_chars",
+            "loop_detection_threshold",
+        )
+        if any(
+            type(raw_config[field]) is not int or raw_config[field] <= 0
+            for field in positive_int_fields
+        ):
+            raise SessionProjectionError("chat configuration limits are invalid")
+        retries = raw_config["max_provider_retries"]
+        prompt = raw_config["system_prompt"]
+        if type(retries) is not int or retries < 0:
+            raise SessionProjectionError("chat provider retry limit is invalid")
+        if not isinstance(prompt, str) or not prompt:
+            raise SessionProjectionError("chat system prompt is invalid")
+        return AgentLoopConfig(
+            max_steps_per_turn=raw_config["max_steps_per_turn"],
+            max_provider_retries=retries,
+            max_turn_tokens=raw_config["max_turn_tokens"],
+            max_context_chars=raw_config["max_context_chars"],
+            loop_detection_threshold=raw_config["loop_detection_threshold"],
+            system_prompt=prompt,
+        )
+
+    def _restore_resumable_turn_ids(
+        self,
+        projected: ProjectedSession,
+    ) -> tuple[str, ...]:
+        user_messages: dict[str, str] = {}
+        started: set[str] = set()
+        completed: set[str] = set()
+        for event in self.store.read(projected.ref.task_id):
+            try:
+                payload = event.decoded_payload()
+            except (TypeError, ValueError) as exc:
+                raise SessionProjectionError(
+                    "invalid durable turn record"
+                ) from exc
+            if payload.get("session_id") != projected.ref.session_id:
+                continue
+            if event.event_type is TaskEventType.SESSION_MESSAGE_RECORDED:
+                turn_id = payload.get("turn_id")
+                if turn_id is None:
+                    continue
+                try:
+                    message = ProviderMessage.model_validate(payload["message"])
+                except (KeyError, ValidationError) as exc:
+                    raise SessionProjectionError(
+                        "invalid durable turn message"
+                    ) from exc
+                if message.role is ProviderMessageRole.USER:
+                    if not isinstance(turn_id, str) or not turn_id.strip():
+                        raise SessionProjectionError(
+                            "durable user message has invalid turn binding"
+                        )
+                    if turn_id in user_messages:
+                        raise SessionProjectionError(
+                            "durable turn has more than one user message"
+                        )
+                    user_messages[turn_id] = message.content
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                turn_id = payload.get("turn_id")
+                user_text = payload.get("user_text")
+                if (
+                    not isinstance(turn_id, str)
+                    or not turn_id.strip()
+                    or turn_id in started
+                    or user_messages.get(turn_id) != user_text
+                ):
+                    raise SessionProjectionError(
+                        "durable turn start does not bind one exact user message"
+                    )
+                started.add(turn_id)
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_COMPLETED:
+                turn_id = payload.get("turn_id")
+                if (
+                    not isinstance(turn_id, str)
+                    or turn_id not in started
+                    or turn_id in completed
+                ):
+                    raise SessionProjectionError(
+                        "durable turn completion has no exact open turn"
+                    )
+                completed.add(turn_id)
+        orphaned_user_turns = set(user_messages) - started
+        if orphaned_user_turns:
+            raise SessionProjectionError(
+                "durable user message has no matching turn start"
+            )
+        return tuple(sorted(started - completed))
 
     def _record_chat_message(
         self,

@@ -174,11 +174,13 @@ class AgentLoop:
         grants: dict[str, Any],
         principal: PrincipalIdentity,
         gateway: ConfirmationGateway,
+        session_ref: SessionRef,
         config: AgentLoopConfig | None = None,
         initial_history: tuple[ProviderMessage, ...] | None = None,
         message_sink: Callable[
             [ChatSession, int, ProviderMessage, str | None], None
         ],
+        resumable_turn_ids: tuple[str, ...] = (),
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -188,6 +190,7 @@ class AgentLoop:
         self._sandbox = sandbox
         self._principal = principal
         self._gateway = gateway
+        self._session_ref = session_ref
         self._config = config or AgentLoopConfig()
         self._broker = CapabilityBroker(sandbox, correction)
         self._actions = ActionPipeline(
@@ -217,12 +220,14 @@ class AgentLoop:
             )
         self._history = list(history)
         self._message_sink = message_sink
+        self._resumable_turn_ids = set(resumable_turn_ids)
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
         return tuple(self._history)
 
     def run_turn(self, session: ChatSession, user_input: str) -> TurnResult:
+        self._require_session_binding(session)
         turn_id = TurnId(
             turn_id=f"turn-{uuid4()}",
             session_id=session.session_id,
@@ -245,11 +250,16 @@ class AgentLoop:
             },
             correlation_id=session.run_id,
         )
+        self._resumable_turn_ids.add(turn_id.turn_id)
         return self.resume_turn(session, turn_id)
 
     def resume_turn(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
-        if turn_id.session_id != session.session_id:
-            raise ValueError("turn session binding mismatch")
+        self._require_session_binding(session)
+        if (
+            turn_id.session_id != session.session_id
+            or turn_id.turn_id not in self._resumable_turn_ids
+        ):
+            raise ValueError("resume requires an exact durable started turn")
         result = self._drive(session, turn_id)
         self._tasks.append_event(
             session.task_id,
@@ -263,7 +273,12 @@ class AgentLoop:
             },
             correlation_id=session.run_id,
         )
+        self._resumable_turn_ids.remove(turn_id.turn_id)
         return result
+
+    def _require_session_binding(self, session: ChatSession) -> None:
+        if session.ref != self._session_ref:
+            raise ValueError("chat session binding mismatch")
 
     def _drive(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
         steps = 0
