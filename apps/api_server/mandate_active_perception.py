@@ -17,8 +17,8 @@ from agent_os_contracts import (
     content_digest,
 )
 
-from . import data_agent_report_adapter as _report_adapter_module
-from .data_agent_report_adapter import (
+from domain_packs.data_agent import report_adapter as _report_adapter_module
+from domain_packs.data_agent.report_adapter import (
     DataAgentReportAdapter,
 )
 

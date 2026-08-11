@@ -131,13 +131,13 @@ from domain_packs.data_agent.runtime import (
     DataAgentRuntime,
     SQLiteDataQueryCapability,
 )
-
-from .data_agent_report_adapter import (
+from domain_packs.data_agent.report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportPollResult,
     TrustedObservationBundle,
 )
-from .data_agent_situated_bootstrap import DataAgentSituatedRuntime
+from domain_packs.data_agent.situated import DataAgentSituatedRuntime
+
 from .mandate_active_perception import (
     ActivePerceptionReceipt,
     MandateActivePerceptionService,
