@@ -1,0 +1,92 @@
+schema_version: 1
+updated: "2026-08-11T14:16:28+08:00"
+program: "T-P-OS-SPINE-1"
+status: "AGENT_OS_BASE_SEALED / G2_NOT_RUN / NO_DATA_AGENT_IMPORT"
+
+base:
+  repository: "autonomous-agent-core"
+  branch: "codex/spine1-agent-os-base-20260811"
+  worktree: "/Users/mima1234/Documents/AI-Agent-Projects-agent-os-spine1-base-20260811"
+  exact_head_before_manifest: "d79147ca85a21dfb3a25f5ca71473710f21f8193"
+  fetched_origin_main: "802ad98538281bf0292b3db9533bbfa03b5ed0dd"
+  ancestry: "origin/main is an ancestor of exact_head_before_manifest"
+  working_tree_requirement: "CLEAN"
+  final_base_sha_record: "The post-manifest commit SHA is recorded by the parent authorization manifest and later G2 provenance report; a commit cannot contain its own SHA."
+
+admitted_delta:
+  disposition: "ADMIT_PREVIOUSLY_APPROVED_LOCAL_INTEGRATION"
+  source_integration_head: "d79147ca85a21dfb3a25f5ca71473710f21f8193"
+  components:
+    - id: "AWL-4-LOOP-CONTRACTS"
+      integration_commit: "e3a3d6d"
+      evidence: "Independent TECHNICAL_APPROVE recorded before integration."
+    - id: "AWL-1-C7-PORT-SPLIT"
+      integration_commit: "cbc55a4"
+      evidence: "Independent exact-head TECHNICAL_APPROVE recorded before integration."
+    - id: "AWL-2-CAPABILITY-ADAPTER"
+      integration_commits:
+        - "82f8d2e"
+        - "cb07ab5"
+      evidence: "Independent TECHNICAL_APPROVE plus post-merge zero-new-failure comparison recorded before integration."
+  authority_receipt: "AI-Agent-Projects commit e786f4bdd06a9445923247ea634b840f1a498eda"
+  boundary: "Architecture seams only; no mechanism, release, migration, product-completion or autonomy claim."
+
+branch_inventory:
+  external_artifact: "AI-Agent-Projects/docs/convergence/SPINE-1-AGENT-OS-BRANCH-INVENTORY.json"
+  artifact_sha256: "7d7ba5033de5c26e80f2f87a2febf43196c3e5cd567df300286762cda0fe0817"
+  canonical_sha: "802ad98538281bf0292b3db9533bbfa03b5ed0dd"
+  refs_classified: 137
+  ancestry_or_patch_equivalent: 66
+  unique_patch_refs_before_review: 71
+  post_canonical_unique_refs: 11
+
+excluded_candidates:
+  - refs:
+      - "refs/heads/codex/selfdev-live-sse-fix-20260809"
+      - "refs/heads/codex/selfdev-live-sse-oracle-20260809"
+    head: "2f44e70"
+    disposition: "EVIDENCE_ONLY_PARKED"
+    rationale: "Contains the scoped verifier candidate plus a failing malformed-SSE oracle; no live fix or acceptance exists."
+  - refs:
+      - "refs/heads/codex/selfdev-scoped-verifier-20260808"
+    head: "b32f2cb"
+    disposition: "REVIEWED_CANDIDATE_PARKED"
+    rationale: "APPROVE_WITH_P2 is not founder admission or integration authorization."
+  - refs:
+      - "refs/heads/codex/canonical-convergence-20260715"
+      - "refs/remotes/origin/codex/canonical-convergence-20260715"
+    head: "a496442"
+    disposition: "CANDIDATE_PARKED"
+    rationale: "Pushed candidate is not Phase 0 completion and has no fresh exact-head acceptance for this migration base."
+  - refs:
+      - "refs/heads/feature/terminal-coding-agent-m1"
+    head: "a558c7e"
+    disposition: "CANDIDATE_PARKED"
+    rationale: "Includes terminal/realtime-collaboration work and a coordinator WIP baseline beyond the accepted AWL integration; no final exact-head admission found for SPINE-1."
+  - refs:
+      - "refs/heads/codex/realtime-collab-runtime-m1-20260809"
+    head: "7c9ddaf"
+    disposition: "CANDIDATE_PARKED"
+    rationale: "No named SPINE-1 consumer or exact-head admission found."
+
+verification:
+  exact_head: "d79147ca85a21dfb3a25f5ca71473710f21f8193"
+  full_product:
+    command: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
+    result: "1889 passed, 1 skipped, 19 failed"
+    adjudication: "KNOWN_BASELINE_REPRODUCED"
+    failure_set: "1 packaging metadata failure, 16 provider trajectory fixed-time expiry failures, and 2 SPINE-0 fixed-time/expiry failures; count and named set match the recorded AWL integration baseline."
+  targeted_awl:
+    command: "pytest test_awl4_loop_contracts.py test_correction_port_separation.py test_capability_adapter_boundary.py"
+    result: "PASS / 69 tests"
+  quality:
+    ruff_changed_scope: "PASS"
+    git_diff_check: "PASS"
+  generated_artifact: "agent-os.sqlite3 was produced by the suite and moved to macOS Trash as agent-os-spine1-base-test-20260811.sqlite3."
+
+review:
+  reviewer: "Codex self-review under Founder-confirmed inline execution"
+  verdict: "ACCEPT_FOR_G2_TARGET_BASE"
+  boundary: "This seals the target base only. It does not approve donor import, history rewrite, push, merge or release."
+
+claim_boundary: "No Data Agent object may enter this branch until the sealed donor SHA passes G2 history-safety checks."
