@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from agent_os_contracts import PrincipalIdentity
 from agent_os_contracts.common import ContractModel, NonEmptyStr, canonical_json
@@ -39,7 +39,8 @@ class SafeQueryResult(ContractModel):
     query_id: NonEmptyStr
     sql_fingerprint: Sha256Digest
     query_result_digest: Sha256Digest
-    row_count: int
+    row_count: int = Field(ge=0)
+    rows_json: NonEmptyStr
 
 
 class DataProductRef(ContractModel):
@@ -102,6 +103,7 @@ class DataAgentResult(ContractModel):
     observed_outcome_id: NonEmptyStr | None = None
     action_proposal: BusinessActionProposalRef | None = None
     failure_code: NonEmptyStr | None = None
+    resend_attempts: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def _validate_status_payload(self) -> DataAgentResult:
