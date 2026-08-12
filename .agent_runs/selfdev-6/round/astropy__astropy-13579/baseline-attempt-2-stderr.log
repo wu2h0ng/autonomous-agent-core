@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 1287, in <module>
+    main()
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 442, in main
+    json.dumps(_cmd_benchmark_run_baseline(args), indent=2, default=str)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 1035, in _cmd_benchmark_run_baseline
+    raise SelfDevelopmentValidationError(
+agent_os_core.self_development.SelfDevelopmentValidationError: RUN_DENIED: benchmark baseline provider call failed: AUTHENTICATION_FAILED provider HTTP 403
