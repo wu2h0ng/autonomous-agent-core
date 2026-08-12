@@ -33,8 +33,8 @@ Wave 2 adopts **option 2**: provider keys are written to and read from macOS Key
 
 Concrete rules:
 
-- The shell is the only process that reads/writes the Keychain items; the renderer never receives the key value (the Tauri IPC bridge carries only custody references/status).
-- The daemon receives the provider key only at startup via an environment variable injected by the shell (or by the user's own environment when started from the CLI); the key never appears in the runtime descriptor, protocol payloads, SQLite, logs, or tests.
+- The shell is the only process that reads Keychain items. The renderer never receives the key value except through one write-only path for initial configuration: a single allowlisted IPC command (`custody:set_provider_key`) that writes the item and returns only a boolean. The key value is never read back through IPC, never logged, never stored in webview-local storage, and never serialized into the runtime descriptor, protocol payloads, SQLite, logs, or tests.
+- The daemon receives the provider key only at startup via an environment variable injected by the shell (or by the user's own environment when started from the CLI); the key never appears in the runtime descriptor, protocol payloads, SQLite, logs, or tests. A daemon started from the CLI continues to resolve the environment as in Wave 1; app-side Keychain custody is shell-managed in Wave 2a (recorded as a known boundary: the CLI cannot parse app-Keychain items until a later slice).
 - Fallback precedence: environment variable (if set) wins; otherwise the shell reads the Keychain item for the configured provider model/base URL.
 - Keychain item naming is namespaced under `com.agent-os.runtime` with `service` + `account` = provider profile identity; no provider secret is stored in the repo, docs, or run artifacts.
 - This ADR authorizes Keychain as the custody location for **provider credentials only** (API keys/tokens for model providers). It does not authorize storing customer data, cookies, or other secrets; does not move any authority semantics; and does not change C1–C7.
@@ -44,5 +44,5 @@ Concrete rules:
 
 - Wave 2 (Tauri shell + daemon supervision) can meet its clean-install exit gate without manual env export.
 - New dependency surface: `keyring` crate; macOS-only for Wave 2.
-- Secret-handling boundary in the program spec §7 and Wave 1 verification report is amended: "environment-resolved by the daemon" becomes "environment-resolved or Keychain-custodied by the shell, environment-injected at daemon start".
+- Secret-handling boundary in the program spec §8.2 and the Wave 1 verification report is aligned: "environment-resolved by the daemon" becomes "environment-resolved or Keychain-custodied by the shell, environment-injected at daemon start". Program spec §8.2 already mandates "macOS provider keys, OAuth tokens, and device private keys live in Keychain"; this ADR scopes the Wave 2a implementation of that rule to provider credentials with env fallback.
 - ADR-0058 does not authorize release, signing, notarization, daily usability, or any autonomy claim.
