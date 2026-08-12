@@ -2005,3 +2005,60 @@ def test_surface_pause_resume_correct_control_run_state(
         _control_command(app, opened, "idem:correct", "operator correction")
     )
     assert halted.status is SurfaceSessionStatus.CORRECTION_HALTED
+
+
+def test_surface_closed_session_rejects_turn_before_provider_call(
+    tmp_path: Path,
+) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+    app.surface.run_turn(command)
+    task_id = app.surface_task_for_session(command.session_id)
+    app.tasks.close_session(task_id, command.session_id)
+    closed_sequence = app.surface_current_sequence(task_id)
+
+    closed_command = command.model_copy(
+        update={
+            "idempotency_key": "idem:closed",
+            "expected_event_sequence": closed_sequence,
+        }
+    )
+    with pytest.raises(Exception, match="closed"):
+        app.surface.run_turn(closed_command)
+
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 1
+
+
+def test_same_idempotency_key_concurrent_requests_have_one_provider_call(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path, scripted=(("only reply", ()),))
+    opened = _surface_open(app)
+    command = _turn_command(app, opened, "idem:shared", "shared request")
+    responses: list[Any] = []
+    errors: list[Exception] = []
+    guard = threading.Lock()
+    barrier = threading.Barrier(4)
+
+    def submit() -> None:
+        barrier.wait(timeout=5)
+        try:
+            response = app.surface.run_turn(command)
+        except Exception as exc:  # pragma: no cover - asserted below
+            with guard:
+                errors.append(exc)
+            return
+        with guard:
+            responses.append(response)
+
+    threads = [threading.Thread(target=submit) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert len(responses) == 4
+    assert responses[0] == responses[1] == responses[2] == responses[3]
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 1
