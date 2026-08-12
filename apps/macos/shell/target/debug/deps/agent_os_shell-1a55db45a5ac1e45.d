@@ -1,0 +1,13 @@
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/deps/agent_os_shell-1a55db45a5ac1e45.d: src/main.rs /Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out/519ec58484c1d59858f1b7d400877bf688aff677ec3b4426491d455cfb30a673 /Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/../renderer/dist/index.html /Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out/tauri-codegen-assets/fca35685eb4ca231761498dbb2b9c91ecfe3b02ac7e057ba866c16008cbe8f32.html
+
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/deps/agent_os_shell-1a55db45a5ac1e45: src/main.rs /Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out/519ec58484c1d59858f1b7d400877bf688aff677ec3b4426491d455cfb30a673 /Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/../renderer/dist/index.html /Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out/tauri-codegen-assets/fca35685eb4ca231761498dbb2b9c91ecfe3b02ac7e057ba866c16008cbe8f32.html
+
+src/main.rs:
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out/519ec58484c1d59858f1b7d400877bf688aff677ec3b4426491d455cfb30a673:
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/../renderer/dist/index.html:
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out/tauri-codegen-assets/fca35685eb4ca231761498dbb2b9c91ecfe3b02ac7e057ba866c16008cbe8f32.html:
+
+# env-dep:CARGO_PKG_AUTHORS=
+# env-dep:CARGO_PKG_DESCRIPTION=Agent OS Native Surface Wave 2a shell
+# env-dep:CARGO_PKG_NAME=agent-os-shell
+# env-dep:OUT_DIR=/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/debug/build/agent-os-shell-f1df6e36fb640770/out

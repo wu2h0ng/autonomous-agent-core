@@ -1,0 +1,9 @@
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/aarch64-apple-darwin/debug/deps/keyring-8ad41ad082212993.d: /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/lib.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/mock.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/macos.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/credential.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/error.rs
+
+/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/wave2a-macos-shell-20260812/apps/macos/shell/target/aarch64-apple-darwin/debug/deps/libkeyring-8ad41ad082212993.rmeta: /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/lib.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/mock.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/macos.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/credential.rs /Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/error.rs
+
+/Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/lib.rs:
+/Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/mock.rs:
+/Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/macos.rs:
+/Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/credential.rs:
+/Users/mima1234/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/keyring-3.6.3/src/error.rs:
