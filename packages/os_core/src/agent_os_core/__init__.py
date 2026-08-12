@@ -95,6 +95,16 @@ from .session_projection import (
     SessionProjectionError,
     SessionProjector,
 )
+from .surface_runtime import (
+    SurfaceApplicationPort,
+    SurfaceIdempotencyConflict,
+    SurfaceProtocolError,
+    SurfaceRuntime,
+    SurfaceScopeError,
+    SurfaceSequenceConflict,
+    SurfaceSessionNotFound,
+    command_digest,
+)
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
     CanonicalCredentialLeaseRegistry,
@@ -292,6 +302,14 @@ __all__ = [
     "SessionProjector",
     "ProjectedSession",
     "ProjectedResolvedContinuation",
+    "SurfaceApplicationPort",
+    "SurfaceIdempotencyConflict",
+    "SurfaceProtocolError",
+    "SurfaceRuntime",
+    "SurfaceScopeError",
+    "SurfaceSequenceConflict",
+    "SurfaceSessionNotFound",
+    "command_digest",
     "SituationalProposalError",
     "SituationalPersistenceConflict",
     "ProtocolIngressConflict",

@@ -62,6 +62,15 @@ from agent_os_contracts import (
     TrajectoryProjection,
     WorkflowGraph,
     SessionRef,
+    SURFACE_PROTOCOL_VERSION,
+    SurfaceApprovalCommand,
+    SurfaceCorrectionCommand,
+    SurfaceEventBatch,
+    SurfaceOpenSessionCommand,
+    SurfaceSessionSnapshot,
+    SurfaceSessionStatus,
+    SurfaceTurnCommand,
+    SurfaceTurnResponse,
     content_digest,
 )
 from agent_os_core import (
@@ -98,6 +107,8 @@ from agent_os_core import (
     SQLiteMandateResponsibilityStore,
     SessionProjectionError,
     SessionProjector,
+    SurfaceRuntime,
+    SurfaceSessionNotFound,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -438,6 +449,7 @@ class AgentOSApplication:
         )
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
+        self.surface = SurfaceRuntime(self)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or self._clock()
@@ -1609,6 +1621,196 @@ class AgentOSApplication:
             expires_at=now + timedelta(minutes=5),
         )
         return loop.resume_pending_approval(session, approval)
+
+    def surface_open_session(
+        self, command: SurfaceOpenSessionCommand
+    ) -> SurfaceSessionSnapshot:
+        session, _ = self.open_chat_session(
+            command.statement, DeferredApprovalGateway()
+        )
+        return self.surface_session_snapshot(session.session_id)
+
+    def surface_run_turn(
+        self, command: SurfaceTurnCommand
+    ) -> SurfaceTurnResponse:
+        session, loop = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        history_before = len(loop.history)
+        result = loop.run_turn(session, command.text)
+        return self._surface_turn_response(
+            session.session_id,
+            result,
+            loop.history[history_before:],
+        )
+
+    def surface_decide_approval(
+        self, command: SurfaceApprovalCommand
+    ) -> SurfaceTurnResponse:
+        _, loop_before = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        history_before = len(loop_before.history)
+        result = self.decide_session_approval(
+            command.session_id,
+            command.action_digest,
+            command.disposition,
+            command.reason,
+        )
+        _, loop_after = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        return self._surface_turn_response(
+            command.session_id,
+            result,
+            loop_after.history[history_before:],
+        )
+
+    def surface_pause_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        task_id = self.surface_task_for_session(command.session_id)
+        self.pause_task(task_id)
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_resume_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        task_id = self.surface_task_for_session(command.session_id)
+        self.resume_task(task_id)
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_correct_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        task_id = self.surface_task_for_session(command.session_id)
+        self.correct_task(task_id, command.reason)
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        aggregate = self.tasks.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise InvalidTransitionError("surface session requires an active Run")
+        return SurfaceSessionSnapshot(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            session=projected.ref,
+            envelope_id=projected.envelope_id,
+            expected_outcome_id=projected.expected_outcome_id,
+            status=self._surface_session_status(task_id, run, projected.closed),
+            event_sequence=aggregate.sequence,
+            message_count=projected.next_message_index,
+            pending_approval=projected.pending_approval,
+            updated_at=self._clock(),
+        )
+
+    def _surface_session_status(
+        self,
+        task_id: str,
+        run: Any,
+        closed: bool,
+    ) -> SurfaceSessionStatus:
+        if closed:
+            return SurfaceSessionStatus.CLOSED
+        if self.correction.halted(task_id, run.run_id, "provider"):
+            return SurfaceSessionStatus.CORRECTION_HALTED
+        if run.status is RunStatus.WAITING_APPROVAL:
+            return SurfaceSessionStatus.WAITING_APPROVAL
+        if run.status is RunStatus.PAUSED:
+            return SurfaceSessionStatus.PAUSED
+        if run.status in {
+            RunStatus.SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }:
+            return SurfaceSessionStatus.CLOSED
+        return SurfaceSessionStatus.ACTIVE
+
+    def _surface_turn_response(
+        self,
+        session_id: str,
+        result: TurnResult,
+        steps: tuple[ProviderMessage, ...],
+    ) -> SurfaceTurnResponse:
+        return SurfaceTurnResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            snapshot=self.surface_session_snapshot(session_id),
+            turn_id=result.turn_id.turn_id,
+            text=result.text or f"turn stopped: {result.stop_reason}",
+            steps=tuple(steps),
+            stop_reason=result.stop_reason,
+            total_tokens=result.total_tokens,
+        )
+
+    def surface_event_batch(
+        self, task_id: str, after_sequence: int
+    ) -> SurfaceEventBatch:
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        self.tasks.get_task(task_id)
+        events = tuple(
+            event
+            for event in self.store.read(task_id)
+            if event.sequence > after_sequence
+        )
+        next_sequence = events[-1].sequence if events else after_sequence
+        return SurfaceEventBatch(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            task_id=task_id,
+            after_sequence=after_sequence,
+            next_sequence=next_sequence,
+            events=events,
+        )
+
+    def surface_task_for_session(self, session_id: str) -> str:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        matches: list[str] = []
+        for task_id in self.store.list_task_ids():
+            for event in self.store.read(task_id):
+                if event.event_type is not TaskEventType.SESSION_OPENED:
+                    continue
+                try:
+                    payload = event.decoded_payload()
+                except (TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        "invalid durable session open record"
+                    ) from exc
+                if payload.get("session_id") == session_id:
+                    matches.append(task_id)
+                    break
+        if not matches:
+            raise SurfaceSessionNotFound(f"session {session_id} not found")
+        if len(matches) != 1:
+            raise SurfaceSessionNotFound(
+                "duplicate durable session identity"
+            )
+        return matches[0]
+
+    def surface_current_sequence(self, task_id: str) -> int:
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        return self.tasks.get_task(task_id).sequence
+
+    def surface_idempotency_record(
+        self, scope: str, key: str
+    ) -> dict[str, Any] | None:
+        if not scope.strip() or not key.strip():
+            raise ValueError("idempotency scope and key must be non-empty")
+        return self.store.get_idempotency(scope, key)
+
+    def surface_store_idempotency(
+        self, scope: str, key: str, record: dict[str, Any]
+    ) -> bool:
+        if not scope.strip() or not key.strip():
+            raise ValueError("idempotency scope and key must be non-empty")
+        return self.store.put_idempotency(
+            scope, key, record, datetime.now(timezone.utc).isoformat()
+        )
 
     def _record_chat_message(
         self,

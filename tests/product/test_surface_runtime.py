@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from agent_os_contracts import (
+    SURFACE_PROTOCOL_VERSION,
     ActionContract,
     ApprovalDisposition,
     PendingSurfaceApproval,
@@ -15,6 +18,12 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderToolProposal,
     RunStatus,
+    SurfaceApprovalCommand,
+    SurfaceClientRef,
+    SurfaceCorrectionCommand,
+    SurfaceOpenSessionCommand,
+    SurfaceSessionStatus,
+    SurfaceTurnCommand,
     TaskEventDraft,
     TaskEventType,
     TurnId,
@@ -28,6 +37,9 @@ from agent_os_core import (
     DeterministicProvider,
     InvalidTransitionError,
     SessionProjector,
+    SurfaceIdempotencyConflict,
+    SurfaceScopeError,
+    SurfaceSequenceConflict,
     TaskConfigurationDrift,
 )
 from agent_os_core.action_pipeline import ActionPipeline
@@ -1630,3 +1642,366 @@ def test_final_assistant_and_turn_completion_commit_atomically(
     assert [
         message.content for message in app2.provider.requests[0].messages
     ].count(final_text) == 1
+
+
+def _surface_client(app: AgentOSApplication) -> SurfaceClientRef:
+    return SurfaceClientRef(
+        client_id="client:test:1",
+        client_type="TEST",
+        principal_id=app.principal.principal_id,
+        tenant_id=app.principal.tenant_id,
+        workspace_id=app.principal.workspace_id,
+        device_id="device:test:1",
+    )
+
+
+def _surface_open_command(
+    app: AgentOSApplication,
+    *,
+    idempotency_key: str,
+    statement: str = "inspect the workspace",
+    client: SurfaceClientRef | None = None,
+) -> SurfaceOpenSessionCommand:
+    return SurfaceOpenSessionCommand(
+        protocol_version=SURFACE_PROTOCOL_VERSION,
+        client=client or _surface_client(app),
+        statement=statement,
+        idempotency_key=idempotency_key,
+        requested_at=datetime.now(timezone.utc),
+    )
+
+
+def _surface_open(
+    app: AgentOSApplication,
+    *,
+    statement: str = "inspect the workspace",
+    idempotency_key: str | None = None,
+    client: SurfaceClientRef | None = None,
+) -> Any:
+    return app.surface.open_session(
+        _surface_open_command(
+            app,
+            idempotency_key=idempotency_key or f"idem:open:{uuid4()}",
+            statement=statement,
+            client=client,
+        )
+    )
+
+
+def _turn_command(
+    app: AgentOSApplication,
+    opened: Any,
+    idempotency_key: str,
+    text: str,
+    *,
+    client: SurfaceClientRef | None = None,
+    expected_event_sequence: int | None = None,
+) -> SurfaceTurnCommand:
+    return SurfaceTurnCommand(
+        protocol_version=SURFACE_PROTOCOL_VERSION,
+        client=client or _surface_client(app),
+        session_id=opened.session.session_id,
+        text=text,
+        expected_event_sequence=(
+            opened.event_sequence
+            if expected_event_sequence is None
+            else expected_event_sequence
+        ),
+        idempotency_key=idempotency_key,
+        requested_at=datetime.now(timezone.utc),
+    )
+
+
+def runtime_with_turn_command(
+    tmp_path: Path,
+) -> tuple[AgentOSApplication, SurfaceTurnCommand]:
+    app = chat_app(
+        tmp_path,
+        scripted=(("surface reply", ()), ("second surface reply", ())),
+    )
+    opened = _surface_open(app)
+    command = _turn_command(app, opened, "idem:turn:1", "inspect the fixture")
+    return app, command
+
+
+def _control_command(
+    app: AgentOSApplication,
+    opened: Any,
+    idempotency_key: str,
+    reason: str,
+) -> SurfaceCorrectionCommand:
+    return SurfaceCorrectionCommand(
+        protocol_version=SURFACE_PROTOCOL_VERSION,
+        client=_surface_client(app),
+        session_id=opened.session.session_id,
+        reason=reason,
+        expected_event_sequence=app.tasks.get_task(
+            opened.session.task_id
+        ).sequence,
+        idempotency_key=idempotency_key,
+        requested_at=datetime.now(timezone.utc),
+    )
+
+
+def test_surface_open_session_idempotency_replays_same_session(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path)
+    command = _surface_open_command(app, idempotency_key="idem:open:1")
+
+    first = app.surface.open_session(command)
+    second = app.surface.open_session(command)
+
+    assert second == first
+    assert len(app.store.list_task_ids()) == 1
+
+
+def test_surface_open_session_rejects_mismatched_scope(tmp_path: Path) -> None:
+    app = chat_app(tmp_path)
+    bad_client = _surface_client(app).model_copy(
+        update={"tenant_id": "tenant:other"}
+    )
+    with pytest.raises(SurfaceScopeError):
+        _surface_open(app, client=bad_client)
+    assert app.store.list_task_ids() == ()
+
+
+@pytest.mark.parametrize(
+    "scope_field",
+    ["tenant_id", "workspace_id", "principal_id"],
+)
+def test_mismatched_client_scope_rejected_before_provider_call(
+    tmp_path: Path,
+    scope_field: str,
+) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+    bad_client = _surface_client(app).model_copy(
+        update={scope_field: "scope:other"}
+    )
+    scoped = command.model_copy(
+        update={"client": bad_client, "idempotency_key": "idem:scope"}
+    )
+
+    with pytest.raises(SurfaceScopeError):
+        app.surface.run_turn(scoped)
+
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+
+
+def test_same_idempotency_key_returns_same_turn_response(tmp_path: Path) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+
+    first = app.surface.run_turn(command)
+    second = app.surface.run_turn(command)
+
+    assert second == first
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 1
+
+
+def test_stale_expected_sequence_fails_before_provider_call(
+    tmp_path: Path,
+) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+    app.surface.run_turn(command)
+
+    stale = command.model_copy(update={"idempotency_key": "idem:new"})
+    with pytest.raises(SurfaceSequenceConflict):
+        app.surface.run_turn(stale)
+
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 1
+
+
+def test_idempotency_key_reuse_with_different_digest_conflicts(
+    tmp_path: Path,
+) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+    app.surface.run_turn(command)
+
+    mutated = command.model_copy(update={"text": "different request"})
+    with pytest.raises(SurfaceIdempotencyConflict):
+        app.surface.run_turn(mutated)
+
+
+def test_concurrent_turns_on_one_session_have_exactly_one_winner(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path, scripted=(("only reply", ()),))
+    opened = _surface_open(app)
+    results: list[Any] = []
+    conflicts: list[Exception] = []
+    guard = threading.Lock()
+    barrier = threading.Barrier(4)
+
+    def submit(index: int) -> None:
+        command = _turn_command(
+            app,
+            opened,
+            f"idem:concurrent:{index}",
+            f"request {index}",
+        )
+        barrier.wait(timeout=5)
+        try:
+            response = app.surface.run_turn(command)
+        except SurfaceSequenceConflict as conflict:
+            with guard:
+                conflicts.append(conflict)
+            return
+        with guard:
+            results.append(response)
+
+    threads = [
+        threading.Thread(target=submit, args=(index,)) for index in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(results) == 1
+    assert len(conflicts) == 3
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 1
+
+
+def test_independent_sessions_run_turns_independently(tmp_path: Path) -> None:
+    app = chat_app(
+        tmp_path, scripted=(("reply one", ()), ("reply two", ()))
+    )
+    opened_a = _surface_open(app, statement="session a")
+    opened_b = _surface_open(app, statement="session b")
+
+    result_a = app.surface.run_turn(
+        _turn_command(app, opened_a, "idem:a", "inspect a")
+    )
+    result_b = app.surface.run_turn(
+        _turn_command(app, opened_b, "idem:b", "inspect b")
+    )
+
+    assert result_a.text == "reply one"
+    assert result_b.text == "reply two"
+    assert (
+        result_a.snapshot.session.session_id == opened_a.session.session_id
+    )
+    assert (
+        result_b.snapshot.session.session_id == opened_b.session.session_id
+    )
+    assert isinstance(app.provider, DeterministicProvider)
+    assert len(app.provider.requests) == 2
+
+
+def test_surface_get_session_reports_status_and_sequence(
+    tmp_path: Path,
+) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+
+    before = app.surface.get_session(command.session_id)
+    assert before.status is SurfaceSessionStatus.ACTIVE
+    assert before.event_sequence == command.expected_event_sequence
+
+    response = app.surface.run_turn(command)
+
+    after = app.surface.get_session(command.session_id)
+    assert after.event_sequence > before.event_sequence
+    assert after.message_count > before.message_count
+    assert response.snapshot.event_sequence == after.event_sequence
+
+
+def test_surface_event_batch_returns_only_events_after_sequence(
+    tmp_path: Path,
+) -> None:
+    app, command = runtime_with_turn_command(tmp_path)
+    app.surface.run_turn(command)
+    opened = app.surface.get_session(command.session_id)
+    task_id = opened.session.task_id
+
+    batch = app.surface.event_batch(task_id, 0)
+    assert batch.task_id == task_id
+    assert batch.after_sequence == 0
+    assert batch.events
+    assert batch.next_sequence == batch.events[-1].sequence
+    sequences = [event.sequence for event in batch.events]
+    assert sequences == sorted(sequences)
+    assert len(set(sequences)) == len(sequences)
+
+    tail = app.surface.event_batch(task_id, batch.next_sequence)
+    assert tail.events == ()
+    assert tail.next_sequence == batch.next_sequence
+
+
+def test_surface_decide_approval_completes_pending_edit(tmp_path: Path) -> None:
+    (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    app = chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    proposal(
+                        "call-edit",
+                        "workspace.edit",
+                        {
+                            "path": "fixture.txt",
+                            "old_string": "stable\n",
+                            "new_string": "fixed\n",
+                        },
+                    ),
+                ),
+            ),
+            ("done", ()),
+        ),
+    )
+    opened = _surface_open(app)
+    waiting = app.surface.run_turn(
+        _turn_command(app, opened, "idem:edit", "edit fixture")
+    )
+    assert waiting.stop_reason == "approval_required"
+    assert waiting.snapshot.status is SurfaceSessionStatus.WAITING_APPROVAL
+    pending = waiting.snapshot.pending_approval
+    assert pending is not None
+
+    approval = SurfaceApprovalCommand(
+        protocol_version=SURFACE_PROTOCOL_VERSION,
+        client=_surface_client(app),
+        session_id=opened.session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.APPROVE,
+        reason="reviewed exact edit",
+        expected_event_sequence=waiting.snapshot.event_sequence,
+        idempotency_key="idem:approve:1",
+        requested_at=datetime.now(timezone.utc),
+    )
+    completed = app.surface.decide_approval(approval)
+
+    assert completed.stop_reason == "completed"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "fixed\n"
+    assert _receipt_count(app, opened.session.task_id) == 1
+
+
+def test_surface_pause_resume_correct_control_run_state(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path, scripted=(("done", ()),))
+    opened = _surface_open(app)
+    completed = app.surface.run_turn(
+        _turn_command(app, opened, "idem:turn", "inspect")
+    )
+    assert completed.stop_reason == "completed"
+    app.resume_task(opened.session.task_id)
+
+    pause_command = _control_command(app, opened, "idem:pause", "pause")
+    paused = app.surface.pause(pause_command)
+    assert paused.status is SurfaceSessionStatus.PAUSED
+    assert app.surface.pause(pause_command) == paused
+
+    resumed = app.surface.resume(
+        _control_command(app, opened, "idem:resume", "resume")
+    )
+    assert resumed.status is SurfaceSessionStatus.ACTIVE
+
+    halted = app.surface.correct(
+        _control_command(app, opened, "idem:correct", "operator correction")
+    )
+    assert halted.status is SurfaceSessionStatus.CORRECTION_HALTED
