@@ -265,7 +265,7 @@ def test_stop_verifies_database_and_workspace_identity(
 def test_stop_absent_descriptor_raises(tmp_path: Path) -> None:
     from apps.runtime_daemon import daemon_stop
 
-    with pytest.raises(RuntimeDescriptorError, match="absent"):
+    with pytest.raises(RuntimeDescriptorError, match="descriptor is absent"):
         daemon_stop(tmp_path / "missing.json")
 
 
