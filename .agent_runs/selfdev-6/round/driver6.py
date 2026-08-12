@@ -1,9 +1,13 @@
-"""SELFDEV-3 round driver: ABAB interleaved arms, envelope E2 (600s).
+"""SELFDEV-6 round driver: ABAB interleaved arms, envelope E6 (600s).
 
 Per frozen prereg: for each main task in frozen order — baseline a1, chain a1,
 baseline a2, chain a2. Sequential only. Restores the workspace to the pinned
 base commit before EVERY attempt (both arms). Persists per-attempt results
-(resume-safe). Aborts on 3 consecutive NON-provider infra errors.
+(resume-safe). Whitelist abort: the round aborts ONLY on whitelisted
+genuine-infra stderr signatures (docker daemon, workspace missing/dirty/drift,
+restore failure, configuration drift); unrecognized provider output records a
+consumed FAILED_UNCLASSIFIED attempt and the round continues (SELFDEV-5
+adjudicator's structural fix).
 """
 
 from __future__ import annotations
