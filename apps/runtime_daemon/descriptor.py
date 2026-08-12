@@ -8,12 +8,20 @@ never stored here — they remain environment-resolved by the daemon process.
 from __future__ import annotations
 
 import json
+import os
+import secrets
+import uuid
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
-from agent_os_contracts import ContractModel, NonEmptyStr, UtcDateTime
+from agent_os_contracts import (
+    ContractModel,
+    NonEmptyStr,
+    UtcDateTime,
+    canonical_json,
+)
 
 
 class RuntimeDescriptorError(ValueError):
@@ -36,6 +44,18 @@ class RuntimeDescriptor(ContractModel):
         return f"http://{self.host}:{self.port}"
 
 
+def generate_runtime_token() -> str:
+    """One random 256-bit local bearer token (url-safe base64)."""
+
+    return secrets.token_urlsafe(32)
+
+
+def generate_boot_id() -> str:
+    """One unique daemon boot identity."""
+
+    return f"boot:{uuid.uuid4()}"
+
+
 def load_runtime_descriptor(path: Path) -> RuntimeDescriptor:
     """Parse and validate one private runtime descriptor file."""
 
@@ -53,4 +73,26 @@ def load_runtime_descriptor(path: Path) -> RuntimeDescriptor:
         ) from exc
     if not isinstance(value, dict):
         raise RuntimeDescriptorError("runtime descriptor must be a JSON object")
-    return RuntimeDescriptor.model_validate(value)
+    try:
+        return RuntimeDescriptor.model_validate(value)
+    except ValidationError as exc:
+        raise RuntimeDescriptorError(
+            f"runtime descriptor {path} has an invalid schema"
+        ) from exc
+
+
+def write_descriptor(path: Path, descriptor: RuntimeDescriptor) -> None:
+    """Atomically persist one private descriptor at mode 0600."""
+
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.exists() and path.is_symlink():
+        raise RuntimeDescriptorError("runtime descriptor cannot be a symlink")
+    temporary = path.with_name(path.name + f".{descriptor.boot_id}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    fd = os.open(temporary, flags, 0o600)
+    try:
+        os.write(fd, canonical_json(descriptor).encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temporary, path)

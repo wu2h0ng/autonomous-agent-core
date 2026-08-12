@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from agent_os_contracts import (
@@ -12,14 +17,22 @@ from agent_os_contracts import (
 )
 
 from apps.api_server.app import AgentOSApplication
-from apps.runtime_daemon.descriptor import load_runtime_descriptor
+from apps.runtime_daemon import (
+    DEFAULT_RUNTIME_DESCRIPTOR,
+    RuntimeAlreadyRunning,
+    daemon_status,
+    daemon_stop,
+)
+from apps.runtime_daemon.descriptor import (
+    RuntimeDescriptor,
+    RuntimeDescriptorError,
+    load_runtime_descriptor,
+)
 
 from .surface_client import (
     SurfaceClient,
     SurfaceClientError,
 )
-
-DEFAULT_RUNTIME_DESCRIPTOR = Path.home() / ".agent-os" / "runtime.json"
 
 
 def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
@@ -166,6 +179,128 @@ def _chat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wait_for_daemon_health(
+    descriptor_path: Path,
+    expected_pid: int,
+    *,
+    timeout: float = 10.0,
+) -> RuntimeDescriptor:
+    """Wait until the daemon descriptor exists and its health is authenticated."""
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            descriptor = load_runtime_descriptor(descriptor_path)
+        except RuntimeDescriptorError:
+            time.sleep(0.05)
+            continue
+        if descriptor.pid != expected_pid:
+            time.sleep(0.05)
+            continue
+        try:
+            request = urllib.request.Request(
+                descriptor.base_url + "/v1/health",
+                headers={
+                    "Authorization": f"Bearer {descriptor.bearer_token}"
+                },
+            )
+            with urllib.request.urlopen(request, timeout=1) as response:
+                if response.status == 200:
+                    return descriptor
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(0.05)
+    raise RuntimeDescriptorError(
+        f"runtime daemon did not become healthy within {timeout:.0f}s"
+    )
+
+
+def _daemon_start(args: argparse.Namespace) -> int:
+    descriptor_path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    database = Path(args.database)
+    workspace = Path(args.workspace)
+    if descriptor_path.exists():
+        try:
+            existing = load_runtime_descriptor(descriptor_path)
+        except RuntimeDescriptorError:
+            existing = None
+        if existing is not None:
+            try:
+                os.kill(existing.pid, 0)
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            except PermissionError:
+                alive = True
+            if alive:
+                raise RuntimeAlreadyRunning(
+                    f"runtime {existing.boot_id} is already running "
+                    f"(pid {existing.pid})"
+                )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "apps.runtime_daemon",
+            "--database",
+            str(database),
+            "--workspace",
+            str(workspace),
+            "--descriptor",
+            str(descriptor_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+        ],
+        start_new_session=True,
+        env=dict(os.environ),
+    )
+    try:
+        descriptor = _wait_for_daemon_health(
+            descriptor_path, process.pid, timeout=10.0
+        )
+    except Exception:
+        process.terminate()
+        raise
+    print(
+        json.dumps(
+            {
+                "status": "running",
+                "pid": descriptor.pid,
+                "boot_id": descriptor.boot_id,
+                "port": descriptor.port,
+                "descriptor": str(descriptor_path),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _daemon_status(args: argparse.Namespace) -> int:
+    descriptor_path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    print(json.dumps(daemon_status(descriptor_path), indent=2))
+    return 0
+
+
+def _daemon_stop(args: argparse.Namespace) -> int:
+    descriptor_path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    result = daemon_stop(
+        descriptor_path,
+        expected_database=Path(args.database),
+        expected_workspace=Path(args.workspace),
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def _session_command(
     client: SurfaceClient,
     command: str,
@@ -242,6 +377,24 @@ def main() -> None:
     session_correct = sub.add_parser("session-correct")
     session_correct.add_argument("session_id")
     session_correct.add_argument("reason")
+    daemon_start = sub.add_parser("daemon-start")
+    daemon_start.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor",
+    )
+    daemon_status = sub.add_parser("daemon-status")
+    daemon_status.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor",
+    )
+    daemon_stop = sub.add_parser("daemon-stop")
+    daemon_stop.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor",
+    )
     validate = sub.add_parser("workflow-validate")
     validate.add_argument("workflow_json", type=Path)
     commit = sub.add_parser("task-commit")
@@ -264,6 +417,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "chat":
         raise SystemExit(_chat(args))
+    if args.command == "daemon-start":
+        raise SystemExit(_daemon_start(args))
+    if args.command == "daemon-status":
+        raise SystemExit(_daemon_status(args))
+    if args.command == "daemon-stop":
+        raise SystemExit(_daemon_stop(args))
     if args.command in {
         "session-show",
         "session-pause",
