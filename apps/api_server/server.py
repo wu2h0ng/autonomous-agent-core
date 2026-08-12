@@ -980,14 +980,14 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-def serve(
+def build_server(
     application: AgentOSApplication,
     host: str = "127.0.0.1",
-    port: int = 8787,
+    port: int = 0,
     *,
     admin_applications: dict[str, AgentOSApplication] | None = None,
     local_token: str | None = None,
-) -> None:
+) -> ThreadingHTTPServer:
     if local_token is not None and not local_token:
         raise ValueError("local runtime token must be non-empty")
     handler = type(
@@ -1004,4 +1004,21 @@ def serve(
             ),
         },
     )
-    ThreadingHTTPServer((host, port), handler).serve_forever()
+    return ThreadingHTTPServer((host, port), handler)
+
+
+def serve(
+    application: AgentOSApplication,
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    *,
+    admin_applications: dict[str, AgentOSApplication] | None = None,
+    local_token: str | None = None,
+) -> None:
+    build_server(
+        application,
+        host,
+        port,
+        admin_applications=admin_applications,
+        local_token=local_token,
+    ).serve_forever()

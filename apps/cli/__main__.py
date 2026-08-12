@@ -5,56 +5,103 @@ import json
 import sys
 from pathlib import Path
 
-from agent_os_contracts import ActionContract
-from agent_os_core import NonInteractiveDenyGateway
+from agent_os_contracts import (
+    ApprovalDisposition,
+    SurfaceSessionStatus,
+    SurfaceTurnResponse,
+)
+
 from apps.api_server.app import AgentOSApplication
+from apps.runtime_daemon.descriptor import load_runtime_descriptor
+
+from .surface_client import (
+    SurfaceClient,
+    SurfaceClientError,
+)
+
+DEFAULT_RUNTIME_DESCRIPTOR = Path.home() / ".agent-os" / "runtime.json"
 
 
-class TerminalConfirmationGateway:
-    """Human-in-the-loop approval bridge for interactive chat sessions."""
+def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
+    path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    return SurfaceClient(load_runtime_descriptor(path))
 
-    def confirm(self, action: ActionContract, preview: str) -> bool:
-        print(f"\n[approval required] {action.capability_id}")
+
+def _status_value(status: object) -> str:
+    return getattr(status, "value", str(status))
+
+
+def _print_pending_approval(pending: object) -> None:
+    capability_id = getattr(pending, "capability_id", "unknown capability")
+    preview = getattr(pending, "preview", "")
+    print(f"\n[approval required] {capability_id}")
+    if preview:
         print(preview)
-        try:
-            reply = input("Approve this action? [y/N] ")
-        except EOFError:
-            return False
-        return reply.strip().lower() in {"y", "yes"}
+
+
+def _handle_approval(
+    client: SurfaceClient,
+    session_id: str,
+    pending: object,
+) -> SurfaceTurnResponse | None:
+    if pending is None:
+        return None
+    _print_pending_approval(pending)
+    try:
+        reply = input("Approve this action? [y/N] ")
+    except EOFError:
+        return None
+    digest = getattr(pending, "action_digest", "")
+    if reply.strip().lower() in {"y", "yes"}:
+        resumed = client.decide_approval(
+            session_id,
+            digest,
+            ApprovalDisposition.APPROVE,
+            "approved from terminal",
+        )
+        if resumed.text:
+            print(resumed.text)
+        if resumed.stop_reason != "completed":
+            print(f"[stopped: {resumed.stop_reason}]")
+        return resumed
+    denied = client.decide_approval(
+        session_id,
+        digest,
+        ApprovalDisposition.REJECT,
+        "rejected from terminal",
+    )
+    if denied.text:
+        print(denied.text)
+    return denied
 
 
 def _chat(args: argparse.Namespace) -> int:
-    app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
-    if not app.provider_configured:
-        print(
-            "provider is not configured: set AGENT_OS_PROVIDER_BASE_URL, "
-            "AGENT_OS_PROVIDER_MODEL and the API key env "
-            "(AGENT_OS_PROVIDER_API_KEY_ENV, default OPENAI_API_KEY)",
-            file=sys.stderr,
-        )
-        return 2
+    client = load_surface_client(args)
     if args.prompt is not None:
-        session, loop = app.open_chat_session(
-            args.prompt, NonInteractiveDenyGateway()
-        )
-        try:
-            result = loop.run_turn(session, args.prompt)
-        except KeyboardInterrupt:
-            app.correct_task(
-                session.task_id,
-                "user interrupt from terminal",
+        snapshot = client.open_session(args.prompt)
+        session_id = snapshot.session.session_id
+        response = client.run_turn(session_id, args.prompt)
+        if response.text:
+            print(response.text)
+        if (
+            response.snapshot.status == SurfaceSessionStatus.WAITING_APPROVAL
+        ):
+            resumed = _handle_approval(
+                client, session_id, response.snapshot.pending_approval
             )
-            print("[run interrupted; task correction-halted]", file=sys.stderr)
-            return 130
-        print(result.text)
-        if result.stop_reason != "completed":
-            print(f"[stopped: {result.stop_reason}]", file=sys.stderr)
-            return 1
-        return 0
-    session, loop = app.open_chat_session(
-        "interactive terminal chat session", TerminalConfirmationGateway()
-    )
-    print(f"chat session started (task {session.task_id})")
+            if resumed is not None:
+                response = resumed
+        if response.stop_reason != "completed":
+            print(f"[stopped: {response.stop_reason}]", file=sys.stderr)
+        return 0 if response.stop_reason == "completed" else 1
+    if args.session:
+        snapshot = client.get_session(args.session)
+    else:
+        snapshot = client.open_session("interactive terminal chat session")
+    session_id = snapshot.session.session_id
+    print(f"chat session started (session {session_id})")
     print("type /exit to quit, /status for session state")
     while True:
         try:
@@ -63,10 +110,10 @@ def _chat(args: argparse.Namespace) -> int:
             print()
             break
         except KeyboardInterrupt:
-            app.correct_task(
-                session.task_id,
-                "user interrupt at terminal prompt",
-            )
+            try:
+                client.correct(session_id, "user interrupt at terminal prompt")
+            except SurfaceClientError:
+                pass
             print("\n[session interrupted; task correction-halted]")
             break
         text = line.strip()
@@ -75,37 +122,97 @@ def _chat(args: argparse.Namespace) -> int:
         if text in {"/exit", "/quit"}:
             break
         if text == "/status":
+            current = client.get_session(session_id)
             print(
                 json.dumps(
                     {
-                        "task_id": session.task_id,
-                        "run_id": session.run_id,
-                        "history_messages": len(loop.history),
+                        "session_id": session_id,
+                        "status": _status_value(current.status),
+                        "event_sequence": current.event_sequence,
+                        "message_count": current.message_count,
                     },
                     indent=2,
                 )
             )
             continue
-        try:
-            result = loop.run_turn(session, text)
-        except KeyboardInterrupt:
-            app.correct_task(
-                session.task_id,
-                "user interrupt from terminal",
-            )
-            print("[turn interrupted; task correction-halted]")
+        if text == "/pause":
+            paused = client.pause(session_id, "paused by user")
+            print(f"[paused: {_status_value(paused.status)}]")
             continue
-        if result.text:
-            print(result.text)
-        if result.stop_reason != "completed":
-            print(f"[stopped: {result.stop_reason}]")
+        if text == "/resume":
+            resumed = client.resume(session_id, "resumed by user")
+            print(f"[resumed: {_status_value(resumed.status)}]")
+            continue
+        if text == "/correct" or text.startswith("/correct "):
+            reason = text[len("/correct") :].strip()
+            if not reason:
+                print("[usage: /correct REASON]")
+                continue
+            halted = client.correct(session_id, reason)
+            print(f"[correction halted: {_status_value(halted.status)}]")
+            continue
+        response = client.run_turn(session_id, text)
+        if response.text:
+            print(response.text)
+        if (
+            response.snapshot.status == SurfaceSessionStatus.WAITING_APPROVAL
+        ):
+            _handle_approval(
+                client, session_id, response.snapshot.pending_approval
+            )
+            continue
+        if response.stop_reason != "completed":
+            print(f"[stopped: {response.stop_reason}]")
     return 0
+
+
+def _session_command(
+    client: SurfaceClient,
+    command: str,
+    session_id: str,
+    reason: str | None,
+) -> None:
+    if command == "session-show":
+        snapshot = client.get_session(session_id)
+        print(
+            json.dumps(
+                {
+                    "session_id": session_id,
+                    "status": _status_value(snapshot.status),
+                    "event_sequence": snapshot.event_sequence,
+                    "message_count": snapshot.message_count,
+                },
+                indent=2,
+            )
+        )
+        return
+    if command == "session-pause":
+        snapshot = client.pause(session_id, "paused by user")
+    elif command == "session-resume":
+        snapshot = client.resume(session_id, "resumed by user")
+    else:
+        snapshot = client.correct(session_id, reason or "operator correction")
+    print(
+        json.dumps(
+            {
+                "session_id": session_id,
+                "status": _status_value(snapshot.status),
+            },
+            indent=2,
+        )
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="agent-os")
     parser.add_argument("--database", default="agent-os.sqlite3")
     parser.add_argument("--workspace", default=".")
+    parser.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor "
+        f"(default {DEFAULT_RUNTIME_DESCRIPTOR})",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("task-create")
     create.add_argument("statement")
@@ -121,6 +228,20 @@ def main() -> None:
         default=None,
         help="run a single non-interactive prompt and exit",
     )
+    chat.add_argument(
+        "--session",
+        default=None,
+        help="resume an existing session instead of opening a new one",
+    )
+    session_show = sub.add_parser("session-show")
+    session_show.add_argument("session_id")
+    session_pause = sub.add_parser("session-pause")
+    session_pause.add_argument("session_id")
+    session_resume = sub.add_parser("session-resume")
+    session_resume.add_argument("session_id")
+    session_correct = sub.add_parser("session-correct")
+    session_correct.add_argument("session_id")
+    session_correct.add_argument("reason")
     validate = sub.add_parser("workflow-validate")
     validate.add_argument("workflow_json", type=Path)
     commit = sub.add_parser("task-commit")
@@ -143,6 +264,20 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "chat":
         raise SystemExit(_chat(args))
+    if args.command in {
+        "session-show",
+        "session-pause",
+        "session-resume",
+        "session-correct",
+    }:
+        client = load_surface_client(args)
+        _session_command(
+            client,
+            args.command,
+            args.session_id,
+            getattr(args, "reason", None),
+        )
+        return
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
     if args.command == "task-create":
         task = app.create_task({

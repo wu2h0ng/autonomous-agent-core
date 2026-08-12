@@ -5,6 +5,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from apps.cli import __main__ as cli
 
 
@@ -99,3 +101,188 @@ def test_cli_routes_long_horizon_commands_to_application(
         "task:cli",
         {"workflow": {"version": 2}, "reason": "replace wait"},
     )
+
+
+class FakeSession:
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+
+
+class FakeSnapshot:
+    def __init__(
+        self,
+        session_id: str,
+        status: str = "ACTIVE",
+        event_sequence: int = 1,
+        message_count: int = 2,
+        pending_approval: object | None = None,
+    ) -> None:
+        self.session = FakeSession(session_id)
+        self.status = status
+        self.event_sequence = event_sequence
+        self.message_count = message_count
+        self.pending_approval = pending_approval
+
+
+class FakePendingApproval:
+    def __init__(self) -> None:
+        self.action_digest = "d" * 64
+        self.capability_id = "workspace.edit"
+        self.preview = "exact diff preview"
+
+
+class FakeResponse:
+    def __init__(
+        self,
+        text: str = "completed",
+        stop_reason: str = "completed",
+        snapshot: FakeSnapshot | None = None,
+    ) -> None:
+        self.text = text
+        self.stop_reason = stop_reason
+        self.snapshot = snapshot or FakeSnapshot("session:1")
+
+
+class FakeSurfaceClient:
+    def __init__(
+        self,
+        *,
+        turn_responses: list[FakeResponse] | None = None,
+        approve_response: FakeResponse | None = None,
+    ) -> None:
+        self.calls: list[tuple] = []
+        self.turn_responses = list(turn_responses or [])
+        self.approve_response = approve_response or FakeResponse()
+
+    def open_session(self, statement: str) -> FakeSnapshot:
+        self.calls.append(("open", statement))
+        return FakeSnapshot("session:1")
+
+    def get_session(self, session_id: str) -> FakeSnapshot:
+        self.calls.append(("get_session", session_id))
+        return FakeSnapshot(session_id)
+
+    def run_turn(self, session_id: str, text: str) -> FakeResponse:
+        self.calls.append(("turn", session_id, text))
+        if self.turn_responses:
+            return self.turn_responses.pop(0)
+        return FakeResponse()
+
+    def decide_approval(
+        self,
+        session_id: str,
+        action_digest: str,
+        disposition: object,
+        reason: str,
+    ) -> FakeResponse:
+        self.calls.append(
+            ("approve", session_id, action_digest, disposition, reason)
+        )
+        return self.approve_response
+
+    def pause(self, session_id: str, reason: str) -> FakeSnapshot:
+        self.calls.append(("pause", session_id, reason))
+        return FakeSnapshot(session_id, status="PAUSED")
+
+    def resume(self, session_id: str, reason: str) -> FakeSnapshot:
+        self.calls.append(("resume", session_id, reason))
+        return FakeSnapshot(session_id)
+
+    def correct(self, session_id: str, reason: str) -> FakeSnapshot:
+        self.calls.append(("correct", session_id, reason))
+        return FakeSnapshot(session_id, status="CORRECTION_HALTED")
+
+
+def test_chat_uses_surface_client_not_application(
+    monkeypatch,
+    capsys,
+) -> None:
+    fake = FakeSurfaceClient()
+    monkeypatch.setattr(cli, "load_surface_client", lambda args: fake)
+    monkeypatch.setattr(
+        cli,
+        "AgentOSApplication",
+        lambda **kwargs: pytest.fail("CLI must not open daemon SQLite"),
+    )
+    monkeypatch.setattr(sys, "argv", ["agent-os", "chat", "-p", "inspect"])
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert fake.calls == [("open", "inspect"), ("turn", "session:1", "inspect")]
+    assert "completed" in capsys.readouterr().out
+
+
+def test_chat_approval_continuation_prompts_and_submits_exact_digest(
+    monkeypatch,
+    capsys,
+) -> None:
+    waiting = FakeResponse(
+        text="approval required",
+        stop_reason="approval_required",
+        snapshot=FakeSnapshot(
+            "session:1",
+            status="WAITING_APPROVAL",
+            pending_approval=FakePendingApproval(),
+        ),
+    )
+    fake = FakeSurfaceClient(
+        turn_responses=[waiting],
+        approve_response=FakeResponse(
+            text="approved and completed", stop_reason="completed"
+        ),
+    )
+    monkeypatch.setattr(cli, "load_surface_client", lambda args: fake)
+    monkeypatch.setattr(sys, "argv", ["agent-os", "chat", "-p", "edit it"])
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert ("approve", "session:1", "d" * 64, "APPROVE", "approved from terminal") in fake.calls
+    out = capsys.readouterr().out
+    assert "approval required" in out
+    assert "workspace.edit" in out
+    assert "approved and completed" in out
+
+
+def test_interactive_chat_routes_slash_commands_to_client(
+    monkeypatch,
+    capsys,
+) -> None:
+    fake = FakeSurfaceClient()
+    monkeypatch.setattr(cli, "load_surface_client", lambda args: fake)
+    inputs = iter(["/status", "/pause", "/resume", "/correct fix it", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+    monkeypatch.setattr(sys, "argv", ["agent-os", "chat"])
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert ("get_session", "session:1") in fake.calls
+    assert ("pause", "session:1", "paused by user") in fake.calls
+    assert ("resume", "session:1", "resumed by user") in fake.calls
+    assert ("correct", "session:1", "fix it") in fake.calls
+    assert fake.calls[0] == ("open", "interactive terminal chat session")
+
+
+def test_session_show_pause_resume_correct_commands(
+    monkeypatch,
+    capsys,
+) -> None:
+    fake = FakeSurfaceClient()
+    monkeypatch.setattr(cli, "load_surface_client", lambda args: fake)
+    monkeypatch.setattr(
+        cli,
+        "AgentOSApplication",
+        lambda **kwargs: pytest.fail("CLI must not open daemon SQLite"),
+    )
+    for argv in (
+        ["agent-os", "session-show", "session:1"],
+        ["agent-os", "session-pause", "session:1"],
+        ["agent-os", "session-resume", "session:1"],
+        ["agent-os", "session-correct", "session:1", "operator review"],
+    ):
+        monkeypatch.setattr(sys, "argv", argv)
+        cli.main()
+
+    assert ("get_session", "session:1") in fake.calls
+    assert ("pause", "session:1", "paused by user") in fake.calls
+    assert ("resume", "session:1", "resumed by user") in fake.calls
+    assert ("correct", "session:1", "operator review") in fake.calls

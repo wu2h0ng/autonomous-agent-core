@@ -1,9 +1,12 @@
 [project]
 name = "autonomous-agent-core"
 version = "0.0.1"
-description = "Agent OS dual-track monorepo: product runtime plus evidence-gated autonomous-agent research."
+
 requires-python = ">=3.10"
 dependencies = []
+
+[project.scripts]
+agent-os = "apps.cli.__main__:main"
 
 [project.optional-dependencies]
 product-test = [

@@ -6,10 +6,11 @@ import signal
 import subprocess
 import sys
 import threading
+from datetime import datetime, timezone
 from importlib import import_module
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Generator, cast
 
 import pytest
 from agent_os_contracts import (
@@ -40,6 +41,7 @@ from agent_os_core import (
 from agent_os_core.action_pipeline import ActionPipeline
 
 from apps.api_server.app import AgentOSApplication
+from apps.api_server.server import build_server
 
 
 def _proposal(call_id: str, capability_id: str, arguments: dict) -> ProviderToolProposal:
@@ -992,17 +994,57 @@ def _cli_env(stub_url: str) -> dict[str, str]:
     return env
 
 
-def test_cli_chat_prompt_mode_end_to_end(tmp_path: Path, stub_provider: str) -> None:
+@pytest.fixture()
+def cli_daemon(
+    tmp_path: Path,
+    stub_provider: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[Path, None, None]:
+    env = _cli_env(stub_provider)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    database = tmp_path / "agent-os.sqlite3"
+    app = AgentOSApplication(database=database, workspace=tmp_path)
+    assert app.provider_configured
+    token = "cli-daemon-test-token"
+    server = build_server(app, "127.0.0.1", 0, local_token=token)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    descriptor_path = tmp_path / "runtime.json"
+    descriptor_path.write_text(
+        json.dumps(
+            {
+                "protocol_version": "1.0",
+                "pid": os.getpid(),
+                "boot_id": "boot:cli-daemon-test",
+                "host": "127.0.0.1",
+                "port": server.server_address[1],
+                "bearer_token": token,
+                "database_path": str(database),
+                "workspace_path": str(tmp_path),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    try:
+        yield descriptor_path
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_cli_chat_prompt_mode_end_to_end(
+    tmp_path: Path, stub_provider: str, cli_daemon: Path
+) -> None:
     _prepare_workspace(tmp_path)
     completed = subprocess.run(
         [
             sys.executable,
             "-m",
             "apps.cli",
-            "--database",
-            str(tmp_path / "agent-os.sqlite3"),
-            "--workspace",
-            str(tmp_path),
+            "--descriptor",
+            str(cli_daemon),
             "chat",
             "-p",
             "list the files",
@@ -1046,7 +1088,7 @@ def test_cli_chat_prompt_mode_end_to_end(tmp_path: Path, stub_provider: str) -> 
 
 
 def test_cli_prompt_mode_denies_edit_without_interactive_approval(
-    tmp_path: Path, stub_provider: str
+    tmp_path: Path, stub_provider: str, cli_daemon: Path
 ) -> None:
     _prepare_workspace(tmp_path)
     _StubHandler.first_tool_name = "workspace__edit"
@@ -1061,10 +1103,8 @@ def test_cli_prompt_mode_denies_edit_without_interactive_approval(
             sys.executable,
             "-m",
             "apps.cli",
-            "--database",
-            str(tmp_path / "agent-os.sqlite3"),
-            "--workspace",
-            str(tmp_path),
+            "--descriptor",
+            str(cli_daemon),
             "chat",
             "-p",
             "change the fixture",
@@ -1076,26 +1116,23 @@ def test_cli_prompt_mode_denies_edit_without_interactive_approval(
         cwd=tmp_path,
     )
 
-    assert completed.returncode == 0, completed.stderr
+    assert completed.returncode != 0, completed.stdout
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
-    second_request = _StubHandler.requests_seen[1]
-    tool_message = next(
-        message for message in second_request["messages"] if message["role"] == "tool"
-    )
-    assert "user rejected" in tool_message["content"]
+    assert "approval required" in completed.stdout
+    assert len(_StubHandler.requests_seen) == 1
 
 
-def test_cli_chat_repl_smoke(tmp_path: Path, stub_provider: str) -> None:
+def test_cli_chat_repl_smoke(
+    tmp_path: Path, stub_provider: str, cli_daemon: Path
+) -> None:
     _prepare_workspace(tmp_path)
     completed = subprocess.run(
         [
             sys.executable,
             "-m",
             "apps.cli",
-            "--database",
-            str(tmp_path / "agent-os.sqlite3"),
-            "--workspace",
-            str(tmp_path),
+            "--descriptor",
+            str(cli_daemon),
             "chat",
         ],
         input="list the files\n/exit\n",
@@ -1111,7 +1148,7 @@ def test_cli_chat_repl_smoke(tmp_path: Path, stub_provider: str) -> None:
 
 
 def test_cli_interrupt_at_prompt_records_run_correction(
-    tmp_path: Path, stub_provider: str
+    tmp_path: Path, stub_provider: str, cli_daemon: Path
 ) -> None:
     _prepare_workspace(tmp_path)
     database = tmp_path / "agent-os.sqlite3"
@@ -1122,10 +1159,8 @@ def test_cli_interrupt_at_prompt_records_run_correction(
             sys.executable,
             "-m",
             "apps.cli",
-            "--database",
-            str(database),
-            "--workspace",
-            str(tmp_path),
+            "--descriptor",
+            str(cli_daemon),
             "chat",
         ],
         stdin=subprocess.PIPE,
