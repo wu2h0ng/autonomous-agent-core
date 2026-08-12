@@ -1,0 +1,7 @@
+id: 3
+event: SESSION_MESSAGE_RECORDED
+data: {"schema_version":"1.0","event_id":"event:1","task_id":"task:1","sequence":3,"event_type":"SESSION_MESSAGE_RECORDED","correlation_id":"run:1","payload_json":"{}","occurred_at":"2026-08-12T00:00:00+00:00"}
+
+event: cursor
+data: {"next_sequence": 3}
+
