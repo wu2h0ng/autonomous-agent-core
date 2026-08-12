@@ -256,6 +256,16 @@ class AgentLoop:
         self._require_session_binding(session)
         if self._resumable_turn_ids:
             raise ValueError("session already has an open durable turn")
+        run = self._tasks.get_task(session.task_id).run
+        if (
+            run is None
+            or run.run_id != session.run_id
+            or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
+        ):
+            raise InvalidTransitionError(
+                "run_turn requires a runnable Run; "
+                "a PAUSED or terminal Run must be resumed first"
+            )
         turn_id = TurnId(
             turn_id=f"turn-{uuid4()}",
             session_id=session.session_id,
@@ -767,6 +777,16 @@ class AgentLoop:
                 ):
                     stop_reason = "correction_halted"
                     break
+                run = self._tasks.get_task(session.task_id).run
+                if (
+                    run is None
+                    or run.run_id != session.run_id
+                    or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
+                ):
+                    raise InvalidTransitionError(
+                        "provider invocation requires a runnable Run; "
+                        "a PAUSED or terminal Run must be resumed first"
+                    )
                 response = self._call_provider(session, turn_id, steps)
                 if isinstance(response, ProviderFailure):
                     stop_reason = f"provider_failure:{response.code.value}"

@@ -846,6 +846,75 @@ def test_paused_resolved_approval_requires_explicit_run_resume(
     assert _event_count(app, session.task_id, TaskEventType.RUN_RESUMED) == 1
 
 
+def test_run_turn_on_paused_run_fails_before_provider_call(tmp_path: Path) -> None:
+    app = chat_app(tmp_path, scripted=(("must not run while paused", ()),))
+    session, loop = app.open_chat_session("paused-probe", AutoApproveGateway())
+    app.resume_task(session.task_id)
+    app.pause_task(session.task_id)
+    restored, restored_loop = app.restore_chat_session(
+        session.session_id,
+        AutoApproveGateway(),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="runnable|resume"):
+        restored_loop.run_turn(restored, "new request while paused")
+
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+    run = app.tasks.get_task(session.task_id).run
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+    assert (
+        _event_count(app, session.task_id, TaskEventType.SESSION_TURN_STARTED) == 0
+    )
+
+
+class _RaisingProvider(DeterministicProvider):
+    def __init__(self, binding: Any) -> None:
+        super().__init__(scripted=(), invocation_binding=binding)
+        self.calls = 0
+
+    def complete(self, request: Any) -> Any:
+        self.calls += 1
+        raise RuntimeError("provider mid-turn failure")
+
+
+def test_generic_resume_turn_on_paused_run_fails_before_provider_call(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path)
+    raising = _RaisingProvider(app.provider.invocation_binding)
+    app.provider = raising
+    session, loop = app.open_chat_session("paused-resume-probe", AutoApproveGateway())
+    app.resume_task(session.task_id)
+    with pytest.raises(RuntimeError, match="mid-turn"):
+        loop.run_turn(session, "first request")
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert projected.resumable_turn_id is not None
+    assert raising.calls == 1
+    app.pause_task(session.task_id)
+
+    restored, restored_loop = app.restore_chat_session(
+        session.session_id,
+        AutoApproveGateway(),
+    )
+    with pytest.raises(InvalidTransitionError, match="runnable|resume"):
+        restored_loop.resume_turn(
+            restored,
+            TurnId(
+                turn_id=projected.resumable_turn_id,
+                session_id=session.session_id,
+            ),
+        )
+    assert raising.calls == 1
+    run = app.tasks.get_task(session.task_id).run
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+
+
 @pytest.mark.parametrize(
     "loser_disposition",
     [ApprovalDisposition.REJECT, ApprovalDisposition.APPROVE],
