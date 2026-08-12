@@ -466,10 +466,17 @@ def test_event_batch_route_returns_strictly_increasing_sequences(
 def test_failed_auth_never_poisons_idempotency_store(
     surface_server: SurfaceTestServer,
 ) -> None:
-    headers = {"Idempotency-Key": "idem:api:poison:1"}
+    task_payload = {
+        "goal_id": "goal:api:poison",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "created_by": "user:local",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "statement": "inspect repository",
+    }
     unauthenticated = urllib.request.Request(
-        surface_server.base + "/v1/surface/sessions",
-        data=json.dumps(_open_command(surface_server.app)).encode(),
+        surface_server.base + "/v1/tasks",
+        data=json.dumps(task_payload).encode(),
         method="POST",
         headers={
             "Content-Type": "application/json",
@@ -479,14 +486,20 @@ def test_failed_auth_never_poisons_idempotency_store(
     with pytest.raises(urllib.error.HTTPError) as error:
         urllib.request.urlopen(unauthenticated)
     assert error.value.code == 401
-
-    status, opened = surface_server.json(
-        "/v1/surface/sessions",
-        method="POST",
-        body=_open_command(surface_server.app),
-        headers=headers,
+    assert (
+        surface_server.app.store.get_idempotency(
+            "/v1/tasks", "idem:api:poison:1"
+        )
+        is None
     )
-    assert status == 200
-    snapshot = opened["snapshot"] if "snapshot" in opened else opened
-    assert snapshot["status"] == "ACTIVE"
-    assert len(surface_server.app.store.list_task_ids()) == 1
+
+    request = surface_server.request(
+        "/v1/tasks",
+        method="POST",
+        body=task_payload,
+        headers={"Idempotency-Key": "idem:api:poison:1"},
+    )
+    with urllib.request.urlopen(request) as response:
+        assert response.status == 201
+        body = json.loads(response.read())
+    assert body.get("task_id") is not None
