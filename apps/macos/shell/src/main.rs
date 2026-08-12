@@ -1,16 +1,49 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use agent_os_shell_lib::daemon_supervisor::SupervisorState;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use agent_os_shell_lib::daemon_supervisor::{DaemonConfig, Supervisor, SupervisorState};
 use agent_os_shell_lib::keychain_custody::{
-    custody_status, effective_provider_key, CustodyStatus, KeyValueStore, KeychainStore,
+    effective_provider_key, custody_status, CustodyStatus, KeyValueStore, KeychainStore,
     PROVIDER_KEY_ACCOUNT, KEYCHAIN_SERVICE,
 };
 
 const PROVIDER_KEY_ENV: &str = "AGENT_OS_PROVIDER_API_KEY_ENV";
-const DAEMON_ENV_KEY: &str = "AGENT_OS_PROVIDER_API_KEY";
+const DAEMON_KEY_ENV: &str = "AGENT_OS_PROVIDER_API_KEY";
+
+fn env_or(name: &str, default: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| default.to_string())
+}
+
+/// Dev-scope daemon configuration (PATH-independent python resolution is
+/// supplied by the caller; the app config overrides env for the dev artifact).
+fn default_daemon_config() -> DaemonConfig {
+    let python = PathBuf::from(env_or("AGENT_OS_DAEMON_PYTHON", "python3"));
+    DaemonConfig {
+        python,
+        database: PathBuf::from(env_or("AGENT_OS_DAEMON_DATABASE", "agent-os.sqlite3")),
+        workspace: PathBuf::from(env_or("AGENT_OS_DAEMON_WORKSPACE", ".")),
+        descriptor_path: PathBuf::from(env_or(
+            "AGENT_OS_DAEMON_DESCRIPTOR",
+            &format!("{}/.agent-os/runtime.json", env_or("HOME", ".")),
+        )),
+        provider_key_env_name: DAEMON_KEY_ENV.to_string(),
+        provider_key_value: effective_provider_key(PROVIDER_KEY_ENV, Some(&KeychainStore)),
+        pythonpath: std::env::var("PYTHONPATH").ok(),
+    }
+}
+
+struct AppState {
+    supervisor: Mutex<Supervisor>,
+}
 
 fn main() {
+    let state = AppState {
+        supervisor: Mutex::new(Supervisor::new(default_daemon_config())),
+    };
     tauri::Builder::default()
+        .manage(state)
         .invoke_handler(tauri::generate_handler![
             daemon_start,
             daemon_stop,
@@ -26,21 +59,37 @@ fn main() {
 // --- daemon lifecycle (supervisor) ---
 
 #[tauri::command]
-fn daemon_start() -> Result<String, String> {
-    // Wave 2a: supervision integration is wired in Task 3; the state machine
-    // decision logic is already unit-tested in daemon_supervisor.rs.
-    let _ = SupervisorState::Stopped;
-    Err("daemon supervision integration pending Task 3".to_string())
+fn daemon_start(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let mut supervisor = state.supervisor.lock().map_err(|e| e.to_string())?;
+    if supervisor.state == SupervisorState::Stopped {
+        supervisor.start();
+    }
+    Ok("starting".to_string())
 }
 
 #[tauri::command]
-fn daemon_stop() -> Result<String, String> {
-    Ok("stopping".to_string())
-}
-
-#[tauri::command]
-fn daemon_status() -> Result<String, String> {
+fn daemon_stop(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let mut supervisor = state.supervisor.lock().map_err(|e| e.to_string())?;
+    supervisor.stop();
     Ok("stopped".to_string())
+}
+
+#[tauri::command]
+fn daemon_status(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let supervisor = state.supervisor.lock().map_err(|e| e.to_string())?;
+    let state_name = match supervisor.state {
+        SupervisorState::Stopped => "stopped",
+        SupervisorState::Starting => "starting",
+        SupervisorState::Running => "running",
+        SupervisorState::RestartBackoff => "restart_backoff",
+        SupervisorState::Halted => "halted",
+    };
+    Ok(serde_json::json!({
+        "state": state_name,
+        "restarts": supervisor.restarts,
+        "boot_id": supervisor.last_boot_id,
+    })
+    .to_string())
 }
 
 // --- keychain custody (ADR-0058) ---
@@ -63,27 +112,12 @@ fn custody_set_provider_key(provider_key: String) -> Result<bool, String> {
     if provider_key.is_empty() {
         return Err("provider key must be non-empty".to_string());
     }
-    let store = KeychainStore;
-    store.set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, &provider_key)?;
-    // Never echo the value.
-    let _ = effective_provider_key(PROVIDER_KEY_ENV, Some(&store));
+    KeychainStore.set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, &provider_key)?;
     Ok(true)
 }
 
 #[tauri::command]
 fn custody_clear_provider_key() -> Result<bool, String> {
-    let store = KeychainStore;
-    store.delete_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT)?;
+    KeychainStore.delete_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT)?;
     Ok(true)
-}
-
-// The daemon startup injects DAEMON_ENV_KEY with the effective key value
-// resolved by the shell (Task 4 wires this through the supervisor).
-#[allow(dead_code)]
-fn _daemon_environment() -> Vec<(String, String)> {
-    let mut env = Vec::new();
-    if let Some(key) = effective_provider_key(PROVIDER_KEY_ENV, Some(&KeychainStore)) {
-        env.push((DAEMON_ENV_KEY.to_string(), key));
-    }
-    env
 }
