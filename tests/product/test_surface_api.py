@@ -461,3 +461,32 @@ def test_event_batch_route_returns_strictly_increasing_sequences(
     assert len(set(sequences)) == len(sequences)
     assert sequences[-1] == last_sequence
     assert "event: cursor" in body
+
+
+def test_failed_auth_never_poisons_idempotency_store(
+    surface_server: SurfaceTestServer,
+) -> None:
+    headers = {"Idempotency-Key": "idem:api:poison:1"}
+    unauthenticated = urllib.request.Request(
+        surface_server.base + "/v1/surface/sessions",
+        data=json.dumps(_open_command(surface_server.app)).encode(),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": "idem:api:poison:1",
+        },
+    )
+    with pytest.raises(urllib.error.HTTPError) as error:
+        urllib.request.urlopen(unauthenticated)
+    assert error.value.code == 401
+
+    status, opened = surface_server.json(
+        "/v1/surface/sessions",
+        method="POST",
+        body=_open_command(surface_server.app),
+        headers=headers,
+    )
+    assert status == 200
+    snapshot = opened["snapshot"] if "snapshot" in opened else opened
+    assert snapshot["status"] == "ACTIVE"
+    assert len(surface_server.app.store.list_task_ids()) == 1

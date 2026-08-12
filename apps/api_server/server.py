@@ -317,7 +317,8 @@ class Handler(BaseHTTPRequestHandler):
         response_headers: dict[str, str] | None = None,
     ) -> None:
         if (
-            self.command == "POST"
+            status < 400
+            and self.command == "POST"
             and isinstance(payload, dict)
             and _uses_generic_http_idempotency(self.path)
         ):
