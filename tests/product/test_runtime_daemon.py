@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import stat
 import time
 import urllib.error
@@ -241,3 +242,93 @@ def test_runtime_descriptor_excludes_provider_environment(
     raw = running.config.descriptor_path.read_text(encoding="utf-8")
     assert "AGENT_OS_PROVIDER_BASE_URL" not in raw
     assert "OPENAI_API_KEY" not in raw
+
+
+def test_stop_verifies_database_and_workspace_identity(
+    tmp_path: Path,
+    running: RunningRuntime,
+) -> None:
+    from apps.runtime_daemon import daemon_stop
+
+    with pytest.raises(RuntimeDescriptorError, match="database path"):
+        daemon_stop(
+            running.config.descriptor_path,
+            expected_database=tmp_path / "other.sqlite3",
+        )
+    with pytest.raises(RuntimeDescriptorError, match="workspace path"):
+        daemon_stop(
+            running.config.descriptor_path,
+            expected_workspace=tmp_path / "other-workspace",
+        )
+
+
+def test_stop_absent_descriptor_raises(tmp_path: Path) -> None:
+    from apps.runtime_daemon import daemon_stop
+
+    with pytest.raises(RuntimeDescriptorError, match="absent"):
+        daemon_stop(tmp_path / "missing.json")
+
+
+def test_daemon_status_state_machine(tmp_path: Path) -> None:
+    from apps.runtime_daemon import daemon_status
+
+    assert daemon_status(tmp_path / "missing.json")["status"] == "absent"
+
+    stale = _descriptor(tmp_path, port=19777).model_copy(
+        update={"pid": 999999}
+    )
+    write_descriptor(tmp_path / "runtime.json", stale)
+    assert daemon_status(tmp_path / "runtime.json")["status"] == "stale"
+
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("not json", encoding="utf-8")
+    assert daemon_status(invalid)["status"] == "invalid"
+
+
+def test_serve_foreground_sigterm_removes_descriptor(
+    tmp_path: Path,
+) -> None:
+    import subprocess
+    import sys
+
+    descriptor_path = tmp_path / "runtime.json"
+    repo_root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [
+            str(repo_root),
+            str(repo_root / "packages" / "contracts" / "src"),
+            str(repo_root / "packages" / "os_core" / "src"),
+        ]
+    )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; "
+            "from apps.runtime_daemon import serve_foreground, RuntimeConfig; "
+            "from pathlib import Path; "
+            "config = RuntimeConfig("
+            "database=Path(sys.argv[1]), "
+            "workspace=Path(sys.argv[2]), "
+            "descriptor_path=Path(sys.argv[3]), "
+            "port=0); "
+            "raise SystemExit(serve_foreground(config))",
+            str(tmp_path / "agent-os.sqlite3"),
+            str(tmp_path),
+            str(descriptor_path),
+        ],
+        start_new_session=True,
+        env=env,
+    )
+    try:
+        assert _wait_for(lambda: descriptor_path.exists(), timeout=15)
+        os.kill(process.pid, signal.SIGTERM)
+        process.wait(timeout=20)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+    assert process.returncode == 0
+    assert _wait_for(lambda: not descriptor_path.exists(), timeout=10)
+    assert not list(tmp_path.glob("runtime.json.*.tmp"))
