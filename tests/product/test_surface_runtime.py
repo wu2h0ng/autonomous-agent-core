@@ -38,6 +38,7 @@ from agent_os_core import (
     InvalidTransitionError,
     SessionProjector,
     SurfaceIdempotencyConflict,
+    SurfaceProtocolError,
     SurfaceScopeError,
     SurfaceSequenceConflict,
     TaskConfigurationDrift,
@@ -2022,7 +2023,7 @@ def test_surface_closed_session_rejects_turn_before_provider_call(
             "expected_event_sequence": closed_sequence,
         }
     )
-    with pytest.raises(Exception, match="closed"):
+    with pytest.raises(SurfaceProtocolError, match="closed"):
         app.surface.run_turn(closed_command)
 
     assert isinstance(app.provider, DeterministicProvider)
