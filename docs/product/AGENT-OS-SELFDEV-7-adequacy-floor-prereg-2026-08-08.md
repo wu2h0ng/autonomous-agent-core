@@ -37,9 +37,9 @@
    INSUFFICIENT_DATA — not SUPPORTS, not NEGATIVE. This is frozen before
    any attempt and binds the adjudicator.
 5. **Driver + gate binding**: driver7.py (whitelist abort + pause-on-403 +
-   probe-gated resume) and the health gate (3 small probes + 1 medium
-   extractable-diff probe + 1 explicit 403-discriminating quota probe) are
-   bound in the freeze manifest.
+   cumulative-budget probe-gated resume) and the health gate (3 small
+   probes + 1 medium extractable-diff probe; any 403 response on a probe
+   fails the gate) are bound in the freeze manifest.
 
 ## 1. Purpose and claim boundary
 
@@ -85,8 +85,8 @@ patch's context lines against base bytes for version drift).
 - Execution: strictly sequential; ABAB per-attempt; workspace restored
   before EVERY attempt; no early stopping (whitelist abort = kill-4 event).
 - Health gate (strengthened): 3 small probes + 1 medium extractable-diff
-  probe + 1 explicit quota probe (a 403 response fails the gate), within 30
-  minutes before the first attempt; failure ⇒ no start.
+  probe, within 30 minutes before the first attempt; any 403 response on a
+  probe fails the gate; failure ⇒ no start.
 
 ## 4. Frozen subset (REUSED, hash-pinned)
 

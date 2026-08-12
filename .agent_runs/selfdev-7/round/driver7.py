@@ -82,16 +82,25 @@ def run_arm(arm: str, entry: dict[str, object], attempt: int) -> dict[str, objec
         err_file.write_text(proc.stderr or "")
         stderr_tail = (proc.stderr or "")[-400:]
         if _is_quota_event(stderr_tail):
-            # prereg §0.3: 403 quota events PAUSE the round, not consume it —
-            # record the pause event, keep the invoked marker, and let the
-            # main loop retry this slot after the probe-gated resume.
-            (out_dir / f"{arm}-attempt-{attempt}-quota-pause.json").write_text(json.dumps({
+            if _pause_budget_remaining_s > 0:
+                # prereg §0.3: 403 quota events PAUSE the round, not consume it —
+                # record the pause event, keep the invoked marker, and let the
+                # main loop retry this slot after the probe-gated resume.
+                (out_dir / f"{arm}-attempt-{attempt}-quota-pause-{int(started)}.json").write_text(json.dumps({
+                    "instance_id": instance_id, "arm": arm, "attempt": attempt,
+                    "quota_pause": True, "stderr_tail": stderr_tail,
+                    "ts": started,
+                }))
+                out_file.unlink(missing_ok=True)
+                return {"paused_quota": True}
+            # pause budget exhausted: quota events now consume INVALID_PROVIDER
+            out_file.write_text(json.dumps({
                 "instance_id": instance_id, "arm": arm, "attempt": attempt,
-                "quota_pause": True, "stderr_tail": stderr_tail,
-                "ts": time.time(),
+                "attempt_class": "INVALID_PROVIDER",
+                "detail": "quota event recorded after the cumulative pause budget was exhausted",
+                "stderr_tail": stderr_tail,
             }))
-            out_file.unlink(missing_ok=True)
-            return {"paused_quota": True}
+            return {"attempt_class": "INVALID_PROVIDER"}
         if proc.returncode == 0 and proc.stdout.strip():
             out_file.write_text(proc.stdout)
             return json.loads(proc.stdout)
@@ -239,7 +248,8 @@ def health_gate() -> bool:
 
 QUOTA_MARKERS = ("AUTHENTICATION_FAILED", "HTTP 403")
 PAUSE_PROBE_INTERVAL_S = 300
-PAUSE_MAX_CUMULATIVE_S = 6 * 3600
+PAUSE_BUDGET_TOTAL_S = 6 * 3600
+_pause_budget_remaining_s = PAUSE_BUDGET_TOTAL_S
 
 
 def _is_quota_event(stderr_tail: str) -> bool:
@@ -247,22 +257,28 @@ def _is_quota_event(stderr_tail: str) -> bool:
     return any(marker in stderr_tail for marker in QUOTA_MARKERS)
 
 
-def _pause_until_healthy() -> None:
-    """Probe-gated pause; logs every probe; 6h cumulative cap (prereg §0.3)."""
-    paused_at = time.time()
+def _pause_until_healthy() -> bool:
+    """Probe-gated pause with a CUMULATIVE budget (prereg §0.3).
+
+    Returns True when 2 consecutive healthy probes allow resume; False when
+    the cumulative 6h budget is exhausted — callers then record subsequent
+    quota events as consumed INVALID_PROVIDER attempts instead of pausing.
+    """
+    global _pause_budget_remaining_s
     healthy_streak = 0
     while True:
-        if time.time() - paused_at > PAUSE_MAX_CUMULATIVE_S:
-            print("pause budget exhausted (6h) — remaining attempts consume INVALID_PROVIDER", flush=True)
-            return
+        if _pause_budget_remaining_s <= 0:
+            print("pause budget exhausted (6h cumulative) — subsequent quota events consume INVALID_PROVIDER", flush=True)
+            return False
         if health_gate():
             healthy_streak += 1
         else:
             healthy_streak = 0
-        print(f"pause probe: healthy_streak={healthy_streak}", flush=True)
+        print(f"pause probe: healthy_streak={healthy_streak} remaining={_pause_budget_remaining_s}s", flush=True)
         if healthy_streak >= 2:
             print("resume after pause", flush=True)
-            return
+            return True
+        _pause_budget_remaining_s -= PAUSE_PROBE_INTERVAL_S
         time.sleep(PAUSE_PROBE_INTERVAL_S)
 
 
