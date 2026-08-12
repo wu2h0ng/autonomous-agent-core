@@ -307,7 +307,10 @@ class WorkspaceSandbox:
                     else None
                 )
                 if expected != actual:
-                    raise CapabilityDenied("workspace changed since proposal")
+                    raise CapabilityDenied(
+                        "workspace changed since proposal; admissible: re-read the "
+                        f"target and re-propose against its current sha256 {actual}"
+                    )
             return self._apply_unified_diff(str(args.get("diff", "")), action_key)
         path = self._safe_path(str(args.get("path", "")))
         content = str(args.get("content", ""))
@@ -686,14 +689,22 @@ class WorkspaceSandbox:
             per_file_key = action_key if len(files) == 1 else f"{action_key}:{rel}"
             if item["is_new"]:
                 if path.exists():
-                    raise CapabilityDenied(f"diff creates existing file: {rel}")
+                    raise CapabilityDenied(
+                        f"diff creates existing file: {rel}; admissible: the "
+                        "target exists at base — emit an update diff (with ---/+++ "
+                        "headers for the existing file), not a new-file diff"
+                    )
                 content = "".join(new_lines)
                 # reuse full-file apply for compensation semantics
                 result = self._apply_patch({"path": rel, "content": content}, per_file_key)
                 applied.append({"path": rel, "mode": "create", **result})
                 continue
             if not path.is_file():
-                raise CapabilityDenied(f"diff target missing: {rel}")
+                raise CapabilityDenied(
+                    f"diff target missing: {rel}; admissible: the target does not "
+                    "exist at base — emit a new-file diff (--- /dev/null header), "
+                    "not an update diff"
+                )
             current = path.read_text(encoding="utf-8")
             current_lines = current.splitlines(keepends=True)
             if item["hunks"]:
@@ -961,7 +972,11 @@ def _apply_hunks_to_lines(current: list[str], hunks: list[tuple[int, int, list[s
                 if cursor >= len(text_lines):
                     raise CapabilityDenied("unified diff context past EOF")
                 if text_lines[cursor] != row[1:] and text_lines[cursor].rstrip("\n") != row[1:].rstrip("\n"):
-                    raise CapabilityDenied("unified diff context mismatch")
+                    raise CapabilityDenied(
+                        "unified diff context mismatch; admissible: context "
+                        "(space-prefixed) lines must equal the base file bytes — "
+                        f"expected {text_lines[cursor]!r}, diff carries {row[1:]!r}"
+                    )
                 out.append(text_lines[cursor])
                 cursor += 1
             elif row.startswith("-"):

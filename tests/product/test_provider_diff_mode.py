@@ -269,6 +269,39 @@ def test_diff_mode_sealed_run_applies_diff_end_to_end(tmp_path) -> None:
     assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
 
 
+def test_diff_mode_apply_denial_logs_reason_with_admissible_alternative(
+    tmp_path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    bad_diff = DIFF.replace(" beta = 2\n", " beta = 999\n")
+    _provider(app, {"path": TARGET, "diff": bad_diff})
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    waiting = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task_id,
+        {"disposition": "APPROVE", "reason": "exact diff approved"},
+    )
+    with pytest.raises(RunExecutionError) as exc_info:
+        app.run_task(
+            task_id,
+            _diff_inputs(),
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+    message = str(exc_info.value)
+    assert "unified diff context mismatch" in message
+    assert "admissible:" in message
+    assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
+
+
 def test_diff_mode_proposal_cannot_apply_without_approval(tmp_path) -> None:
     workspace = _workspace(tmp_path)
     app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)

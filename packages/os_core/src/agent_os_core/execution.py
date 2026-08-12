@@ -1179,38 +1179,51 @@ class RunCoordinator:
         if patch_format == "unified_diff":
             if set(raw_arguments) != {"path", "diff"}:
                 raise RunExecutionError(
-                    "provider diff arguments must contain only path and diff"
+                    "provider diff arguments must contain only path and diff; "
+                    "admissible: {\"path\": <target path>, \"diff\": <single-file "
+                    "unified diff with ---/+++ headers for that path and "
+                    "well-formed @@ hunks>} — no other keys"
                 )
             proposed_diff = raw_arguments.get("diff")
             if not isinstance(proposed_diff, str) or not proposed_diff.strip():
                 raise RunExecutionError(
-                    "provider proposal requires string diff content"
+                    "provider proposal requires string diff content; "
+                    "admissible: non-empty unified diff text for the target path"
                 )
             try:
                 validate_unified_diff(proposed_diff)
             except BenchmarkTaskValidationError as exc:
                 raise RunExecutionError(
-                    f"provider diff failed validation: {exc.detail}"
+                    f"provider diff failed validation: {exc.detail}; "
+                    "admissible: a single-file unified diff whose ---/+++ headers "
+                    "name the target path and whose hunks match their header ranges"
                 ) from exc
         else:
             if set(raw_arguments) != {"path", "content"}:
                 raise RunExecutionError(
-                    "provider patch arguments must contain only path and content"
+                    "provider patch arguments must contain only path and content; "
+                    "admissible: {\"path\": <target path>, \"content\": <complete "
+                    "replacement file content>} — no other keys"
                 )
             proposed_content = raw_arguments.get("content")
             if not isinstance(proposed_content, str):
                 raise RunExecutionError(
-                    "provider proposal requires complete string content"
+                    "provider proposal requires complete string content; "
+                    "admissible: the full replacement file content as a string"
                 )
         proposed_path = str(raw_arguments.get("path", ""))
         if patch_format == "unified_diff":
             header_path = _diff_header_path(str(raw_arguments.get("diff", "")))
             if header_path is None or header_path != proposed_path:
                 raise RunExecutionError(
-                    "provider diff path does not match the proposal path"
+                    "provider diff path does not match the proposal path; "
+                    "admissible: ---/+++ header paths must equal the proposal path"
                 )
         if proposed_path != target_path:
-            raise RunExecutionError("provider proposal path does not match the reviewed target")
+            raise RunExecutionError(
+                "provider proposal path does not match the reviewed target; "
+                f"admissible: path must be exactly {target_path}"
+            )
         raw_arguments["expected_sha256"] = str(read_output.get("sha256", ""))
         bound_proposal = ProviderToolProposal(
             proposal_id=proposals[0].proposal_id,
