@@ -110,6 +110,13 @@ def test_multi_turn_edit_applies_and_records_governance(tmp_path: Path) -> None:
     assert TaskEventType.ACTION_PROPOSED in events
     assert TaskEventType.POLICY_DECIDED in events
     assert TaskEventType.ACTION_RECEIPT_RECORDED in events
+    approval_events = [
+        event
+        for event in app.tasks._event_store.read(session.task_id)
+        if event.event_type is TaskEventType.APPROVAL_RECORDED
+    ]
+    assert len(approval_events) == 1
+    assert approval_events[0].decoded_payload()["approval"]["disposition"] == "APPROVE"
 
 
 def test_end_to_end_fixes_failing_test_and_returns_green_result(
@@ -1152,3 +1159,70 @@ def test_trimmed_history_keeps_tool_blocks_atomic(tmp_path: Path) -> None:
     assert trimmed[0].role is ProviderMessageRole.SYSTEM
     assert len(trimmed) < len(loop.history)
     _assert_tool_blocks_closed(trimmed)
+
+
+class _SlowStubHandler(BaseHTTPRequestHandler):
+    received: threading.Event
+
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        type(self).received.set()
+        import time
+
+        time.sleep(10)
+
+    def log_message(self, *args) -> None:
+        return
+
+
+def test_cli_chat_prompt_mode_sigint_records_correction(tmp_path: Path) -> None:
+    """RC2: Ctrl-C on the -p path halts via the correction authority."""
+    import sqlite3
+
+    _prepare_workspace(tmp_path)
+    _SlowStubHandler.received = threading.Event()
+    server = HTTPServer(("127.0.0.1", 0), _SlowStubHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    db_path = tmp_path / "agent-os.sqlite3"
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "apps.cli",
+            "--database",
+            str(db_path),
+            "--workspace",
+            str(tmp_path),
+            "chat",
+            "-p",
+            "do something slow",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=_cli_env(f"http://127.0.0.1:{server.server_port}"),
+        cwd=tmp_path,
+    )
+    try:
+        assert _SlowStubHandler.received.wait(timeout=60), (
+            "provider request never reached the stub"
+        )
+        proc.send_signal(signal.SIGINT)
+        _, stderr = proc.communicate(timeout=60)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 130, stderr
+    assert "correction-halted" in stderr
+
+    event_types = [
+        row[0]
+        for row in sqlite3.connect(str(db_path)).execute(
+            "SELECT event_type FROM task_events"
+        )
+    ]
+    assert "CORRECTION_WRITTEN" in event_types

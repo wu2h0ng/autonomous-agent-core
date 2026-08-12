@@ -76,8 +76,16 @@ _SYSTEM_PROMPT = (
     "workspace.read to inspect before editing. Use workspace.edit for precise "
     "string replacements and workspace.apply_patch only for full-file "
     "replacement or new files. Run tests with workspace.run_tests after "
-    "edits. If a tool result reports an error, adjust and retry with "
-    "corrected arguments instead of repeating the identical call."
+    "edits."
+    "\n\n"
+    "Governance: every action passes through a policy kernel that checks "
+    "permissions, budgets, and correction state. When an action is denied, "
+    "the error includes a reason_codes field explaining which check failed "
+    "and a retryable flag. If retryable is true, adjust your approach and "
+    "try again. If retryable is false, stop that line of work and either "
+    "switch to another subtask, report the blockage, or ask for guidance. "
+    "When admissible_alternatives are provided, prefer those approaches "
+    "before escalating. Don't repeat the same denied call."
 )
 
 _MAX_TOOL_RESULT_CHARS = 8000
@@ -477,10 +485,19 @@ class AgentLoop:
                 self._record_denial(session, action)
                 return self._tool_message(
                     proposal,
-                    {"error": "user rejected the proposed action", "rejected": True},
+                    {
+                        "error": "user rejected the proposed action",
+                        "rejected": True,
+                        "reason_codes": ("USER_REJECTED",),
+                        "retryable": False,
+                    },
                 )
-            if risk_tier >= 3:
-                approval = self._build_approval(action)
+            # Every interactive grant is recorded durably, not only denials, so
+            # the event stream corroborates that a human admitted the action.
+            approval = self._build_approval(action)
+            self._tasks.record_approval(session.task_id, approval)
+            if risk_tier < 3:
+                approval = None
         try:
             result = self._actions.execute(
                 action,
@@ -488,6 +505,12 @@ class AgentLoop:
                 capability_spec=self._sandbox.specs().get(capability_id),
                 approval=approval,
                 record_artifacts=False,
+            )
+        except PermissionError as exc:
+            # CapabilityDenied is a PermissionError subclass; both land here.
+            return self._tool_message(
+                proposal,
+                _denial_feedback(exc, capability_id),
             )
         except Exception as exc:
             return self._tool_message(
@@ -576,6 +599,75 @@ def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:
     if action.capability_id in {"workspace.shell", "workspace.run_tests"}:
         return f"run command: {arguments.get('command', '')}"
     return json.dumps(arguments, default=str)[:2000]
+
+
+def _classify_retryability(reason_codes: tuple[str, ...], error_msg: str) -> bool:
+    fatal = {
+        "CORRECTION_HALTED",
+        "BUDGET_EXCEEDED",
+        "GRANT_REVOKED",
+        "GRANT_EXPIRED",
+        "POLICY_VERSION_MISMATCH",
+        "PRINCIPAL_MISMATCH",
+        "USER_REJECTED",
+    }
+    if any(rc in fatal for rc in reason_codes):
+        return False
+    if any(rc in error_msg for rc in fatal):
+        return False
+    if "path escapes workspace" in error_msg:
+        return False
+    if "not in the shell allowlist" in error_msg:
+        return False
+    if "symlink paths are forbidden" in error_msg:
+        return False
+    return True
+
+
+def _admissible_alternatives(
+    capability_id: str, error_msg: str
+) -> list[str] | None:
+    if capability_id == "workspace.edit":
+        if "old_string must match exactly once" in error_msg:
+            return [
+                "workspace.read to re-read the file",
+                "workspace.search to find the exact text",
+                "workspace.edit with correct old_string",
+            ]
+        return ["workspace.read to re-read the file", "workspace.edit with corrected arguments"]
+    if capability_id == "workspace.apply_patch":
+        return [
+            "workspace.read to re-read the file",
+            "workspace.edit for targeted changes",
+        ]
+    if capability_id == "workspace.shell":
+        return None
+    if capability_id in {"workspace.read", "workspace.search", "workspace.run_tests"}:
+        return None
+    return None
+
+
+def _denial_feedback(
+    exc: Exception, capability_id: str
+) -> dict[str, object]:
+    error_msg = str(exc)
+    import re
+    m = re.search(r"\(([^)]+)\)", error_msg)
+    reason_codes: tuple[str, ...] = ()
+    if m:
+        codes = m.group(1).replace("'", "").replace('"', "").split(",")
+        reason_codes = tuple(c.strip() for c in codes if c.strip())
+    retryable = _classify_retryability(reason_codes, error_msg)
+    alternatives = _admissible_alternatives(capability_id, error_msg)
+    result: dict[str, object] = {
+        "error": error_msg,
+        "rejected": True,
+        "reason_codes": reason_codes,
+        "retryable": retryable,
+    }
+    if alternatives is not None:
+        result["admissible_alternatives"] = alternatives
+    return result
 
 
 def _truncate_json(output: dict[str, Any]) -> dict[str, Any]:
