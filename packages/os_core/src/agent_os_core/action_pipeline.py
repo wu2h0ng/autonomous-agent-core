@@ -23,6 +23,7 @@ from .capability import (
     CapabilityEffectUnknown,
     CapabilityResult,
 )
+from ._action_outcome import ExecutionLease, ExecutionLeaseConflict
 from .errors import RunExecutionError
 from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .task_service import TaskService
@@ -98,6 +99,7 @@ class ActionPipeline:
         lease_fence_fn: Callable[[str], int] | None = None,
         capability_id: str | None = None,
         record_artifacts: bool = True,
+        execution_lease: ExecutionLease | None = None,
     ) -> CapabilityResult:
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
@@ -149,7 +151,9 @@ class ActionPipeline:
             )
         aggregate = self._tasks.get_task(action.task_id)
         lease_fence = (
-            aggregate.run.lease_fence if aggregate.run is not None else 0
+            execution_lease.fence
+            if execution_lease is not None
+            else (aggregate.run.lease_fence if aggregate.run is not None else 0)
         )
         try:
             permit = self._policy.permit(
@@ -183,8 +187,14 @@ class ActionPipeline:
             if store is not None:
                 current_fence = store(run_id)
         if current_fence != permit.lease_fence:
+            if execution_lease is not None:
+                raise ExecutionLeaseConflict("stale worker execution lease")
             raise PermissionError("stale worker lease")
-        result = self._broker.invoke(action, permit)
+        result = self._broker.invoke(
+            action,
+            permit,
+            execution_lease=execution_lease,
+        )
         self._tasks._record_action_receipt(
             action.task_id,
             action=action,

@@ -783,6 +783,69 @@ def test_reject_from_paused_clears_pending_without_provider_continuation(
     assert app.provider.requests == []
 
 
+@pytest.mark.parametrize("resume_mode", ("decision", "turn"))
+def test_paused_resolved_approval_requires_explicit_run_resume(
+    tmp_path: Path,
+    resume_mode: str,
+) -> None:
+    app, session, pending = _pending_edit(tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=(("continued only after explicit resume", ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    app.pause_task(session.task_id)
+    rejected = app.decide_session_approval(
+        session.session_id,
+        action_digest=pending.action_digest,
+        disposition=ApprovalDisposition.REJECT,
+        reason="reject without executing while paused",
+    )
+    assert rejected.stop_reason == "paused"
+    projected = SessionProjector(app.store).project(
+        session.task_id,
+        session.session_id,
+    )
+    assert projected.resolved_continuation is not None
+
+    def resume() -> Any:
+        if resume_mode == "decision":
+            return app.decide_session_approval(
+                session.session_id,
+                action_digest=pending.action_digest,
+                disposition=ApprovalDisposition.REJECT,
+                reason="reject without executing while paused",
+            )
+        restored, restored_loop = app.restore_chat_session(
+            session.session_id,
+            DeferredApprovalGateway(),
+        )
+        assert projected.resumable_turn_id is not None
+        return restored_loop.resume_turn(
+            restored,
+            TurnId(
+                turn_id=projected.resumable_turn_id,
+                session_id=session.session_id,
+            ),
+        )
+
+    with pytest.raises(InvalidTransitionError, match="RUNNING|resume"):
+        resume()
+
+    run = app.tasks.get_task(session.task_id).run
+    assert run is not None
+    assert run.status is RunStatus.PAUSED
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+    assert _receipt_count(app, session.task_id) == 0
+
+    app.resume_task(session.task_id)
+    resumed = resume()
+    assert resumed.stop_reason == "completed"
+    assert resumed.text == "continued only after explicit resume"
+    assert len(app.provider.requests) == 1
+    assert _event_count(app, session.task_id, TaskEventType.RUN_RESUMED) == 1
+
+
 @pytest.mark.parametrize(
     "loser_disposition",
     [ApprovalDisposition.REJECT, ApprovalDisposition.APPROVE],
@@ -862,6 +925,68 @@ def test_concurrent_approve_claim_has_one_winner_without_run_poisoning(
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "fixed\n"
     assert isinstance(app2.provider, DeterministicProvider)
     assert app2.provider.requests == []
+
+
+def test_duplicate_approve_without_claim_ownership_cannot_reserve_or_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app1, session, pending = _pending_edit(tmp_path)
+    app1.provider = DeterministicProvider(
+        scripted=(("owner continued", ()),),
+        invocation_binding=app1.provider.invocation_binding,
+    )
+    app2 = chat_app(tmp_path, scripted=(("non-owner must not continue", ()),))
+    claim_committed = threading.Event()
+    release_owner = threading.Event()
+    original_record = app1.tasks.record_or_reuse_session_approval
+
+    def claim_then_block(*args: Any, **kwargs: Any) -> Any:
+        authority = original_record(*args, **kwargs)
+        if authority.acquired:
+            claim_committed.set()
+            assert release_owner.wait(timeout=5)
+        return authority
+
+    monkeypatch.setattr(
+        app1.tasks,
+        "record_or_reuse_session_approval",
+        claim_then_block,
+    )
+    owner_results: list[object] = []
+    owner_errors: list[BaseException] = []
+
+    def approve_as_owner() -> None:
+        try:
+            owner_results.append(_approve_pending(app1, session, pending))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            owner_errors.append(exc)
+
+    owner = threading.Thread(target=approve_as_owner)
+    owner.start()
+    assert claim_committed.wait(timeout=5)
+    try:
+        with pytest.raises(InvalidTransitionError, match="progress|in progress"):
+            _approve_pending(app2, session, pending)
+        assert _receipt_count(app2, session.task_id) == 0
+        assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+        assert isinstance(app2.provider, DeterministicProvider)
+        assert app2.provider.requests == []
+    finally:
+        release_owner.set()
+        owner.join(timeout=5)
+
+    assert not owner.is_alive()
+    assert owner_errors == []
+    assert len(owner_results) == 1
+    assert getattr(owner_results[0], "stop_reason") == "completed"
+    assert _receipt_count(app1, session.task_id) == 1
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "fixed\n"
+    assert _event_count(
+        app1,
+        session.task_id,
+        TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
+    ) == 1
 
 
 def test_correction_between_approval_and_execution_fails_closed(

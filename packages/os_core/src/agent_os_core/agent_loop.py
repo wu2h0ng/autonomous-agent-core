@@ -24,6 +24,7 @@ from agent_os_contracts import (
     ProviderResponse,
     ProviderToolCall,
     ProviderToolProposal,
+    RunStatus,
     SessionRef,
     TaskEventType,
     TurnId,
@@ -31,13 +32,14 @@ from agent_os_contracts import (
 )
 
 from .action_pipeline import ActionPipeline
+from ._action_outcome import ExecutionLeaseConflict
 from .capability import (
     CapabilityBroker,
     CapabilityCorrectionBlocked,
     CapabilityEffectUnknown,
     WorkspaceSandbox,
 )
-from .errors import InvalidTransitionError, RunExecutionError
+from .errors import ConcurrentWriteError, InvalidTransitionError, RunExecutionError
 from .governance import CorrectionReadPort, PolicyKernel
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
@@ -244,6 +246,7 @@ class AgentLoop:
         self._history = list(history)
         self._message_sink = message_sink
         self._resumable_turn_ids = set(resumable_turn_ids)
+        self._execution_owner = f"surface-runtime:{uuid4()}"
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -328,6 +331,16 @@ class AgentLoop:
         if resolved is None:
             result = self._drive(session, turn_id)
         else:
+            run = self._tasks.get_task(session.task_id).run
+            if (
+                run is None
+                or run.run_id != session.run_id
+                or run.status is not RunStatus.RUNNING
+            ):
+                raise InvalidTransitionError(
+                    "resolved continuation requires an exact RUNNING Run; "
+                    "write RUN_RESUMED first"
+                )
             result = self._drive_resolved_continuation(
                 session,
                 turn_id,
@@ -514,13 +527,58 @@ class AgentLoop:
         if current_run is None:
             raise InvalidTransitionError("pending approval requires an active Run")
         run_was_paused = current_run.status.value == "PAUSED"
-        authority = self._tasks.record_or_reuse_session_approval(
-            session.task_id,
-            session.session_id,
-            pending.action,
-            approval,
-        )
+        execution_lease = None
+        reconciled = None
+        if approval.disposition is ApprovalDisposition.APPROVE:
+            try:
+                reconciled = self._actions.reconcile_before_policy(
+                    pending.action,
+                    record_artifacts=False,
+                )
+            except CapabilityEffectUnknown as unknown:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is in progress or requires review"
+                ) from unknown
+            if reconciled is None:
+                try:
+                    execution_lease = self._sandbox.acquire_execution_lease(
+                        pending.action,
+                        self._execution_owner,
+                    )
+                except (ConcurrentWriteError, ExecutionLeaseConflict) as conflict:
+                    raise InvalidTransitionError(
+                        "APPROVE execution claim is still in progress"
+                    ) from conflict
+        try:
+            authority = self._tasks.record_or_reuse_session_approval(
+                session.task_id,
+                session.session_id,
+                pending.action,
+                approval,
+            )
+        except Exception:
+            if execution_lease is not None:
+                self._sandbox.release_execution_lease(execution_lease)
+            raise
         bound_approval = authority.approval
+        if (
+            bound_approval.disposition is ApprovalDisposition.APPROVE
+            and reconciled is None
+            and execution_lease is None
+        ):
+            try:
+                reconciled = self._actions.reconcile_before_policy(
+                    pending.action,
+                    record_artifacts=False,
+                )
+            except CapabilityEffectUnknown as unknown:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is in progress or requires review"
+                ) from unknown
+            if reconciled is None:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is still in progress"
+                )
         if bound_approval.disposition is ApprovalDisposition.REJECT:
             tool_message = self._tool_message(
                 pending.proposal,
@@ -529,28 +587,17 @@ class AgentLoop:
                     "rejected": True,
                 },
             )
-        elif (
-            not authority.acquired
-            and approval.disposition is ApprovalDisposition.REJECT
-        ):
-            try:
-                result = self._actions.reconcile_before_policy(
-                    pending.action,
-                    record_artifacts=False,
-                )
-            except CapabilityEffectUnknown as unknown:
-                raise InvalidTransitionError(
-                    "APPROVE execution claim is in progress or requires review"
-                ) from unknown
-            if result is None:
-                raise InvalidTransitionError(
-                    "APPROVE execution claim is still in progress"
-                )
+        elif reconciled is not None:
+            result = reconciled
             tool_message = self._tool_message(
                 pending.proposal,
                 _truncate_json(result.output),
             )
         else:
+            if execution_lease is None:
+                raise InvalidTransitionError(
+                    "APPROVE execution requires current execution ownership"
+                )
             try:
                 result = self._actions.execute(
                     pending.action,
@@ -560,8 +607,10 @@ class AgentLoop:
                     ),
                     approval=bound_approval,
                     record_artifacts=False,
+                    execution_lease=execution_lease,
                 )
             except CapabilityCorrectionBlocked as blocked:
+                self._sandbox.release_execution_lease(execution_lease)
                 self._tasks.pause_session_for_claim_correction(
                     session.task_id,
                     session.session_id,
@@ -578,11 +627,13 @@ class AgentLoop:
                     stop_reason="correction_blocked",
                     total_tokens=pending.total_tokens,
                 )
+            except ExecutionLeaseConflict as conflict:
+                self._sandbox.release_execution_lease(execution_lease)
+                raise InvalidTransitionError(
+                    "APPROVE execution ownership changed before reservation"
+                ) from conflict
             except CapabilityEffectUnknown as unknown:
-                if not authority.acquired:
-                    raise InvalidTransitionError(
-                        "APPROVE execution claim is in progress or requires review"
-                    ) from unknown
+                self._sandbox.release_execution_lease(execution_lease)
                 return self._pause_for_unknown(
                     session,
                     TurnId(
@@ -595,11 +646,13 @@ class AgentLoop:
                     total_tokens=pending.total_tokens,
                 )
             except Exception as exc:
+                self._sandbox.release_execution_lease(execution_lease)
                 tool_message = self._tool_message(
                     pending.proposal,
                     {"error": f"{type(exc).__name__}: {exc}"},
                 )
             else:
+                self._sandbox.release_execution_lease(execution_lease)
                 tool_message = self._tool_message(
                     pending.proposal,
                     _truncate_json(result.output),

@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from threading import RLock
+from threading import RLock, get_ident
 from typing import Protocol
 from uuid import uuid4
 
@@ -71,6 +71,10 @@ class CorrectionReadPort(Protocol):
 CorrectionGuard = CorrectionReadPort  # backward compatibility
 
 
+class CorrectionGuardConflict(RuntimeError):
+    """A correction committed reentrantly while a local effect guard was active."""
+
+
 class ExternalPolicyBackend(Protocol):
     """OPA/Cedar-shaped enforcement backend without policy-root authority."""
 
@@ -86,6 +90,10 @@ class CorrectionAuthority:
     def __init__(self, persistence: object | None = None, *, tenant_id: str = "tenant:local", workspace_id: str = "workspace:local", written_by: str = "principal") -> None:
         self._epochs: dict[tuple[str, str], tuple[int, bool, str]] = {}
         self._lock = RLock()
+        self._active_effect_guards: dict[
+            int,
+            list[tuple[str, str, str]],
+        ] = {}
         self._persistence = persistence
         self._tenant_id = tenant_id
         self._workspace_id = workspace_id
@@ -124,15 +132,68 @@ class CorrectionAuthority:
                 self.snapshot(task_id, run_id, capability_id) == observed_epochs
                 and not self.halted(task_id, run_id, capability_id)
             )
-            yield unchanged
+            thread_id = get_ident()
+            if unchanged:
+                self._active_effect_guards.setdefault(thread_id, []).append(
+                    (task_id, run_id, capability_id)
+                )
+            try:
+                yield unchanged
+            finally:
+                if unchanged:
+                    guards = self._active_effect_guards[thread_id]
+                    guard = guards.pop()
+                    if guard != (task_id, run_id, capability_id):
+                        raise RuntimeError("correction effect guard stack mismatch")
+                    if not guards:
+                        del self._active_effect_guards[thread_id]
 
     def correct(self, scope: str, scope_id: str, reason: str) -> int:
         with self._lock:
-            return self._advance(scope, scope_id, halted=True, reason=reason)
+            return self._advance_and_abort_reentrant_guard(
+                scope,
+                scope_id,
+                halted=True,
+                reason=reason,
+            )
 
     def resume(self, scope: str, scope_id: str, reason: str = "resumed") -> int:
         with self._lock:
-            return self._advance(scope, scope_id, halted=False, reason=reason)
+            return self._advance_and_abort_reentrant_guard(
+                scope,
+                scope_id,
+                halted=False,
+                reason=reason,
+            )
+
+    def _advance_and_abort_reentrant_guard(
+        self,
+        scope: str,
+        scope_id: str,
+        *,
+        halted: bool,
+        reason: str,
+    ) -> int:
+        guarded = self._current_thread_guard_matches(scope, scope_id)
+        epoch = self._advance(scope, scope_id, halted=halted, reason=reason)
+        if guarded:
+            raise CorrectionGuardConflict(
+                "correction authority changed during guarded capability dispatch"
+            )
+        return epoch
+
+    def _current_thread_guard_matches(self, scope: str, scope_id: str) -> bool:
+        for task_id, run_id, capability_id in self._active_effect_guards.get(
+            get_ident(),
+            (),
+        ):
+            if (
+                (scope == "task" and scope_id == task_id)
+                or (scope == "run" and scope_id == run_id)
+                or (scope == "capability" and scope_id == capability_id)
+            ):
+                return True
+        return False
 
     def _advance(
         self,

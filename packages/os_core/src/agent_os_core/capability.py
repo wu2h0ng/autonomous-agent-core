@@ -26,8 +26,10 @@ from ._action_outcome import (
     CapabilityEffectUnknown,
     CapabilityResult,
     DurableActionOutcomeRepository,
+    ExecutionLease,
+    ExecutionLeaseConflict,
 )
-from .governance import CorrectionReadPort
+from .governance import CorrectionGuardConflict, CorrectionReadPort
 
 
 class CapabilityCorrectionBlocked(CapabilityDenied):
@@ -43,6 +45,8 @@ class CapabilityPort(Protocol):
         permit: ActionPermit,
         correction: CorrectionReadPort,
         attempt: int = 1,
+        *,
+        execution_lease: ExecutionLease | None = None,
     ) -> CapabilityResult: ...
 
     def specs(
@@ -60,10 +64,23 @@ class CapabilityBroker:
         self.connector = connector
         self.correction = correction
 
-    def invoke(self, action: ActionContract, permit: ActionPermit, attempt: int = 1) -> CapabilityResult:
+    def invoke(
+        self,
+        action: ActionContract,
+        permit: ActionPermit,
+        attempt: int = 1,
+        *,
+        execution_lease: ExecutionLease | None = None,
+    ) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("broker rejected a permit/action digest mismatch")
-        return self.connector.invoke(action, permit, self.correction, attempt=attempt)
+        return self.connector.invoke(
+            action,
+            permit,
+            self.correction,
+            attempt=attempt,
+            execution_lease=execution_lease,
+        )
 
     def replay(self, action: ActionContract) -> CapabilityResult | None:
         replay = getattr(self.connector, "replay", None)
@@ -167,12 +184,27 @@ class WorkspaceSandbox:
             )
         return specs
 
-    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
+    def invoke(
+        self,
+        action: ActionContract,
+        permit: ActionPermit,
+        correction: CorrectionReadPort,
+        attempt: int = 1,
+        *,
+        execution_lease: ExecutionLease | None = None,
+    ) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("permit does not match action")
         replayed = self.replay(action)
         if replayed is not None:
             return replayed
+        if execution_lease is not None and (
+            execution_lease.run_id != action.run_id
+            or execution_lease.fence != permit.lease_fence
+        ):
+            raise ExecutionLeaseConflict(
+                "execution lease does not bind the action permit"
+            )
         if permit.expires_at <= datetime.now(timezone.utc):
             raise CapabilityDenied("permit expired before capability dispatch")
         self._validate_correction(action, permit, correction)
@@ -187,34 +219,47 @@ class WorkspaceSandbox:
         # before reservation. Once dispatch begins, an exception can no longer
         # prove that no effect happened and therefore remains UNKNOWN.
         self._preflight(action.capability_id, args, action.idempotency_key)
-        reserved = self._outcomes.reserve(action)
+        reserved = self._outcomes.reserve(
+            action,
+            execution_lease=execution_lease,
+        )
         if isinstance(reserved, CapabilityResult):
             return reserved
         reservation = reserved
         try:
-            # C7 is sampled again after the durable reservation and immediately
-            # before dispatch. Once reservation exists, every unsealed path is
-            # treated conservatively as unknown and can never auto-resend.
-            self._validate_correction(action, permit, correction)
-        except Exception as exc:
-            raise self._outcomes.unknown(
-                action,
-                reason_code="PRE_DISPATCH_CORRECTION_CHANGED",
-                detail=f"{type(exc).__name__}: {exc}",
-                reservation=reservation,
-            ) from exc
-        try:
-            output = self._outcomes.canonical_output(
-                self._dispatch(
-                    action.capability_id,
-                    args,
-                    action.idempotency_key,
+            # The guard holds the local C7 authority across the physical effect.
+            # A cross-thread correction therefore commits after dispatch; a
+            # reentrant correction commits first and raises a dedicated conflict
+            # that aborts dispatch. Every unsealed reservation remains UNKNOWN.
+            with correction.guard_unchanged(
+                action.task_id,
+                action.run_id,
+                action.capability_id,
+                permit.correction_epochs,
+            ) as unchanged:
+                if not unchanged:
+                    raise CapabilityCorrectionBlocked(
+                        "correction authority changed before guarded dispatch"
+                    )
+                output = self._outcomes.canonical_output(
+                    self._dispatch(
+                        action.capability_id,
+                        args,
+                        action.idempotency_key,
+                    )
                 )
-            )
         except Exception as exc:
+            correction_conflict = isinstance(
+                exc,
+                (CapabilityCorrectionBlocked, CorrectionGuardConflict),
+            )
             raise self._outcomes.unknown(
                 action,
-                reason_code="POST_DISPATCH_UNCERTAIN",
+                reason_code=(
+                    "DISPATCH_CORRECTION_CONFLICT"
+                    if correction_conflict
+                    else "POST_DISPATCH_UNCERTAIN"
+                ),
                 detail=f"{type(exc).__name__}: {exc}",
                 reservation=reservation,
             ) from exc
@@ -238,6 +283,24 @@ class WorkspaceSandbox:
             receipt,
             output,
         )
+
+    def acquire_execution_lease(
+        self,
+        action: ActionContract,
+        owner: str,
+    ) -> ExecutionLease:
+        if self._outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required for execution lease"
+            )
+        return self._outcomes.acquire_execution_lease(action, owner)
+
+    def release_execution_lease(self, lease: ExecutionLease) -> bool:
+        if self._outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required for execution lease"
+            )
+        return self._outcomes.release_execution_lease(lease)
 
     def replay(self, action: ActionContract) -> CapabilityResult | None:
         """Return a sealed result or fail closed for an unresolved dispatch window.

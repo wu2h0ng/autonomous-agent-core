@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
 from agent_os_contracts import ActionContract, ActionPermit, ActionReceipt
+
+from .errors import ConcurrentWriteError
 
 
 class CapabilityDenied(PermissionError):
@@ -36,11 +38,39 @@ class CapabilityEffectUnknown(CapabilityDenied):
         )
 
 
+class ExecutionLeaseConflict(CapabilityDenied):
+    """The caller cannot prove current ownership of pre-dispatch execution."""
+
+
 @dataclass(frozen=True)
 class CapabilityResult:
     receipt: ActionReceipt
     output: dict[str, object]
     permit: ActionPermit
+
+
+@dataclass(frozen=True)
+class ExecutionLease:
+    """Internal physical-execution authority; never a Task approval decision."""
+
+    run_id: str
+    owner: str
+    fence: int
+    expires_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.run_id or not self.owner or self.fence < 1:
+            raise ValueError("invalid execution lease identity")
+        if self.expires_at.tzinfo is None:
+            raise ValueError("execution lease expiry must be timezone-aware")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "run_id": self.run_id,
+            "owner": self.owner,
+            "fence": self.fence,
+            "expires_at": self.expires_at.isoformat(),
+        }
 
 
 class DurableActionOutcomeRepository:
@@ -52,6 +82,43 @@ class DurableActionOutcomeRepository:
 
     def __init__(self, store: object) -> None:
         self._store = store
+
+    def acquire_execution_lease(
+        self,
+        action: ActionContract,
+        owner: str,
+        *,
+        ttl: timedelta = timedelta(minutes=5),
+    ) -> ExecutionLease:
+        if not owner.strip() or ttl <= timedelta(0):
+            raise ValueError("execution lease owner and ttl must be valid")
+        acquire = getattr(
+            self._store,
+            "acquire_lease_if_idempotency_absent",
+            None,
+        )
+        if acquire is None:
+            raise TypeError("durable store lacks atomic execution lease acquisition")
+        expires_at = datetime.now(timezone.utc) + ttl
+        fence = acquire(
+            action.run_id,
+            owner,
+            expires_at.isoformat(),
+            self.RESERVATION_SCOPE,
+            action.idempotency_key,
+        )
+        return ExecutionLease(
+            run_id=action.run_id,
+            owner=owner,
+            fence=int(fence),
+            expires_at=expires_at,
+        )
+
+    def release_execution_lease(self, lease: ExecutionLease) -> bool:
+        release = getattr(self._store, "release_lease", None)
+        if release is None:
+            raise TypeError("durable store lacks execution lease release")
+        return bool(release(lease.run_id, lease.owner))
 
     def replay(self, action: ActionContract) -> CapabilityResult | None:
         try:
@@ -108,7 +175,12 @@ class DurableActionOutcomeRepository:
     def reserve(
         self,
         action: ActionContract,
+        execution_lease: ExecutionLease | None = None,
     ) -> dict[str, object] | CapabilityResult:
+        if execution_lease is not None and execution_lease.run_id != action.run_id:
+            raise ExecutionLeaseConflict(
+                "execution lease does not bind the action Run"
+            )
         now = datetime.now(timezone.utc)
         reservation = self._with_record_digest(
             {
@@ -121,16 +193,35 @@ class DurableActionOutcomeRepository:
                 "idempotency_key": action.idempotency_key,
                 "capability_id": action.capability_id,
                 "intent_fingerprint": _intent_fingerprint(action),
+                "execution_lease": (
+                    execution_lease.payload()
+                    if execution_lease is not None
+                    else None
+                ),
                 "reserved_at": now.isoformat(),
             }
         )
         try:
-            inserted = self._put_record(
-                self.RESERVATION_SCOPE,
-                action.idempotency_key,
-                reservation,
-                now,
+            inserted = (
+                self._put_record_guarded_by_lease(
+                    execution_lease,
+                    self.RESERVATION_SCOPE,
+                    action.idempotency_key,
+                    reservation,
+                    now,
+                )
+                if execution_lease is not None
+                else self._put_record(
+                    self.RESERVATION_SCOPE,
+                    action.idempotency_key,
+                    reservation,
+                    now,
+                )
             )
+        except ConcurrentWriteError as exc:
+            raise ExecutionLeaseConflict(
+                "execution lease changed before capability reservation"
+            ) from exc
         except Exception as exc:
             raise self.unknown(
                 action,
@@ -156,6 +247,7 @@ class DurableActionOutcomeRepository:
         receipt: ActionReceipt,
         output: dict[str, object],
     ) -> CapabilityResult:
+        self._validate_reservation(action, reservation)
         now = datetime.now(timezone.utc)
         outcome = self._with_record_digest(
             {
@@ -275,6 +367,12 @@ class DurableActionOutcomeRepository:
             raise TypeError("invalid capability outcome output")
         permit = ActionPermit.model_validate(permit_value)
         receipt = ActionReceipt.model_validate(receipt_value)
+        lease_value = reservation.get("execution_lease")
+        if (
+            isinstance(lease_value, dict)
+            and lease_value.get("fence") != permit.lease_fence
+        ):
+            raise ValueError("stored permit/execution lease fence mismatch")
         if not permit.matches(action):
             raise ValueError("stored capability permit/action mismatch")
         if (
@@ -310,6 +408,7 @@ class DurableActionOutcomeRepository:
             "idempotency_key",
             "capability_id",
             "intent_fingerprint",
+            "execution_lease",
             "reserved_at",
             "record_digest",
         }
@@ -325,6 +424,36 @@ class DurableActionOutcomeRepository:
         }
         if any(reservation.get(field) != value for field, value in expected.items()):
             raise ValueError("capability reservation/action binding mismatch")
+        lease_value = reservation.get("execution_lease")
+        if lease_value is not None:
+            if not isinstance(lease_value, dict) or set(lease_value) != {
+                "run_id",
+                "owner",
+                "fence",
+                "expires_at",
+            }:
+                raise TypeError("invalid execution lease reservation binding")
+            owner = lease_value.get("owner")
+            fence = lease_value.get("fence")
+            expires_at = lease_value.get("expires_at")
+            if (
+                lease_value.get("run_id") != action.run_id
+                or not isinstance(owner, str)
+                or not owner
+                or isinstance(fence, bool)
+                or not isinstance(fence, int)
+                or fence < 1
+                or not isinstance(expires_at, str)
+            ):
+                raise ValueError("execution lease does not bind the reserved action")
+            parsed_expiry = datetime.fromisoformat(expires_at)
+            reserved_at = datetime.fromisoformat(str(reservation["reserved_at"]))
+            if (
+                parsed_expiry.tzinfo is None
+                or reserved_at.tzinfo is None
+                or reserved_at > parsed_expiry
+            ):
+                raise ValueError("execution lease reservation expiry is invalid")
         if not all(
             isinstance(reservation.get(field), str) and reservation[field]
             for field in ("reservation_id", "receipt_id", "reserved_at")
@@ -377,6 +506,34 @@ class DurableActionOutcomeRepository:
         if setter is None:
             raise TypeError("durable idempotency store is not writable")
         return bool(setter(scope, key, record, created_at.isoformat()))
+
+    def _put_record_guarded_by_lease(
+        self,
+        lease: ExecutionLease,
+        scope: str,
+        key: str,
+        record: dict[str, object],
+        created_at: datetime,
+    ) -> bool:
+        setter = getattr(
+            self._store,
+            "put_idempotency_guarded_by_lease",
+            None,
+        )
+        if setter is None:
+            raise TypeError("durable store lacks guarded reservation insert")
+        return bool(
+            setter(
+                lease.run_id,
+                lease.owner,
+                lease.fence,
+                lease.expires_at.isoformat(),
+                scope,
+                key,
+                record,
+                created_at.isoformat(),
+            )
+        )
 
 
 def _canonical_json_bytes(value: object) -> bytes:

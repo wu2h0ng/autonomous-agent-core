@@ -23,6 +23,8 @@ from agent_os_contracts import (
 )
 from agent_os_core import (
     CapabilityDenied,
+    CapabilityEffectUnknown,
+    ConcurrentWriteError,
     CorrectionAuthority,
     PolicyInput,
     PolicyKernel,
@@ -192,6 +194,180 @@ def test_sqlite_idempotency_survives_reopen(tmp_path) -> None:
     second = SQLiteTaskEventStore(path)
     assert second.get_idempotency("scope", "key") == {"value": "one"}
     assert not second.put_idempotency("scope", "key", {"value": "two"}, NOW.isoformat())
+
+
+def test_active_execution_lease_owner_blocks_takeover(tmp_path: Path) -> None:
+    database = tmp_path / "state.sqlite3"
+    first = SQLiteTaskEventStore(database)
+    second = SQLiteTaskEventStore(database)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+
+    assert first.acquire_lease_if_idempotency_absent(
+        "run:approval",
+        "runtime:first",
+        expires_at,
+        "capability-reservation.v1",
+        "approval-action",
+    ) == 1
+
+    with pytest.raises(ConcurrentWriteError, match="leased|owner|progress"):
+        second.acquire_lease_if_idempotency_absent(
+            "run:approval",
+            "runtime:second",
+            expires_at,
+            "capability-reservation.v1",
+            "approval-action",
+        )
+
+
+def test_stale_execution_lease_fence_cannot_insert_reservation(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    first = SQLiteTaskEventStore(database)
+    second = SQLiteTaskEventStore(database)
+    first_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    first_fence = first.acquire_lease_if_idempotency_absent(
+        "run:approval",
+        "runtime:first",
+        first_expiry,
+        "capability-reservation.v1",
+        "approval-action",
+    )
+    assert first.release_lease("run:approval", "runtime:first")
+    second_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    assert second.acquire_lease_if_idempotency_absent(
+        "run:approval",
+        "runtime:second",
+        second_expiry,
+        "capability-reservation.v1",
+        "approval-action",
+    ) == first_fence + 1
+
+    with pytest.raises(ConcurrentWriteError, match="stale|lease|owner"):
+        first.put_idempotency_guarded_by_lease(
+            "run:approval",
+            "runtime:first",
+            first_fence,
+            first_expiry,
+            "capability-reservation.v1",
+            "approval-action",
+            {"state": "RESERVED"},
+            NOW.isoformat(),
+        )
+    assert first.get_idempotency(
+        "capability-reservation.v1", "approval-action"
+    ) is None
+
+
+def test_existing_reservation_permanently_blocks_execution_takeover(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    first = SQLiteTaskEventStore(database)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    fence = first.acquire_lease_if_idempotency_absent(
+        "run:approval",
+        "runtime:first",
+        expires_at,
+        "capability-reservation.v1",
+        "approval-action",
+    )
+    assert first.put_idempotency_guarded_by_lease(
+        "run:approval",
+        "runtime:first",
+        fence,
+        expires_at,
+        "capability-reservation.v1",
+        "approval-action",
+        {"state": "RESERVED"},
+        NOW.isoformat(),
+    )
+    first.close()
+    restarted = SQLiteTaskEventStore(database)
+
+    with pytest.raises(ConcurrentWriteError, match="reservation|dispatch|review"):
+        restarted.acquire_lease_if_idempotency_absent(
+            "run:approval",
+            "runtime:restarted",
+            expires_at,
+            "capability-reservation.v1",
+            "approval-action",
+        )
+
+
+def test_expired_execution_lease_allows_takeover_only_before_reservation(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    first = SQLiteTaskEventStore(database)
+    second = SQLiteTaskEventStore(database)
+    expired = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    first_fence = first.acquire_lease_if_idempotency_absent(
+        "run:approval",
+        "runtime:expired-owner",
+        expired,
+        "capability-reservation.v1",
+        "expired-owner-action",
+    )
+    assert first_fence == 1
+
+    second_fence = second.acquire_lease_if_idempotency_absent(
+        "run:approval",
+        "runtime:restarted",
+        (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "capability-reservation.v1",
+        "expired-owner-action",
+    )
+    assert second_fence == first_fence + 1
+
+    with pytest.raises(ConcurrentWriteError, match="stale|lease|owner"):
+        first.put_idempotency_guarded_by_lease(
+            "run:approval",
+            "runtime:expired-owner",
+            first_fence,
+            expired,
+            "capability-reservation.v1",
+            "expired-owner-action",
+            {"state": "RESERVED"},
+            NOW.isoformat(),
+        )
+    assert first.get_idempotency(
+        "capability-reservation.v1", "expired-owner-action"
+    ) is None
+
+
+def test_guarded_reservation_codec_binds_exact_execution_lease(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    correction = CorrectionAuthority(store)
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.read",
+        arguments={"path": "fixture.txt"},
+        idempotency_key="lease-bound-reservation",
+    )
+    (tmp_path / "fixture.txt").write_text("bound\n", encoding="utf-8")
+    sandbox = _CountingSandbox(tmp_path, idempotency_store=store)
+    lease = sandbox.acquire_execution_lease(action, "runtime:owner")
+    guarded_permit = permit.model_copy(update={"lease_fence": lease.fence})
+
+    result = sandbox.invoke(
+        action,
+        guarded_permit,
+        correction,
+        execution_lease=lease,
+    )
+
+    reservation = store.get_idempotency(
+        "capability-reservation.v1",
+        action.idempotency_key,
+    )
+    assert reservation is not None
+    assert reservation["execution_lease"] == lease.payload()
+    assert result.permit.lease_fence == lease.fence
+    assert sandbox.dispatch_count == 1
 
 
 def test_known_capability_outcome_replays_original_receipt_and_output_without_dispatch(
@@ -577,6 +753,129 @@ def test_correction_after_permit_blocks_actual_dispatch(tmp_path) -> None:
     correction.correct("task", "task-1", "operator pause")
     with pytest.raises(CapabilityDenied, match="halted"):
         sandbox.invoke(action, permit, correction)
+
+
+def test_reentrant_correction_at_dispatch_linearizes_before_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    correction = CorrectionAuthority(store)
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key="reentrant-correction",
+    )
+    sandbox = WorkspaceSandbox(tmp_path, idempotency_store=store)
+    original_dispatch = sandbox._dispatch
+
+    def correct_then_dispatch(
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> dict[str, object]:
+        correction.correct(
+            "task",
+            action.task_id,
+            "operator correction at dispatch entry",
+        )
+        return original_dispatch(capability_id, args, action_key)
+
+    monkeypatch.setattr(sandbox, "_dispatch", correct_then_dispatch)
+
+    with pytest.raises(CapabilityEffectUnknown, match="UNKNOWN_REQUIRES_REVIEW"):
+        sandbox.invoke(action, permit, correction)
+
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert correction.halted(action.task_id, action.run_id, action.capability_id)
+    assert (
+        correction.snapshot(action.task_id, action.run_id, action.capability_id)
+        .task_epoch
+        == 1
+    )
+    with pytest.raises(CapabilityEffectUnknown, match="UNKNOWN_REQUIRES_REVIEW"):
+        sandbox.replay(action)
+
+
+def test_cross_thread_correction_linearizes_after_inflight_dispatch(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    correction = CorrectionAuthority(store)
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    action, permit = _workspace_action(
+        correction,
+        capability_id="workspace.edit",
+        arguments={
+            "path": "fixture.txt",
+            "old_string": "before\n",
+            "new_string": "after\n",
+        },
+        idempotency_key="cross-thread-correction",
+    )
+    dispatch_entered = threading.Event()
+    release_dispatch = threading.Event()
+    sandbox = _BlockingSandbox(
+        tmp_path,
+        idempotency_store=store,
+        entered=dispatch_entered,
+        release=release_dispatch,
+    )
+    invoke_results: list[object] = []
+    invoke_errors: list[BaseException] = []
+    correction_started = threading.Event()
+    correction_done = threading.Event()
+    correction_errors: list[BaseException] = []
+
+    def invoke() -> None:
+        try:
+            invoke_results.append(sandbox.invoke(action, permit, correction))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            invoke_errors.append(exc)
+
+    def correct() -> None:
+        correction_started.set()
+        try:
+            correction.correct(
+                "task",
+                action.task_id,
+                "operator correction racing active dispatch",
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            correction_errors.append(exc)
+        finally:
+            correction_done.set()
+
+    dispatcher = threading.Thread(target=invoke)
+    dispatcher.start()
+    assert dispatch_entered.wait(timeout=5)
+    corrector = threading.Thread(target=correct)
+    corrector.start()
+    assert correction_started.wait(timeout=5)
+    try:
+        assert not correction_done.wait(timeout=0.2)
+        assert target.read_text(encoding="utf-8") == "before\n"
+    finally:
+        release_dispatch.set()
+        dispatcher.join(timeout=5)
+        corrector.join(timeout=5)
+
+    assert not dispatcher.is_alive()
+    assert not corrector.is_alive()
+    assert invoke_errors == []
+    assert correction_errors == []
+    assert len(invoke_results) == 1
+    assert target.read_text(encoding="utf-8") == "after\n"
+    assert correction_done.is_set()
+    assert correction.halted(action.task_id, action.run_id, action.capability_id)
 
 
 def test_policy_denies_budget_and_scope_mismatch() -> None:
