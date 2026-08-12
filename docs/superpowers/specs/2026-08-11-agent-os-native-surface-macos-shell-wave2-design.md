@@ -53,9 +53,9 @@ Slices 2b/2c are NOT authorized by this spec's first plan; they get their own pl
 
 ## 5. Security and privacy invariants (binding)
 
-1. Provider keys live in macOS Keychain (ADR-0058) or the shell-injected environment; never in the renderer, descriptor, SQLite, logs, tests, or repo.
+1. Provider keys live in macOS Keychain (ADR-0058) or the shell-injected environment; never stored or read back to the renderer (except the write-only inbound configuration path), never in the descriptor, SQLite, logs, tests, or repo.
 2. The renderer webview never stores the bearer token in webview-local storage; the token is held by the Rust layer and injected into Surface client requests. The provider key value may cross IPC only inbound for one-time configuration and is never read back, logged, or stored in webview storage.
-3. The IPC bridge rejects any request that is not an allowlisted daemon-lifecycle or custody-status call.
+3. The IPC bridge rejects any request that is not an allowlisted daemon-lifecycle or custody call (status plus write-only set/clear).
 4. External content (pages, emails, docs) is untrusted data and cannot alter Mandate, permission ceiling, policy, or approval requirements.
 5. No live provider requests, Google APIs, Chrome automation, shell commands, or Worker endpoints are invoked by panels.
 6. C7 remains non-writable and non-bypassable; uncertain effects fail closed; proposer/outcome acceptor separation unchanged.

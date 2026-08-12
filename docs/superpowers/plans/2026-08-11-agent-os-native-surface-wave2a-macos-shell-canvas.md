@@ -93,7 +93,7 @@
 
 ## Plan Self-Review Checklist
 
-- The renderer cannot open SQLite, construct an application, or receive key values.
+- The renderer cannot open SQLite, construct an application, or read back key values (the only inbound path is the write-only `custody:set_provider_key` that returns a boolean).
 - The IPC bridge is allowlisted and rejects everything else.
 - Panels are typed Surface consumers; no native/Google/Chrome/shell/Worker calls.
 - Daemon supervision is bounded (backoff, restart budget) and boot-id-matched.
