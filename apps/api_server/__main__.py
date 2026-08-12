@@ -28,7 +28,16 @@ def main() -> None:
     parser.add_argument("--observation-admin-config")
     parser.add_argument("--perception-once", action="store_true")
     parser.add_argument("--perception-worker-id", default="agent-os-cli")
+    parser.add_argument("--token-env")
     args = parser.parse_args()
+    local_token: str | None = None
+    if args.token_env:
+        local_token = os.environ.get(args.token_env)
+        if not local_token:
+            raise ValueError(
+                f"runtime token environment variable {args.token_env} "
+                "is unavailable"
+            )
     application = (
         situated_startup._build_data_agent_situated_application(
             config_path=args.data_agent_situated_config,
@@ -71,7 +80,15 @@ def main() -> None:
         finally:
             application.store.close()
         return
-    if admin_applications:
+    if local_token is not None:
+        serve(
+            application,
+            args.host,
+            args.port,
+            admin_applications=admin_applications or None,
+            local_token=local_token,
+        )
+    elif admin_applications:
         serve(
             application,
             args.host,
