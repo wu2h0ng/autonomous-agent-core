@@ -1,7 +1,7 @@
 # Agent OS Project Plan
 
 > Status: `ACTIVE / AUTHORIZED-SEQUENCE ONLY`
-> Updated: 2026-07-15
+> Updated: 2026-08-11
 > Product authority: `AGENT-OS-PRODUCT-BLUEPRINT.md`
 > Live truth: `CURRENT_STATE.yaml`
 > This file is not a historical changelog and does not authorize work by itself.
@@ -27,7 +27,7 @@ Every task must declare: track, claim class, authority, entry point, contract, f
 
 **Outcome:** combine the branch-contained SPINE/LH D1 ancestry at `7410a06df3182ec59da1d421916b5bf8086ea8c4` with the compact 2026-07-14 authority-document commit `4ee868d5d419a786c0f8339fffbccbcdf828a79e`.
 
-**Required truth:** E2E-1/2/3 remain `INVALID`; E2E-4 remains one bounded local same-boot `PASS`; LH v5 has accepted Combined-D1 prerequisite receipts plus one-shot 432-case materialization and oracle `432/432`, but no D2 or formal result; B1 and RTM-1 remain separate-branch evidence; SPINE-1 remains unexecuted.
+**Required truth:** E2E-1/2/3 remain `INVALID`; E2E-4 remains one bounded local same-boot `PASS`; LH v5 has accepted Combined-D1 prerequisite receipts plus one-shot 432-case materialization and oracle `432/432`, but no D2 or formal result; B1 and RTM-1 remain separate-branch evidence; SPINE-1 is independently approved and main-integrated as a bounded Data Agent domain pack only.
 
 **Hard boundary:** no runtime/frozen-result rewrite, experiment, push, main merge, migration, release, autonomy or AGI claim.
 
@@ -76,13 +76,13 @@ The cross-model accepted falsifier baseline lives on `feat/b1-sandbox-harness-20
 
 Exact accepted implementation head: `368f8acc1062c989be1930133087d76856bf7384` on `codex/itc1-stage0-harness-20260713`. It is implementation evidence only. Benchmarking, successor freeze, production seed access, held-out opening, a result-bearing run, G-TC/G-PV movement, Product projection and autonomy claims all require separate authority.
 
-### P5 — Keep SPINE-1 gated and unexecuted
+### P5 — Preserve the bounded main-integrated SPINE-1 capability
 
 **Task:** `T-P-OS-SPINE-1`
 
-**Status:** `PARK / DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED`
+**Status:** `G0-G7_PASS / INDEPENDENT_REVIEW_APPROVE / PUSHED / MAIN_INTEGRATED / UNRELEASED`
 
-Allowed preparation remains donor characterization, full-history secret/PII/customer-data/binary/license scan design, provenance planning, generic/domain mapping, isolated branch design and rollback tests. No subtree import, runtime cross-import, push, merge or “migrated” claim is permitted before every ADR-0054 gate and explicit founder authorization.
+The bounded donor-history import, capability extraction, staging removal, verification and exact-head independent review are integrated on Agent OS main through receipt `807a0590`, with reviewed code head `e1cf9c4c`. Root G0 is reconciled. Release, production activation, donor archival/deletion and broader capability admission remain separately gated.
 
 ### P6 — Keep governed core evolution at plan-only
 
@@ -155,7 +155,7 @@ If a route reduces to a cheap baseline, lacks independent truth, depends on an o
 - LH-RECOVERY-1A v5 reached Combined-D1 acceptance, one-shot 432-case materialization and oracle `432/432`; these are prerequisite receipts, not D2 or a formal result.
 - The B1 falsifier harness is complete only on a separate sandbox branch; `SANDBOX_ONLY / NO_TRAINING` remains binding.
 - RTM-1 resource-v4 is accepted implementation only on a separate branch and remains `NOT_BENCHMARKED / NOT_RUN`.
-- SPINE-1 has not executed; Data Agent remains physically independent.
+- SPINE-1 is independently approved and main-integrated as a bounded domain pack; the standing Data Agent repository remains physically retained for provenance and fallback pending a separate archival decision.
 - G10 remains a narrow positive task/regret result; Product Track must revalidate it before use.
 - G13 and G-ECO-REOPEN-1 are final `NOT_MET`; no rescue runs.
 - survival/risk/endogeny did not establish an independent axis.
@@ -189,10 +189,10 @@ Run `git status --short` and `git diff --check`; separate task changes from pre-
 - rewriting SPINE-E2E-1/2/3 `INVALID` or widening SPINE-E2E-4 beyond its bounded result;
 - constructing LH-RECOVERY-1A D2 or running a formal outcome under the Tasks 7/8 authority;
 - benchmarking, freezing, seeding or running RTM-1 resource-v4;
-- pushing or merging the canonical-convergence branch, migrating Data Agent or releasing Agent OS;
+- releasing Agent OS, activating production, or archiving/deleting the standing Data Agent donor;
 - Agent OS Product Alpha, production or superiority claims;
 - B1 model training or result-bearing experiment;
-- SPINE-1 import, push or merge;
+- SPINE-1 release, production activation, donor archival/deletion or unreviewed capability expansion;
 - CWM real-actuator promotion;
 - G13/G-Eco rescue, reseed or gate changes;
 - general autonomy or AGI claims;

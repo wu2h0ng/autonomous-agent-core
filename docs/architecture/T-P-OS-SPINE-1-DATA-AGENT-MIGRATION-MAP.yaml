@@ -1,6 +1,6 @@
-version: 2
-date: "2026-07-10"
-status: "DESIGN_ONLY_NOT_EXECUTED"
+version: 3
+date: "2026-08-11"
+status: "G7_LOCAL_BOUNDED_INTEGRATION_CANDIDATE / UNPUSHED / UNMERGED / UNRELEASED"
 task_id: "T-P-OS-SPINE-1"
 depends_on: "T-P-OS-SPINE-0_ACCEPTED"
 authority:
@@ -14,19 +14,38 @@ decision:
   strategy: "history_safe_one_time_subtree_then_modular_monolith_extraction"
   runtime_topology: "single Agent OS monorepo; no cross-repo runtime imports"
   scope: "SPINE-1 successor; not a SPINE-0 acceptance requirement"
-  implementation_authorized: false
-  migration_authorized: false
+  implementation_authorized: true
+  migration_authorized: true
+  push_authorized: false
+  main_merge_authorized: false
+  release_authorized: false
 
 donor:
   repository: "ai-native-business-data-agent-os"
   local_design_time_path: "../ai-native-business-data-agent-os"
   observed_design_time_short_ref: "a406508"
-  execution_ref: "MUST_BE_RESOLVED_TO_FULL_IMMUTABLE_SHA_AFTER_SPEC_REVIEW"
+  execution_ref: "94e2b5918d12d6592f34f3b14c44c29038a74029"
   import_prefix: "_migration/data-agent-os"
   import_mode: "direct no-squash subtree only after full-history PASS; otherwise filtered migration mirror or ABORT"
   provenance_manifest: "REQUIRED_BEFORE_IMPORT"
   history_safety_report: "REQUIRED_BEFORE_IMPORT"
   staging_runtime_imports_allowed: false
+
+execution_result:
+  history_safety_verdict: PASS
+  import_commit: "78f4f6134bf9c1620ba5a1ef70000355f9c88ac8"
+  post_extraction_verification: "docs/migration/SPINE-1-POST-EXTRACTION-VERIFICATION.yaml"
+  staging_removal_commit: "43ccbec54d603c3022ecb517f8936f0ffa849e64"
+  retained_data_capabilities:
+    - "data.query.safe"
+    - "data.report.observe"
+    - "data.action.propose"
+  parked_without_live_consumer:
+    - "donor advanced semantic catalog and natural-language intent runtime"
+    - "donor knowledge lifecycle"
+    - "donor Customer-0/content-commerce assets"
+    - "business action execution connectors"
+  claim_boundary: "Local bounded candidate only; no push, merge, release, production, commercial or autonomy claim."
 
 history_safety:
   scan_scope:

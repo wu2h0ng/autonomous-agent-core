@@ -83,6 +83,7 @@ from agent_os_core import (
     CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
+    CapabilityBroker,
     ChatSession,
     ConfirmationGateway,
     CandidateEvaluationScopeMismatch,
@@ -129,6 +130,7 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
+from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.session_projection import SessionLoopConfig
 from agent_os_core.trajectory import TrajectoryProjector
@@ -137,13 +139,22 @@ from domain_packs.developer_agent import (
     DeveloperWorkspaceAdapter,
     manifest as developer_agent_manifest,
 )
-
-from .data_agent_report_adapter import (
+from domain_packs.data_agent.contracts import (
+    BusinessActionProposalRequest,
+    DataAgentRequest,
+)
+from domain_packs.data_agent.runtime import (
+    DATA_QUERY_CAPABILITY_ID,
+    DataAgentRuntime,
+    SQLiteDataQueryCapability,
+)
+from domain_packs.data_agent.report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportPollResult,
     TrustedObservationBundle,
 )
-from .data_agent_situated_bootstrap import DataAgentSituatedRuntime
+from domain_packs.data_agent.situated import DataAgentSituatedRuntime
+
 from .mandate_active_perception import (
     ActivePerceptionReceipt,
     MandateActivePerceptionService,
@@ -258,6 +269,8 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
+        data_agent_query_database: str | Path | None = None,
+        data_agent_query_grant: CapabilityGrant | None = None,
         observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
     ) -> None:
         self._clock = clock
@@ -338,7 +351,9 @@ class AgentOSApplication:
             MandateActivePerceptionService | None
         ) = None
         self._mandate_steward: MandateSteward | None = None
-        self.sandbox = DeveloperWorkspaceAdapter(workspace, idempotency_store=self.store)
+        self.sandbox = DeveloperWorkspaceAdapter(
+            workspace, idempotency_store=self.store
+        )
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
@@ -365,6 +380,34 @@ class AgentOSApplication:
             clock=self._clock,
         )
         self.policy = PolicyKernel(self.correction)
+        if (data_agent_query_database is None) != (data_agent_query_grant is None):
+            raise ValueError(
+                "Data Agent query database and capability grant must be configured together"
+            )
+        self.data_agent_runtime: DataAgentRuntime | None = None
+        if data_agent_query_database is not None and data_agent_query_grant is not None:
+            if (
+                data_agent_query_grant.principal_id != self.principal.principal_id
+                or data_agent_query_grant.tenant_id != self.principal.tenant_id
+                or data_agent_query_grant.workspace_id != self.principal.workspace_id
+                or data_agent_query_grant.capability_id != DATA_QUERY_CAPABILITY_ID
+            ):
+                raise ValueError(
+                    "Data Agent query grant must match the application principal scope"
+                )
+            connector = SQLiteDataQueryCapability(data_agent_query_database)
+            pipeline = ActionPipeline(
+                self.tasks,
+                CapabilityBroker(connector, self.correction),
+                self.policy,
+                self.correction,
+                data_agent_query_grant,
+            )
+            self.data_agent_runtime = DataAgentRuntime(
+                tasks=self.tasks,
+                pipeline=pipeline,
+                capability_spec=connector.specs()[DATA_QUERY_CAPABILITY_ID],
+            )
         live_base_url, live_model, credential_key = self._resolve_live_provider_env()
         live_model_revision_digest = os.environ.get(
             "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
@@ -724,9 +767,7 @@ class AgentOSApplication:
                 os.environ.get(f"{profile_prefix}_BASE_URL")
                 or os.environ.get(f"{profile_prefix}_API_URL")
             )
-            profile_model = (
-                os.environ.get(f"{profile_prefix}_MODEL") or ""
-            ).strip()
+            profile_model = (os.environ.get(f"{profile_prefix}_MODEL") or "").strip()
             profile_key_env = f"{profile_prefix}_API_KEY"
             profile_temp = os.environ.get(f"{profile_prefix}_TEMPERATURE")
             if profile_temp and not os.environ.get("AGENT_OS_PROVIDER_TEMPERATURE"):
@@ -739,9 +780,7 @@ class AgentOSApplication:
 
         live_base_url = explicit_base or profile_base or legacy_base
         live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
-        credential_key = (
-            explicit_key_env or profile_key_env or "OPENAI_API_KEY"
-        )
+        credential_key = explicit_key_env or profile_key_env or "OPENAI_API_KEY"
         return live_base_url, live_model, credential_key
 
     def provider_status(self) -> dict[str, Any]:
@@ -842,6 +881,68 @@ class AgentOSApplication:
 
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
+
+    def run_data_agent_query(
+        self,
+        task_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.data_agent_runtime is None:
+            raise ValueError("Data Agent query capability is not configured")
+        allowed_fields = {"request_id", "safe_query", "data_product"}
+        forbidden_fields = set(payload) - allowed_fields
+        if forbidden_fields:
+            raise ValueError(
+                "Data Agent query accepts only request_id, safe_query, and data_product"
+            )
+        aggregate = self.tasks.get_task(task_id)
+        if aggregate.run is None or aggregate.expected_outcome is None:
+            raise ValueError("Data Agent query requires an active committed Task run")
+        request = DataAgentRequest.model_validate(
+            {
+                **payload,
+                "principal": self.principal.model_dump(mode="json"),
+                "tenant_id": self.principal.tenant_id,
+                "workspace_id": self.principal.workspace_id,
+                "task_id": task_id,
+                "run_id": aggregate.run.run_id,
+                "expected_outcome_id": aggregate.expected_outcome.expected_outcome_id,
+            }
+        )
+        return self.data_agent_runtime.execute(request).model_dump(mode="json")
+
+    def propose_data_agent_action(
+        self,
+        task_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.data_agent_runtime is None:
+            raise ValueError("Data Agent action proposal capability is not configured")
+        allowed_fields = {
+            "request_id",
+            "target_capability_id",
+            "payload_json",
+            "consequence_preview",
+            "alternatives",
+            "risk_tier",
+        }
+        if set(payload) - allowed_fields:
+            raise ValueError("Data Agent action proposal contains forbidden fields")
+        aggregate = self.tasks.get_task(task_id)
+        if aggregate.run is None or aggregate.expected_outcome is None:
+            raise ValueError("Data Agent action proposal requires an active Task run")
+        request = BusinessActionProposalRequest.model_validate(
+            {
+                **payload,
+                "principal": self.principal.model_dump(mode="json"),
+                "tenant_id": self.principal.tenant_id,
+                "workspace_id": self.principal.workspace_id,
+                "task_id": task_id,
+                "run_id": aggregate.run.run_id,
+                "expected_outcome_id": aggregate.expected_outcome.expected_outcome_id,
+            }
+        )
+        return self.data_agent_runtime.propose_action(request).model_dump(mode="json")
 
     def create_mandate_workspace_record(
         self, payload: dict[str, Any]

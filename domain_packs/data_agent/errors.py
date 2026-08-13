@@ -1,0 +1,2 @@
+class DataAgentDenied(PermissionError):
+    pass

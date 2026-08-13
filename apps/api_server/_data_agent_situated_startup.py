@@ -53,17 +53,17 @@ from agent_os_core import (
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 
 from .app import AgentOSApplication
-from .data_agent_report_admission import (
+from domain_packs.data_agent.report_admission import (
     SQLiteDataAgentReportAdmissionMaterialStore,
 )
-from .data_agent_report_adapter import (
+from domain_packs.data_agent.report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
     DataAgentReportSourceConfig,
     SQLiteDataAgentReportStateStore,
     _normalized_origin,
 )
-from .data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from domain_packs.data_agent.situated import DataAgentSituatedBootstrap
 from .mandate_active_perception import (
     MandateActivePerceptionConfig,
     MandateActivePerceptionService,
