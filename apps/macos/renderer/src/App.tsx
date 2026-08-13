@@ -167,10 +167,6 @@ function renderPanels(props: PanelsProps): React.JSX.Element[] {
     ));
 }
 
-function closedShellMap(): Record<string, unknown> {
-  return { "chrome-live": {}, "embedded-web": {}, gmail: {}, calendar: {} };
-}
-
 export function App(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>({ kind: "connecting" });
   const [client, setClient] = useState<SurfaceClient | null>(null);
