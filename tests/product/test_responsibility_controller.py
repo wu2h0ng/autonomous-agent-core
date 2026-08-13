@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -40,7 +40,7 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core.errors import RunExecutionError
-from agent_os_core import DeterministicProvider, TASK_CONFIGURATION_CAPABILITY
+from agent_os_core import DeterministicProvider, ExecutionLease, TASK_CONFIGURATION_CAPABILITY
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.capability import CapabilityBroker
 from agent_os_core.responsibility_controller import (
@@ -1616,10 +1616,12 @@ def test_selfdev_keyboard_interrupt_after_patch_compensates_exact_preimage(
     )
     original_invoke = CapabilityBroker.invoke
 
-    def interrupt_tests(self, action, permit, attempt=1):
+    def interrupt_tests(self, action, permit, attempt=1, *, execution_claim):
         if action.capability_id == "workspace.run_tests":
             raise KeyboardInterrupt
-        return original_invoke(self, action, permit, attempt=attempt)
+        return original_invoke(
+            self, action, permit, attempt=attempt, execution_claim=execution_claim
+        )
 
     monkeypatch.setattr(CapabilityBroker, "invoke", interrupt_tests)
     with pytest.raises(KeyboardInterrupt):
@@ -2372,6 +2374,16 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
         process_instance_id="process:receipt-reconcile",
         now=NOW,
     )
+    lease_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    lease_fence = owner.tasks._event_store.acquire_lease(  # type: ignore[attr-defined]
+        action.run_id, "test:worker", lease_expiry.isoformat()
+    )
+    execution_claim = ExecutionLease(
+        run_id=action.run_id,
+        owner="test:worker",
+        fence=lease_fence,
+        expires_at=lease_expiry,
+    )
 
     def execute_effect(
         operation_slot,
@@ -2408,6 +2420,7 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
             record_artifacts=False,
             execution_fence=lambda _phase: None,
             effect_custody=custody,
+            execution_claim=execution_claim,
         )
     assert loop_store.runtime_status(binding)["applied_without_task_receipt_count"] == 1
     monkeypatch.setattr(owner.tasks, "_record_action_receipt", original_record)
@@ -2420,6 +2433,7 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
         record_artifacts=False,
         execution_fence=lambda _phase: None,
         effect_custody=custody,
+        execution_claim=execution_claim,
     )
 
     runtime = loop_store.runtime_status(binding)

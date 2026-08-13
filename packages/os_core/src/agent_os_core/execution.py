@@ -37,7 +37,13 @@ from agent_os_contracts import (
     provider_execution_receipt_digest,
 )
 
-from .capability import CapabilityBroker, CapabilityPort, CapabilityResult
+from .capability import (
+    CapabilityBroker,
+    CapabilityEffectUnknown,
+    CapabilityPort,
+    CapabilityResult,
+)
+from ._action_outcome import ExecutionLease
 from .action_pipeline import ActionPipeline
 from .errors import (
     ConcurrentWriteError,
@@ -238,6 +244,7 @@ class RunCoordinator:
         assert_execution_fence("before_run_execution")
         lease_fence = 0
         owner: str | None = None
+        expiry: str | None = None
         acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
         if acquire_lease is not None:
             owner = f"worker:{uuid4()}"
@@ -448,6 +455,17 @@ class RunCoordinator:
                         context.get(f"action:{node.capability}"),
                         execution_fence=execution_fence,
                         effect_custody=effect_custody,
+                        execution_claim=ExecutionLease(
+                            run_id=run.run_id,
+                            owner=owner or f"worker:{uuid4()}",
+                            fence=lease_fence,
+                            expires_at=(
+                                datetime.fromisoformat(expiry)
+                                if expiry
+                                else datetime.now(timezone.utc)
+                                + timedelta(minutes=5)
+                            ),
+                        ),
                     )
                     context[node.node_id] = result.output
                     context[node.capability or node.node_id] = result.output
@@ -561,10 +579,45 @@ class RunCoordinator:
                         node_id=node.node_id,
                         lease_fence=lease_fence,
                         effect_custody=effect_custody,
+                        held_lease_expiry=expiry,
+                        held_lease_owner=owner,
                     )
                 finally:
                     self._release_lease(run.run_id, owner)
                 raise
+            except CapabilityEffectUnknown as unknown:
+                # UNKNOWN: the action may have taken effect. Mark the run
+                # unresolved (paused) with an unknown_action marker so the
+                # resume gate requires explicit reconciliation; release the
+                # execution claim; NEVER auto-compensate or auto-resend
+                # (founder P1).
+                paused_run = run.model_copy(
+                    update={
+                        "status": RunStatus.PAUSED,
+                        "active_node_id": node.node_id,
+                    }
+                )
+                try:
+                    self.tasks.append_event(
+                        task_id,
+                        TaskEventType.RUN_PAUSED,
+                        {
+                            "run": paused_run.model_dump(mode="json"),
+                            "unknown_action": {
+                                "action_id": unknown.action.action_id,
+                                "action_digest": unknown.action.action_digest(),
+                                "capability_id": unknown.action.capability_id,
+                                "run_id": run.run_id,
+                            },
+                        },
+                        correlation_id=run.run_id,
+                    )
+                finally:
+                    self._release_lease(run.run_id, owner)
+                raise RunExecutionError(
+                    f"node {node.node_id} effect is UNKNOWN; "
+                    "external reconciliation required"
+                ) from unknown
             except Exception as exc:
                 failure_commit_allowed = True
                 if execution_fence is not None:
@@ -581,6 +634,8 @@ class RunCoordinator:
                             principal,
                             held_lease_fence=lease_fence,
                             effect_custody=effect_custody,
+                            held_lease_expiry=expiry,
+                            held_lease_owner=owner,
                         )
                 finally:
                     self._release_lease(run.run_id, owner)
@@ -611,6 +666,8 @@ class RunCoordinator:
                     principal,
                     held_lease_fence=lease_fence,
                     effect_custody=effect_custody,
+                    held_lease_expiry=expiry,
+                    held_lease_owner=owner,
                 )
         except KeyboardInterrupt:
             self._handle_keyboard_interrupt(
@@ -620,6 +677,8 @@ class RunCoordinator:
                 node_id="run-finalization",
                 lease_fence=lease_fence,
                 effect_custody=effect_custody,
+                held_lease_expiry=expiry,
+                held_lease_owner=owner,
             )
             raise
         finally:
@@ -635,6 +694,8 @@ class RunCoordinator:
         node_id: str,
         lease_fence: int,
         effect_custody: EffectCustodyPort | None = None,
+        held_lease_expiry: str | None = None,
+        held_lease_owner: str | None = None,
     ) -> None:
         current = self.tasks.current_outcome(task_id)
         if current is not None and current.status is OutcomeStatus.VERIFIED:
@@ -674,6 +735,8 @@ class RunCoordinator:
             principal,
             held_lease_fence=lease_fence,
             effect_custody=effect_custody,
+            held_lease_expiry=held_lease_expiry,
+            held_lease_owner=held_lease_owner,
         )
 
     def _revalidate_outcome_before_finalization(
@@ -744,6 +807,8 @@ class RunCoordinator:
         *,
         held_lease_fence: int,
         effect_custody: EffectCustodyPort | None = None,
+        held_lease_expiry: str | None = None,
+        held_lease_owner: str | None = None,
     ):
         return self._compensate_with_mode(
             task_id,
@@ -751,6 +816,8 @@ class RunCoordinator:
             mode=CompensationMode.AUTOMATIC,
             held_lease_fence=held_lease_fence,
             effect_custody=effect_custody,
+            held_lease_expiry=held_lease_expiry,
+            held_lease_owner=held_lease_owner,
         )
 
     def _attempt_automatic_compensation(
@@ -760,6 +827,8 @@ class RunCoordinator:
         *,
         held_lease_fence: int,
         effect_custody: EffectCustodyPort | None = None,
+        held_lease_expiry: str | None = None,
+        held_lease_owner: str | None = None,
     ) -> None:
         """Keep an already-persisted failure authoritative if rollback infrastructure fails."""
 
@@ -769,6 +838,8 @@ class RunCoordinator:
                 principal,
                 held_lease_fence=held_lease_fence,
                 effect_custody=effect_custody,
+                held_lease_expiry=held_lease_expiry,
+                held_lease_owner=held_lease_owner,
             )
         except Exception:
             # The original RUN_FAILED/NOT_MET is already durable. A broken event store
@@ -783,6 +854,8 @@ class RunCoordinator:
         mode: CompensationMode,
         held_lease_fence: int | None,
         effect_custody: EffectCustodyPort | None,
+        held_lease_expiry: str | None = None,
+        held_lease_owner: str | None = None,
     ):
         if mode is CompensationMode.MANUAL and principal.role not in {
             PrincipalRole.PRINCIPAL,
@@ -829,8 +902,9 @@ class RunCoordinator:
                 "compensation requires FAILED/NOT_MET or prior intervention context"
             )
 
-        owner: str | None = None
+        owner: str | None = held_lease_owner
         acquired_fence = held_lease_fence
+        acquired_expiry = held_lease_expiry
         if mode is CompensationMode.MANUAL:
             acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
             if acquire_lease is not None:
@@ -838,6 +912,7 @@ class RunCoordinator:
                 expires_at = (
                     datetime.now(timezone.utc) + timedelta(minutes=5)
                 ).isoformat()
+                acquired_expiry = expires_at
                 acquired_fence = acquire_lease(
                     aggregate.run.run_id,
                     owner,
@@ -854,6 +929,8 @@ class RunCoordinator:
                 mode=mode,
                 lease_fence=acquired_fence,
                 effect_custody=effect_custody,
+                owner=owner,
+                lease_expiry=acquired_expiry,
             )
         finally:
             self._release_lease(aggregate.run.run_id, owner)
@@ -866,6 +943,8 @@ class RunCoordinator:
         mode: CompensationMode,
         lease_fence: int | None,
         effect_custody: EffectCustodyPort | None,
+        owner: str | None = None,
+        lease_expiry: str | None = None,
     ):
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None or aggregate.workflow is None:
@@ -1060,6 +1139,40 @@ class RunCoordinator:
                     blocked,
                 )
                 continue
+            # A previously sealed compensation (e.g. an effect-before-receipt
+            # crash) replays the original durable receipt; minting a fresh
+            # decision/permit pair against the replayed receipt would violate
+            # the receipt identity binding (founder P1 UNKNOWN contract).
+            pre_replayed = self.broker.replay(compensation_action)
+            if pre_replayed is not None:
+                self.tasks.append_event(
+                    task_id,
+                    TaskEventType.ACTION_PROPOSED,
+                    {"action": compensation_action.model_dump(mode="json")},
+                    correlation_id=run.run_id,
+                )
+                self.tasks._recover_action_receipt(
+                    task_id,
+                    action=compensation_action,
+                    permit=pre_replayed.permit,
+                    receipt=pre_replayed.receipt,
+                    writer_token=self.tasks._runtime_writer_token,
+                )
+                compensated = PatchCompensationRecord(
+                    **record_kwargs,
+                    status=CompensationStatus.COMPENSATED,
+                    reason="governed patch compensation completed (sealed replay)",
+                    manual_intervention_required=False,
+                    receipt_id=pre_replayed.receipt.receipt_id,
+                    created_at=self.tasks.now(),
+                )
+                self._append_compensation_record(
+                    task_id,
+                    run.run_id,
+                    TaskEventType.ACTION_COMPENSATED,
+                    compensated,
+                )
+                continue
             if self.compensation_grant is None:
                 failed = PatchCompensationRecord(
                     **record_kwargs,
@@ -1145,7 +1258,24 @@ class RunCoordinator:
                         "original capability correction halted compensation"
                     )
                 def invoke_compensation() -> CapabilityResult:
-                    return self.broker.invoke(compensation_action, permit)
+                    # ADR-0059: every production dispatch carries an execution
+                    # claim bound to the held/acquired run lease (founder P1).
+                    claim = ExecutionLease(
+                        run_id=run.run_id,
+                        owner=owner or f"compensator:{uuid4()}",
+                        fence=int(lease_fence or 1),
+                        expires_at=(
+                            datetime.fromisoformat(lease_expiry)
+                            if lease_expiry
+                            else datetime.now(timezone.utc)
+                            + timedelta(minutes=5)
+                        ),
+                    )
+                    return self.broker.invoke(
+                        compensation_action,
+                        permit,
+                        execution_claim=claim,
+                    )
                 result = (
                     effect_custody(
                         f"compensate:{original.node_id}",
@@ -1415,6 +1545,7 @@ class RunCoordinator:
         *,
         execution_fence: Callable[[str], None] | None = None,
         effect_custody: EffectCustodyPort | None = None,
+        execution_claim: ExecutionLease,
     ) -> CapabilityResult:
         if capability_id == "workspace.compensate_patch":
             raise RunExecutionError(
@@ -1460,6 +1591,7 @@ class RunCoordinator:
             record_artifacts=True,
             execution_fence=execution_fence,
             effect_custody=effect_custody,
+            execution_claim=execution_claim,
         )
 
     def _build_action(

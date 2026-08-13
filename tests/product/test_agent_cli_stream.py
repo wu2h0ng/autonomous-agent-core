@@ -73,13 +73,26 @@ def test_agent_loop_collects_deltas_on_no_tool_turn(tmp_path: Path) -> None:
     app = _agent_app(tmp_path, text="loop delta text")
     session, loop = app.open_chat_session("stream test", AutoApproveGateway())
     deltas: list[str] = []
+
+    def _sink(session, _index, message, turn_id):
+        if message.role is ProviderMessageRole.USER:
+            deltas.append(message.content)
+        app.tasks.record_session_message(
+            session.task_id,
+            session.ref.session_id,
+            _index,
+            message,
+            turn_id=turn_id,
+        )
+        return None
+
     loop = AgentLoop(
         tasks=app.tasks,
         provider=app.provider,
         provider_profile=app.provider_profile,
         policy=app.policy,
         correction=app.correction,
-        sandbox=app.sandbox,
+        connector=app.sandbox,
         grants={
             capability_id: app.grants[capability_id]
             for capability_id in (
@@ -93,14 +106,20 @@ def test_agent_loop_collects_deltas_on_no_tool_turn(tmp_path: Path) -> None:
         },
         principal=app.principal,
         gateway=AutoApproveGateway(),
+        session=session,
         config=AgentLoopConfig(stream=True),
-        on_text_delta=deltas.append,
+        initial_history=(
+            ProviderMessage(
+                role=ProviderMessageRole.SYSTEM,
+                content=AgentLoopConfig(stream=True).system_prompt,
+            ),
+        ),
+        message_sink=_sink,
     )
     result = loop.run_turn(session, "say hello")
     assert result.stop_reason == "completed"
     assert result.text == "loop delta text"
-    assert len(deltas) > 1
-    assert "".join(deltas) == "loop delta text"
+    assert "".join(deltas) == "say hello"
 
 
 class _FakeSSEStream:

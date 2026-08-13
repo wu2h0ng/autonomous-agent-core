@@ -17,7 +17,13 @@ from agent_os_contracts import (
     TaskEventType,
 )
 
-from .capability import CapabilityBroker, CapabilityResult
+from .capability import (
+    CapabilityBroker,
+    CapabilityCorrectionBlocked,
+    CapabilityEffectUnknown,
+    CapabilityResult,
+)
+from ._action_outcome import ExecutionLease, ExecutionLeaseConflict
 from .errors import RunExecutionError
 from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
 from .task_service import TaskService
@@ -60,7 +66,7 @@ class ActionPipeline:
         risk_tier: int,
         approval_requirement: Literal["policy", "external_exact"] = "policy",
     ) -> ActionContract:
-        return ActionContract(
+        candidate = ActionContract(
             action_id=f"action-{uuid4()}",
             task_id=task_id,
             run_id=run_id,
@@ -88,6 +94,136 @@ class ActionPipeline:
             approval_requirement=approval_requirement,
             created_at=datetime.now(timezone.utc),
         )
+        reusable = self._tasks._find_reusable_proposed_action(
+            task_id, candidate
+        )
+        return reusable if reusable is not None else candidate
+
+    def reconcile_before_policy(
+        self,
+        action: ActionContract,
+        *,
+        record_artifacts: bool = False,
+    ) -> CapabilityResult | None:
+        """Resolve Task/capability truth without policy or capability dispatch."""
+
+        try:
+            recorded = self._tasks._find_exact_action_receipt(
+                action.task_id,
+                action,
+            )
+        except Exception as exc:
+            raise CapabilityEffectUnknown(
+                action,
+                reason_code="TASK_RECEIPT_CORRUPT",
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
+        try:
+            replayed = self._broker.replay(action)
+        except CapabilityEffectUnknown:
+            raise
+        except Exception as exc:
+            raise CapabilityEffectUnknown(
+                action,
+                reason_code="CAPABILITY_OUTCOME_READ_FAILED",
+                detail=f"{type(exc).__name__}: {exc}",
+            ) from exc
+        if recorded is not None:
+            if replayed is None:
+                raise CapabilityEffectUnknown(
+                    action,
+                    reason_code="TASK_RECEIPT_WITHOUT_OUTCOME",
+                    detail=(
+                        "Task receipt exists without the exact sealed capability "
+                        "outcome; automatic dispatch is forbidden"
+                    ),
+                )
+            if (
+                replayed.permit != recorded.permit
+                or replayed.receipt != recorded.receipt
+            ):
+                raise CapabilityEffectUnknown(
+                    action,
+                    reason_code="RECEIPT_OUTCOME_CONFLICT",
+                    detail="Task receipt and sealed capability outcome conflict",
+                )
+            return self._finish_result(
+                action,
+                replayed,
+                record_artifacts=record_artifacts,
+            )
+        if replayed is not None:
+            try:
+                self._tasks._recover_action_receipt(
+                    action.task_id,
+                    action=action,
+                    permit=replayed.permit,
+                    receipt=replayed.receipt,
+                    effect=(
+                        {
+                            key: str(replayed.output[key])
+                            for key in (
+                                "path",
+                                "compensation_ref",
+                                "manifest_sha256",
+                                "applied_sha256",
+                            )
+                        }
+                        if action.capability_id
+                        in {"workspace.apply_patch", "workspace.edit"}
+                        and all(
+                            key in replayed.output
+                            for key in (
+                                "path",
+                                "compensation_ref",
+                                "manifest_sha256",
+                                "applied_sha256",
+                            )
+                        )
+                        else None
+                    ),
+                    writer_token=self._tasks._runtime_writer_token,
+                )
+            except Exception as exc:
+                raise CapabilityEffectUnknown(
+                    action,
+                    reason_code="OUTCOME_TASK_TRUTH_CONFLICT",
+                    detail=f"{type(exc).__name__}: {exc}",
+                ) from exc
+            return self._finish_result(
+                action,
+                replayed,
+                record_artifacts=record_artifacts,
+            )
+        return None
+
+    def _finish_result(
+        self,
+        action: ActionContract,
+        result: CapabilityResult,
+        *,
+        record_artifacts: bool,
+    ) -> CapabilityResult:
+        if result.receipt.status.value != "SUCCEEDED":
+            raise RunExecutionError(
+                f"tool failed: {result.receipt.error_code}: "
+                f"{result.output.get('error', '')}"
+            )
+        if not record_artifacts:
+            # Chat-loop actions use ephemeral per-turn node ids (required for
+            # idempotency uniqueness across repeated calls), which are not
+            # committed workflow nodes; the workflow-bound artifact index
+            # cannot cover them. The durable action receipt still binds the
+            # output artifact ids.
+            return result
+        for artifact_id in result.receipt.output_artifact_ids:
+            self._tasks.record_artifact(
+                action.task_id,
+                artifact_id,
+                node_id=action.node_id,
+                action_id=action.action_id,
+            )
+        return result
 
     def execute(
         self,
@@ -101,12 +237,19 @@ class ActionPipeline:
         record_artifacts: bool = True,
         execution_fence: Callable[[str], None] | None = None,
         effect_custody: EffectCustodyPort | None = None,
+        execution_claim: ExecutionLease,
     ) -> CapabilityResult:
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
             )
+        replayed = self.reconcile_before_policy(
+            action,
+            record_artifacts=record_artifacts,
+        )
+        if replayed is not None:
+            return replayed
         self._tasks.assert_external_exact_approval(action, approval)
         grant = (
             self._grant[cid]
@@ -135,16 +278,49 @@ class ActionPipeline:
             correlation_id=action.run_id,
         )
         if decision.verdict is not PolicyVerdict.ALLOW:
+            if bound_approval is not None and (
+                self._correction.halted(
+                    action.task_id,
+                    action.run_id,
+                    action.capability_id,
+                )
+                or self._correction.snapshot(
+                    action.task_id,
+                    action.run_id,
+                    action.capability_id,
+                )
+                != action.observed_correction_epochs
+            ):
+                raise CapabilityCorrectionBlocked(
+                    "C7 correction authority halted approved action execution"
+                )
             raise PermissionError(
                 f"policy denied {cid}: {decision.reason_codes}"
             )
-        aggregate = self._tasks.get_task(action.task_id)
-        lease_fence = (
-            aggregate.run.lease_fence if aggregate.run is not None else 0
-        )
-        permit = self._policy.permit(
-            action, decision, grant, lease_fence=lease_fence
-        )
+        lease_fence = execution_claim.fence
+        try:
+            permit = self._policy.permit(
+                action, decision, grant, lease_fence=lease_fence
+            )
+        except PermissionError as exc:
+            current_epochs = self._correction.snapshot(
+                action.task_id,
+                action.run_id,
+                action.capability_id,
+            )
+            if bound_approval is not None and (
+                self._correction.halted(
+                    action.task_id,
+                    action.run_id,
+                    action.capability_id,
+                )
+                or current_epochs != action.observed_correction_epochs
+                or current_epochs != decision.correction_epochs
+            ):
+                raise CapabilityCorrectionBlocked(
+                    "C7 correction authority changed before permit"
+                ) from exc
+            raise
         run_id = action.run_id
         if lease_fence_fn is not None:
             current_fence = lease_fence_fn(run_id)
@@ -158,8 +334,15 @@ class ActionPipeline:
         if execution_fence is not None:
             execution_fence("before_tool_effect")
 
+        if execution_claim.fence != permit.lease_fence:
+            raise ExecutionLeaseConflict("stale worker execution claim")
+
         def invoke() -> CapabilityResult:
-            return self._broker.invoke(action, permit)
+            return self._broker.invoke(
+                action,
+                permit,
+                execution_claim=execution_claim,
+            )
 
         result = (
             effect_custody(action.node_id, action.action_digest(), invoke)
@@ -219,16 +402,7 @@ class ActionPipeline:
         provider_tool_call_id: str | None = None,
         turn_id: str | None = None,
     ) -> None:
-        payload: dict[str, Any] = {
-            "action": action.model_dump(mode="json"),
-        }
-        if provider_tool_call_id is not None:
-            payload["provider_tool_call_id"] = provider_tool_call_id
-        if turn_id is not None:
-            payload["turn_id"] = turn_id
-        self._tasks.append_event(
-            action.task_id,
-            TaskEventType.ACTION_PROPOSED,
-            payload,
-            correlation_id=action.run_id,
-        )
+        # Idempotent: crash recovery resumes exact logical action identities,
+        # so re-proposing the same action must not duplicate the durable
+        # ACTION_PROPOSED record (wave lineage semantics).
+        self._tasks._record_or_reuse_action_proposed(action)

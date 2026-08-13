@@ -152,6 +152,19 @@ from .outcome_portfolio import (
     SettlementCommand,
     SettlementRecord,
 )
+from .surface import (
+    SURFACE_PROTOCOL_VERSION,
+    PendingSurfaceApproval,
+    SurfaceApprovalCommand,
+    SurfaceClientRef,
+    SurfaceCorrectionCommand,
+    SurfaceEventBatch,
+    SurfaceOpenSessionCommand,
+    SurfaceSessionSnapshot,
+    SurfaceSessionStatus,
+    SurfaceTurnCommand,
+    SurfaceTurnResponse,
+)
 from .responsibility import (
     MandateResponsibilityView,
     MandateResponsibilityViewStatus,
@@ -573,4 +586,16 @@ __all__ = [
     "task_configuration_grants_digest",
     "task_configuration_seal_request_digest",
     "task_configuration_snapshot_digest",
+    "PendingSurfaceApproval",
+    "SURFACE_PROTOCOL_VERSION",
+    "SurfaceApprovalCommand",
+    "SurfaceClientRef",
+    "SurfaceCorrectionCommand",
+    "SurfaceEventBatch",
+    "SurfaceOpenSessionCommand",
+    "SurfaceSessionSnapshot",
+    "SurfaceSessionStatus",
+    "SurfaceTurnCommand",
+    "SurfaceTurnResponse",
+
 ]

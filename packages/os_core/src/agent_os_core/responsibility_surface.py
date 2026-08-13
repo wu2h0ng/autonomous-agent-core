@@ -18,11 +18,14 @@ from agent_os_contracts import (
     OutcomePortfolio,
     PrincipalIdentity,
     PrincipalRole,
+    ProviderMessage,
+    ProviderMessageRole,
     RunStatus,
     SelfDevelopmentWorkSpec,
     SessionRef,
     SrlHelpResponse,
     TaskEventType,
+    TurnId,
     content_digest,
 )
 
@@ -30,7 +33,7 @@ from .agent_loop import (
     AgentLoop,
     AgentLoopConfig,
     ChatSession,
-    NonInteractiveDenyGateway,
+    DeferredApprovalGateway,
 )
 from .capability import CapabilityResult
 from .mandate_terminal import load_attach_session, mandate_status
@@ -47,6 +50,7 @@ from .responsibility_loop import (
     ResponsibilityLoopEffectUnknown,
     SQLiteResponsibilityLoopStore,
 )
+from .session_projection import SessionLoopConfig
 from .self_development_organ import (
     SelfDevelopmentAgentLoopState,
     SelfDevelopmentOrgan,
@@ -551,31 +555,74 @@ def run_responsibility_work(
             f"Exact base HEAD: {spec.repository_head}\n"
             f"Verifier after handoff: {spec.verifier_command}"
         )
+        config = AgentLoopConfig(
+            stream=False,
+            system_prompt=system_prompt,
+        )
+        session_id = session.ref.session_id
+        events = execution_app.tasks._event_store.read(task_id)
+        opened = any(
+            event.event_type is TaskEventType.SESSION_OPENED
+            and event.decoded_payload().get("session_id") == session_id
+            for event in events
+        )
+        if not opened:
+            execution_app.tasks.open_session(
+                session.ref,
+                session.envelope_id,
+                session.expected.expected_outcome_id,
+                loop_config=SessionLoopConfig(
+                    max_steps_per_turn=config.max_steps_per_turn,
+                    max_provider_retries=config.max_provider_retries,
+                    max_turn_tokens=config.max_turn_tokens,
+                    max_context_chars=config.max_context_chars,
+                    loop_detection_threshold=config.loop_detection_threshold,
+                    system_prompt=config.system_prompt,
+                ),
+            )
+            execution_app.tasks.record_session_message(
+                session.task_id,
+                session_id,
+                0,
+                ProviderMessage(
+                    role=ProviderMessageRole.SYSTEM,
+                    content=system_prompt,
+                ),
+                turn_id=None,
+            )
+        projected = execution_app.tasks.project_session(task_id, session_id)
+        resumable_turn_ids = (
+            (projected.resumable_turn_id,)
+            if projected.resumable_turn_id is not None
+            else ()
+        )
         loop = AgentLoop(
             tasks=execution_app.tasks,
             provider=execution_app.provider,
             provider_profile=execution_app.provider_profile,
             policy=execution_app.policy,
             correction=execution_app.correction,
-            sandbox=execution_app.sandbox,
+            connector=execution_app.sandbox,
             grants=grants,
             principal=execution_app.principal,
-            gateway=NonInteractiveDenyGateway(),
-            config=AgentLoopConfig(
-                stream=False,
-                system_prompt=system_prompt,
+            gateway=DeferredApprovalGateway(),
+            session=session,
+            config=config,
+            initial_history=projected.history,
+            message_sink=lambda session, index, message, turn_id: (
+                execution_app.tasks.record_session_message(
+                    session.task_id,
+                    session.ref.session_id,
+                    index,
+                    message,
+                    turn_id=turn_id,
+                )
             ),
+            resumable_turn_ids=resumable_turn_ids,
             execution_fence=assert_current,
             effect_custody=_effect_custody_for(execute_effect),
-            allowed_capability_ids=capabilities,
-            durable_write_approval=True,
-            allowed_write_paths=spec.allowed_write_paths,
-        )
-        events = execution_app.tasks._event_store.read(task_id)
-        has_turn = any(
-            event.event_type is TaskEventType.SESSION_TURN_STARTED
-            and event.correlation_id == run.run_id
-            for event in events
+            independent_approval=True,
+            external_exact_approval=True,
         )
         current = execution_app.tasks.get_task(task_id)
         if (
@@ -584,12 +631,18 @@ def run_responsibility_work(
         ):
             if current.approval is None:
                 return SelfDevelopmentAgentLoopState.WAITING_APPROVAL
-            result = loop.resume_after_approval(session)
-        elif has_turn:
-            result = loop.continue_existing_turn(session)
+            result = loop.resume_pending_approval(session, current.approval)
+        elif projected.resumable_turn_id is not None:
+            result = loop.resume_turn(
+                session,
+                TurnId(
+                    turn_id=projected.resumable_turn_id,
+                    session_id=session_id,
+                ),
+            )
         else:
             result = loop.run_turn(session, prompt)
-        if result.stop_reason == "waiting_approval":
+        if result.stop_reason in {"waiting_approval", "approval_required"}:
             return SelfDevelopmentAgentLoopState.WAITING_APPROVAL
         if result.stop_reason != "completed":
             raise SelfDevelopmentOrganBlocked(

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from threading import RLock
 from typing import Any
 
 from agent_os_contracts import CorrectionEpochVector, TaskEvent, TaskEventDraft
@@ -24,10 +25,29 @@ class PostgresTaskEventStore:
             raise RuntimeError("PostgresTaskEventStore requires psycopg") from exc
         self._psycopg = psycopg
         self._dsn = dsn
+        self._lease_lock = RLock()
+        self._held_leases: dict[tuple[str, str], int] = {}
         self._initialize()
 
     def _connect(self):
         return self._psycopg.connect(self._dsn)
+
+    def close(self) -> None:
+        """Release only leases acquired by this store instance."""
+
+        with self._lease_lock:
+            held = tuple(self._held_leases.items())
+            self._held_leases.clear()
+        if not held:
+            return
+        released_at = datetime.now(timezone.utc)
+        with self._connect() as conn, conn.cursor() as cur:
+            for (run_id, owner), fence in held:
+                cur.execute(
+                    "UPDATE run_leases SET expires_at=%s "
+                    "WHERE run_id=%s AND owner=%s AND fence=%s",
+                    (released_at, run_id, owner, fence),
+                )
 
     def _initialize(self) -> None:
         with self._connect() as conn, conn.cursor() as cur:
@@ -190,6 +210,7 @@ class PostgresTaskEventStore:
 
     def put_idempotency(self, scope: str, key: str, response: dict[str, Any], created_at: str) -> bool:
         with self._connect() as conn, conn.cursor() as cur:
+            self._lock_idempotency(cur, scope, key)
             cur.execute(
                 "INSERT INTO idempotency_keys(scope,key,response_json,created_at) VALUES (%s,%s,%s::jsonb,%s) ON CONFLICT DO NOTHING",
                 (scope, key, json.dumps(response, sort_keys=True), created_at),
@@ -198,17 +219,123 @@ class PostgresTaskEventStore:
 
     def acquire_lease(self, run_id: str, owner: str, expires_at: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT fence, owner, expires_at FROM run_leases WHERE run_id=%s FOR UPDATE", (run_id,))
-            row = cur.fetchone()
-            now = datetime.now(timezone.utc)
-            if row and row[2] > now and row[1] != owner:
-                raise ConcurrentWriteError(f"run {run_id} is leased by another worker")
-            fence = int(row[0]) + 1 if row else 1
-            cur.execute(
-                "INSERT INTO run_leases(run_id,fence,owner,expires_at) VALUES (%s,%s,%s,%s) ON CONFLICT(run_id) DO UPDATE SET fence=EXCLUDED.fence,owner=EXCLUDED.owner,expires_at=EXCLUDED.expires_at",
-                (run_id, fence, owner, expires_at),
+            fence = self._acquire_lease_with_cursor(
+                cur,
+                run_id,
+                owner,
+                expires_at,
             )
-            return fence
+        self._track_lease(run_id, owner, fence)
+        return fence
+
+    def acquire_lease_if_idempotency_absent(
+        self,
+        run_id: str,
+        owner: str,
+        expires_at: str,
+        scope: str,
+        key: str,
+    ) -> int:
+        """Atomically acquire execution ownership before reservation exists."""
+
+        with self._connect() as conn, conn.cursor() as cur:
+            self._lock_idempotency(cur, scope, key)
+            cur.execute(
+                "SELECT 1 FROM idempotency_keys WHERE scope=%s AND key=%s",
+                (scope, key),
+            )
+            if cur.fetchone() is not None:
+                raise ConcurrentWriteError(
+                    "capability dispatch is already reserved; review is required"
+                )
+            fence = self._acquire_lease_with_cursor(
+                cur,
+                run_id,
+                owner,
+                expires_at,
+            )
+        self._track_lease(run_id, owner, fence)
+        return fence
+
+    def put_idempotency_guarded_by_lease(
+        self,
+        run_id: str,
+        owner: str,
+        fence: int,
+        expires_at: str,
+        scope: str,
+        key: str,
+        response: dict[str, Any],
+        created_at: str,
+    ) -> bool:
+        """Insert one reservation iff the exact execution lease is active."""
+
+        expected_expiry = datetime.fromisoformat(expires_at)
+        with self._connect() as conn, conn.cursor() as cur:
+            self._lock_idempotency(cur, scope, key)
+            cur.execute(
+                "SELECT fence, owner, expires_at FROM run_leases "
+                "WHERE run_id=%s FOR UPDATE",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if (
+                row is None
+                or int(row[0]) != fence
+                or str(row[1]) != owner
+                or row[2] != expected_expiry
+                or not self._lease_active(row[2])
+            ):
+                raise ConcurrentWriteError(
+                    "stale execution lease cannot reserve capability dispatch"
+                )
+            cur.execute(
+                "INSERT INTO idempotency_keys"
+                "(scope,key,response_json,created_at) "
+                "VALUES (%s,%s,%s::jsonb,%s) ON CONFLICT DO NOTHING",
+                (scope, key, json.dumps(response, sort_keys=True), created_at),
+            )
+            return cur.rowcount == 1
+
+    @staticmethod
+    def _lock_idempotency(cur: Any, scope: str, key: str) -> None:
+        cur.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            (f"idempotency:{scope}:{key}",),
+        )
+
+    def _acquire_lease_with_cursor(
+        self,
+        cur: Any,
+        run_id: str,
+        owner: str,
+        expires_at: str,
+    ) -> int:
+        cur.execute(
+            "SELECT fence, owner, expires_at FROM run_leases "
+            "WHERE run_id=%s FOR UPDATE",
+            (run_id,),
+        )
+        row = cur.fetchone()
+        if row and self._lease_active(row[2]) and row[1] != owner:
+            raise ConcurrentWriteError(f"run {run_id} is leased by another worker")
+        fence = int(row[0]) + 1 if row else 1
+        cur.execute(
+            "INSERT INTO run_leases(run_id,fence,owner,expires_at) "
+            "VALUES (%s,%s,%s,%s) ON CONFLICT(run_id) DO UPDATE SET "
+            "fence=EXCLUDED.fence,owner=EXCLUDED.owner,"
+            "expires_at=EXCLUDED.expires_at",
+            (run_id, fence, owner, expires_at),
+        )
+        return fence
+
+    @staticmethod
+    def _lease_active(expires_at: datetime) -> bool:
+        return expires_at.tzinfo is not None and expires_at > datetime.now(timezone.utc)
+
+    def _track_lease(self, run_id: str, owner: str, fence: int) -> None:
+        with self._lease_lock:
+            self._held_leases[(run_id, owner)] = fence
 
     def recover_lease(self, run_id: str, owner: str, expires_at: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:
@@ -219,21 +346,34 @@ class PostgresTaskEventStore:
                 "INSERT INTO run_leases(run_id,fence,owner,expires_at) VALUES (%s,%s,%s,%s) ON CONFLICT(run_id) DO UPDATE SET fence=EXCLUDED.fence,owner=EXCLUDED.owner,expires_at=EXCLUDED.expires_at",
                 (run_id, fence, owner, expires_at),
             )
-            return fence
+        self._track_lease(run_id, owner, fence)
+        return fence
 
     def release_lease(self, run_id: str, owner: str) -> bool:
+        with self._lease_lock:
+            fence = self._held_leases.get((run_id, owner))
+        if fence is None:
+            return False
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE run_leases SET expires_at=%s WHERE run_id=%s AND owner=%s",
-                (datetime.now(timezone.utc), run_id, owner),
+                "UPDATE run_leases SET expires_at=%s "
+                "WHERE run_id=%s AND owner=%s AND fence=%s",
+                (datetime.now(timezone.utc), run_id, owner, fence),
             )
-            return cur.rowcount == 1
+            released = cur.rowcount == 1
+        with self._lease_lock:
+            if self._held_leases.get((run_id, owner)) == fence:
+                self._held_leases.pop((run_id, owner), None)
+        return released
 
     def lease_fence(self, run_id: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT fence FROM run_leases WHERE run_id=%s", (run_id,))
+            cur.execute(
+                "SELECT fence, expires_at FROM run_leases WHERE run_id=%s",
+                (run_id,),
+            )
             row = cur.fetchone()
-        return int(row[0]) if row else 0
+        return int(row[0]) if row and self._lease_active(row[1]) else 0
 
     def read_correction(self, scope: str, scope_id: str) -> tuple[int, bool, str] | None:
         with self._connect() as conn, conn.cursor() as cur:

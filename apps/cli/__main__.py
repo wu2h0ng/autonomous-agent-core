@@ -4,16 +4,23 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 from agent_os_contracts import (
     ActionContract,
+    ApprovalDisposition,
     PrincipalIdentity,
     PrincipalRole,
     SelfDevelopmentAdmissionCommand,
     SrlHelpResponseKind,
+    SurfaceSessionStatus,
+    SurfaceTurnResponse,
 )
 from agent_os_core import AutoApproveGateway, DeterministicProvider
 from agent_os_core.agent_cli import run_agent_cli
@@ -35,7 +42,23 @@ from agent_os_core.responsibility_surface import (
     run_responsibility_work,
 )
 from agent_os_core.selfdev_admission import admit_self_development
+from apps.runtime_daemon import (
+    DEFAULT_RUNTIME_DESCRIPTOR,
+    RuntimeAlreadyRunning,
+    daemon_status,
+    daemon_stop,
+)
+from apps.runtime_daemon.descriptor import (
+    RuntimeDescriptor,
+    RuntimeDescriptorError,
+    load_runtime_descriptor,
+)
 from apps.api_server.app import AgentOSApplication
+
+from .surface_client import (
+    SurfaceClient,
+    SurfaceClientError,
+)
 
 
 class TerminalConfirmationGateway:
@@ -83,6 +106,13 @@ _KNOWN_SUBCOMMANDS = frozenset(
         "mandate-bootstrap",
         "mandate-attach",
         "mandate-status",
+        "session-show",
+        "session-pause",
+        "session-resume",
+        "session-correct",
+        "daemon-start",
+        "daemon-status",
+        "daemon-stop",
     }
 )
 
@@ -163,14 +193,149 @@ def _agent(args: argparse.Namespace) -> int:
     )
 
 
-def _chat(args: argparse.Namespace) -> int:
-    return _run_agent_command(
-        args,
-        default_goal="interactive terminal chat session",
-        repl_banner_template=(
-            None if args.prompt is not None else "chat session started (task {task_id})"
-        ),
+def _status_value(status: object) -> str:
+    return getattr(status, "value", str(status))
+
+
+def _print_pending_approval(pending: object) -> None:
+    capability_id = getattr(pending, "capability_id", "unknown capability")
+    preview = getattr(pending, "preview", "")
+    print(f"\n[approval required] {capability_id}")
+    if preview:
+        print(preview)
+
+
+def _handle_approval(
+    client: SurfaceClient,
+    session_id: str,
+    pending: object,
+) -> SurfaceTurnResponse | None:
+    if pending is None:
+        return None
+    _print_pending_approval(pending)
+    try:
+        reply = input("Approve this action? [y/N] ")
+    except EOFError:
+        return None
+    digest = getattr(pending, "action_digest", "")
+    if reply.strip().lower() in {"y", "yes"}:
+        resumed = client.decide_approval(
+            session_id,
+            digest,
+            ApprovalDisposition.APPROVE,
+            "approved from terminal",
+        )
+        if resumed.text:
+            print(resumed.text)
+        if resumed.stop_reason != "completed":
+            print(f"[stopped: {resumed.stop_reason}]")
+        return resumed
+    denied = client.decide_approval(
+        session_id,
+        digest,
+        ApprovalDisposition.REJECT,
+        "rejected from terminal",
     )
+    if denied.text:
+        print(denied.text)
+    return denied
+
+
+def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
+    path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    return SurfaceClient(load_runtime_descriptor(path))
+
+
+def _chat(args: argparse.Namespace) -> int:
+    client = load_surface_client(args)
+    if args.prompt is not None:
+        snapshot = client.open_session(args.prompt)
+        session_id = snapshot.session.session_id
+        response = client.run_turn(session_id, args.prompt)
+        if response.text:
+            print(response.text)
+        if (
+            response.snapshot.status == SurfaceSessionStatus.WAITING_APPROVAL
+        ):
+            resumed = _handle_approval(
+                client, session_id, response.snapshot.pending_approval
+            )
+            if resumed is not None:
+                response = resumed
+        if response.stop_reason != "completed":
+            print(f"[stopped: {response.stop_reason}]", file=sys.stderr)
+        return 0 if response.stop_reason == "completed" else 1
+    if args.session:
+        snapshot = client.get_session(args.session)
+    else:
+        snapshot = client.open_session("interactive terminal chat session")
+    session_id = snapshot.session.session_id
+    print(f"chat session started (session {session_id})")
+    print("type /exit to quit, /status for session state")
+    while True:
+        try:
+            line = input("you> ")
+        except EOFError:
+            print()
+            break
+        except KeyboardInterrupt:
+            try:
+                client.correct(session_id, "user interrupt at terminal prompt")
+            except SurfaceClientError:
+                pass
+            print("\n[session interrupted; task correction-halted]")
+            break
+        text = line.strip()
+        if not text:
+            continue
+        if text in {"/exit", "/quit"}:
+            break
+        if text == "/status":
+            current = client.get_session(session_id)
+            print(
+                json.dumps(
+                    {
+                        "session_id": session_id,
+                        "status": _status_value(current.status),
+                        "event_sequence": current.event_sequence,
+                        "message_count": current.message_count,
+                    },
+                    indent=2,
+                )
+            )
+            continue
+        if text == "/pause":
+            paused = client.pause(session_id, "paused by user")
+            print(f"[paused: {_status_value(paused.status)}]")
+            continue
+        if text == "/resume":
+            resumed = client.resume(session_id, "resumed by user")
+            print(f"[resumed: {_status_value(resumed.status)}]")
+            continue
+        if text == "/correct" or text.startswith("/correct "):
+            reason = text[len("/correct") :].strip()
+            if not reason:
+                print("[usage: /correct REASON]")
+                continue
+            halted = client.correct(session_id, reason)
+            print(f"[correction halted: {_status_value(halted.status)}]")
+            continue
+        response = client.run_turn(session_id, text)
+        if response.text:
+            print(response.text)
+        if (
+            response.snapshot.status == SurfaceSessionStatus.WAITING_APPROVAL
+        ):
+            _handle_approval(
+                client, session_id, response.snapshot.pending_approval
+            )
+            continue
+        if response.stop_reason != "completed":
+            print(f"[stopped: {response.stop_reason}]")
+    return 0
+
 
 
 def _mandate_bootstrap(args: argparse.Namespace) -> int:
@@ -348,6 +513,165 @@ def _agent_work_admit_selfdev(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wait_for_daemon_health(
+    descriptor_path: Path,
+    expected_pid: int,
+    *,
+    timeout: float = 10.0,
+) -> RuntimeDescriptor:
+    """Wait until the daemon descriptor exists and its health is authenticated."""
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            descriptor = load_runtime_descriptor(descriptor_path)
+        except RuntimeDescriptorError:
+            time.sleep(0.05)
+            continue
+        if descriptor.pid != expected_pid:
+            time.sleep(0.05)
+            continue
+        try:
+            request = urllib.request.Request(
+                descriptor.base_url + "/v1/health",
+                headers={
+                    "Authorization": f"Bearer {descriptor.bearer_token}"
+                },
+            )
+            with urllib.request.urlopen(request, timeout=1) as response:
+                if response.status == 200:
+                    return descriptor
+        except (urllib.error.URLError, OSError):
+            pass
+        time.sleep(0.05)
+    raise RuntimeDescriptorError(
+        f"runtime daemon did not become healthy within {timeout:.0f}s"
+    )
+
+
+def _daemon_start(args: argparse.Namespace) -> int:
+    descriptor_path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    database = Path(args.database)
+    workspace = Path(args.workspace)
+    if descriptor_path.exists():
+        try:
+            existing = load_runtime_descriptor(descriptor_path)
+        except RuntimeDescriptorError:
+            existing = None
+        if existing is not None:
+            try:
+                os.kill(existing.pid, 0)
+                alive = True
+            except ProcessLookupError:
+                alive = False
+            except PermissionError:
+                alive = True
+            if alive:
+                raise RuntimeAlreadyRunning(
+                    f"runtime {existing.boot_id} is already running "
+                    f"(pid {existing.pid})"
+                )
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "apps.runtime_daemon",
+            "--database",
+            str(database),
+            "--workspace",
+            str(workspace),
+            "--descriptor",
+            str(descriptor_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+        ],
+        start_new_session=True,
+        env=dict(os.environ),
+    )
+    try:
+        descriptor = _wait_for_daemon_health(
+            descriptor_path, process.pid, timeout=10.0
+        )
+    except Exception:
+        process.terminate()
+        raise
+    print(
+        json.dumps(
+            {
+                "status": "running",
+                "pid": descriptor.pid,
+                "boot_id": descriptor.boot_id,
+                "port": descriptor.port,
+                "descriptor": str(descriptor_path),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _daemon_status(args: argparse.Namespace) -> int:
+    descriptor_path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    print(json.dumps(daemon_status(descriptor_path), indent=2))
+    return 0
+
+
+def _daemon_stop(args: argparse.Namespace) -> int:
+    descriptor_path = Path(
+        getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
+    )
+    result = daemon_stop(
+        descriptor_path,
+        expected_database=Path(args.database),
+        expected_workspace=Path(args.workspace),
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def _session_command(
+    client: SurfaceClient,
+    command: str,
+    session_id: str,
+    reason: str | None,
+) -> None:
+    if command == "session-show":
+        snapshot = client.get_session(session_id)
+        print(
+            json.dumps(
+                {
+                    "session_id": session_id,
+                    "status": _status_value(snapshot.status),
+                    "event_sequence": snapshot.event_sequence,
+                    "message_count": snapshot.message_count,
+                },
+                indent=2,
+            )
+        )
+        return
+    if command == "session-pause":
+        snapshot = client.pause(session_id, "paused by user")
+    elif command == "session-resume":
+        snapshot = client.resume(session_id, "resumed by user")
+    else:
+        snapshot = client.correct(session_id, reason or "operator correction")
+    print(
+        json.dumps(
+            {
+                "session_id": session_id,
+                "status": _status_value(snapshot.status),
+            },
+            indent=2,
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = _normalize_argv(list(sys.argv if argv is None else argv))
     parser = argparse.ArgumentParser(
@@ -356,6 +680,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--database", default="agent-os.sqlite3")
     parser.add_argument("--workspace", default=".")
+    parser.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor (chat/session/daemon modes)",
+    )
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -390,7 +719,41 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="disable provider SSE streaming (debug)",
     )
+    chat.add_argument(
+        "--session",
+        default=None,
+        help="resume an existing session instead of opening a new one",
+    )
     chat.set_defaults(_uses_prompt_flag=True)
+
+    session_show = sub.add_parser("session-show", help=argparse.SUPPRESS)
+    session_show.add_argument("session_id")
+    session_pause = sub.add_parser("session-pause", help=argparse.SUPPRESS)
+    session_pause.add_argument("session_id")
+    session_resume = sub.add_parser("session-resume", help=argparse.SUPPRESS)
+    session_resume.add_argument("session_id")
+    session_correct = sub.add_parser("session-correct", help=argparse.SUPPRESS)
+    session_correct.add_argument("session_id")
+    session_correct.add_argument("reason")
+
+    daemon_start = sub.add_parser("daemon-start", help=argparse.SUPPRESS)
+    daemon_start.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor",
+    )
+    daemon_status = sub.add_parser("daemon-status", help=argparse.SUPPRESS)
+    daemon_status.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor",
+    )
+    daemon_stop = sub.add_parser("daemon-stop", help=argparse.SUPPRESS)
+    daemon_stop.add_argument(
+        "--descriptor",
+        default=None,
+        help="path to the private runtime descriptor",
+    )
 
     for command in ("agent-run", "agent-resume"):
         work = sub.add_parser(command, help=argparse.SUPPRESS)
@@ -467,6 +830,26 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(_agent(args))
         if args.command == "chat":
             raise SystemExit(_chat(args))
+        if args.command == "daemon-start":
+            raise SystemExit(_daemon_start(args))
+        if args.command == "daemon-status":
+            raise SystemExit(_daemon_status(args))
+        if args.command == "daemon-stop":
+            raise SystemExit(_daemon_stop(args))
+        if args.command in {
+            "session-show",
+            "session-pause",
+            "session-resume",
+            "session-correct",
+        }:
+            client = load_surface_client(args)
+            _session_command(
+                client,
+                args.command,
+                args.session_id,
+                getattr(args, "reason", None),
+            )
+            return
         if args.command == "agent-run":
             raise SystemExit(_agent_work_run(args, resume=False))
         if args.command == "agent-resume":
