@@ -18,6 +18,7 @@ pub const ALLOWED_COMMANDS: &[&str] = &[
     "custody:clear_provider_key",
     "folder:request",
     "folder:status",
+    "notify:approval",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +33,7 @@ pub enum IpcCommand {
     CustodyClearProviderKey,
     FolderRequest,
     FolderStatus,
+    NotifyApproval,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +63,7 @@ pub fn parse_command(name: &str) -> Result<IpcCommand, IpcRejected> {
         "custody:clear_provider_key" => Ok(IpcCommand::CustodyClearProviderKey),
         "folder:request" => Ok(IpcCommand::FolderRequest),
         "folder:status" => Ok(IpcCommand::FolderStatus),
+        "notify:approval" => Ok(IpcCommand::NotifyApproval),
         other => Err(IpcRejected {
             command: other.to_string(),
         }),
@@ -72,7 +75,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_accepts_exactly_the_eight_commands() {
+    fn allowlist_accepts_exactly_the_eleven_commands() {
         for name in ALLOWED_COMMANDS {
             assert!(parse_command(name).is_ok(), "must allow {name}");
         }

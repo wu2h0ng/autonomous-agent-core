@@ -9,6 +9,20 @@ export interface RuntimeConnection {
   bearer_token: string;
 }
 
+export async function notifyApproval(
+  capabilityId: string,
+  actionDigest: string,
+): Promise<boolean> {
+  const invoke = tauriInvoke();
+  if (invoke === null) {
+    return false;
+  }
+  return (await invoke("notify:approval", {
+    capabilityId,
+    actionDigest,
+  })) === true;
+}
+
 export async function folderRequest(): Promise<boolean> {
   const invoke = tauriInvoke();
   if (invoke === null) {
@@ -37,12 +51,20 @@ export async function folderStatus(): Promise<{ granted: string | null; daemon_w
 interface TauriWindow {
   __TAURI__?: {
     core?: {
-      invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+      invoke: (
+        command: string,
+        args?: Record<string, unknown>,
+      ) => Promise<unknown>;
     };
   };
 }
 
-function tauriInvoke(): ((command: string) => Promise<unknown>) | null {
+type TauriInvoke = (
+  command: string,
+  args?: Record<string, unknown>,
+) => Promise<unknown>;
+
+function tauriInvoke(): TauriInvoke | null {
   const win = window as TauriWindow;
   return win.__TAURI__?.core?.invoke ?? null;
 }

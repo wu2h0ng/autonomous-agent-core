@@ -1,11 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use std::sync::{Mutex, OnceLock};
 
 use agent_os_shell_lib::daemon_supervisor::{DaemonConfig, Supervisor, SupervisorState};
+use agent_os_shell_lib::postures::BoundedNotification;
 use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
 use agent_os_shell_lib::keychain_custody::{
@@ -62,6 +63,7 @@ extern "C" {
     fn c_signal(sig: i32, handler: usize) -> usize;
 }
 
+#[allow(clippy::fn_to_numeric_cast)]
 fn install_termination_handlers() {
     unsafe {
         c_signal(15, handle_termination as usize); // SIGTERM
@@ -83,6 +85,8 @@ fn main() {
             drop(guard);
             install_termination_handlers();
             build_tray(_app)?;
+            let app_handle = _app.handle().clone();
+            let _last_boot: Option<String> = None;
             std::thread::spawn(move || loop {
                 if SHUTDOWN.load(Ordering::SeqCst) {
                     if let Ok(mut guard) = supervisor().lock() {
@@ -91,7 +95,17 @@ fn main() {
                     std::process::exit(0);
                 }
                 if let Ok(mut guard) = supervisor().lock() {
+                    let boot = guard.last_boot_id.clone();
+                    let restarts = guard.restarts;
                     guard.tick();
+                    if restarts > 0 && boot != guard.last_boot_id {
+                        notify(
+                            &app_handle,
+                            "Agent OS",
+                            &BoundedNotification::daemon_restarted().summary(),
+                        );
+                    }
+                    let _ = &_last_boot;
                 }
                 std::thread::sleep(std::time::Duration::from_secs(2));
             });
@@ -108,6 +122,7 @@ fn main() {
             custody_clear_provider_key,
             folder_request,
             folder_status,
+            notify_approval,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Agent OS shell");
@@ -260,25 +275,28 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 // --- folder authorization (Wave 2c, renderer state only) ---
 
-static GRANTED_FOLDER: AtomicUsize = AtomicUsize::new(0);
-
 fn folder_state() -> Option<String> {
-    let ptr = GRANTED_FOLDER.load(Ordering::SeqCst);
-    if ptr == 0 {
-        return None;
+    static GRANTED: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    match GRANTED.get_or_init(|| Mutex::new(None)).lock() {
+        Ok(granted) => granted.clone(),
+        Err(_) => None,
     }
-    let boxed = unsafe { Box::from_raw(ptr as *mut String) };
-    let value: String = (*boxed).clone();
-    std::mem::forget(boxed);
-    Some(value)
 }
 
 fn set_folder_state(value: String) {
-    let ptr = Box::into_raw(Box::new(value)) as usize;
-    let old = GRANTED_FOLDER.swap(ptr, Ordering::SeqCst);
-    if old != 0 {
-        let _ = unsafe { Box::from_raw(old as *mut String) };
+    static GRANTED: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    if let Ok(mut granted) = GRANTED.get_or_init(|| Mutex::new(None)).lock() {
+        *granted = Some(value);
     }
+}
+
+/// Bounded approval-pending notification: only the closed capability id
+    /// and a hex digest prefix are rendered; arbitrary text is never echoed.
+#[tauri::command]
+fn notify_approval(app: tauri::AppHandle, capability_id: String, action_digest: String) -> Result<bool, String> {
+    let notification = BoundedNotification::approval(&capability_id, &action_digest);
+    notify(&app, "Agent OS", &notification.summary());
+    Ok(true)
 }
 
 #[tauri::command]
@@ -317,10 +335,4 @@ fn notify(app: &tauri::AppHandle, title: &str, body: &str) {
         .title(title)
         .body(body)
         .show();
-}
-
-fn _folder_is_within_workspace(granted: &str, workspace: &str) -> bool {
-    let granted_path = Path::new(granted);
-    let workspace_path = Path::new(workspace);
-    granted_path.starts_with(workspace_path)
 }

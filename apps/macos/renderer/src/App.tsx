@@ -15,7 +15,7 @@ import { terminalEvents, type TerminalLine } from "./panels/terminal";
 import { closedShellState, type ClosedIntegrationId } from "./panels/closed_shell";
 import { askTransition, initialAskState, upgradeToWork, type AskState } from "./panels/ask";
 import { observeEvents, type ObserveItem } from "./panels/observe";
-import { folderRequest, folderStatus } from "./tauri";
+import { folderRequest, folderStatus, notifyApproval } from "./tauri";
 
 type Phase =
   | { kind: "connecting" }
@@ -239,6 +239,10 @@ export function App(): React.JSX.Element {
       if (response.snapshot.pending_approval !== null) {
         setNotice(
           `approval required for ${response.snapshot.pending_approval.capability_id}`,
+        );
+        void notifyApproval(
+          response.snapshot.pending_approval.capability_id,
+          response.snapshot.pending_approval.action_digest,
         );
       } else {
         setNotice(response.text || `[${response.stop_reason}]`);
