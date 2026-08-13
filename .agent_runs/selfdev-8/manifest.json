@@ -1,0 +1,63 @@
+{
+  "schema": "selfdev-8-e8-prereg-manifest.v1",
+  "prereg": "docs/product/AGENT-OS-SELFDEV-8-phase0-unified-head-prereg-2026-08-13.md",
+  "prereg_review": "RR-prereg-review-selfdev8-and-bsec-preflight-2026-08-13.md (REVISE) closed at 2b27974f; merged re-review RR-bsec-merged-rereview-2026-08-13.md (PASS)",
+  "founder_cast": "docs/research/founder-decision-2026-08-14-bsec-first-round-freeze-cast.md (LOCK_FREEZE, conditional on preflight PASS)",
+  "preflight_gate": "bsec-preflight/ACTIVATION-REPORT-2026-08-14.md (PREFLIGHT PASS, NON_RESULT) — satisfied",
+  "unified_head": {
+    "commit": "2b27974f898daba5ec5760c75916cf3e178ba3dd",
+    "branch": "codex/canonical-convergence-20260715",
+    "note": "cd594117 unified head + SELFDEV-8 prereg review closure commit; Phase 0 conditions 1/2/4/5 closed on unified head, condition 3 APPROVE_WITH_P2 (f501cfc0)"
+  },
+  "reused_subset": {
+    "path": ".agent_runs/selfdev-4/selection.json",
+    "sha256": "735b2643c69aed4e28b3ca5d1087e3278874febb10908426e21c5054ac0ca7e5",
+    "byte_identical_to_selfdev4_manifest_pin": true,
+    "fifth_reuse": true,
+    "contamination_bound_declared": "reuse count 5; pollution ceiling recorded as LIMITATION in prereg §0.2; no contamination-free claim"
+  },
+  "subset": {
+    "main": [
+      "django__django-10880",
+      "django__django-11066",
+      "sympy__sympy-13551",
+      "sympy__sympy-13852",
+      "sphinx-doc__sphinx-8459",
+      "astropy__astropy-13579",
+      "pytest-dev__pytest-5809",
+      "pylint-dev__pylint-7277",
+      "sympy__sympy-12419",
+      "astropy__astropy-14182",
+      "scikit-learn__scikit-learn-13328",
+      "pytest-dev__pytest-5631"
+    ],
+    "reserve": [
+      "django__django-9296",
+      "django__django-10999",
+      "sphinx-doc__sphinx-7889",
+      "sphinx-doc__sphinx-9658",
+      "scikit-learn__scikit-learn-25747"
+    ]
+  },
+  "driver8": {
+    "path": ".agent_runs/selfdev-8/round/driver8.py",
+    "authorized_delta_vs_driver7": [
+      "abort classifier typed three-surface mapping (ProviderFailure.code / DenialReasonCode / genuine-infra whitelist with E7 byte-identical member set)",
+      "SSE fail-closed: malformed non-empty SSE delta -> typed MALFORMED ProviderFailure (provider-infra consumed attempt, no abort/pause)",
+      "scoped verifier binding flag (⑤): SCOPED_VERIFIER_ENABLED = False (default not enabled, round-level independent verifier per prereg §6)"
+    ],
+    "byte_identical_except_authorized_delta": true,
+    "whitelist_byte_identical_to_e7": true
+  },
+  "solve8": {
+    "path": ".agent_runs/selfdev-8/round/solve8.py",
+    "identical_to_solve7_except_round_path": true,
+    "verifier": "independent round-level verifier per prereg §6 (scoped mirror not enabled)"
+  },
+  "files": {
+    "docs/product/AGENT-OS-SELFDEV-8-phase0-unified-head-prereg-2026-08-13.md": "9873525fef25789aeff5f9cc54d5a9dcee1ee9403fbdcbab1b5b19774afde6bd",
+    ".agent_runs/selfdev-8/round/driver8.py": "8be4595f40b7cd04834ce33b9665333f71ac4c0718103f98a3a68dcc7a74f702",
+    ".agent_runs/selfdev-8/round/solve8.py": "4c02623d9fb5fbb1eda37590d67e51e7a31928a0d27ec277765b5fd8d333c6db",
+    ".agent_runs/selfdev-4/selection.json": "735b2643c69aed4e28b3ca5d1087e3278874febb10908426e21c5054ac0ca7e5"
+  }
+}
