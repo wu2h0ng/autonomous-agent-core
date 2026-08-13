@@ -145,6 +145,14 @@ export class SurfaceClient {
     this.fetchImpl = fetchImpl;
   }
 
+  baseUrlFor(): string {
+    return this.baseUrl;
+  }
+
+  tokenFor(): string {
+    return this.token;
+  }
+
   private track(sessionId: string, snapshot: SessionSnapshot): void {
     this.sequences.set(sessionId, snapshot.event_sequence);
   }

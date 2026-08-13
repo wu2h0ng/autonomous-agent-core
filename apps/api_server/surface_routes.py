@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
+from ._cors import _tauri_origin_cors
+
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
@@ -330,6 +332,10 @@ class SurfaceRoutes:
         body = "".join(payload).encode("utf-8")
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream")
+        for name, value in _tauri_origin_cors(
+            handler.headers.get("Origin")
+        ).items():
+            handler.send_header(name, value)
         handler.send_header("Cache-Control", "no-store")
         handler.send_header("X-Accel-Buffering", "no")
         handler.send_header("Content-Length", str(len(body)))

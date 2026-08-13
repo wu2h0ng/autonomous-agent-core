@@ -532,3 +532,29 @@ def test_files_route_returns_bounded_listing(
     for entry in entries:
         assert set(entry) == {"path", "size", "mtime"}
         assert entry["size"] >= 0
+
+
+def test_cors_allows_only_tauri_webview_origins(
+    surface_server: SurfaceTestServer,
+) -> None:
+    request = surface_server.request(
+        "/v1/health",
+        headers={"Origin": "tauri://localhost"},
+    )
+    with urllib.request.urlopen(request) as response:
+        assert (
+            response.headers.get("Access-Control-Allow-Origin")
+            == "tauri://localhost"
+        )
+        assert (
+            "Authorization" in response.headers.get(
+                "Access-Control-Allow-Headers", ""
+            )
+        )
+
+    foreign = surface_server.request(
+        "/v1/health",
+        headers={"Origin": "https://evil.example"},
+    )
+    with urllib.request.urlopen(foreign) as response:
+        assert response.headers.get("Access-Control-Allow-Origin") is None

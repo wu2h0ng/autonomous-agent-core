@@ -9,9 +9,9 @@ use agent_os_shell_lib::keychain_custody::{
 };
 
 #[test]
+#[ignore = "opt-in real keychain test: run with AGENT_OS_WAVE2_KEYCHAIN_TEST=1 and --ignored"]
 fn real_keychain_set_status_clear_roundtrip() {
     if std::env::var("AGENT_OS_WAVE2_KEYCHAIN_TEST").as_deref() != Ok("1") {
-        eprintln!("skipping real keychain test (opt-in)");
         return;
     }
     let store = KeychainStore;

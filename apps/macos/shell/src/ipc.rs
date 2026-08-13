@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 pub const ALLOWED_COMMANDS: &[&str] = &[
     "daemon:start",
     "daemon:stop",
+    "daemon:restart",
     "daemon:status",
+    "runtime:connection",
     "custody:status",
     "custody:set_provider_key",
     "custody:clear_provider_key",
@@ -20,7 +22,9 @@ pub const ALLOWED_COMMANDS: &[&str] = &[
 pub enum IpcCommand {
     DaemonStart,
     DaemonStop,
+    DaemonRestart,
     DaemonStatus,
+    RuntimeConnection,
     CustodyStatus,
     CustodySetProviderKey,
     CustodyClearProviderKey,
@@ -45,7 +49,9 @@ pub fn parse_command(name: &str) -> Result<IpcCommand, IpcRejected> {
     match name {
         "daemon:start" => Ok(IpcCommand::DaemonStart),
         "daemon:stop" => Ok(IpcCommand::DaemonStop),
+        "daemon:restart" => Ok(IpcCommand::DaemonRestart),
         "daemon:status" => Ok(IpcCommand::DaemonStatus),
+        "runtime:connection" => Ok(IpcCommand::RuntimeConnection),
         "custody:status" => Ok(IpcCommand::CustodyStatus),
         "custody:set_provider_key" => Ok(IpcCommand::CustodySetProviderKey),
         "custody:clear_provider_key" => Ok(IpcCommand::CustodyClearProviderKey),
@@ -69,7 +75,6 @@ mod tests {
     #[test]
     fn allowlist_rejects_unknown_and_lookalike_commands() {
         for name in [
-            "daemon:restart",
             "daemon:exec",
             "shell:run",
             "fs:read",

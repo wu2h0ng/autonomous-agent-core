@@ -10,7 +10,7 @@ live_pins:
     - "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1 (typed SrlHelpResponse + settle auto-cancel)"
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
-updated: "2026-08-12T20:30:00+08:00"
+updated: "2026-08-13T05:30:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -317,6 +317,19 @@ research_ledger:
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
 active_work:
+  - id: "P-NATIVE-SURFACE-WAVE2A-20260812"
+    track: "product"
+    status: "IMPLEMENTED / TESTED / INTEGRATED / REVIEWED: pending / PUSHED: false / RELEASED: false / DAILY_USABLE: false / NOT_MERGED / BRANCH_CONTAINED codex/native-surface-wave2a-macos-shell-20260812"
+    purpose: "Deliver the first bounded Wave 2 slice (program spec §10 Wave 2, child spec 2026-08-11-agent-os-native-surface-macos-shell-wave2-design): a Tauri v2 macOS shell that supervises the Wave 1 daemon from launch, custodians provider keys in Keychain (ADR-0058, env fallback), and a React/TypeScript renderer with minimal Workspace Canvas panels (Agent Thread, Evidence and Approval, Files read-only) consuming the SAME local Runtime through the versioned Surface protocol; produces an unsigned arm64 .app dev artifact."
+    boundary: "Branch-contained on codex/native-surface-wave2a-macos-shell-20260812 from Wave 1 head 1c2fbc14; NOT pushed, merged, released, signed, notarized, or daily-usable. Renderer never opens daemon SQLite, never constructs AgentOSApplication, and never reads back provider key values (only the write-only inbound custody:set path). IPC bridge is allowlisted (6 commands). Daemon supervision is PATH-independent (AGENT_OS_DAEMON_PYTHON required; no bare-python fallback) with bounded backoff and restart budget; SIGTERM drains the daemon gracefully (boot-id-matched descriptor removal). The unsigned .app has no entitlement-bound access groups (recorded dev boundary). Remaining panels (Plan/Tasks, Diff, Terminal, Chrome Live, Embedded Web, Gmail, Calendar), layout templates, folder authorization, tray depth, notifications, and Ask/Observe postures are Wave 2b/2c, not authorized here. The renderer Canvas is wired (New session / composer / Agent Thread / Evidence and Approval / Files panels via runtime:connection + the versioned Surface protocol; CORS restricted to the Tauri webview origins). Full in-window interactive task creation remains a human desktop-session verification; real-Keychain round-trip is opt-in (AGENT_OS_WAVE2_KEYCHAIN_TEST=1); programmatic exit-gate portions (auto-supervise, kill/restart, SIGTERM cleanup) were verified against the real .app binary."
+    source:
+      - "docs/superpowers/specs/2026-08-11-agent-os-native-surface-macos-shell-wave2-design.md"
+      - "docs/superpowers/plans/2026-08-11-agent-os-native-surface-wave2a-macos-shell-canvas.md"
+      - "docs/adr/ADR-0058-native-surface-provider-key-keychain-custody.md"
+      - "apps/macos/shell/"
+      - "apps/macos/renderer/"
+      - ".agent_runs/native-surface-wave2a-20260812/verification.md"
+    verification: "Python: Wave 1 + Wave 2a focused suites 114 passed; full tests/product 1801 passed / 18 failed / 1 skipped with the same 18 pre-existing failures as the Wave 1 base (no regression); Ruff clean; Pyright 0 errors on all Wave 2a paths (the single remaining error in mandate_outcome_portfolio.py is pre-existing). Rust: 16 unit + 1 supervisor integration + 1 opt-in keychain integration tests pass; cargo check clean for aarch64-apple-darwin. Renderer: 10 Vitest tests pass; Vite build green. Exit gate (real .app binary): launch auto-spawns the daemon without manual Python; SIGKILL of the daemon is supervised back with a new boot id; SIGTERM exits cleanly with zero orphan daemons and boot-id-matched descriptor removal. No push, merge, release, signing, notarization, live-provider, Google/Chrome, cloud-sync, or Worker activity."
   - id: "P-NATIVE-SURFACE-WAVE1-20260811"
     track: "product"
     status: "IMPLEMENTED / TESTED / INTEGRATED / REVIEWED / PUSHED: false / RELEASED: false / DAILY_USABLE: false / NOT_MERGED / BRANCH_CONTAINED codex/native-surface-wave1-20260811"

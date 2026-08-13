@@ -48,6 +48,7 @@ from agent_os_core import (
     TaskNotFoundError,
 )
 
+from ._cors import _tauri_origin_cors
 from .app import AgentOSApplication
 from .surface_routes import SurfaceRoutes
 
@@ -330,6 +331,10 @@ class Handler(BaseHTTPRequestHandler):
         data = json.dumps(payload, ensure_ascii=False, default=str).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        for name, value in _tauri_origin_cors(
+            self.headers.get("Origin")
+        ).items():
+            self.send_header(name, value)
         for name, value in (response_headers or {}).items():
             self.send_header(name, value)
         self.send_header("Content-Length", str(len(data)))
@@ -342,6 +347,17 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(value, dict):
             raise ValueError("JSON body must be an object")
         return value
+
+    def do_OPTIONS(self) -> None:
+        cors = _tauri_origin_cors(self.headers.get("Origin"))
+        if not cors:
+            self._json(403, {"error": "origin_not_allowed"})
+            return
+        self.send_response(204)
+        for name, value in cors.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)

@@ -296,9 +296,19 @@ impl Supervisor {
         decision
     }
 
-    fn current_descriptor(&self) -> Option<DaemonDescriptor> {
+    pub fn current_descriptor(&self) -> Option<DaemonDescriptor> {
         let raw = std::fs::read_to_string(&self.config.descriptor_path).ok()?;
         parse_descriptor(&raw).ok()
+    }
+
+    /// Loopback connection for the renderer: base URL plus the bearer token
+    /// the Rust layer holds. The renderer never reads the descriptor itself.
+    pub fn connection(&self) -> Option<(String, String)> {
+        let descriptor = self.current_descriptor()?;
+        Some((
+            format!("http://127.0.0.1:{}", descriptor.port),
+            descriptor.bearer_token,
+        ))
     }
 
     fn spawn(&mut self) {

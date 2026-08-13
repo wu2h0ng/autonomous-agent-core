@@ -111,6 +111,10 @@ mod tests {
         }
     }
 
+    // Distinct env names per test: cargo runs tests in parallel threads and
+    // the process environment is shared.
+    const ENV_NAME: &str = "AGENT_OS_PROVIDER_WAVE2A_TEST_KEY";
+
     #[test]
     fn environment_variable_wins_over_keychain() {
         let store = MemoryStore::default();
@@ -118,18 +122,18 @@ mod tests {
             .set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, "keychain-value")
             .unwrap();
         unsafe {
-            env::set_var("AGENT_OS_PROVIDER_TEST_KEY", "env-value");
+            env::set_var(ENV_NAME, "env-value");
         }
         assert_eq!(
-            effective_provider_key("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)),
+            effective_provider_key(ENV_NAME, Some(&store)),
             Some("env-value".to_string())
         );
         assert_eq!(
-            custody_status("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)),
+            custody_status(ENV_NAME, Some(&store)),
             CustodyStatus::EnvOverride
         );
         unsafe {
-            env::remove_var("AGENT_OS_PROVIDER_TEST_KEY");
+            env::remove_var(ENV_NAME);
         }
     }
 
@@ -140,14 +144,14 @@ mod tests {
             .set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, "keychain-value")
             .unwrap();
         unsafe {
-            env::remove_var("AGENT_OS_PROVIDER_TEST_KEY");
+            env::remove_var(ENV_NAME);
         }
         assert_eq!(
-            effective_provider_key("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)),
+            effective_provider_key(ENV_NAME, Some(&store)),
             Some("keychain-value".to_string())
         );
         assert_eq!(
-            custody_status("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)),
+            custody_status(ENV_NAME, Some(&store)),
             CustodyStatus::Present
         );
     }
@@ -156,14 +160,14 @@ mod tests {
     fn absent_keychain_and_env_report_absent_without_value() {
         let store = MemoryStore::default();
         unsafe {
-            env::remove_var("AGENT_OS_PROVIDER_TEST_KEY");
+            env::remove_var(ENV_NAME);
         }
         assert_eq!(
-            custody_status("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)),
+            custody_status(ENV_NAME, Some(&store)),
             CustodyStatus::Absent
         );
         assert_eq!(
-            effective_provider_key("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)),
+            effective_provider_key(ENV_NAME, Some(&store)),
             None
         );
     }
@@ -177,6 +181,6 @@ mod tests {
         store
             .delete_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT)
             .unwrap();
-        assert_eq!(custody_status("AGENT_OS_PROVIDER_TEST_KEY", Some(&store)), CustodyStatus::Absent);
+        assert_eq!(custody_status(ENV_NAME, Some(&store)), CustodyStatus::Absent);
     }
 }
