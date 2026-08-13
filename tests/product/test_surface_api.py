@@ -503,3 +503,32 @@ def test_failed_auth_never_poisons_idempotency_store(
         assert response.status == 201
         body = json.loads(response.read())
     assert body.get("task_id") is not None
+
+
+def test_files_route_returns_bounded_listing(
+    surface_server: SurfaceTestServer,
+) -> None:
+    root = surface_server.app.sandbox.root
+    (root / "fixture.txt").write_text("content\n", encoding="utf-8")
+    (root / "sub").mkdir(exist_ok=True)
+    (root / "sub" / "nested.txt").write_text("nested\n", encoding="utf-8")
+    status, opened = surface_server.json(
+        "/v1/surface/sessions",
+        method="POST",
+        body=_open_command(surface_server.app),
+    )
+    snapshot = opened["snapshot"] if "snapshot" in opened else opened
+    task_id = snapshot["session"]["task_id"]
+
+    status, body = surface_server.json(
+        f"/v1/surface/tasks/{task_id}/files",
+        method="GET",
+    )
+    assert status == 200
+    entries = body["files"]
+    names = {entry["path"] for entry in entries}
+    assert "fixture.txt" in names
+    assert "sub/nested.txt" in names
+    for entry in entries:
+        assert set(entry) == {"path", "size", "mtime"}
+        assert entry["size"] >= 0

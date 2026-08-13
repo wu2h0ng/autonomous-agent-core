@@ -1791,6 +1791,50 @@ class AgentOSApplication:
             )
         return matches[0]
 
+    def surface_files_listing(self, task_id: str) -> list[dict[str, object]]:
+        """Bounded read-only workspace listing for the Files panel (Wave 2a).
+
+        Returns path/size/mtime only, depth-bounded, skipping noise and
+        artifact directories. No file content is exposed without a task
+        capability; task ownership is enforced by get_task.
+        """
+
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        self.tasks.get_task(task_id)
+        root = self.sandbox.root
+        noise = {
+            ".git",
+            ".venv",
+            "node_modules",
+            "target",
+            ".agent-os-artifacts",
+            ".agent_runs",
+            ".worktrees",
+        }
+        entries: list[dict[str, object]] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            if any(part in noise for part in path.relative_to(root).parts):
+                continue
+            if len(path.relative_to(root).parts) > 3:
+                continue
+            try:
+                stat_result = path.stat()
+            except OSError:
+                continue
+            entries.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "size": stat_result.st_size,
+                    "mtime": datetime.fromtimestamp(
+                        stat_result.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                }
+            )
+        return entries
+
     def surface_current_sequence(self, task_id: str) -> int:
         if not task_id.strip():
             raise ValueError("task_id must be non-empty")
