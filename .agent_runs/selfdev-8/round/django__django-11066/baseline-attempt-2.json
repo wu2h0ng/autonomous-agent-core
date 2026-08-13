@@ -1,0 +1,15 @@
+{
+  "instance_id": "django__django-11066",
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "658c5260eeff59c2c90adf541c3301ebeeb0f3b1ddd0b348597668bf46d1263a",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 1849,
+    "output_tokens": 421,
+    "total_tokens": 2270,
+    "estimated_cost_usd": "0"
+  }
+}

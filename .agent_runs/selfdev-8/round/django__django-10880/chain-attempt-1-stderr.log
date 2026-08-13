@@ -1,0 +1,27 @@
+Traceback (most recent call last):
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/execution.py", line 379, in run
+    provider_output, provider_receipt = self._call_provider(
+                                        ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/execution.py", line 1394, in _call_provider
+    raise RunExecutionError(
+agent_os_core.errors.RunExecutionError: provider diff arguments must contain only path and diff; admissible: {"path": <target path>, "diff": <single-file unified diff with ---/+++ headers for that path and well-formed @@ hunks>} — no other keys
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 1638, in <module>
+    main()
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 780, in main
+    json.dumps(_cmd_benchmark_run_provider(args), indent=2, default=str)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 1302, in _cmd_benchmark_run_provider
+    proposed = app.run_task(
+               ^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/api_server/app.py", line 1362, in run_task
+    return runner.run(
+           ^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/execution.py", line 575, in run
+    raise RunExecutionError(
+agent_os_core.errors.RunExecutionError: node provider failed: RunExecutionError: provider diff arguments must contain only path and diff; admissible: {"path": <target path>, "diff": <single-file unified diff with ---/+++ headers for that path and well-formed @@ hunks>} — no other keys

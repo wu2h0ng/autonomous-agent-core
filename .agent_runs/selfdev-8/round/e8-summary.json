@@ -1,0 +1,187 @@
+{
+  "baseline": {
+    "django__django-10880": {
+      "solved": [
+        1
+      ],
+      "classes": [
+        "SOLVED",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "django__django-11066": {
+      "solved": [
+        2
+      ],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "SOLVED"
+      ]
+    },
+    "sympy__sympy-13551": {
+      "solved": [],
+      "classes": [
+        "?",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "sympy__sympy-13852": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "?"
+      ]
+    },
+    "sphinx-doc__sphinx-8459": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "astropy__astropy-13579": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "pytest-dev__pytest-5809": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "pylint-dev__pylint-7277": {
+      "solved": [
+        1
+      ],
+      "classes": [
+        "SOLVED",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "sympy__sympy-12419": {
+      "solved": [
+        2
+      ],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "SOLVED"
+      ]
+    },
+    "astropy__astropy-14182": {
+      "solved": [],
+      "classes": [
+        "?",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "scikit-learn__scikit-learn-13328": {
+      "solved": [
+        1,
+        2
+      ],
+      "classes": [
+        "SOLVED",
+        "SOLVED"
+      ]
+    },
+    "pytest-dev__pytest-5631": {
+      "solved": [
+        1
+      ],
+      "classes": [
+        "SOLVED",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    }
+  },
+  "chain": {
+    "django__django-10880": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "django__django-11066": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "sympy__sympy-13551": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "INVALID_PROVIDER"
+      ]
+    },
+    "sympy__sympy-13852": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "INVALID_PROVIDER"
+      ]
+    },
+    "sphinx-doc__sphinx-8459": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "?"
+      ]
+    },
+    "astropy__astropy-13579": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "pytest-dev__pytest-5809": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "pylint-dev__pylint-7277": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "sympy__sympy-12419": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "astropy__astropy-14182": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "scikit-learn__scikit-learn-13328": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    },
+    "pytest-dev__pytest-5631": {
+      "solved": [],
+      "classes": [
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)",
+        "FAILED_UNCLASSIFIED(FAILED_UNCLASSIFIED)"
+      ]
+    }
+  }
+}

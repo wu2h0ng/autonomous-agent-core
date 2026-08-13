@@ -1,0 +1,29 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 1638, in <module>
+    main()
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 785, in main
+    json.dumps(_cmd_benchmark_run_baseline(args), indent=2, default=str)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/apps/cli/__main__.py", line 1398, in _cmd_benchmark_run_baseline
+    verdict = run_benchmark_verifier(
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_verifier.py", line 151, in run_benchmark_verifier
+    _executor_step(
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_verifier.py", line 227, in _executor_step
+    return call()
+           ^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_verifier.py", line 153, in <lambda>
+    lambda: executor.apply_candidate(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_executor.py", line 132, in apply_candidate
+    apply_unified_diff(checked, diff, runner=self.git_runner)
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_baseline.py", line 180, in apply_unified_diff
+    validate_unified_diff(diff_text)
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_baseline.py", line 105, in validate_unified_diff
+    old_pending, new_pending = _consume_hunk_line(
+                               ^^^^^^^^^^^^^^^^^^^
+  File "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/packages/os_core/src/agent_os_core/benchmark_baseline.py", line 216, in _consume_hunk_line
+    raise BenchmarkTaskValidationError(
+agent_os_contracts.benchmark_task.BenchmarkTaskValidationError: BASELINE_DIFF_INVALID: baseline diff hunk body exceeds its header ranges

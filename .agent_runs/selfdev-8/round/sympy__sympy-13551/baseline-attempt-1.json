@@ -1,0 +1,15 @@
+{
+  "instance_id": "sympy__sympy-13551",
+  "solved": false,
+  "f2p_passed": false,
+  "p2p_passed": false,
+  "detail": "f2p exit=1 passed=False; p2p not run (f2p failed); solved=False",
+  "evidence_digest": "7e5a204fcd6be66d426f072759e691d1000c15d3d5192be6a1f4e8e80727bd27",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 5137,
+    "output_tokens": 33481,
+    "total_tokens": 38618,
+    "estimated_cost_usd": "0"
+  }
+}

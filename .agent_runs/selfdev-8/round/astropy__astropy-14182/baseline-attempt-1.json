@@ -1,0 +1,15 @@
+{
+  "instance_id": "astropy__astropy-14182",
+  "solved": false,
+  "f2p_passed": false,
+  "p2p_passed": false,
+  "detail": "f2p exit=1 passed=False; p2p not run (f2p failed); solved=False",
+  "evidence_digest": "d7c4eeea0b8db585db34e309d3123d2d490f8c8e9a0d532e38a2e5127c639693",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 1412,
+    "output_tokens": 34531,
+    "total_tokens": 35943,
+    "estimated_cost_usd": "0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "instance_id": "pylint-dev__pylint-7277",
+  "solved": true,
+  "f2p_passed": true,
+  "p2p_passed": true,
+  "detail": "f2p exit=0 passed=True; p2p exit=0 passed=True; solved=True",
+  "evidence_digest": "6a35c59e84fa485a02c14b2fd560336754529c9ee71aad97b3d5ef664bfe69bb",
+  "usage": {
+    "schema_version": "1.0",
+    "input_tokens": 1800,
+    "output_tokens": 28455,
+    "total_tokens": 30255,
+    "estimated_cost_usd": "0"
+  }
+}
