@@ -41,7 +41,18 @@ NON-CLAIMS(逐字承接):不与公开 agentic scaffold 可比;无 leaderboard �
 
 ### 3.5 driver8 相对 driver7 的授权变化(仅以下三项)
 
-1. **abort classifier 改用 typed 信号**:白名单中止分类器的 genuine-infra 签名判定从自由文本匹配改为消费 typed 信号——provider 侧的 typed `ProviderFailure` code(④ 落地后可用)与 capability 侧的 `DenialReasonCode`(① 落地后可用);白名单集合本身(genuine-infra 签名清单)逐字承接 E7 冻结值,仅匹配机制升级为 typed。分类器输入/判定的完整映射表在 freeze manifest 中逐字绑定。
+1. **abort classifier 改用 typed 信号**:分类器按三面精确命名——
+   (a) 消耗侧 INVALID_PROVIDER 分类:provider 失败一律以 typed `ProviderFailure.code`
+       (RATE_LIMITED/TIMEOUT/MALFORMED/REFUSED/UNAVAILABLE/AUTHENTICATION_FAILED)归类;
+       其中仅 AUTHENTICATION_FAILED(403 配额族)触发 §0.3 暂停;
+   (b) 尝试失败类(DIFF_INVALID/APPLY_FAILED 等):以 `DenialReasonCode`(①)归类;
+   (c) genuine-infra 中止白名单:以 `BenchmarkContainerError` 的 typed code 常量族
+       (BENCHMARK_CONTAINER_UNAVAILABLE/BUILD_FAILED/RUN_FAILED/VERIFIER_TIMEOUT)、
+       `SelfDevelopmentValidationError` 的 RUN_DENIED + workspace 明细串、
+       `TaskConfigurationDrift` 异常类型(errors.py)为 typed 判定面;
+       docker daemon stderr 签名无 typed 信号,保留自由文本匹配并显式声明为残余。
+   白名单成员集合逐字承接 E7 冻结值,仅判定机制升级为上述 typed 面;
+   分类器输入/判定的完整映射表在 freeze manifest 中逐字绑定。
 2. **SSE fail-closed 传输**:malformed non-empty SSE delta 现在产生 typed `MALFORMED` ProviderFailure 而非静默丢弃——该终态进入既有 provider-infra 尝试类(消耗尝试,不触发中止/暂停),记账语义不变。
 3. **scoped verifier 绑定(⑤)**:链臂尝试的验证可使用 b32f2cb 的 mirror 验证通道;是否启用在本轮 manifest 中冻结(默认:不启用,沿用 §6 独立 round-level verifier,保持与 E2-E7 的判定连续性)。
 
@@ -64,7 +75,7 @@ checkout base → apply candidate → apply hidden test patch → F2P → curate
 - SUPPORTS 窄主张 iff 链臂 pass@2 solve 数 > baseline pass@2 solve 数(严格不等),无任务级完整性失败,且 §0.4 地板达成。SUPPORTS 只读作"该冻结 12 任务子集上、对齐 prompt + Phase 0 契约修复 envelope 下、窗口充足时观察到差异"——仅此而已。
 - INSUFFICIENT_DATA iff 任一臂低于地板(且无 kill 触发)。NEGATIVE iff kill 触发或(地板达成且)链臂 < baseline。MIXED 其他。
 - Kill 条件(逐字承接 E7,含 E6 裁决的 403-quota 归类裁定与 §0.3 暂停语义)。
-- 新增第 7 条 kill:**typed 信号契约破坏**——任一 denial/失败事件缺 typed reason_code 或 typed provider failure code(即 ①④ 的契约在运行中被破坏)⇒ INVALID(运行环境与已接受的 Phase 0 头不一致)。
+- 新增第 7 条 kill:**typed 信号契约破坏(限于 typed 族)**——任一 provider-facing denial(① 枚举族)缺 reason_code,或任一 provider failure 缺 typed code(④)⇒ INVALID(运行环境与已接受的 Phase 0 头不一致)。typed 族外事件——内部完整性 denial(permit/stale-epoch/compensation/idempotency/snapshot,按① 声明边界保持无码)与白名单残余类 FAILED_UNCLASSIFIED——维持既有分类,不触发本条。
 
 ## 8. 冻结机制
 
