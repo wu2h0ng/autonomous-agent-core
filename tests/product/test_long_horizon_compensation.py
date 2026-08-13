@@ -11,6 +11,7 @@ from agent_os_contracts import ActionContract, ActionPermit, ResourceBudget
 from agent_os_core import (
     CapabilityBroker,
     CapabilityDenied,
+    ExecutionLease,
     ConcurrentWriteError,
     CorrectionAuthority,
     DeterministicProvider,
@@ -91,9 +92,31 @@ def _permit(
         policy_decision_id="decision:long",
         grant_id="grant:artifact.write",
         correction_epochs=action.observed_correction_epochs,
-        lease_fence=0,
+        lease_fence=1,
         issued_at=issued_at,
         expires_at=expires_at,
+    )
+
+
+def _test_claim(
+    run_id: str = "run:long", fence: int = 1
+) -> ExecutionLease:
+    return ExecutionLease(
+        run_id=run_id,
+        owner="test:worker",
+        fence=fence,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+
+
+def _held_test_claim(store: SQLiteTaskEventStore) -> ExecutionLease:
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    fence = store.acquire_lease("run:long", "test:worker", expiry.isoformat())
+    return ExecutionLease(
+        run_id="run:long",
+        owner="test:worker",
+        fence=fence,
+        expires_at=expiry,
     )
 
 
@@ -140,7 +163,7 @@ def test_connector_rejects_expired_permit_before_side_effect(tmp_path: Path) -> 
     before = tuple(sandbox.artifacts.iterdir())
 
     with pytest.raises(CapabilityDenied, match="expired"):
-        CapabilityBroker(sandbox, correction).invoke(action, permit)
+        CapabilityBroker(sandbox, correction).invoke(action, permit, execution_claim=_test_claim())
 
     assert tuple(sandbox.artifacts.iterdir()) == before
 
@@ -158,7 +181,7 @@ def test_forged_current_epoch_permit_cannot_bypass_halt(tmp_path: Path) -> None:
     sandbox = DeveloperWorkspaceAdapter(tmp_path)
 
     with pytest.raises(CapabilityDenied, match="halted"):
-        CapabilityBroker(sandbox, correction).invoke(action, permit)
+        CapabilityBroker(sandbox, correction).invoke(action, permit, execution_claim=_test_claim())
 
     assert not any(sandbox.artifacts.iterdir())
 
@@ -243,6 +266,7 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
     target = tmp_path / "fixture.txt"
     target.write_text("before\n", encoding="utf-8")
     store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    held_claim = _held_test_claim(store)
     correction = CorrectionAuthority(store)
     sandbox = DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store)
     action = ActionContract(
@@ -277,7 +301,7 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    applied = CapabilityBroker(sandbox, correction).invoke(action, permit)
+    applied = CapabilityBroker(sandbox, correction).invoke(action, permit, execution_claim=held_claim)
     compensation_action = ActionContract(
         action_id="action:persistent-compensation",
         task_id=action.task_id,
@@ -314,25 +338,36 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    CapabilityBroker(sandbox, correction).invoke(
+    compensated = CapabilityBroker(sandbox, correction).invoke(
         compensation_action,
         compensation_permit,
+        execution_claim=held_claim,
     )
 
-    with pytest.raises(CapabilityDenied, match="already compensated"):
-        CapabilityBroker(
-            DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store),
-            correction,
-        ).invoke(action, permit)
-
+    restarted = CapabilityBroker(
+        DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store),
+        correction,
+    )
+    replayed = restarted.invoke(action, permit, execution_claim=held_claim)
+    assert replayed == applied
     assert target.read_text(encoding="utf-8") == "before\n"
+    with pytest.raises(CapabilityDenied, match="already compensated"):
+        assert isinstance(restarted.connector, DeveloperWorkspaceAdapter)
+        restarted.connector.reconcile_effect(action, replayed)
+
     target.write_text("after\n", encoding="utf-8")
+    compensation_replay = restarted.invoke(
+        compensation_action,
+        compensation_permit,
+        execution_claim=held_claim,
+    )
+    assert compensation_replay == compensated
     with pytest.raises(CapabilityDenied, match="cached compensation"):
-        CapabilityBroker(
-            DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store),
-            correction,
-        ).invoke(compensation_action, compensation_permit)
-    assert target.read_text(encoding="utf-8") == "after\n"
+        assert isinstance(restarted.connector, DeveloperWorkspaceAdapter)
+        restarted.connector.reconcile_effect(
+            compensation_action,
+            compensation_replay,
+        )
 
 
 def test_compensation_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> None:
@@ -415,6 +450,7 @@ def test_missing_or_tampered_snapshot_fails_closed(tmp_path: Path) -> None:
 def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) -> None:
     now = datetime.now(timezone.utc)
     store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    held_claim = _held_test_claim(store)
     correction = CorrectionAuthority(store)
     sandbox = DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store)
     first = _action(
@@ -427,6 +463,7 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
     CapabilityBroker(sandbox, correction).invoke(
         first,
         _permit(first, issued_at=now, expires_at=now + timedelta(minutes=5)),
+        execution_claim=held_claim,
     )
     changed = _action(
         correction,
@@ -444,6 +481,7 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
                 issued_at=now,
                 expires_at=now + timedelta(minutes=5),
             ),
+            execution_claim=held_claim,
         )
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -12,9 +12,10 @@ from agent_os_contracts import (
     ActionPermit,
     ActionReceipt,
     AgentRun,
-    ApprovalDisposition,
     ApprovalDecision,
+    ApprovalDisposition,
     Commitment,
+    CorrectionEpochVector,
     ExpectedOutcome,
     ExternalSignal,
     Goal,
@@ -33,8 +34,13 @@ from agent_os_contracts import (
     PolicyDecision,
     PolicyVerdict,
     PrincipalRole,
+    ProviderMessage,
+    ProviderMessageRole,
+    ProviderToolProposal,
     ProviderExecutionReceipt,
     ReceiptStatus,
+    SessionRef,
+    content_digest,
 )
 
 from .errors import (
@@ -48,6 +54,14 @@ from .errors import (
 )
 from .event_store import TaskEventStore
 from .governance import CorrectionGuard
+from .session_projection import (
+    ProjectedApprovalContinuation,
+    ProjectedResolvedContinuation,
+    ProjectedSession,
+    SessionLoopConfig,
+    SessionProjectionError,
+    SessionProjector,
+)
 from .task_aggregate import TaskAggregate
 
 
@@ -66,6 +80,10 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.ACTION_RECEIPT_RECORDED,
         TaskEventType.ARTIFACT_RECORDED,
         TaskEventType.OUTCOME_OBSERVED,
+        TaskEventType.SESSION_APPROVAL_PENDING,
+        TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
+        TaskEventType.SESSION_APPROVAL_RESOLVED,
+        TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
     }
 )
 
@@ -80,6 +98,94 @@ class ValidatedTestReport:
     completed_sequence: int
     completed_at: datetime
     node_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RecordedActionReceipt:
+    decision: PolicyDecision
+    permit: ActionPermit
+    receipt: ActionReceipt
+
+
+@dataclass(frozen=True)
+class SessionApprovalAuthority:
+    approval: ApprovalDecision
+    claim_id: str | None
+    acquired: bool
+
+
+def _continuation_checkpoint_payload(
+    session_id: str,
+    ref: SessionRef,
+    continuation: ProjectedResolvedContinuation,
+) -> dict[str, object]:
+    return {
+        "session_id": session_id,
+        "task_id": ref.task_id,
+        "run_id": ref.run_id,
+        "tenant_id": ref.tenant_id,
+        "workspace_id": ref.workspace_id,
+        "turn_id": continuation.turn_id,
+        "assistant_message_index": continuation.assistant_message_index,
+        "assistant_message_digest": continuation.assistant_message_digest,
+        "next_proposal_index": continuation.next_proposal_index,
+        "steps": continuation.steps,
+        "total_tokens": continuation.total_tokens,
+        "seen_action_digests": dict(continuation.seen_action_digests),
+        "configuration_snapshot_id": continuation.configuration_snapshot_id,
+        "configuration_snapshot_digest": (
+            continuation.configuration_snapshot_digest
+        ),
+        "provider_profile_id": continuation.provider_profile_id,
+        "provider_profile_digest": continuation.provider_profile_digest,
+        "source_action_digest": continuation.source_action_digest,
+        "source_approval_id": continuation.source_approval_id,
+        "source_approval_sequence": continuation.source_approval_sequence,
+        "source_claim_id": continuation.source_claim_id,
+        "disposition": continuation.disposition.value,
+        "tool_message_index": continuation.tool_message_index,
+        "resolved_at": continuation.resolved_at,
+        "checkpoint_message_index": continuation.checkpoint_message_index,
+        "checkpoint_message_digest": continuation.checkpoint_message_digest,
+        "checkpoint_role": continuation.checkpoint_role.value,
+        "checkpointed_at": continuation.checkpointed_at,
+    }
+
+
+def _approval_resolution_payload(
+    session_id: str,
+    pending: ProjectedApprovalContinuation,
+    continuation: ProjectedResolvedContinuation,
+) -> dict[str, object]:
+    action = pending.action
+    return {
+        "session_id": session_id,
+        "task_id": action.task_id,
+        "run_id": action.run_id,
+        "tenant_id": action.tenant_id,
+        "workspace_id": action.workspace_id,
+        "turn_id": continuation.turn_id,
+        "action_digest": continuation.source_action_digest,
+        "proposal_id": pending.proposal.proposal_id,
+        "approval_id": continuation.source_approval_id,
+        "source_approval_sequence": continuation.source_approval_sequence,
+        "source_claim_id": continuation.source_claim_id,
+        "disposition": continuation.disposition.value,
+        "tool_message_index": continuation.tool_message_index,
+        "assistant_message_index": continuation.assistant_message_index,
+        "assistant_message_digest": continuation.assistant_message_digest,
+        "next_proposal_index": continuation.next_proposal_index,
+        "steps": continuation.steps,
+        "total_tokens": continuation.total_tokens,
+        "seen_action_digests": dict(continuation.seen_action_digests),
+        "configuration_snapshot_id": continuation.configuration_snapshot_id,
+        "configuration_snapshot_digest": (
+            continuation.configuration_snapshot_digest
+        ),
+        "provider_profile_id": continuation.provider_profile_id,
+        "provider_profile_digest": continuation.provider_profile_digest,
+        "resolved_at": continuation.resolved_at,
+    }
 
 
 def expected_outcome_contract_error(expected: ExpectedOutcome) -> str | None:
@@ -462,6 +568,891 @@ class TaskService:
         )
         return self.get_task(task_id)
 
+    def open_session(
+        self,
+        ref: SessionRef,
+        envelope_id: str,
+        expected_outcome_id: str,
+        *,
+        loop_config: SessionLoopConfig,
+    ) -> TaskAggregate:
+        if not envelope_id.strip() or not expected_outcome_id.strip():
+            raise ValueError("session envelope and expected outcome must be non-empty")
+        aggregate = self.get_task(ref.task_id)
+        self._validate_session_binding(aggregate, ref, expected_outcome_id)
+        try:
+            SessionProjector(self._event_store).project(ref.task_id, ref.session_id)
+        except SessionProjectionError as exc:
+            if str(exc) != "session not found":
+                raise
+        else:
+            raise InvalidTransitionError("session is already open")
+        return self._append_event(
+            ref.task_id,
+            TaskEventType.SESSION_OPENED,
+            {
+                "session_id": ref.session_id,
+                "task_id": ref.task_id,
+                "run_id": ref.run_id,
+                "tenant_id": ref.tenant_id,
+                "workspace_id": ref.workspace_id,
+                "session": ref.model_dump(mode="json"),
+                "envelope_id": envelope_id,
+                "expected_outcome_id": expected_outcome_id,
+                "agent_loop_config": loop_config.payload(),
+                "agent_loop_config_digest": loop_config.digest(),
+            },
+            correlation_id=ref.session_id,
+        )
+
+    def record_session_message(
+        self,
+        task_id: str,
+        session_id: str,
+        message_index: int,
+        message: ProviderMessage,
+        *,
+        turn_id: str | None,
+    ) -> TaskAggregate:
+        if message_index < 0:
+            raise ValueError("message_index must be non-negative")
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if projected.closed:
+            raise InvalidTransitionError("cannot record a message after session close")
+        if projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "pending approval TOOL/resolution must be appended atomically"
+            )
+        if message_index != projected.next_message_index:
+            raise InvalidTransitionError("message_index must be the next contiguous index")
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_MESSAGE_RECORDED,
+            {
+                "session_id": session_id,
+                "message_index": message_index,
+                "message": message.model_dump(mode="json"),
+                "turn_id": turn_id,
+            },
+            correlation_id=session_id,
+        )
+
+    def record_session_continuation_message(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        turn_id: str,
+        message: ProviderMessage,
+        continuation: ProjectedResolvedContinuation,
+        assistant_message_index: int,
+        next_proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> TaskAggregate:
+        """Atomically append one continuation message and its exact next cursor."""
+
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        run = aggregate.run
+        if (
+            run is None
+            or run.status is not RunStatus.RUNNING
+            or projected.pending_continuation is not None
+            or projected.resolved_continuation != continuation
+            or projected.resumable_turn_id != turn_id
+            or continuation.turn_id != turn_id
+        ):
+            raise InvalidTransitionError(
+                "continuation message does not bind the current resolved turn"
+            )
+        if message.role not in {
+            ProviderMessageRole.ASSISTANT,
+            ProviderMessageRole.TOOL,
+        }:
+            raise InvalidTransitionError(
+                "continuation checkpoint requires ASSISTANT or TOOL progress"
+            )
+        message_index = projected.next_message_index
+        if (
+            message.role is ProviderMessageRole.ASSISTANT
+            and assistant_message_index != message_index
+        ):
+            raise InvalidTransitionError(
+                "assistant continuation checkpoint index mismatch"
+            )
+        assistant = (
+            message
+            if message.role is ProviderMessageRole.ASSISTANT
+            else projected.history[assistant_message_index]
+        )
+        advanced = replace(
+            continuation,
+            assistant_message_index=assistant_message_index,
+            assistant_message_digest=content_digest(
+                assistant.model_dump(mode="json")
+            ),
+            next_proposal_index=next_proposal_index,
+            steps=steps,
+            total_tokens=total_tokens,
+            seen_action_digests=tuple(sorted(seen_action_digests.items())),
+            checkpoint_message_index=message_index,
+            checkpoint_message_digest=content_digest(
+                message.model_dump(mode="json")
+            ),
+            checkpoint_role=message.role,
+            checkpointed_at=self._clock(),
+        )
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.SESSION_MESSAGE_RECORDED,
+                    {
+                        "session_id": session_id,
+                        "message_index": message_index,
+                        "message": message.model_dump(mode="json"),
+                        "turn_id": turn_id,
+                    },
+                ),
+                (
+                    TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
+                    _continuation_checkpoint_payload(
+                        session_id,
+                        projected.ref,
+                        advanced,
+                    ),
+                ),
+            ),
+            correlation_id=run.run_id,
+        )
+
+    def record_session_final_message_and_complete(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        turn_id: str,
+        message: ProviderMessage,
+        stop_reason: str,
+        steps: int,
+        total_tokens: int,
+    ) -> TaskAggregate:
+        """Commit the final assistant transcript and turn terminal marker together."""
+
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        if (
+            message.role is not ProviderMessageRole.ASSISTANT
+            or message.tool_calls
+            or projected.closed
+            or projected.pending_continuation is not None
+            or projected.resumable_turn_id != turn_id
+            or not stop_reason.strip()
+        ):
+            raise InvalidTransitionError(
+                "final assistant does not bind the current open turn"
+            )
+        message_index = projected.next_message_index
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.SESSION_MESSAGE_RECORDED,
+                    {
+                        "session_id": session_id,
+                        "message_index": message_index,
+                        "message": message.model_dump(mode="json"),
+                        "turn_id": turn_id,
+                    },
+                ),
+                (
+                    TaskEventType.SESSION_TURN_COMPLETED,
+                    {
+                        "turn_id": turn_id,
+                        "session_id": session_id,
+                        "stop_reason": stop_reason,
+                        "steps": steps,
+                        "total_tokens": total_tokens,
+                    },
+                ),
+            ),
+            correlation_id=projected.ref.run_id,
+        )
+
+    def project_session(self, task_id: str, session_id: str) -> ProjectedSession:
+        return SessionProjector(self._event_store).project(task_id, session_id)
+
+    def record_session_approval_pending(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        turn_id: str,
+        action: ActionContract,
+        proposal: ProviderToolProposal,
+        preview: str,
+        assistant_message_index: int,
+        proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        snapshot = aggregate.configuration_snapshot
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if run is None or snapshot is None:
+            raise InvalidTransitionError(
+                "pending approval requires an active configured Run"
+            )
+        if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
+            raise InvalidTransitionError(
+                "pending approval requires a runnable Run"
+            )
+        if projected.closed or projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "session already has an unresolved pending approval"
+            )
+        if projected.resumable_turn_id != turn_id:
+            raise InvalidTransitionError("pending approval turn binding mismatch")
+        if (
+            action.task_id != task_id
+            or action.run_id != run.run_id
+            or action.tenant_id != run.tenant_id
+            or action.workspace_id != run.workspace_id
+            or action.candidate_envelope_id != projected.envelope_id
+            or action.expected_outcome_id != projected.expected_outcome_id
+            or proposal.capability_id != action.capability_id
+            or proposal.arguments_json != action.arguments_json
+        ):
+            raise InvalidTransitionError("pending approval action binding mismatch")
+        if (
+            run.configuration_snapshot_id != snapshot.snapshot_id
+            or run.configuration_snapshot_digest != snapshot.snapshot_digest
+            or run.provider_profile_id != snapshot.provider_profile.profile_id
+        ):
+            raise InvalidTransitionError(
+                "pending approval configuration binding mismatch"
+            )
+        if not preview.strip():
+            raise ValueError("pending approval preview must be non-empty")
+        colliding_actions: list[dict[str, object]] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.ACTION_PROPOSED:
+                continue
+            value = event.decoded_payload().get("action")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable proposed action payload")
+            if any(
+                value.get(field) == expected
+                for field, expected in (
+                    ("action_id", action.action_id),
+                    ("idempotency_key", action.idempotency_key),
+                )
+            ):
+                colliding_actions.append(value)
+        if colliding_actions:
+            raise InvalidTransitionError(
+                "pending approval action identity is already recorded"
+            )
+        waiting_run = run.model_copy(
+            update={
+                "status": RunStatus.WAITING_APPROVAL,
+                "active_node_id": action.node_id,
+            }
+        )
+        requested_at = self._clock()
+        pending_payload: dict[str, object] = {
+            "session_id": session_id,
+            "task_id": task_id,
+            "run_id": run.run_id,
+            "tenant_id": run.tenant_id,
+            "workspace_id": run.workspace_id,
+            "turn_id": turn_id,
+            "provider_proposal": proposal.model_dump(mode="json"),
+            "action": action.model_dump(mode="json"),
+            "preview": preview,
+            "action_digest": action.action_digest(),
+            "assistant_message_index": assistant_message_index,
+            "proposal_index": proposal_index,
+            "steps": steps,
+            "total_tokens": total_tokens,
+            "seen_action_digests": dict(sorted(seen_action_digests.items())),
+            "configuration_snapshot_id": snapshot.snapshot_id,
+            "configuration_snapshot_digest": snapshot.snapshot_digest,
+            "provider_profile_id": snapshot.provider_profile.profile_id,
+            "provider_profile_digest": snapshot.provider_profile_digest,
+            "c7_epochs": action.observed_correction_epochs.model_dump(mode="json"),
+            "requested_at": requested_at,
+        }
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.ACTION_PROPOSED,
+                    {"action": action.model_dump(mode="json")},
+                ),
+                (TaskEventType.SESSION_APPROVAL_PENDING, pending_payload),
+                (
+                    TaskEventType.APPROVAL_REQUESTED,
+                    {
+                        "run": waiting_run.model_dump(mode="json"),
+                        "action_id": action.action_id,
+                        "action_digest": action.action_digest(),
+                    },
+                ),
+            ),
+            correlation_id=run.run_id,
+        )
+
+    def record_or_reuse_session_approval(
+        self,
+        task_id: str,
+        session_id: str,
+        action: ActionContract,
+        approval: ApprovalDecision,
+    ) -> SessionApprovalAuthority:
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        pending = projected.pending_continuation
+        if pending is None or pending.action != action:
+            raise InvalidTransitionError("approval has no exact pending action")
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise InvalidTransitionError("approval requires an active Run")
+        if (
+            approval.disposition is ApprovalDisposition.APPROVE
+            and run.status is not RunStatus.WAITING_APPROVAL
+        ):
+            raise InvalidTransitionError(
+                "APPROVE requires the exact WAITING_APPROVAL Run state"
+            )
+        if (
+            approval.disposition is ApprovalDisposition.REJECT
+            and run.status not in {RunStatus.WAITING_APPROVAL, RunStatus.PAUSED}
+        ):
+            raise InvalidTransitionError(
+                "REJECT requires a pending WAITING_APPROVAL or PAUSED Run"
+            )
+        claim = projected.approval_execution_claim
+        if claim is not None:
+            return SessionApprovalAuthority(
+                approval=claim.approval,
+                claim_id=claim.claim_id,
+                acquired=False,
+            )
+
+        matching: list[tuple[int, ApprovalDecision]] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.APPROVAL_RECORDED:
+                continue
+            value = event.decoded_payload().get("approval")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable approval payload")
+            try:
+                recorded = ApprovalDecision.model_validate(value)
+            except (TypeError, ValueError) as exc:
+                raise InvalidTransitionError(
+                    "invalid durable approval contract"
+                ) from exc
+            if recorded.action_digest == action.action_digest():
+                matching.append((event.sequence, recorded))
+        if len(matching) > 1:
+            raise InvalidTransitionError(
+                "multiple approvals bind the same pending action"
+            )
+        if matching:
+            approval_sequence, recorded = matching[0]
+            same_actor = (
+                recorded.tenant_id == approval.tenant_id
+                and recorded.workspace_id == approval.workspace_id
+                and recorded.actor_id == approval.actor_id
+                and recorded.actor_role is approval.actor_role
+            )
+            if (
+                same_actor
+                and recorded.disposition is approval.disposition
+                and recorded.reason == approval.reason
+            ):
+                if recorded.disposition is ApprovalDisposition.REJECT:
+                    return SessionApprovalAuthority(
+                        approval=recorded,
+                        claim_id=None,
+                        acquired=False,
+                    )
+                claim_id = self._id_factory("approval-claim")
+                self._append_batch(
+                    aggregate,
+                    (
+                        (
+                            TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
+                            self._approval_claim_payload(
+                                session_id=session_id,
+                                pending=pending,
+                                approval=recorded,
+                                approval_sequence=approval_sequence,
+                                claim_id=claim_id,
+                            ),
+                        ),
+                    ),
+                    correlation_id=run.run_id,
+                    correction_epochs=action.observed_correction_epochs,
+                    correction_capability_id=action.capability_id,
+                )
+                return SessionApprovalAuthority(
+                    approval=recorded,
+                    claim_id=claim_id,
+                    acquired=True,
+                )
+            raise InvalidTransitionError(
+                "approval retry does not match the exact durable decision"
+            )
+
+        if approval.disposition is ApprovalDisposition.REJECT:
+            self._append_batch(
+                aggregate,
+                (
+                    (
+                        TaskEventType.APPROVAL_RECORDED,
+                        {"approval": approval.model_dump(mode="json")},
+                    ),
+                ),
+                correlation_id=run.run_id,
+            )
+            return SessionApprovalAuthority(
+                approval=approval,
+                claim_id=None,
+                acquired=True,
+            )
+
+        claim_id = self._id_factory("approval-claim")
+        approval_sequence = aggregate.sequence + 1
+        self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.APPROVAL_RECORDED,
+                    {"approval": approval.model_dump(mode="json")},
+                ),
+                (
+                    TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
+                    self._approval_claim_payload(
+                        session_id=session_id,
+                        pending=pending,
+                        approval=approval,
+                        approval_sequence=approval_sequence,
+                        claim_id=claim_id,
+                    ),
+                ),
+            ),
+            correlation_id=run.run_id,
+            correction_epochs=action.observed_correction_epochs,
+            correction_capability_id=action.capability_id,
+        )
+        return SessionApprovalAuthority(
+            approval=approval,
+            claim_id=claim_id,
+            acquired=True,
+        )
+
+    def _approval_claim_payload(
+        self,
+        *,
+        session_id: str,
+        pending: ProjectedApprovalContinuation,
+        approval: ApprovalDecision,
+        approval_sequence: int,
+        claim_id: str,
+    ) -> dict[str, object]:
+        action = pending.action
+        return {
+            "session_id": session_id,
+            "task_id": action.task_id,
+            "run_id": action.run_id,
+            "tenant_id": action.tenant_id,
+            "workspace_id": action.workspace_id,
+            "turn_id": pending.turn_id,
+            "proposal_id": pending.proposal.proposal_id,
+            "action_id": action.action_id,
+            "action_digest": action.action_digest(),
+            "idempotency_key": action.idempotency_key,
+            "approval_id": approval.approval_id,
+            "approval_sequence": approval_sequence,
+            "claim_id": claim_id,
+            "configuration_snapshot_id": pending.configuration_snapshot_id,
+            "configuration_snapshot_digest": pending.configuration_snapshot_digest,
+            "provider_profile_id": pending.provider_profile_id,
+            "provider_profile_digest": pending.provider_profile_digest,
+            "c7_epochs": action.observed_correction_epochs.model_dump(mode="json"),
+            "claimed_at": self._clock(),
+        }
+
+    def resolved_session_approval(
+        self,
+        task_id: str,
+        resolved: ProjectedResolvedContinuation,
+    ) -> ApprovalDecision:
+        """Return the one immutable decision bound to a resolved cursor."""
+
+        del task_id
+        return resolved.source_approval
+
+    def resolve_session_approval(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        pending: ProjectedApprovalContinuation,
+        approval: ApprovalDecision,
+        tool_message: ProviderMessage,
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        run = aggregate.run
+        claim = projected.approval_execution_claim
+        if (
+            run is None
+            or projected.pending_continuation != pending
+            or projected.resumable_turn_id != pending.turn_id
+        ):
+            raise InvalidTransitionError(
+                "approval resolution does not bind the current pending state"
+            )
+        if approval.disposition is ApprovalDisposition.APPROVE and (
+            run.status is not RunStatus.WAITING_APPROVAL
+            or claim is None
+            or claim.approval != approval
+        ):
+            raise InvalidTransitionError(
+                "approved resolution requires the exact execution claim"
+            )
+        if approval.disposition is ApprovalDisposition.REJECT and (
+            run.status not in {RunStatus.WAITING_APPROVAL, RunStatus.PAUSED}
+            or claim is not None
+        ):
+            raise InvalidTransitionError(
+                "rejected resolution cannot supersede an execution claim"
+            )
+        if (
+            approval.action_digest != pending.action.action_digest()
+            or approval.tenant_id != pending.action.tenant_id
+            or approval.workspace_id != pending.action.workspace_id
+            or approval.disposition
+            not in {ApprovalDisposition.APPROVE, ApprovalDisposition.REJECT}
+        ):
+            raise InvalidTransitionError("approval resolution decision mismatch")
+        recorded = tuple(
+            event
+            for event in self._event_store.read(task_id)
+            if event.event_type is TaskEventType.APPROVAL_RECORDED
+            and event.decoded_payload().get("approval")
+            == approval.model_dump(mode="json")
+        )
+        if len(recorded) != 1:
+            raise InvalidTransitionError(
+                "approval resolution lacks one exact durable decision"
+            )
+        approval_sequence = recorded[0].sequence
+        if (
+            tool_message.role is not ProviderMessageRole.TOOL
+            or tool_message.tool_call_id != pending.proposal.proposal_id
+        ):
+            raise InvalidTransitionError("approval resolution TOOL binding mismatch")
+        message_index = projected.next_message_index
+        assistant = projected.history[pending.assistant_message_index]
+        resolved_at = self._clock()
+        continuation = ProjectedResolvedContinuation(
+            turn_id=pending.turn_id,
+            assistant_message_index=pending.assistant_message_index,
+            assistant_message_digest=content_digest(
+                assistant.model_dump(mode="json")
+            ),
+            next_proposal_index=pending.proposal_index + 1,
+            steps=pending.steps,
+            total_tokens=pending.total_tokens,
+            seen_action_digests=pending.seen_action_digests,
+            configuration_snapshot_id=pending.configuration_snapshot_id,
+            configuration_snapshot_digest=pending.configuration_snapshot_digest,
+            provider_profile_id=pending.provider_profile_id,
+            provider_profile_digest=pending.provider_profile_digest,
+            source_action_digest=pending.action.action_digest(),
+            source_approval_id=approval.approval_id,
+            source_approval_sequence=approval_sequence,
+            source_approval=approval,
+            source_claim_id=claim.claim_id if claim is not None else None,
+            disposition=approval.disposition,
+            tool_message_index=message_index,
+            checkpoint_message_index=message_index,
+            checkpoint_message_digest=content_digest(
+                tool_message.model_dump(mode="json")
+            ),
+            checkpoint_role=tool_message.role,
+            resolved_at=resolved_at,
+            checkpointed_at=resolved_at,
+        )
+        events: list[tuple[TaskEventType, dict[str, object]]] = [
+                (
+                    TaskEventType.SESSION_MESSAGE_RECORDED,
+                    {
+                        "session_id": session_id,
+                        "message_index": message_index,
+                        "message": tool_message.model_dump(mode="json"),
+                        "turn_id": pending.turn_id,
+                    },
+                ),
+                (
+                    TaskEventType.SESSION_APPROVAL_RESOLVED,
+                    _approval_resolution_payload(
+                        session_id,
+                        pending,
+                        continuation,
+                    ),
+                ),
+                (
+                    TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
+                    _continuation_checkpoint_payload(
+                        session_id,
+                        projected.ref,
+                        continuation,
+                    ),
+                ),
+        ]
+        if run.status is RunStatus.WAITING_APPROVAL:
+            resumed_run = run.model_copy(
+                update={"status": RunStatus.RUNNING, "active_node_id": None}
+            )
+            events.append(
+                (
+                    TaskEventType.RUN_RESUMED,
+                    {"run": resumed_run.model_dump(mode="json")},
+                )
+            )
+        return self._append_batch(
+            aggregate,
+            tuple(events),
+            correlation_id=run.run_id,
+        )
+
+    def pause_session_for_unknown_action(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        turn_id: str,
+        proposal_id: str,
+        action: ActionContract,
+        steps: int,
+        total_tokens: int,
+    ) -> TaskAggregate:
+        """Durably stop a turn whose external effect cannot be determined."""
+
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        if (
+            run is None
+            or projected.resumable_turn_id != turn_id
+            or action.task_id != task_id
+            or action.run_id != run.run_id
+            or action.tenant_id != run.tenant_id
+            or action.workspace_id != run.workspace_id
+            or action.action_digest() == ""
+        ):
+            raise InvalidTransitionError(
+                "unknown action pause does not bind the current session Run"
+            )
+        unknown_payload: dict[str, object] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "proposal_id": proposal_id,
+            "action": action.model_dump(mode="json"),
+            "action_digest": action.action_digest(),
+            "steps": steps,
+            "total_tokens": total_tokens,
+            "recorded_at": self._clock(),
+        }
+        existing = self._unknown_session_action(task_id, session_id)
+        if existing is not None:
+            if existing != unknown_payload:
+                comparable = dict(existing)
+                comparable["recorded_at"] = unknown_payload["recorded_at"]
+                if comparable != unknown_payload:
+                    raise InvalidTransitionError(
+                        "session has a different unresolved unknown action"
+                    )
+            return aggregate
+        if run.status not in {
+            RunStatus.QUEUED,
+            RunStatus.RUNNING,
+            RunStatus.WAITING_APPROVAL,
+        }:
+            raise InvalidTransitionError(
+                "unknown action pause requires an active Run"
+            )
+        paused_run = run.model_copy(
+            update={"status": RunStatus.PAUSED, "active_node_id": action.node_id}
+        )
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.RUN_PAUSED,
+                    {
+                        "run": paused_run.model_dump(mode="json"),
+                        "unknown_action": unknown_payload,
+                    },
+                ),
+            ),
+            correlation_id=run.run_id,
+        )
+
+    def pause_session_for_claim_correction(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        pending: ProjectedApprovalContinuation,
+        approval: ApprovalDecision,
+    ) -> TaskAggregate:
+        """Pause a claimed action whose C7 authority changed before dispatch."""
+
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        run = aggregate.run
+        claim = projected.approval_execution_claim
+        if (
+            run is None
+            or run.status is not RunStatus.WAITING_APPROVAL
+            or projected.pending_continuation != pending
+            or claim is None
+            or claim.approval != approval
+            or approval.disposition is not ApprovalDisposition.APPROVE
+        ):
+            raise InvalidTransitionError(
+                "correction-blocked pause requires the exact approval claim"
+            )
+        paused_run = run.model_copy(
+            update={
+                "status": RunStatus.PAUSED,
+                "active_node_id": pending.action.node_id,
+            }
+        )
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.RUN_PAUSED,
+                    {
+                        "run": paused_run.model_dump(mode="json"),
+                        "approval_correction_blocked": {
+                            "session_id": session_id,
+                            "turn_id": pending.turn_id,
+                            "action_digest": pending.action.action_digest(),
+                            "approval_id": approval.approval_id,
+                            "claim_id": claim.claim_id,
+                            "blocked_at": self._clock(),
+                        },
+                    },
+                ),
+            ),
+            correlation_id=run.run_id,
+        )
+
+    def _unknown_session_action(
+        self,
+        task_id: str,
+        session_id: str,
+    ) -> dict[str, object] | None:
+        for event in reversed(self._event_store.read(task_id)):
+            if event.event_type is TaskEventType.RUN_RESUMED:
+                return None
+            if event.event_type is not TaskEventType.RUN_PAUSED:
+                continue
+            value = event.decoded_payload().get("unknown_action")
+            if value is None:
+                return None
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable unknown action payload")
+            if value.get("session_id") != session_id:
+                return None
+            expected_fields = {
+                "session_id",
+                "turn_id",
+                "proposal_id",
+                "action",
+                "action_digest",
+                "steps",
+                "total_tokens",
+                "recorded_at",
+            }
+            if set(value) != expected_fields:
+                raise InvalidTransitionError("invalid durable unknown action fields")
+            action = ActionContract.model_validate(value["action"])
+            if action.action_digest() != value["action_digest"]:
+                raise InvalidTransitionError("durable unknown action digest mismatch")
+            for field in ("steps", "total_tokens"):
+                count = value[field]
+                if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                    raise InvalidTransitionError(
+                        "invalid durable unknown action counters"
+                    )
+            return value
+        return None
+
+    def close_session(self, task_id: str, session_id: str) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if projected.closed:
+            raise InvalidTransitionError("session is already closed")
+        if projected.pending_approval is not None:
+            raise InvalidTransitionError(
+                "cannot close a session with an unresolved pending approval"
+            )
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_CLOSED,
+            {"session_id": session_id},
+            correlation_id=session_id,
+        )
+
+    @staticmethod
+    def _validate_session_binding(
+        aggregate: TaskAggregate,
+        ref: SessionRef,
+        expected_outcome_id: str,
+    ) -> None:
+        run = aggregate.run
+        expected = aggregate.expected_outcome
+        if (
+            run is None
+            or expected is None
+            or ref.task_id != aggregate.task_id
+            or ref.run_id != run.run_id
+            or ref.tenant_id != run.tenant_id
+            or ref.workspace_id != run.workspace_id
+            or expected_outcome_id != run.expected_outcome_id
+            or expected_outcome_id != expected.expected_outcome_id
+        ):
+            raise InvalidTransitionError("session scope mismatch")
+
     def _record_action_receipt(
         self,
         task_id: str,
@@ -530,6 +1521,7 @@ class TaskService:
             "permit": permit.model_dump(mode="json"),
             "receipt": receipt.model_dump(mode="json"),
         }
+        # Main-lineage: compensatable effect binding validation.
         if (
             action.capability_id in {"workspace.apply_patch", "workspace.edit"}
             and receipt.status is ReceiptStatus.SUCCEEDED
@@ -558,6 +1550,14 @@ class TaskService:
             raise InvalidTransitionError(
                 "non-compensatable action cannot record a patch effect binding"
             )
+        # Wave-lineage: durable receipt identity conflict check.
+        recorded = self._find_exact_action_receipt(task_id, action)
+        if recorded is not None:
+            if recorded != RecordedActionReceipt(decision, permit, receipt):
+                raise InvalidTransitionError(
+                    "durable action receipt identity conflict"
+                )
+            return aggregate
         prior_receipts = [
             event.decoded_payload()
             for event in events
@@ -585,6 +1585,225 @@ class TaskService:
             receipt_payload,
             correlation_id=run.run_id,
             writer_token=writer_token,
+        )
+
+    def _find_reusable_proposed_action(
+        self,
+        task_id: str,
+        candidate: ActionContract,
+    ) -> ActionContract | None:
+        """Return the one durable logical action identity for crash recovery."""
+
+        if candidate.task_id != task_id:
+            raise InvalidTransitionError("proposed action lookup scope mismatch")
+        matches: list[ActionContract] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.ACTION_PROPOSED:
+                continue
+            value = event.decoded_payload().get("action")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable proposed action payload")
+            try:
+                recorded = ActionContract.model_validate(value)
+            except (TypeError, ValueError) as exc:
+                raise InvalidTransitionError(
+                    "invalid durable proposed action contract"
+                ) from exc
+            if (
+                recorded.node_id == candidate.node_id
+                or recorded.idempotency_key == candidate.idempotency_key
+            ):
+                matches.append(recorded)
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise InvalidTransitionError(
+                "multiple durable actions bind the same logical proposal"
+            )
+        recorded = matches[0]
+        excluded = {"action_id", "observed_correction_epochs", "created_at"}
+        if recorded.model_dump(mode="json", exclude=excluded) != candidate.model_dump(
+            mode="json",
+            exclude=excluded,
+        ):
+            raise InvalidTransitionError(
+                "durable proposed action logical binding mismatch"
+            )
+        return recorded
+
+    def _record_or_reuse_action_proposed(
+        self,
+        action: ActionContract,
+    ) -> TaskAggregate:
+        aggregate = self.get_task(action.task_id)
+        reusable = self._find_reusable_proposed_action(action.task_id, action)
+        if reusable is not None:
+            if reusable != action:
+                raise InvalidTransitionError(
+                    "proposed action retry changed durable identity"
+                )
+            return aggregate
+        return self._append_event(
+            action.task_id,
+            TaskEventType.ACTION_PROPOSED,
+            {"action": action.model_dump(mode="json")},
+            correlation_id=action.run_id,
+        )
+
+    def _find_exact_action_receipt(
+        self,
+        task_id: str,
+        action: ActionContract,
+    ) -> RecordedActionReceipt | None:
+        """Return one strictly bound Task receipt without creating new truth."""
+
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        if (
+            run is None
+            or action.task_id != task_id
+            or action.run_id != run.run_id
+            or action.tenant_id != run.tenant_id
+            or action.workspace_id != run.workspace_id
+        ):
+            raise InvalidTransitionError("action receipt lookup scope mismatch")
+        events = self._event_store.read(task_id)
+        action_payload = action.model_dump(mode="json")
+        proposed = [
+            event
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+            and event.correlation_id == run.run_id
+            and isinstance(event.decoded_payload().get("action"), dict)
+            and any(
+                event.decoded_payload()["action"].get(field) == value
+                for field, value in (
+                    ("action_id", action.action_id),
+                    ("action_digest", action.action_digest()),
+                    ("idempotency_key", action.idempotency_key),
+                )
+            )
+        ]
+        if (
+            not proposed
+            or proposed[0].decoded_payload().get("action") != action_payload
+            or any(
+                event.decoded_payload().get("action") != action_payload
+                for event in proposed
+            )
+        ):
+            raise InvalidTransitionError(
+                "durable proposed action identity conflict"
+            )
+        bound_payloads: list[dict[str, object]] = []
+        for event in events:
+            if event.event_type is not TaskEventType.ACTION_RECEIPT_RECORDED:
+                continue
+            payload = event.decoded_payload()
+            stored_receipt = payload.get("receipt")
+            if not isinstance(stored_receipt, dict):
+                raise InvalidTransitionError("invalid durable action receipt payload")
+            if any(
+                stored_receipt.get(field) == value
+                for field, value in (
+                    ("action_id", action.action_id),
+                    ("action_digest", action.action_digest()),
+                    ("idempotency_key", action.idempotency_key),
+                )
+            ):
+                bound_payloads.append(payload)
+        if not bound_payloads:
+            return None
+        if len(bound_payloads) != 1:
+            raise InvalidTransitionError(
+                "multiple durable receipts bind the same logical action"
+            )
+        payload = bound_payloads[0]
+        if not {"decision", "permit", "receipt"} <= set(payload) or not set(
+            payload
+        ) <= {"decision", "permit", "receipt", "effect"}:
+            raise InvalidTransitionError("invalid durable action receipt fields")
+        try:
+            decision = PolicyDecision.model_validate(payload["decision"])
+            permit = ActionPermit.model_validate(payload["permit"])
+            receipt = ActionReceipt.model_validate(payload["receipt"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise InvalidTransitionError(
+                "invalid durable action receipt contracts"
+            ) from exc
+        if (
+            decision.action_id != action.action_id
+            or decision.action_digest != action.action_digest()
+            or decision.tenant_id != action.tenant_id
+            or decision.workspace_id != action.workspace_id
+            or decision.verdict is not PolicyVerdict.ALLOW
+            or not permit.matches(action)
+            or permit.policy_decision_id != decision.decision_id
+            or receipt.action_id != action.action_id
+            or receipt.action_digest != action.action_digest()
+            or receipt.permit_id != permit.permit_id
+            or receipt.tenant_id != action.tenant_id
+            or receipt.workspace_id != action.workspace_id
+            or receipt.connector_id != action.capability_id
+            or receipt.idempotency_key != action.idempotency_key
+        ):
+            raise InvalidTransitionError(
+                "durable action receipt binding mismatch"
+            )
+        decision_events = [
+            event
+            for event in events
+            if event.event_type is TaskEventType.POLICY_DECIDED
+            and event.correlation_id == run.run_id
+            and event.decoded_payload().get("decision")
+            == decision.model_dump(mode="json")
+        ]
+        if len(decision_events) != 1:
+            raise InvalidTransitionError(
+                "durable action receipt lacks one exact policy decision"
+            )
+        return RecordedActionReceipt(decision, permit, receipt)
+
+    def _recover_action_receipt(
+        self,
+        task_id: str,
+        *,
+        action: ActionContract,
+        permit: ActionPermit,
+        receipt: ActionReceipt,
+        writer_token: object,
+        effect: dict[str, str] | None = None,
+    ) -> TaskAggregate:
+        """Append the original sealed receipt, or prove it is already present.
+
+        The policy decision is recovered only from the append-only Task stream;
+        connector outcome storage cannot mint or reconstruct policy authority.
+        """
+
+        if writer_token is not self._runtime_writer_token:
+            raise InvalidTransitionError("action receipt writer is not authorized")
+        matching: list[PolicyDecision] = []
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.POLICY_DECIDED:
+                continue
+            value = event.decoded_payload().get("decision")
+            if not isinstance(value, dict):
+                raise InvalidTransitionError("invalid durable policy decision payload")
+            decision = PolicyDecision.model_validate(value)
+            if decision.decision_id == permit.policy_decision_id:
+                matching.append(decision)
+        if len(matching) != 1:
+            raise InvalidTransitionError(
+                "sealed action outcome lacks one exact durable policy decision"
+            )
+        return self._record_action_receipt(
+            task_id,
+            action=action,
+            decision=matching[0],
+            permit=permit,
+            receipt=receipt,
+            writer_token=writer_token,
+            effect=effect,
         )
 
     def register_wait(self, task_id: str, node: NodeSpec) -> TaskAggregate:
@@ -892,7 +2111,13 @@ class TaskService:
         events: tuple[tuple[TaskEventType, dict[str, object]], ...],
         *,
         correlation_id: str,
+        correction_epochs: CorrectionEpochVector | None = None,
+        correction_capability_id: str | None = None,
     ) -> TaskAggregate:
+        if (correction_epochs is None) != (correction_capability_id is None):
+            raise ValueError(
+                "correction epochs and capability must be supplied together"
+            )
         occurred_at = self._clock()
         causation_id = aggregate.last_event_id
         drafts: list[TaskEventDraft] = []
@@ -910,11 +2135,52 @@ class TaskService:
                 )
             )
             causation_id = event_id
-        self._event_store.append(
-            aggregate.task_id,
-            expected_sequence=aggregate.sequence,
-            drafts=tuple(drafts),
-        )
+        guarded_append = getattr(self._event_store, "append_guarded", None)
+        if correction_epochs is not None and callable(guarded_append):
+            if aggregate.run is None:
+                raise InvalidTransitionError("guarded append requires an active Run")
+            try:
+                guarded_append(
+                    aggregate.task_id,
+                    run_id=aggregate.run.run_id,
+                    capability_id=correction_capability_id,
+                    expected_correction_epochs=correction_epochs,
+                    expected_sequence=aggregate.sequence,
+                    drafts=tuple(drafts),
+                )
+            except ConcurrentWriteError as exc:
+                if "correction authority" in str(exc):
+                    raise InvalidTransitionError(
+                        "C7 correction authority changed before approval claim"
+                    ) from exc
+                raise
+        elif correction_epochs is not None:
+            if self._correction_reader is None or aggregate.run is None:
+                raise InvalidTransitionError(
+                    "guarded append requires correction authority"
+                )
+            assert correction_capability_id is not None
+            with self._correction_reader.guard_unchanged(
+                aggregate.task_id,
+                aggregate.run.run_id,
+                correction_capability_id,
+                correction_epochs,
+            ) as unchanged:
+                if not unchanged:
+                    raise InvalidTransitionError(
+                        "C7 correction authority changed before approval claim"
+                    )
+                self._event_store.append(
+                    aggregate.task_id,
+                    expected_sequence=aggregate.sequence,
+                    drafts=tuple(drafts),
+                )
+        else:
+            self._event_store.append(
+                aggregate.task_id,
+                expected_sequence=aggregate.sequence,
+                drafts=tuple(drafts),
+            )
         return self.get_task(aggregate.task_id)
 
     def _recorded_signal(
@@ -1073,6 +2339,20 @@ class TaskService:
         aggregate = self.get_task(task_id)
         if aggregate.run is None:
             raise InvalidTransitionError("task has no run")
+        if (
+            aggregate.run.status is RunStatus.PAUSED
+            and status is RunStatus.RUNNING
+        ):
+            for event in reversed(self._event_store.read(task_id)):
+                if event.event_type is TaskEventType.RUN_RESUMED:
+                    break
+                if event.event_type is not TaskEventType.RUN_PAUSED:
+                    continue
+                if event.decoded_payload().get("unknown_action") is not None:
+                    raise InvalidTransitionError(
+                        "UNKNOWN_REQUIRES_REVIEW requires explicit reconciliation"
+                    )
+                break
         allowed: dict[RunStatus, set[RunStatus]] = {
             RunStatus.CREATED: {RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLED},
             RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.CANCELLED},

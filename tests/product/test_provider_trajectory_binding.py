@@ -38,7 +38,7 @@ from agent_os_core.event_store import InMemoryTaskEventStore
 from agent_os_core.trajectory import TrajectoryProjector
 
 
-NOW = datetime(2026, 7, 17, 10, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc) - timedelta(minutes=1)
 REVISION = "b" * 64
 
 
