@@ -42,6 +42,7 @@ from .capability import (
     CapabilityEffectUnknown,
     CapabilityPort,
     CapabilityResult,
+    CollaborationPreflightPort,
 )
 from ._action_outcome import ExecutionLease
 from .action_pipeline import ActionPipeline
@@ -197,12 +198,15 @@ class RunCoordinator:
         *,
         evaluator: DeterministicOutcomeEvaluator | None = None,
         compensation_grant: CapabilityGrant | None = None,
+        collaboration_preflight: CollaborationPreflightPort | None = None,
     ) -> None:
         self.tasks = task_service
         self.capabilities = capabilities
         self.execution_profile = execution_profile
         self.tasks.bind_correction_reader(correction)
-        self.broker = CapabilityBroker(capabilities, correction)
+        self.broker = CapabilityBroker(
+            capabilities, correction, collaboration_preflight=collaboration_preflight
+        )
         self.actions = ActionPipeline(
             task_service,
             self.broker,

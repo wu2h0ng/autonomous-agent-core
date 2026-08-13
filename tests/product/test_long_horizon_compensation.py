@@ -120,6 +120,50 @@ def _held_test_claim(store: SQLiteTaskEventStore) -> ExecutionLease:
     )
 
 
+def _permissive_preflight():
+    from agent_os_contracts import (
+        CoordinationAuthorityContext,
+        ResourceScope,
+        WorkLease,
+    )
+    from domain_packs.developer_agent import (
+        WorkspaceCollaborationPreflight,
+        WorkspaceCommitFence,
+    )
+
+    now = datetime.now(timezone.utc)
+    scope = ResourceScope(resource_uri="file:///ws")
+    fence = WorkspaceCommitFence()
+    fence.install_lease(
+        WorkLease(
+            lease_id="lease:test",
+            lease_version=1,
+            fence_token=1,
+            task_id="task:long",
+            run_id="run:long",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            holder_id="user:local",
+            plan_version=1,
+            event_cursor=0,
+            scopes=(scope,),
+            authority_context=CoordinationAuthorityContext(
+                authorization_id="auth:test",
+                principal_id="user:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+                authorized_scopes=(scope,),
+                evidence_refs=("ev:test",),
+                issued_at=now,
+                expires_at=now + timedelta(hours=1),
+            ),
+            issued_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+    )
+    return WorkspaceCollaborationPreflight(fence)
+
+
 def test_second_authority_observes_external_halt_without_restart(
     tmp_path: Path,
 ) -> None:
@@ -301,7 +345,9 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
-    applied = CapabilityBroker(sandbox, correction).invoke(action, permit, execution_claim=held_claim)
+    applied = CapabilityBroker(
+        sandbox, correction, collaboration_preflight=_permissive_preflight()
+    ).invoke(action, permit, execution_claim=held_claim)
     compensation_action = ActionContract(
         action_id="action:persistent-compensation",
         task_id=action.task_id,

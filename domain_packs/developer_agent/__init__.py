@@ -11,7 +11,10 @@ from .workspace_collaboration import (
     WorkspaceCollaborationPreflight,
     WorkspaceCommitFence,
     WorkspaceCommitFencePort,
+    WorkspaceCoordinationSnapshot,
+    WorkspaceEventSequenceConflict,
     WorkspaceFenceUnavailable,
+    build_batch,
 )
 
 WorkspaceSandbox = DeveloperWorkspaceAdapter
@@ -24,7 +27,10 @@ __all__ = [
     "WorkspaceCollaborationPreflight",
     "WorkspaceCommitFence",
     "WorkspaceCommitFencePort",
+    "WorkspaceCoordinationSnapshot",
+    "WorkspaceEventSequenceConflict",
     "WorkspaceFenceUnavailable",
+    "build_batch",
     "manifest",
 ]
 

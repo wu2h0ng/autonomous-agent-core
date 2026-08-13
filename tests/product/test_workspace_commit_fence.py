@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
 
 from agent_os_contracts import (
     CollaborationDisposition,
@@ -16,6 +17,7 @@ from domain_packs.developer_agent.workspace_collaboration import (
     SQLiteWorkspaceCommitFence,
     WorkspaceCollaborationPreflight,
     WorkspaceCommitFence,
+    WorkspaceEventSequenceConflict,
 )
 
 from tests.product.test_workspace_collaboration_fence import (
@@ -106,11 +108,11 @@ def test_preflight_cancel_on_expired_lease() -> None:
     assert decision.disposition is CollaborationDisposition.CANCEL
 
 
-def test_preflight_cancel_on_fence_token_mismatch() -> None:
+def test_preflight_cancel_on_execution_claim_run_mismatch() -> None:
     fence = WorkspaceCommitFence()
-    fence.install_lease(_lease(fence_token=1, event_cursor=0))
+    fence.install_lease(_lease(event_cursor=0))
     preflight = WorkspaceCollaborationPreflight(fence)
-    decision = preflight.preflight(_action(), _claim(fence=99))
+    decision = preflight.preflight(_action(), _claim(run_id="run:other"))
     assert decision.disposition is CollaborationDisposition.CANCEL
 
 
@@ -144,3 +146,78 @@ def test_sqlite_fence_persists_lease_and_events(tmp_path: Path) -> None:
     preflight = WorkspaceCollaborationPreflight(reloaded)
     decision = preflight.preflight(_action(), _claim())
     assert decision.disposition is CollaborationDisposition.CONFLICT
+
+
+def test_append_duplicate_sequence_rejected(tmp_path: Path) -> None:
+    fence = SQLiteWorkspaceCommitFence(tmp_path / "coord.sqlite3")
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(_event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),)))
+    with pytest.raises(WorkspaceEventSequenceConflict):
+        fence.append_event(
+            _event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/other.txt"),))
+        )
+
+
+def test_in_memory_append_duplicate_sequence_rejected() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(_event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),)))
+    with pytest.raises(WorkspaceEventSequenceConflict):
+        fence.append_event(
+            _event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/other.txt"),))
+        )
+
+
+def test_gap_in_event_sequence_fails_closed() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(_event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),)))
+    fence.append_event(_event(sequence=3, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),)))
+    preflight = WorkspaceCollaborationPreflight(fence)
+    decision = preflight.preflight(_action(), _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL
+
+
+def test_sqlite_gap_in_event_sequence_fails_closed(tmp_path: Path) -> None:
+    fence = SQLiteWorkspaceCommitFence(tmp_path / "coord.sqlite3")
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(_event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),)))
+    fence.append_event(_event(sequence=3, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),)))
+    preflight = WorkspaceCollaborationPreflight(fence)
+    decision = preflight.preflight(_action(), _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL
+
+
+def test_task_id_mismatch_fails_closed() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    preflight = WorkspaceCollaborationPreflight(fence)
+    decision = preflight.preflight(_action(), _claim())
+    # _action uses task_id="task:long"; lease uses "task:long" so this is CONTINUE;
+    # build a mismatched action.
+
+    mismatched = _action().model_copy(update={"task_id": "task:other"})
+    decision = preflight.preflight(mismatched, _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL
+
+
+def test_tenant_id_mismatch_fails_closed() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    preflight = WorkspaceCollaborationPreflight(fence)
+    mismatched = _action().model_copy(update={"tenant_id": "tenant:other"})
+    decision = preflight.preflight(mismatched, _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL
+
+
+def test_unresolvable_write_scope_fails_closed() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    preflight = WorkspaceCollaborationPreflight(fence)
+    import json
+
+    no_path = _action().model_copy(
+        update={"arguments_json": json.dumps({"content": "no path"})}
+    )
+    decision = preflight.preflight(no_path, _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL

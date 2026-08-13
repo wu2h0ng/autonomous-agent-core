@@ -47,7 +47,30 @@ class SpyCapabilityPort:
         *,
         include_internal: bool = False,
     ) -> dict[str, CapabilitySpec]:
-        return {}
+        from agent_os_contracts import SideEffectGuarantee
+
+        at = now or datetime.now(timezone.utc)
+        return {
+            "capability:spy": CapabilitySpec(
+                capability_id="capability:spy",
+                version="1",
+                display_name="Spy capability",
+                input_contract="json:object:1",
+                output_contract="json:object:1",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                credential_class="none",
+                data_boundary="workspace-local",
+                risk_tier=0,
+                timeout_seconds=120,
+                audit_policy="event-and-artifact",
+                created_by="system",
+                created_at=at,
+                collaboration_required=False,
+            )
+        }
 
     def outcomes(self):
         return self._outcomes

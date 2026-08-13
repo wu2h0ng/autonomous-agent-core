@@ -161,6 +161,7 @@ def _build_chat_loop(
         ),
         message_sink=_message_sink,
         resumable_turn_ids=resumable_turn_ids,
+        collaboration_preflight=getattr(app, "collaboration_preflight", None),
     )
 
 

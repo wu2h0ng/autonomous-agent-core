@@ -60,19 +60,43 @@ class ResourceScope(ContractModel):
         return tuple(by_dimension[key] for key in sorted(by_dimension))
 
     def overlaps(self, other: ResourceScope) -> bool:
-        if self.resource_uri != other.resource_uri:
+        """Return whether two scopes intersect on the resource tree.
+
+        A directory scope (URI with no trailing file component) overlaps every
+        resource beneath it; two file scopes overlap only on the same URI.
+        """
+        if not _uri_path_related(self.resource_uri, other.resource_uri):
             return False
         left = {selector.dimension: selector.value for selector in self.selectors}
         right = {selector.dimension: selector.value for selector in other.selectors}
         return all(left[key] == right[key] for key in left.keys() & right.keys())
 
     def covers(self, other: ResourceScope) -> bool:
-        """Return whether this (possibly broader) scope authorizes the other scope."""
-        if self.resource_uri != other.resource_uri:
+        """Return whether this (possibly broader) scope authorizes the other scope.
+
+        A directory scope covers every resource beneath it (path-prefix), and a
+        file scope covers only its exact URI. Selectors narrow, never widen.
+        """
+        if not _uri_path_covers(self.resource_uri, other.resource_uri):
             return False
         allowed = {selector.dimension: selector.value for selector in self.selectors}
         requested = {selector.dimension: selector.value for selector in other.selectors}
         return all(requested.get(key) == value for key, value in allowed.items())
+
+
+def _uri_path_related(a: str, b: str) -> bool:
+    """True when two resource URIs intersect: equal, or one is a directory prefix of the other."""
+    if a == b:
+        return True
+    return _uri_path_covers(a, b) or _uri_path_covers(b, a)
+
+
+def _uri_path_covers(parent: str, child: str) -> bool:
+    """True when `parent` is equal to `child` or a directory prefix of `child`."""
+    if parent == child:
+        return True
+    prefix = parent if parent.endswith("/") else parent + "/"
+    return child.startswith(prefix)
 
 
 class CoordinationAuthorityContext(ContractModel):

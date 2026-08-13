@@ -2324,7 +2324,11 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
     )
     pipeline = ActionPipeline(
         owner.tasks,
-        CapabilityBroker(owner.sandbox, owner.correction),
+        CapabilityBroker(
+            owner.sandbox,
+            owner.correction,
+            collaboration_preflight=owner.collaboration_preflight,
+        ),
         owner.policy,
         owner.correction,
         owner.grants,

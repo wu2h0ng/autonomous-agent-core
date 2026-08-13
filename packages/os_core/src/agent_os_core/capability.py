@@ -247,28 +247,42 @@ class CapabilityBroker:
         The `collaboration_required` flag comes from the connector's trusted
         capability registry (`CapabilityPort.specs()`), never from caller
         arguments or model output. A collaboration-required write dispatched
-        through a broker without a preflight fails closed.
+        through a broker without a preflight fails closed. A registry read
+        failure or a capability absent from the trusted registry also fails
+        closed: the broker cannot determine the collaboration requirement, so
+        it must not dispatch.
         """
         spec = self._lookup_spec(action.capability_id)
-        if spec is None or not spec.collaboration_required:
-            return
-        if self.collaboration_preflight is None:
-            raise CapabilityDenied(
-                "collaboration-required capability dispatched without a "
-                "collaboration preflight"
+        if spec.collaboration_required:
+            if self.collaboration_preflight is None:
+                raise CapabilityDenied(
+                    "collaboration-required capability dispatched without a "
+                    "collaboration preflight"
+                )
+            decision = self.collaboration_preflight.preflight(
+                action, execution_claim
             )
-        decision = self.collaboration_preflight.preflight(action, execution_claim)
-        if decision.disposition is CollaborationDisposition.CONTINUE:
-            return
-        if decision.disposition is CollaborationDisposition.REPLAN:
-            raise ReplanRequired(decision)
-        raise WorkspaceWriteRejected(decision)
+            if decision.disposition is CollaborationDisposition.CONTINUE:
+                return
+            if decision.disposition is CollaborationDisposition.REPLAN:
+                raise ReplanRequired(decision)
+            raise WorkspaceWriteRejected(decision)
 
-    def _lookup_spec(self, capability_id: str) -> CapabilitySpec | None:
+    def _lookup_spec(self, capability_id: str) -> CapabilitySpec:
         try:
-            return self.connector.specs().get(capability_id)
-        except Exception:
-            return None
+            specs = self.connector.specs(include_internal=True)
+        except Exception as exc:
+            raise CapabilityDenied(
+                "capability registry unavailable; cannot determine "
+                "collaboration requirement"
+            ) from exc
+        spec = specs.get(capability_id)
+        if spec is None:
+            raise CapabilityDenied(
+                f"capability {capability_id!r} is absent from the trusted "
+                "registry; dispatch refused"
+            )
+        return spec
 
 
 def _build_receipt(

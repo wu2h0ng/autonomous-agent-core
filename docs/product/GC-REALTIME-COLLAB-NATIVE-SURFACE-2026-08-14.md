@@ -1,22 +1,32 @@
-# Realtime Collaboration → Native Surface 重构 Goal Card
+# Realtime Collaboration Fence Goal Card（M1a：Runtime Fence）
 
 > Date: 2026-08-14
 > Track: Product
-> Status: **SPEC_APPROVED / CTO_IMPLEMENTATION_AUTHORIZED / NOT_IMPLEMENTED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
+> Status: **SPEC_APPROVED / CTO_IMPLEMENTATION_AUTHORIZED / REAL_PRODUCT_RUNTIME_FENCE_IMPLEMENTED / SURFACE_NOT_IMPLEMENTED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
 > Exact base: `1e479093820d888de6ea17bc61be09ba6746d815`（main；spec branch `spec/realtime-collab-fence-20260814`）
 > Authority: `docs/research/founder-decision-2026-08-14-post-convergence-route-cast.md` §2
 > Requirement: GOAL-BLUEPRINT M2「人/Agent 同空间并发工作」真实产品需求
-> Claim ceiling before review: `SPECIFIED_ONLY`
+> Claim ceiling before review: `REAL_PRODUCT_RUNTIME_FENCE_IMPLEMENTED / SURFACE_NOT_IMPLEMENTED`
 > Prior art: `codex/realtime-collab-runtime-m1-20260809` @ `7c9ddaf5`（dirty 未提交，donor/reference，不直接合入）
+
+## Scope：M1a（Runtime Fence）与 M1b（Surface Conflict Projection）分离
+
+- **M1a（本卡交付）**：真实生产 dispatch path 上的 collaboration fence——标记
+  `workspace.edit`/`workspace.apply_patch` 为 collaboration-required，注入真实 connector 与
+  composition root 的权威 fence/preflight，具备真实 entry point、真实失败路径与集成测试。
+- **M1b（后继，本卡不交付）**：Native Surface 冲突渲染/协作可见投影。移出本次完成声明。
+
+本卡不得再称「Native Surface 纵切完成」，只能称
+`REAL_PRODUCT_RUNTIME_FENCE_IMPLEMENTED / SURFACE_NOT_IMPLEMENTED`。
 
 ## Goal
 
 把已实现但分叉的「Realtime Workspace Collaboration M1」重挂到 ADR-0059 唯一 capability
-execution-authority spine 上，并给出 macOS Native Surface 的可见冲突/协作纵切。
+execution-authority spine 上，作为**生产 dispatch 路径上的 preflight seam**（不是第二个 broker）。
 
-用户可见结果（`U`）：在桌面 Surface 上，当一个人与一个 Agent（或两个 Agent）并发编辑同一
-资源时，用户看到**明确的、可解释的冲突/重规划（REPLAN/CONFLICT）而非静默覆盖**，且任何被
-拒绝的写入都不会调用下游 connector（零副作用）。
+用户可见结果（`U`）：collaboration-required 写能力（`workspace.edit`/`workspace.apply_patch`）
+在生产 dispatch 前必须通过 fence 校验；任何被拒绝的写入都不调用下游 connector（零副作用）。
+
 
 产品能力（`P`）：一个 collaboration fence seam，它作为 `CapabilityBroker.invoke` 的唯一
 dispatch 路径上的**前置校验阶段**（不是第二个 broker），在 `execution_claim` 之外要求一个
@@ -44,7 +54,7 @@ dispatch 路径上的**前置校验阶段**（不是第二个 broker），在 `e
 | `CONFLICT/REPLAN/CANCEL` disposition | 保留，三种非 CONTINUE 态都阻止 dispatch（零 reservation、零 connector 调用） |
 | `SQLiteWorkspaceCommitFence` | 保留为 node 级 adapter，但只存 lease/event/cursor/decision，不存外部效果真相，不自行 dispatch |
 
-## 最小纵切（M1'）
+## 最小纵切（M1a）
 
 1. **Contract**：`ResourceScope` / `WorkspaceEvent` / `WorkspaceEventBatch` / `WorkLease`
    （对齐 `ExecutionLease` 同源校验）迁入 `agent_os_contracts`。
@@ -53,15 +63,28 @@ dispatch 路径上的**前置校验阶段**（不是第二个 broker），在 `e
    `execution_claim` 校验之后、`connector.preflight` 之前执行写前判定；任何非 CONTINUE 决策
    都零 reservation、零 connector 调用。
 3. **required fail-closed**：`CapabilitySpec.collaboration_required` 标记；required 写能力在
-   broker 无 collaboration preflight 时必须拒绝 dispatch（非 no-op）。
+   broker 无 collaboration preflight 时必须拒绝 dispatch（非 no-op）；registry 异常或缺失 spec
+   同样 fail-closed。
 4. **Decision**：`WorkspaceWriteDecision` 四态；`CONFLICT/CANCEL` fail-closed，
    `REPLAN` 同样阻止 dispatch 并返回 typed `ReplanRequired` 给 orchestration（非放行）。
 5. **单一效果真相**：fence 不含 PREPARED/COMMITTED/UNKNOWN；外部效果状态只归
    `DurableActionOutcomeRepository + CapabilityBroker`。
-6. **Surface**：Native Surface（wave2 面板）暴露 file-level 冲突可见流——同一文件并发写触发
-   `CONFLICT` 时，UI 显示冲突来源与 scope，不允许静默覆盖。
-7. **测试**：三态写前失败/覆盖保护/lease 过期/无关 scope 不锁/required fail-closed/connector
+6. **完整 batch 与线性化**：`WorkspaceEventBatch`（high-water cursor + 连续性 +
+   `complete=true`）；cursor gap/重复/覆盖/不完整读一律 fail-closed；event append-only
+   （`INSERT` 非 `INSERT OR REPLACE`，同 sequence 不同内容拒绝）；lease snapshot 与 event batch
+   同一 SQLite 一致性事务；单主机 POSIX `flock` 跨进程线性化。
+7. **真实产品接线**：标记 `workspace.edit` + `workspace.apply_patch` 为
+   collaboration-required；`AgentOSApplication` composition root 注入权威 fence/preflight 到
+   `RunCoordinator` / `AgentLoop` / `agent_cli` / `responsibility_surface` 全部写入口；集成测试
+   证明生产构造缺任一即失败。
+8. **测试**：三态写前失败/覆盖保护/lease 过期/无关 scope 不锁/required fail-closed/registry
+   异常/缺失 spec/scope 解析失败/same-origin task/tenant 不匹配/event gap 与重复覆盖/connector
    零调用，全 Product 回归零新失败。
+
+## M1b（后继，本卡不交付）
+
+Native Surface（wave2 面板）暴露 file-level 冲突可见流——同一文件并发写触发 `CONFLICT` 时，
+UI 显示冲突来源与 scope，不允许静默覆盖。移出本次完成声明。
 
 ## 非目标（本次不做）
 
@@ -77,8 +100,9 @@ dispatch 路径上的**前置校验阶段**（不是第二个 broker），在 `e
 
 ## 下一步 gate
 
-三项 route choice 已锁定（构造注入 / WorkLease 独立+同源校验 / file-level Surface），4 个
-规格 P1 已关闭。2026-08-14 新 CTO gate 对 exact spec head `ad83b855` 返回
-`CTO_IMPLEMENTATION_AUTHORIZED`：允许从该 head 开实现分支，按 failing/bypass-detecting 测试
-先行实现最小纵切。此授权不包含 merge、push、release 或产品完成声明；实现仍须全 Product
-回归零新增失败、独立 exact-head review 与单独 merge gate。
+三项 route choice 已锁定（构造注入 / WorkLease 独立+同源校验 / file-level），4 个规格 P1 已
+关闭。2026-08-14 新 CTO gate 对 exact spec head `ad83b855` 返回 `CTO_IMPLEMENTATION_AUTHORIZED`；
+独立评审对首个实现头返回 `REVISE`（5 P1），随后 founder/CTO 返回 `CTO_FIX_AUTHORIZED /
+P1_REMEDIATION_ONLY`：修复 5 个 P1、补 bypass 测试、将 Surface 移至 M1b 并收窄 M1a claim，再
+重新生成 exact-head packet 由独立 reviewer 复审。复审须 `APPROVE` 或无阻塞项 `APPROVE_WITH_P2`
+才能提交 CTO merge gate。此授权不包含 merge、push、release。

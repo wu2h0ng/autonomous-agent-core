@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import fcntl
+import hashlib
+import json
 import sqlite3
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol
@@ -12,6 +16,7 @@ from agent_os_contracts import (
     ResourceScope,
     WorkLease,
     WorkspaceEvent,
+    WorkspaceEventBatch,
     WorkspaceEventImpact,
     WorkspaceWriteDecision,
 )
@@ -21,6 +26,10 @@ from agent_os_core.capability import ExecutionLease
 
 class WorkspaceFenceUnavailable(RuntimeError):
     """The coordination fence could not be read to authorize a write."""
+
+
+class WorkspaceEventSequenceConflict(RuntimeError):
+    """An append attempted to replace or skip an authoritative event sequence."""
 
 
 class WorkspaceCommitFencePort(Protocol):
@@ -35,30 +44,85 @@ class WorkspaceCommitFencePort(Protocol):
 
     def append_event(self, event: WorkspaceEvent) -> None: ...
 
-    def current_lease(self, workspace_id: str) -> WorkLease | None: ...
+    def read_coordination(
+        self, workspace_id: str
+    ) -> WorkspaceCoordinationSnapshot: ...
 
-    def read_after(self, workspace_id: str, after_cursor: int) -> tuple[WorkspaceEvent, ...]: ...
+
+@dataclass(frozen=True)
+class WorkspaceCoordinationSnapshot:
+    """An atomic, same-transaction read of lease + complete event batch."""
+
+    lease: WorkLease | None
+    batch: WorkspaceEventBatch
 
 
 def _file_scope_from_action(action: ActionContract) -> tuple[ResourceScope, ...]:
-    import json
+    import json as _json
 
     try:
-        args = json.loads(action.arguments_json)
+        args = _json.loads(action.arguments_json)
     except Exception:
         return ()
-    path = args.get("path") if isinstance(args, dict) else None
+    if not isinstance(args, dict):
+        return ()
+    path = args.get("path")
     if not isinstance(path, str) or not path:
         return ()
     return (ResourceScope(resource_uri=f"file:///ws/{path}"),)
 
 
+def _batch_digest(
+    workspace_id: str, after_cursor: int, through_cursor: int, events: tuple[WorkspaceEvent, ...]
+) -> str:
+    payload = {
+        "workspace_id": workspace_id,
+        "after_cursor": after_cursor,
+        "through_cursor": through_cursor,
+        "events": [event.model_dump(mode="json") for event in events],
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def build_batch(
+    workspace_id: str,
+    after_cursor: int,
+    events: tuple[WorkspaceEvent, ...],
+    *,
+    source_id: str,
+    read_at: datetime,
+) -> WorkspaceEventBatch:
+    """Build a provenance-bound batch and validate contiguity.
+
+    The batch is `complete=True` only when the event sequences are exactly
+    contiguous from `after_cursor + 1` through the high-water mark. Any gap,
+    duplicate, or out-of-order sequence yields `complete=False`, which the
+    preflight must treat as fail-closed.
+    """
+    sequences = tuple(event.sequence for event in events)
+    through = max(sequences, default=after_cursor)
+    expected = tuple(range(after_cursor + 1, through + 1))
+    contiguous = sequences == expected
+    return WorkspaceEventBatch(
+        workspace_id=workspace_id,
+        after_cursor=after_cursor,
+        through_cursor=through,
+        events=events,
+        source_id=source_id,
+        provenance_ref=_batch_digest(workspace_id, after_cursor, through, events),
+        read_at=read_at,
+        complete=contiguous,
+    )
+
+
 class WorkspaceCollaborationPreflight:
     """Concrete `CollaborationPreflightPort` over a coordination fence.
 
-    Reads the current lease and events from the fence using only `action` and
-    `claim`; never trusts caller-supplied lease/event data. A non-CONTINUE
-    decision blocks dispatch before any reservation.
+    Reads the current lease and complete event batch from the fence using only
+    `action` and `claim`; never trusts caller-supplied lease/event data. A
+    non-CONTINUE decision blocks dispatch before any reservation. Any
+    incomplete batch, unresolvable scope, or identity mismatch fails closed.
     """
 
     def __init__(
@@ -74,22 +138,32 @@ class WorkspaceCollaborationPreflight:
         self, action: ActionContract, claim: ExecutionLease
     ) -> WorkspaceWriteDecision:
         now = datetime.now(timezone.utc)
-        lease = self._fence.current_lease(action.workspace_id)
+        snapshot = self._fence.read_coordination(action.workspace_id)
+        lease = snapshot.lease
         if lease is None:
             return self._decision(action, lease, CollaborationDisposition.CANCEL, now, "no coordination lease")
-        if (
+
+        identity_mismatch = (
             claim.run_id != lease.run_id
-            or claim.owner != lease.holder_id
-            or claim.fence != lease.fence_token
-        ):
+            or action.run_id != lease.run_id
+            or action.task_id != lease.task_id
+            or action.tenant_id != lease.tenant_id
+            or action.workspace_id != lease.workspace_id
+            or action.principal_id != lease.holder_id
+        )
+        if identity_mismatch:
             return self._decision(
-                action, lease, CollaborationDisposition.CANCEL, now, "execution claim does not bind the work lease"
+                action, lease, CollaborationDisposition.CANCEL, now, "action/claim identity does not bind the work lease"
             )
         if lease.expires_at <= now:
             return self._decision(action, lease, CollaborationDisposition.CANCEL, now, "work lease expired")
 
         write_scopes = self._scope_resolver(action)
-        if write_scopes and not all(
+        if not write_scopes:
+            return self._decision(
+                action, lease, CollaborationDisposition.CANCEL, now, "no resolvable write scope"
+            )
+        if not all(
             any(allowed.covers(scope) for allowed in lease.scopes)
             for scope in write_scopes
         ):
@@ -97,11 +171,16 @@ class WorkspaceCollaborationPreflight:
                 action, lease, CollaborationDisposition.CANCEL, now, "write scope outside lease"
             )
 
-        events = self._fence.read_after(action.workspace_id, lease.event_cursor)
+        batch = snapshot.batch
+        if not batch.complete:
+            return self._decision(
+                action, lease, CollaborationDisposition.CANCEL, now, "incomplete event batch"
+            )
+
         relevant: list[str] = []
         disposition = CollaborationDisposition.CONTINUE
-        for event in events:
-            if write_scopes and not any(
+        for event in batch.events:
+            if not any(
                 scope.overlaps(affected)
                 for scope in write_scopes
                 for affected in event.affected_scopes
@@ -153,7 +232,7 @@ class WorkspaceCollaborationPreflight:
 
 
 class WorkspaceCommitFence:
-    """In-memory coordination fence. Lease/event/cursor only."""
+    """In-memory coordination fence. Lease/event/cursor only, append-only."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -166,27 +245,45 @@ class WorkspaceCommitFence:
 
     def append_event(self, event: WorkspaceEvent) -> None:
         with self._lock:
-            self._events.setdefault(event.workspace_id, []).append(event)
+            existing = self._events.setdefault(event.workspace_id, [])
+            sequences = {existing_event.sequence for existing_event in existing}
+            if event.sequence in sequences:
+                raise WorkspaceEventSequenceConflict(
+                    f"event sequence {event.sequence} already appended"
+                )
+            existing.append(event)
 
-    def current_lease(self, workspace_id: str) -> WorkLease | None:
+    def read_coordination(self, workspace_id: str) -> WorkspaceCoordinationSnapshot:
         with self._lock:
-            return self._leases.get(workspace_id)
-
-    def read_after(self, workspace_id: str, after_cursor: int) -> tuple[WorkspaceEvent, ...]:
-        with self._lock:
-            return tuple(
+            lease = self._leases.get(workspace_id)
+            after = lease.event_cursor if lease is not None else 0
+            events = tuple(
                 event
                 for event in self._events.get(workspace_id, ())
-                if event.sequence > after_cursor
+                if event.sequence > after
             )
+            batch = build_batch(
+                workspace_id,
+                after,
+                events,
+                source_id="memory",
+                read_at=datetime.now(timezone.utc),
+            )
+            return WorkspaceCoordinationSnapshot(lease=lease, batch=batch)
 
 
 class SQLiteWorkspaceCommitFence:
-    """Single-host SQLite coordination fence. Lease/event/cursor only."""
+    """Single-host SQLite coordination fence with POSIX flock linearization.
+
+    Append-only events (no INSERT OR REPLACE), atomic lease+event snapshot in a
+    single consistency transaction, and a POSIX advisory lock serializing
+    cross-process appends and reads.
+    """
 
     def __init__(self, database: str | Path) -> None:
         self._db_path = str(database)
-        self._lock = threading.Lock()
+        self._lock_path = self._db_path + ".lock"
+        self._thread_lock = threading.Lock()
         self._init()
 
     def _init(self) -> None:
@@ -207,8 +304,11 @@ class SQLiteWorkspaceCommitFence:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._db_path)
 
+    def _flock(self):
+        return _FileLock(self._lock_path)
+
     def install_lease(self, lease: WorkLease) -> None:
-        with self._lock, self._connect() as conn:
+        with self._thread_lock, self._flock(), self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO workspace_leases(workspace_id, lease_json) "
                 "VALUES (?, ?)",
@@ -216,31 +316,68 @@ class SQLiteWorkspaceCommitFence:
             )
 
     def append_event(self, event: WorkspaceEvent) -> None:
-        with self._lock, self._connect() as conn:
+        with self._thread_lock, self._flock(), self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM workspace_events WHERE workspace_id = ? AND sequence = ?",
+                (event.workspace_id, event.sequence),
+            ).fetchone()
+            if row is not None:
+                raise WorkspaceEventSequenceConflict(
+                    f"event sequence {event.sequence} already appended"
+                )
             conn.execute(
-                "INSERT OR REPLACE INTO workspace_events(workspace_id, sequence, event_json) "
+                "INSERT INTO workspace_events(workspace_id, sequence, event_json) "
                 "VALUES (?, ?, ?)",
                 (event.workspace_id, event.sequence, event.model_dump_json()),
             )
 
-    def current_lease(self, workspace_id: str) -> WorkLease | None:
-        with self._lock, self._connect() as conn:
-            row = conn.execute(
+    def read_coordination(self, workspace_id: str) -> WorkspaceCoordinationSnapshot:
+        with self._thread_lock, self._flock(), self._connect() as conn:
+            lease_row = conn.execute(
                 "SELECT lease_json FROM workspace_leases WHERE workspace_id = ?",
                 (workspace_id,),
             ).fetchone()
-        if row is None:
-            return None
-        return WorkLease.model_validate_json(row[0])
-
-    def read_after(self, workspace_id: str, after_cursor: int) -> tuple[WorkspaceEvent, ...]:
-        with self._lock, self._connect() as conn:
+            lease = (
+                WorkLease.model_validate_json(lease_row[0])
+                if lease_row is not None
+                else None
+            )
+            after = lease.event_cursor if lease is not None else 0
             rows = conn.execute(
                 "SELECT event_json FROM workspace_events WHERE workspace_id = ? AND sequence > ? "
                 "ORDER BY sequence",
-                (workspace_id, after_cursor),
+                (workspace_id, after),
             ).fetchall()
-        return tuple(WorkspaceEvent.model_validate_json(row[0]) for row in rows)
+            events = tuple(WorkspaceEvent.model_validate_json(row[0]) for row in rows)
+            batch = build_batch(
+                workspace_id,
+                after,
+                events,
+                source_id=self._db_path,
+                read_at=datetime.now(timezone.utc),
+            )
+            return WorkspaceCoordinationSnapshot(lease=lease, batch=batch)
+
+
+class _FileLock:
+    """POSIX advisory lock over a sidecar lock file."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._fd = None
+
+    def __enter__(self) -> _FileLock:
+        fd = open(self._path, "a+")
+        self._fd = fd
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        fd = self._fd
+        if fd is not None:
+            self._fd = None
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd.close()
 
 
 __all__ = [
@@ -248,5 +385,8 @@ __all__ = [
     "WorkspaceCollaborationPreflight",
     "WorkspaceCommitFence",
     "WorkspaceCommitFencePort",
+    "WorkspaceCoordinationSnapshot",
+    "WorkspaceEventSequenceConflict",
     "WorkspaceFenceUnavailable",
+    "build_batch",
 ]

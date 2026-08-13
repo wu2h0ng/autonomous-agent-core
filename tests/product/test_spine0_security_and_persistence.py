@@ -121,11 +121,61 @@ def _invoke(
             expires_at=expiry,
         )
     bound = permit.model_copy(update={"lease_fence": lease.fence})
-    return CapabilityBroker(sandbox, correction).invoke(
+    return CapabilityBroker(
+        sandbox, correction, collaboration_preflight=_permissive_preflight(sandbox)
+    ).invoke(
         action,
         bound,
         execution_claim=lease,
     )
+
+
+def _permissive_preflight(sandbox):
+    """A real fence preflight covering the whole workspace, so broker-spine tests
+    exercise ADR-0059 reservation/replay/UNKNOWN mechanics without the
+    collaboration fence interfering. This is NOT a bypass: it is the same
+    production preflight wired with an installed authoritative lease."""
+    from domain_packs.developer_agent import (
+        WorkspaceCollaborationPreflight,
+        WorkspaceCommitFence,
+    )
+    from agent_os_contracts import (
+        CoordinationAuthorityContext,
+        ResourceScope,
+        WorkLease,
+    )
+
+    now = datetime.now(timezone.utc)
+    scope = ResourceScope(resource_uri="file:///ws")
+    fence = WorkspaceCommitFence()
+    fence.install_lease(
+        WorkLease(
+            lease_id="lease:test",
+            lease_version=1,
+            fence_token=1,
+            task_id="task:receipt-replay",
+            run_id="run:receipt-replay",
+            tenant_id="tenant-1",
+            workspace_id="workspace-1",
+            holder_id="user-1",
+            plan_version=1,
+            event_cursor=0,
+            scopes=(scope,),
+            authority_context=CoordinationAuthorityContext(
+                authorization_id="auth:test",
+                principal_id="user-1",
+                tenant_id="tenant-1",
+                workspace_id="workspace-1",
+                authorized_scopes=(scope,),
+                evidence_refs=("ev:test",),
+                issued_at=now,
+                expires_at=now + timedelta(hours=1),
+            ),
+            issued_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+    )
+    return WorkspaceCollaborationPreflight(fence)
 
 
 class _CountingSandbox(WorkspaceSandbox):
@@ -424,7 +474,9 @@ def test_guarded_reservation_codec_binds_exact_execution_lease(
     lease = sandbox.acquire_execution_lease(action, "runtime:owner")
     guarded_permit = permit.model_copy(update={"lease_fence": lease.fence})
 
-    result = CapabilityBroker(sandbox, correction).invoke(
+    result = CapabilityBroker(
+        sandbox, correction, collaboration_preflight=_permissive_preflight(sandbox)
+    ).invoke(
         action,
         guarded_permit,
         execution_claim=lease,
@@ -825,7 +877,9 @@ def test_correction_after_permit_blocks_actual_dispatch(tmp_path) -> None:
     )
     correction.correct("task", "task-1", "operator pause")
     with pytest.raises(CapabilityDenied, match="halted"):
-        CapabilityBroker(sandbox, correction).invoke(
+        CapabilityBroker(
+            sandbox, correction, collaboration_preflight=_permissive_preflight(sandbox)
+        ).invoke(
             action,
             permit,
             execution_claim=ExecutionLease(

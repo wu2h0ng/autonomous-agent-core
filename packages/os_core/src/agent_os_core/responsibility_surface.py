@@ -623,6 +623,9 @@ def run_responsibility_work(
             effect_custody=_effect_custody_for(execute_effect),
             independent_approval=True,
             external_exact_approval=True,
+            collaboration_preflight=getattr(
+                execution_app, "collaboration_preflight", None
+            ),
         )
         current = execution_app.tasks.get_task(task_id)
         if (

@@ -59,7 +59,7 @@ def _authority(
 def _lease(
     *,
     run_id: str = "run:long",
-    holder_id: str = "test:worker",
+    holder_id: str = "user:local",
     fence_token: int = 1,
     scopes: tuple[ResourceScope, ...] | None = None,
     event_cursor: int = 0,
@@ -289,7 +289,7 @@ def test_resource_scope_selector_aware_overlap() -> None:
 def test_work_lease_same_origin_identity() -> None:
     lease = _lease()
     assert lease.run_id == "run:long"
-    assert lease.holder_id == "test:worker"
+    assert lease.holder_id == "user:local"
     assert lease.fence_token == 1
 
 
@@ -424,6 +424,34 @@ def test_collaboration_required_reads_trusted_registry_not_caller_args() -> None
     # marks the capability collaboration_required=True, so dispatch must fail-closed.
     action = _action(arguments={"path": "a.txt", "collaboration_required": False})
     with pytest.raises(CapabilityDenied, match="collaboration"):
+        broker.invoke(action, _permit(action), execution_claim=_claim())
+    assert connector.execute_calls == 0
+
+
+# P1 #1 bypass: a registry read exception must fail closed, not become no-op
+def test_registry_exception_fails_closed_not_noop() -> None:
+    class BrokenRegistryConnector(_FakeConnector):
+        def specs(self, now=None, *, include_internal: bool = False):
+            raise RuntimeError("registry unavailable")
+
+    connector = BrokenRegistryConnector(collaboration_required=True)
+    broker = CapabilityBroker(connector, _NoopCorrection(), collaboration_preflight=None)
+    action = _action()
+    with pytest.raises(CapabilityDenied, match="registry"):
+        broker.invoke(action, _permit(action), execution_claim=_claim())
+    assert connector.execute_calls == 0
+
+
+# P1 #1 bypass: a capability absent from the trusted registry must reject
+def test_missing_spec_fails_closed() -> None:
+    class MissingSpecConnector(_FakeConnector):
+        def specs(self, now=None, *, include_internal: bool = False):
+            return {}
+
+    connector = MissingSpecConnector(collaboration_required=True)
+    broker = CapabilityBroker(connector, _NoopCorrection(), collaboration_preflight=None)
+    action = _action()
+    with pytest.raises(CapabilityDenied, match="registry"):
         broker.invoke(action, _permit(action), execution_claim=_claim())
     assert connector.execute_calls == 0
 

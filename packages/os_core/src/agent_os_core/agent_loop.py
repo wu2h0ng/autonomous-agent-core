@@ -40,6 +40,7 @@ from .capability import (
     CapabilityEffectUnknown,
     CapabilityPort,
     CapabilityResult,
+    CollaborationPreflightPort,
 )
 from .errors import ConcurrentWriteError, InvalidTransitionError, RunExecutionError
 from .governance import CorrectionReadPort, PolicyKernel
@@ -214,6 +215,7 @@ class AgentLoop:
         effect_custody: EffectCustodyPort | None = None,
         independent_approval: bool = False,
         external_exact_approval: bool = False,
+        collaboration_preflight: CollaborationPreflightPort | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -225,7 +227,9 @@ class AgentLoop:
         self._gateway = gateway
         self._session = session
         self._config = config or AgentLoopConfig()
-        self._broker = CapabilityBroker(connector, correction)
+        self._broker = CapabilityBroker(
+            connector, correction, collaboration_preflight=collaboration_preflight
+        )
         self._actions = ActionPipeline(
             tasks, self._broker, policy, correction, grants
         )
