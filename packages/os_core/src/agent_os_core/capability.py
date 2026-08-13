@@ -156,7 +156,11 @@ class CapabilityBroker:
                 reason_code=(
                     "DISPATCH_CORRECTION_CONFLICT"
                     if correction_conflict
-                    else "POST_DISPATCH_UNCERTAIN"
+                    else (
+                        exc.reason_code
+                        if isinstance(exc, CapabilityEffectUnknown)
+                        else "POST_DISPATCH_UNCERTAIN"
+                    )
                 ),
                 detail=f"{type(exc).__name__}: {exc}",
                 reservation=reservation,

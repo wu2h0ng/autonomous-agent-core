@@ -51,6 +51,7 @@ from agent_os_core import (
 from ._cors import _tauri_origin_cors
 from .app import AgentOSApplication
 from .surface_routes import SurfaceRoutes
+from domain_packs.data_agent.runtime import DataAgentDenied
 
 
 INDEX = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
@@ -226,6 +227,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             MandateObservationAuthorizationDenied,
             MandateResponsibilityDenied,
             MandateOutcomePortfolioDenied,
+            DataAgentDenied,
         ),
     ):
         return 403
@@ -243,10 +245,10 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             MandateObservationAuthorizationPersistenceConflict,
             MandateResponsibilityConflict,
             MandateResponsibilityPersistenceConflict,
-    MandateOutcomePortfolioConflict,
-    MandateOutcomePortfolioDenied,
-    MandateOutcomePortfolioNotFound,
-    MandateOutcomePortfolioPersistenceConflict,
+            MandateOutcomePortfolioConflict,
+            MandateOutcomePortfolioDenied,
+            MandateOutcomePortfolioNotFound,
+            MandateOutcomePortfolioPersistenceConflict,
         ),
     ):
         return 409
@@ -302,9 +304,7 @@ class Handler(BaseHTTPRequestHandler):
         if not authorization.startswith("Bearer "):
             self._json(401, {"error": "authentication_failed"})
             return None
-        application = self.admin_applications.get(
-            authorization.removeprefix("Bearer ")
-        )
+        application = self.admin_applications.get(authorization.removeprefix("Bearer "))
         if application is None:
             self._json(401, {"error": "authentication_failed"})
             return None
@@ -391,7 +391,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"tasks": self.application.list_tasks()})
             return
         if parsed.path == "/v1/mandates":
-            self._json(200, {"mandates": self.application.list_mandate_workspace_records()})
+            self._json(
+                200, {"mandates": self.application.list_mandate_workspace_records()}
+            )
             return
         mandate_prefix = "/v1/mandates/"
         mandate_id = _match_mandate_leaf(self.path, "task-links")
@@ -501,7 +503,9 @@ class Handler(BaseHTTPRequestHandler):
             mandate_id = parsed.path[len(mandate_prefix) :]
             if mandate_id and "/" not in mandate_id:
                 try:
-                    self._json(200, self.application.get_mandate_workspace_record(mandate_id))
+                    self._json(
+                        200, self.application.get_mandate_workspace_record(mandate_id)
+                    )
                 except Exception as exc:
                     self._json(
                         _error_status(exc, default=404),
@@ -790,6 +794,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
             parts = parsed.path.strip("/").split("/")
             if (
+                len(parts) == 5
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "data-agent"
+                and parts[4] in {"query:run", "actions:propose"}
+            ):
+                application = self._read_application()
+                if application is None:
+                    return
+                result = (
+                    application.run_data_agent_query(parts[2], body)
+                    if parts[4] == "query:run"
+                    else application.propose_data_agent_action(parts[2], body)
+                )
+                self._json(200, result)
+                return
+            if (
                 len(parts) == 4
                 and parts[:2] == ["v1", "mandates"]
                 and parts[3] == "environment-bindings:authorize"
@@ -797,9 +817,7 @@ class Handler(BaseHTTPRequestHandler):
                 admin = self._admin_application()
                 if admin is None:
                     return
-                receipt = admin.authorize_mandate_observation_binding(
-                    parts[2], body
-                )
+                receipt = admin.authorize_mandate_observation_binding(parts[2], body)
                 self._json(201, receipt)
                 return
             if (

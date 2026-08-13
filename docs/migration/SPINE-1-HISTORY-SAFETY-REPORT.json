@@ -1,0 +1,61 @@
+{
+  "config_digest": "8de15ce91894abb8bdb55ffac1c7f440980b5024523512973345a3c33aa76b87",
+  "donor_sha": "94e2b5918d12d6592f34f3b14c44c29038a74029",
+  "findings": [
+    {
+      "adjudicator": "Codex self-review under Founder-confirmed inline execution",
+      "category": "PII",
+      "disposition": "PII_NON_SENSITIVE",
+      "object_id": "3dea4fa98f44bac3fce729c67f389fef9d20a66c",
+      "path": "docs/project_baseline/00_\u5bf9\u8bdd\u603b\u7ed3\u4e0e\u9605\u8bfb\u6307\u5357/\u6587\u4ef6\u6e05\u5355.md",
+      "rationale": "The eleven-digit pattern is a substring of a hexadecimal document digest, not a telephone number.",
+      "rule_id": "manual-phone-pattern"
+    },
+    {
+      "adjudicator": "Codex self-review under Founder-confirmed inline execution",
+      "category": "SECRET",
+      "disposition": "SAFE_TEST_FIXTURE",
+      "object_id": "586ead69eaa5472e18e14a4e0f4c096347901ff5",
+      "path": ".env.example",
+      "rationale": "Explicit local-only example defaults and placeholder API-key comments; no production credential or customer value.",
+      "rule_id": "manual-local-default-credentials"
+    },
+    {
+      "adjudicator": "Codex self-review under Founder-confirmed inline execution",
+      "category": "SECRET",
+      "disposition": "SAFE_TEST_FIXTURE",
+      "object_id": "9aec8d181ff60fa5a2c436b4cdced768bfb4125f",
+      "path": ".env.staging.example",
+      "rationale": "Explicit example defaults inherited from the local pilot profile; no production credential or customer value.",
+      "rule_id": "manual-local-default-credentials"
+    },
+    {
+      "adjudicator": "Codex self-review under Founder-confirmed inline execution",
+      "category": "PII",
+      "disposition": "PII_NON_SENSITIVE",
+      "object_id": "9f18613d1086a8df89d26d8951c86ccfd71094cc",
+      "path": "README.md",
+      "rationale": "The pattern is an SSH Git remote using a public GitHub account path, not an email address or customer record.",
+      "rule_id": "manual-email-pattern"
+    }
+  ],
+  "inventory_sha256": "7fc89748b112585633c121ec7523f1fe79c0eda57f80b6c9ed0ed5c5f45f90e8",
+  "manual_review": {
+    "adjudicator": "Codex self-review under Founder-confirmed inline execution",
+    "license_status": "NO_UNRESOLVED_FINDINGS",
+    "pii_status": "RESOLVED_FINDINGS",
+    "rationale": "All 2689 unique reachable blobs were metadata-inventoried. Automated pattern review of non-binary blobs found only synthetic example domains, an SSH Git remote identity, a review-range token misparsed as email, and one hexadecimal digest misparsed as a phone. Three binary assets are repository-owned UI/architecture images. No vendored third-party source, dependency tree, customer raw data, LFS object, or blob over 10 MiB is reachable. Dependency manifests remain references and require ordinary release-time license compliance."
+  },
+  "report_digest": "e3ff20f6e0f86f5d1a992913138fa9be00c9221c7a1f170dadaa488a9b1e7ec3",
+  "scanner": "gitleaks",
+  "scanner_binary_sha256": "6b4a0d6f46c72e3154f22223fcae893a72ae6ac951ea2d5736c5d7b001df9029",
+  "scanner_scope": {
+    "log_opts": "94e2b5918d12d6592f34f3b14c44c29038a74029",
+    "mode": "GIT_LOG_OPTS_EXACT_REF",
+    "redacted": true
+  },
+  "scanner_version": "8.29.1",
+  "schema_version": 1,
+  "unresolved_findings": 0,
+  "verdict": "PASS"
+}
