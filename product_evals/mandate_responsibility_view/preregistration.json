@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "experiment_id": "META-SHADOW-MANDATE-0:MANDATE-RESPONSIBILITY-VIEW-1",
+  "evidence_status": "DESIGN_ONLY",
+  "freeze_status": "NOT_FROZEN",
+  "run_status": "NOT_RUN",
+  "claim_ceiling": "MEASUREMENT_MACHINERY_ONLY",
+  "claims_authorized": [],
+  "result_artifact": null,
+  "primary_gate": {
+    "metric": "median_operator_seconds",
+    "comparison": "TREATMENT_VS_BASELINE",
+    "required_reduction_fraction": 0.3
+  },
+  "hard_non_regression_gates": {
+    "mandatory_event_recall": 1.0,
+    "false_done_verified_count": 0,
+    "false_attention_must_not_exceed_baseline": true,
+    "additional_authority_or_external_effect_count": 0
+  },
+  "paired_order_policy": {
+    "allowed_methods": [
+      "COUNTERBALANCED",
+      "RANDOMIZED"
+    ],
+    "freeze_assignments_before_participant_run": true
+  },
+  "timing_policy": {
+    "start": "QUESTION_RECEIVED",
+    "stop": "FINAL_PRIORITIZED_ACTION_LIST_SUBMITTED",
+    "excluded": "EXPLICIT_NON_OVERLAPPING_SYSTEM_LOAD_INTERVALS_ONLY"
+  },
+  "operator_attention_set": {
+    "included_states": [
+      "NEEDS_ATTENTION",
+      "UNKNOWN"
+    ],
+    "used_for": [
+      "FALSE_ATTENTION",
+      "MANDATORY_RECALL"
+    ]
+  },
+  "unknown_credit_rule": "MATCHING_FROZEN_SOURCE_GAP_REASON_ONLY",
+  "false_attention_denominator": "ALL_FROZEN_NON_GOLD_LINKED_ITEMS",
+  "no_imputation": true,
+  "missing_freeze_inputs": [
+    "hidden_snapshots",
+    "frozen_gold_reasons_and_scorer_input_manifests",
+    "frozen_order_assignments",
+    "independent_adjudicator_identity",
+    "founder_participant_timing"
+  ],
+  "design_artifact_hashes": {
+    "README.md": "dcdeb1f413465ec59ae36ee1cb23d567a3ebf8fdb9bfe4c9bcaf73aae0a624a4",
+    "score.py": "e5a038f8f05ad561450da5b44e4b28d93fe59860da2570e43bb23274f0dcdce5"
+  }
+}

@@ -11,12 +11,16 @@ from agent_os_contracts import (
     HelpRequest,
     LedgerAccessScope,
     MandateOperationalStatus,
+    MandateObservationAuthorizationCommand,
+    MandateObservationAuthorizationReceipt,
+    MandateWorkspaceRecord,
     RatifiedMandateRef,
     RelevanceAssessment,
     SituatedAssessmentOutcomeKind,
     SituatedAssessmentRecord,
     TaskDraftProposal,
     canonical_json,
+    content_digest,
 )
 
 from .errors import SituationalPersistenceConflict, SituationalTrustDenied
@@ -101,6 +105,10 @@ class SituatedAssessmentStore(Protocol):
         self, input_binding_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
+    def record_by_result_digest(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
     def replay_if_active(
         self,
         mandate: RatifiedMandateRef,
@@ -110,11 +118,6 @@ class SituatedAssessmentStore(Protocol):
         principal_id: str,
         evaluated_at: datetime,
     ) -> SituatedAssessmentRecord | None: ...
-
-    def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
-
-    def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
-
 
 class ScopedSituatedAssessmentReader(Protocol):
     scope: LedgerAccessScope
@@ -129,6 +132,14 @@ class ScopedSituatedAssessmentReader(Protocol):
 
     def record_by_input_binding(
         self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None: ...
+
+    def record_by_result_digest(
+        self, result_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
 
@@ -193,6 +204,57 @@ class _ScopedSituatedAssessmentFacade:
             )
         return record
 
+    def record_by_result_digest(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        scoped_lookup = getattr(self._store, "_record_by_result_digest_scoped", None)
+        if scoped_lookup is None:
+            raise SituationalPersistenceConflict(
+                "durable assessment store lacks scoped result lookup capability"
+            )
+        return scoped_lookup(result_digest, scope=self.scope)
+
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None:
+        scoped_lookup = getattr(
+            self._store, "_record_by_assessment_record_id_scoped", None
+        )
+        if scoped_lookup is None:
+            raise SituationalPersistenceConflict(
+                "durable assessment store lacks scoped record-id lookup capability"
+            )
+        record = scoped_lookup(assessment_record_id, scope=self.scope)
+        if record is None:
+            return None
+        if (
+            record.assessment_record_id != assessment_record_id
+            or record.tenant_id != self.scope.tenant_id
+            or record.workspace_id != self.scope.workspace_id
+            or record.assessment.tenant_id != self.scope.tenant_id
+            or record.assessment.workspace_id != self.scope.workspace_id
+        ):
+            raise SituationalPersistenceConflict(
+                "durable assessment record conflicts with scoped lookup"
+            )
+        mandate, binding = self._store.resolve_active(
+            record.assessment.mandate_id,
+            record.assessment.environment_binding_id,
+            principal_id=self.scope.principal_id,
+            tenant_id=self.scope.tenant_id,
+            workspace_id=self.scope.workspace_id,
+            evaluated_at=record.assessment.assessed_at,
+        )
+        if (
+            mandate.owner_principal_id != self.scope.principal_id
+            or binding.environment_binding_id
+            != record.assessment.environment_binding_id
+        ):
+            raise SituationalPersistenceConflict(
+                "durable assessment scope conflicts with ratified mandate"
+            )
+        return record
+
 
 def scoped_situated_assessment_reader(
     store: SituatedAssessmentStore, scope: LedgerAccessScope
@@ -211,14 +273,26 @@ class SQLiteSituatedAssessmentStore:
         *,
         mandates: Iterable[RatifiedMandateRef] = (),
     ) -> None:
-        self._database = str(database)
-        if self._database == ":memory:":
+        database_value = str(database)
+        normalized = database_value.strip().lower()
+        if (
+            not normalized
+            or normalized == ":memory:"
+            or normalized.startswith("file:")
+            or "mode=memory" in normalized
+        ):
             raise ValueError(
                 "SQLite situated authority requires a file-backed database"
             )
+        self._canonical_database_path = Path(database_value).expanduser().resolve()
+        self._database = str(self._canonical_database_path)
         self._initialize()
         for mandate in mandates:
             self._bootstrap_mandate(mandate)
+
+    @property
+    def canonical_database_path(self) -> Path:
+        return self._canonical_database_path
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
@@ -238,14 +312,35 @@ class SQLiteSituatedAssessmentStore:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS situated_mandates (
-                    mandate_id TEXT PRIMARY KEY,
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    mandate_id TEXT NOT NULL,
                     mandate_version INTEGER NOT NULL,
                     mandate_digest TEXT NOT NULL,
                     status TEXT NOT NULL,
                     correction_epoch INTEGER NOT NULL,
-                    mandate_json TEXT NOT NULL
+                    mandate_json TEXT NOT NULL,
+                    PRIMARY KEY (principal_id, tenant_id, workspace_id, mandate_id)
                 )
                 """
+            )
+            mandate_expected = (
+                ("principal_id", "TEXT", 1, 1),
+                ("tenant_id", "TEXT", 1, 2),
+                ("workspace_id", "TEXT", 1, 3),
+                ("mandate_id", "TEXT", 1, 4),
+                ("mandate_version", "INTEGER", 1, 0),
+                ("mandate_digest", "TEXT", 1, 0),
+                ("status", "TEXT", 1, 0),
+                ("correction_epoch", "INTEGER", 1, 0),
+                ("mandate_json", "TEXT", 1, 0),
+            )
+            mandate_actual = tuple(
+                (str(row[1]), str(row[2]), int(row[3]), int(row[5]))
+                for row in connection.execute(
+                    "PRAGMA table_info(situated_mandates)"
+                ).fetchall()
             )
             connection.execute(
                 """
@@ -305,7 +400,11 @@ class SQLiteSituatedAssessmentStore:
                 ("principal_id", "tenant_id", "workspace_id", "source_binding_digest"),
                 ("principal_id", "tenant_id", "workspace_id", "input_binding_digest"),
             }
-            if actual != expected or unique_columns != expected_unique:
+            if (
+                mandate_actual != mandate_expected
+                or actual != expected
+                or unique_columns != expected_unique
+            ):
                 raise SituationalPersistenceConflict(
                     "existing SQLite situated assessment schema is invalid"
                 )
@@ -354,8 +453,15 @@ class SQLiteSituatedAssessmentStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT mandate_json FROM situated_mandates WHERE mandate_id = ?",
-                (mandate.mandate_id,),
+                """SELECT mandate_json FROM situated_mandates
+                   WHERE principal_id = ? AND tenant_id = ?
+                     AND workspace_id = ? AND mandate_id = ?""",
+                (
+                    mandate.owner_principal_id,
+                    mandate.tenant_id,
+                    mandate.workspace_id,
+                    mandate.mandate_id,
+                ),
             ).fetchone()
             if row is not None:
                 current = self._decode_mandate(str(row["mandate_json"]))
@@ -368,11 +474,15 @@ class SQLiteSituatedAssessmentStore:
             connection.execute(
                 """
                 INSERT INTO situated_mandates (
+                    principal_id, tenant_id, workspace_id,
                     mandate_id, mandate_version, mandate_digest,
                     status, correction_epoch, mandate_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    mandate.owner_principal_id,
+                    mandate.tenant_id,
+                    mandate.workspace_id,
                     mandate.mandate_id,
                     mandate.version,
                     mandate.mandate_digest,
@@ -392,11 +502,28 @@ class SQLiteSituatedAssessmentStore:
         self,
         connection: sqlite3.Connection,
         mandate_id: str,
+        *,
+        principal_id: str | None = None,
+        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> RatifiedMandateRef:
-        row = connection.execute(
-            "SELECT mandate_json FROM situated_mandates WHERE mandate_id = ?",
-            (mandate_id,),
-        ).fetchone()
+        if principal_id is None or tenant_id is None or workspace_id is None:
+            rows = connection.execute(
+                "SELECT mandate_json FROM situated_mandates WHERE mandate_id = ?",
+                (mandate_id,),
+            ).fetchall()
+            if len(rows) != 1:
+                raise SituationalTrustDenied(
+                    "ratified mandate scope is required or ambiguous"
+                )
+            row = rows[0]
+        else:
+            row = connection.execute(
+                """SELECT mandate_json FROM situated_mandates
+                   WHERE principal_id = ? AND tenant_id = ?
+                     AND workspace_id = ? AND mandate_id = ?""",
+                (principal_id, tenant_id, workspace_id, mandate_id),
+            ).fetchone()
         if row is None:
             raise SituationalTrustDenied("ratified mandate is unavailable")
         return self._decode_mandate(str(row["mandate_json"]))
@@ -440,7 +567,13 @@ class SQLiteSituatedAssessmentStore:
     ) -> tuple[RatifiedMandateRef, EnvironmentBindingAuthorization]:
         connection = self._connect()
         try:
-            mandate = self._read_mandate(connection, mandate_id)
+            mandate = self._read_mandate(
+                connection,
+                mandate_id,
+                principal_id=principal_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
         finally:
             connection.close()
         return self._resolve_active_mandate(
@@ -451,6 +584,129 @@ class SQLiteSituatedAssessmentStore:
             workspace_id=workspace_id,
             evaluated_at=evaluated_at,
         )
+
+    def resolve_observation_authority(
+        self,
+        mandate_id: str,
+        environment_binding_id: str,
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        evaluated_at: datetime,
+        source_descriptor_digest: str,
+        relevance_assessor: object,
+        relevance_context: object,
+    ) -> tuple[RatifiedMandateRef, EnvironmentBindingAuthorization]:
+        mandate, binding = self.resolve_active(
+            mandate_id,
+            environment_binding_id,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            evaluated_at=evaluated_at,
+        )
+        if (
+            mandate.observation_authorization_id is None
+            or mandate.observation_authorization_receipt_digest is None
+            or mandate.workspace_record_digest is None
+        ):
+            raise SituationalTrustDenied(
+                "verified observation authorization provenance is unavailable"
+            )
+        connection = self._connect()
+        try:
+            authorization_rows = connection.execute(
+                """SELECT * FROM mandate_observation_authorizations
+                   WHERE tenant_id = ? AND workspace_id = ?
+                     AND mandate_id = ? AND authorization_id = ?
+                     AND environment_binding_id = ?""",
+                (
+                    tenant_id,
+                    workspace_id,
+                    mandate_id,
+                    mandate.observation_authorization_id,
+                    environment_binding_id,
+                ),
+            ).fetchall()
+            workspace_rows = connection.execute(
+                """SELECT * FROM mandate_workspace_records
+                   WHERE principal_id = ? AND tenant_id = ?
+                     AND workspace_id = ? AND mandate_id = ?""",
+                (principal_id, tenant_id, workspace_id, mandate_id),
+            ).fetchall()
+        except sqlite3.Error:
+            raise SituationalTrustDenied(
+                "observation authorization persistence is unavailable"
+            ) from None
+        finally:
+            connection.close()
+        if len(authorization_rows) != 1 or len(workspace_rows) != 1:
+            raise SituationalTrustDenied(
+                "verified observation authorization is unavailable"
+            )
+        authorization_row = authorization_rows[0]
+        workspace_row = workspace_rows[0]
+        try:
+            receipt = MandateObservationAuthorizationReceipt.model_validate_json(
+                str(authorization_row["receipt_json"])
+            )
+            workspace_record = MandateWorkspaceRecord.model_validate_json(
+                str(workspace_row["record_json"])
+            )
+            command = MandateObservationAuthorizationCommand(
+                authorization_id=receipt.authorization_id,
+                environment_binding_id=receipt.environment_binding.environment_binding_id,
+                environment_binding_class=receipt.environment_binding_class,
+                binding_version=receipt.environment_binding.version,
+                requested_capabilities=receipt.observation_capabilities,
+                wake_budget_per_window=receipt.wake_budget_per_window,
+                query_budget_per_window=receipt.query_budget_per_window,
+                relevance_assessor=receipt.relevance_assessor,
+                relevance_context=receipt.relevance_context,
+            )
+        except Exception:
+            raise SituationalTrustDenied(
+                "observation authorization persistence is invalid"
+            ) from None
+        if (
+            content_digest(command) != str(authorization_row["command_digest"])
+            or receipt.authorization_receipt_digest
+            != str(authorization_row["receipt_digest"])
+            or receipt.authorization_receipt_digest
+            != mandate.observation_authorization_receipt_digest
+            or receipt.authorization_id != str(authorization_row["authorization_id"])
+            or receipt.environment_binding.environment_binding_id
+            != str(authorization_row["environment_binding_id"])
+            or receipt.authorized_by != str(authorization_row["principal_id"])
+            or receipt.mandate_id != mandate_id
+            or receipt.tenant_id != tenant_id
+            or receipt.workspace_id != workspace_id
+            or receipt.owner_principal_id != principal_id
+            or receipt.workspace_record_digest != mandate.workspace_record_digest
+            or receipt.workspace_record_digest != str(workspace_row["record_digest"])
+            or content_digest(workspace_record) != str(workspace_row["record_digest"])
+            or workspace_record.source_command_digest
+            != str(workspace_row["command_digest"])
+            or workspace_record.mandate.principal_id != principal_id
+            or workspace_record.mandate.tenant_id != tenant_id
+            or workspace_record.mandate.workspace_id != workspace_id
+            or content_digest(workspace_record.mandate) != mandate.mandate_digest
+            or receipt.mandate_digest != mandate.mandate_digest
+            or receipt.environment_binding != binding
+            or receipt.source_descriptor_digest != source_descriptor_digest
+            or binding.binding_digest != source_descriptor_digest
+            or receipt.relevance_assessor != relevance_assessor
+            or mandate.relevance_assessor != relevance_assessor
+            or receipt.relevance_context != relevance_context
+            or mandate.relevance_context != relevance_context
+            or receipt.correction_epoch != mandate.correction_epoch
+            or receipt.expires_at != mandate.expires_at
+        ):
+            raise SituationalTrustDenied(
+                "observation authorization binding is invalid"
+            )
+        return mandate, binding
 
     def _emit_guarded(
         self,
@@ -466,7 +722,13 @@ class SQLiteSituatedAssessmentStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            current = self._read_mandate(connection, mandate.mandate_id)
+            current = self._read_mandate(
+                connection,
+                mandate.mandate_id,
+                principal_id=mandate.owner_principal_id,
+                tenant_id=mandate.tenant_id,
+                workspace_id=mandate.workspace_id,
+            )
             current, current_binding = self._resolve_active_mandate(
                 current,
                 binding.environment_binding_id,
@@ -594,6 +856,27 @@ class SQLiteSituatedAssessmentStore:
             )
         return matches[0] if matches else None
 
+    def record_by_result_digest(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM situated_assessment_records"
+            ).fetchall()
+        finally:
+            connection.close()
+        matches = tuple(
+            record
+            for record in (self._decode_and_validate_record(row) for row in rows)
+            if content_digest(record) == result_digest
+        )
+        if len(matches) > 1:
+            raise SituationalPersistenceConflict(
+                "result digest maps to multiple durable assessment records"
+            )
+        return matches[0] if matches else None
+
     @classmethod
     def _decode_and_validate_record(
         cls, row: sqlite3.Row
@@ -660,6 +943,59 @@ class SQLiteSituatedAssessmentStore:
             )
         return record
 
+    def _record_by_result_digest_scoped(
+        self,
+        result_digest: str,
+        *,
+        scope: LedgerAccessScope,
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                """,
+                (scope.principal_id, scope.tenant_id, scope.workspace_id),
+            ).fetchall()
+        finally:
+            connection.close()
+        matches = tuple(
+            record
+            for record in (self._decode_and_validate_record(row) for row in rows)
+            if content_digest(record) == result_digest
+        )
+        if len(matches) > 1:
+            raise SituationalPersistenceConflict(
+                "scoped result digest maps to multiple durable assessment records"
+            )
+        return matches[0] if matches else None
+
+    def _record_by_assessment_record_id_scoped(
+        self,
+        assessment_record_id: str,
+        *,
+        scope: LedgerAccessScope,
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT * FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND assessment_record_id = ?
+                """,
+                (
+                    scope.principal_id,
+                    scope.tenant_id,
+                    scope.workspace_id,
+                    assessment_record_id,
+                ),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._decode_and_validate_record(row) if row is not None else None
+
     def scoped_reader(
         self, scope: LedgerAccessScope
     ) -> ScopedSituatedAssessmentReader:
@@ -677,7 +1013,13 @@ class SQLiteSituatedAssessmentStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            current = self._read_mandate(connection, mandate.mandate_id)
+            current = self._read_mandate(
+                connection,
+                mandate.mandate_id,
+                principal_id=mandate.owner_principal_id,
+                tenant_id=mandate.tenant_id,
+                workspace_id=mandate.workspace_id,
+            )
             current, current_binding = self._resolve_active_mandate(
                 current,
                 binding.environment_binding_id,
@@ -722,18 +1064,40 @@ class SQLiteSituatedAssessmentStore:
         record = self.assessment_record(assessment_id)
         return record.assessment if record is not None else None
 
-    def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
+    def pause(
+        self,
+        mandate_id: str,
+        *,
+        expected_epoch: int,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> RatifiedMandateRef:
         return self._change_status(
             mandate_id,
             expected_epoch=expected_epoch,
             status=MandateOperationalStatus.PAUSED,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
 
-    def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
+    def revoke(
+        self,
+        mandate_id: str,
+        *,
+        expected_epoch: int,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> RatifiedMandateRef:
         return self._change_status(
             mandate_id,
             expected_epoch=expected_epoch,
             status=MandateOperationalStatus.REVOKED,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
 
     def _change_status(
@@ -742,11 +1106,20 @@ class SQLiteSituatedAssessmentStore:
         *,
         expected_epoch: int,
         status: MandateOperationalStatus,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
     ) -> RatifiedMandateRef:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            current = self._read_mandate(connection, mandate_id)
+            current = self._read_mandate(
+                connection,
+                mandate_id,
+                principal_id=principal_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
             if current.status is MandateOperationalStatus.REVOKED:
                 raise SituationalTrustDenied("revoked mandate status is terminal")
             if current.correction_epoch != expected_epoch:
@@ -761,12 +1134,16 @@ class SQLiteSituatedAssessmentStore:
                 """
                 UPDATE situated_mandates
                 SET status = ?, correction_epoch = ?, mandate_json = ?
-                WHERE mandate_id = ? AND correction_epoch = ?
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND mandate_id = ? AND correction_epoch = ?
                 """,
                 (
                     updated.status.value,
                     updated.correction_epoch,
                     canonical_json(updated),
+                    current.owner_principal_id,
+                    current.tenant_id,
+                    current.workspace_id,
                     mandate_id,
                     expected_epoch,
                 ),

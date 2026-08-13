@@ -1,5 +1,20 @@
 schema_version: 2
-updated: "2026-08-08T10:00:00+08:00"
+
+live_pins:
+  origin_main_code_receipt: "3a70592ddee2e24af94f2da52903a5d73386b10d"
+  merged_this_turn:
+    - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
+    - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
+    - "P-OUTCOME-PORTFOLIO-HELP-1 (SrlHelpRequest-bound gap Help)"
+    - "P-OUTCOME-PORTFOLIO-HELP-HTTP-1 (admin GET help-requests; view no-leak)"
+    - "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1 (typed SrlHelpResponse + settle auto-cancel)"
+    - "prior: ABA B4 PARK disposition"
+  claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
+  approved_designs:
+    - "P-AGENT-RESPONSIBILITY-LOOP-1 design at 5036ab7; Kimi R3 SPEC_APPROVE; persistence foundation at exact head ddb021b independently returned TECHNICAL_APPROVE_FOUNDATION; controller/CLI/application loop remains incomplete"
+  portfolio_meta_notes:
+    - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
+updated: "2026-08-13T15:40:00+08:00"
 selfdev7_round_note: "2026-08-08 SELFDEV-7 adequacy-floor round adjudicated INSUFFICIENT_DATA in .agent_runs/selfdev-7/round/round-adjudication.md (independent adjudication ADJUDICATION_ACCEPTED as drafted): aligned-prompt envelope on the same frozen subset, chain pass@2 1/12 < baseline 2/12 numerically, but the frozen §0.4 floor (both arms need >=12/24 weather-free attempts; actual baseline 9, chain 11) binds — recorded INSUFFICIENT_DATA, not NEGATIVE. First floor activation, working as designed after E6's 83%-weather round. Data points: chain solved django-11066 5/5 completed attempts across E5/E6/E7 (arm parity 2/2 vs 2/2 this round); weather-free failure-class rates now comparable across arms for the first time (chain 9/11 vs baseline 6/9) — the E5 residual narrowed, not closed; sample too small to claim closure. Negative map: provider weather is the series' dominant noise source; adequacy floor + pause-on-403 + whitelist abort + health gate are now the standing machinery. NOT a capability finding; not HCW/product/Autonomy(S,E,O,V,T) evidence."
 selfdev6_round_note: "2026-08-08 SELFDEV-6 prompt-alignment round adjudicated NEGATIVE with the mandatory unanswered-question caveat in .agent_runs/selfdev-6/round/round-adjudication.md (independent adjudicator rulings of record): aligned-prompt envelope, chain 1/12 < baseline 2/12, but 40/48 attempts (83%) were consumed by a provider account-quota event (403 wave) — weather-free sample 8 attempts on 2 tasks, measurement question unanswered. Kill-1 ruled not fired (403 quota = frozen provider-infra attempt class; re-reading it post-hoc would be gate movement). Mechanism data points: chain django-11066 2/2 solved; django-10880 chain 2/2 APPLY_FAILED with logged 'unified diff context mismatch' (generation-side, denial logging works end-to-end). Negative map: no adequacy floor in the rubric (fixed ex-ante in E7); pause-on-403 accounting absent (fixed in E7). NOT capability/HCW/product/Autonomy(S,E,O,V,T) evidence."
 selfdev5_round_note: "2026-08-08 SELFDEV-5 transport-fix round adjudicated NEGATIVE in .agent_runs/selfdev-5/round/round-adjudication.md (independent adjudication ADJUDICATION_AMENDED): E5 (600s + ABAB + health gate + both arms free-text diff with identical extraction/validation via ADR-0059), subset byte-identical to SELFDEV-4, chain pass@2 1/12 < baseline pass@2 5/12. Weather-symmetric (11/24 vs 12/24). The transport fix changed nothing (chain weather-free 1/9 at E4 -> 1/13 at E5): the residual failure mass localizes predominantly to the governed provider prompt/response contract (9/12 weather-free failures; ~6.5x weather-free solve-rate gap vs baseline) plus an apply-gate class (3/12, CapabilityDenied, denial reason unlogged — logging required before next round). Recurrent defect class recorded: second classifier-misfire abort -> future drivers abort only on whitelisted genuine-infra signatures. Disclosures: driver sys.path repair (pre-gate, hashes bound), 403-quota pause/resume (3 consumed), 6 relabeled files with evidence preserved. Next: align the governed diff-mode prompt with the baseline's proven shape + denial-reason logging + whitelist-abort driver (new prereg). NOT leaderboard/contamination-free/HCW/product-superiority/Autonomy(S,E,O,V,T) evidence."
@@ -32,16 +47,207 @@ identity:
 
 current_phase:
   product:
-    label: "Terminal-gap discipline plus AGENT-OS-SELFDEV-1 primary loop; broader Agent OS alpha incomplete"
-    status: "SELFDEV_S1_TO_S13_IMPLEMENTED_TARGETED_VERIFIED / LOCAL_PROVIDER_READINESS_CHECK_PASSED / REAL_PROVIDER_SYNTHETIC_SMOKE_VERIFIED / COMPARATIVE_SYNTHETIC_HCW_RECEIPT_EMITTED / NON_SYNTHETIC_BASELINE_VERIFIED_PROVIDER_COMPARE_BLOCKED / NO_PRODUCT_ALPHA_CLAIM"
+    label: "Terminal-gap discipline plus AGENT-OS-SELFDEV-1 primary loop; installable Agent Surface main-integrated at 3a70592 with the precise AgentLoop-to-SELFDEV bridge; atomic SELFDEV admission integrated via the 2026-08-13 oracle-line merge; broader Agent OS alpha incomplete"
+    status: "SELFDEV_S1_TO_S13_IMPLEMENTED_TARGETED_VERIFIED / LOCAL_PROVIDER_READINESS_CHECK_PASSED / REAL_PROVIDER_SYNTHETIC_SMOKE_VERIFIED / COMPARATIVE_SYNTHETIC_HCW_RECEIPT_EMITTED / NON_SYNTHETIC_BASELINE_VERIFIED_PROVIDER_COMPARE_BLOCKED / MAIN_INTEGRATED_INSTALLABLE_AGENT_SURFACE_AT_3A70592 / SCOPED_VERIFIER_AND_SSE_FAIL_CLOSED_INTEGRATED / PHASE0_TYPED_DENIALS_REVIEWED / NO_PRODUCT_ALPHA_CLAIM / NOT_RELEASED"
   research:
-    label: "Terminal-gap-gated research only; R-SRL HCW harness is the active measurement path; known-result retests and prior-negative routes parked"
-    status: "R_SRL_HCW_HARNESS_INFRASTRUCTURE_READY_BUT_NOT_FROZEN_NOT_RUN / MIXED_EVIDENCE / NO_GENERAL_AUTONOMY_CLAIM"
+    label: "Terminal-gap-gated research only; R-SRL HCW harness is the active measurement path; non-oracle HMAC custody PARK; R-W1W2-ABA-1 qualification scaffold approved with B4 boundary proof required; known-result retests and prior-negative routes parked"
+    status: "R_SRL_HCW_HARNESS_INFRASTRUCTURE_READY_BUT_NOT_FROZEN_NOT_RUN / NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
 
 verified_capabilities:
+  installable_agent_surface:
+    status: "MAIN_INTEGRATED / TECHNICAL_APPROVE / NOT_RELEASED"
+    requirement_class: "P/E"
+    user_result: "A local operator can install the repository distributions and invoke the single Agent Surface as `agent` or `agent-os` without PYTHONPATH or a source checkout."
+    real_entry_points:
+      - "agent run / status / answer / correct / resume"
+      - "agent-os run / status / answer / correct / resume"
+    dated_verification:
+      date: "2026-08-01"
+      exact_head: "3a70592ddee2e24af94f2da52903a5d73386b10d"
+      independent_review: "TECHNICAL_APPROVE / P0=0 / P1=0"
+      targeted: "113 related Product tests passed independently"
+      fresh_install: "three locally built wheels installed into a fresh venv; clean-cwd imports and 10/10 CLI help routes passed"
+      quality: "Ruff clean; Pyright 0 errors; uv lock --check and diff-check passed; reviewed worktree clean"
+    boundary: "Packaging and argv normalization only. It does not create Mandates, Tasks, commitments, outcomes, SELFDEV admission, provider execution, release or autonomy evidence."
+  mandate_workspace_input:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / NOT_RUNTIME_ACTIVE / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "An authenticated operator can submit, replay and inspect a durable high-level Mandate without that intake silently becoming execution authority."
+    real_entry_points:
+      - "POST /v1/mandates"
+      - "GET /v1/mandates"
+      - "GET /v1/mandates/{mandate_id}"
+    verified_properties:
+      - "principal, tenant and workspace scope are server-bound and isolated"
+      - "exact replay is idempotent; same-id conflicting content fails closed"
+      - "SQLite schema, command digest and record digest drift fail closed across restart"
+      - "status remains RATIFIED and task_activation_authorized/capability_grant_authorized remain false"
+      - "no Task, provider, capability or MandateSteward side effect occurs from intake"
+    dated_verification:
+      date: "2026-07-18"
+      exact_head: "fff02501a586e48b549a7bea2ca5f5c03e2708bc"
+      product_suite: "1402 passed, 1 skipped"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; independent OpenCode review APPROVE"
+    boundary: "No EnvironmentBinding authorization, MandateSteward consumption, TaskDraft formation, active perception, TaskActivation, external effect, release or autonomy claim."
+  mandate_observation_runtime_binding:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / PROPOSAL_ONLY / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A separately authenticated operator can let a ratified high-level Mandate observe an exact real environment source and receive a durable proposal without silently authorizing work or effects."
+    real_entry_points:
+      - "POST /v1/mandates/{mandate_id}/environment-bindings:authorize"
+      - "GET /v1/mandates/{mandate_id}/observation-authorizations"
+      - "DataAgentSituatedBootstrap over authenticated external report admission"
+    verified_properties:
+      - "server-side opaque credential resolves the tenant-admin principal per request; missing or wrong credentials fail"
+      - "workspace, authorization receipt, environment binding, assessor, context and scoped situated projection are joined and revalidated at Runtime consumption"
+      - "bare/forged refs, deleted/tampered authorization rows, command/index drift and cross-tenant same-ID confusion fail closed"
+      - "pause/revoke/correction and active resolution use principal+tenant+workspace+mandate scope"
+      - "restart replay reuses the durable assessment and performs no second provider assessment"
+      - "TaskDraft remains non-executing; task activation, capability grant and external effects are literal false"
+    dated_verification:
+      date: "2026-07-18"
+      reviewed_head: "0026277299f4ce2095d29cf430cf85a308a87c48"
+      integration_head: "f1e7215f09bb32636c01369a65342a55ff5d70f7"
+      product_suite: "1423 passed, 1 skipped"
+      post_merge_attack_subset: "59 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; independent exact-head review APPROVE"
+    boundary: "At its recorded f1e7215 integration head this bridge did not include active perception. Active perception is now tracked as a separate capability below; goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility and autonomy claims remain outside both slices."
+  mandate_active_perception:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / PROPOSAL_ONLY / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A configured Mandate can continue checking its already-authorized environment source in bounded batches across process restarts without requiring the operator to remember each poll or silently authorizing work."
+    real_entry_points:
+      - "DataAgentSituatedStartupActivePerceptionConfig"
+      - "AgentOSApplication.run_active_perception_once"
+      - "API-server startup polling loop"
+    verified_properties:
+      - "durable schedule state uses authoritative leases, monotonic fences, bounded budgets and feed_limit batches"
+      - "generic completion cannot bypass the active schedule; stale or expired workers fail closed"
+      - "completion re-reads and validates the canonical SQLite assessment in the same immediate transaction"
+      - "an exact persisted recovery batch prevents later or sibling completions from replacing crash-replay members"
+      - "restart validates completed batch members without a second assessment and atomically clears recovery state on finish"
+      - "task activation, capability grant and external effects remain literal false"
+    dated_verification:
+      date: "2026-07-18"
+      integration_head: "4ba2612f81a02c363d5b0313a89e6a9095dff162"
+      product_suite: "1498 passed, 1 skipped"
+      high_risk_targeted: "268 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; independent exact-head review APPROVE_ACTIVE_PERCEPTION_INTEGRATION"
+    boundary: "No autonomous goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility, reduced Founder cognitive load evidence or autonomy claim."
+  mandate_responsibility_view:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / READ_ONLY / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "An operator can select a Mandate and inspect its explicit Task responsibilities, desired outcomes, current typed attention state, source gaps, next observation and stable digest without creating or mutating work."
+    real_entry_points:
+      - "POST /v1/mandates/{mandate_id}/task-links"
+      - "GET /v1/mandates/{mandate_id}/task-links"
+      - "POST /v1/mandates/{mandate_id}/task-links/{link_id}:revoke"
+      - "GET /v1/mandates/{mandate_id}/responsibility-view"
+      - "Mandate responsibility section in the existing Agent Surface"
+    verified_properties:
+      - "links are explicit, append-only, versioned and bound to current Mandate authority plus Task-created identity"
+      - "projection re-reads canonical Mandate, Task, commitment, expected/current outcome and schedule sources and fails closed on drift"
+      - "UNKNOWN, NEEDS_ATTENTION, DONE_VERIFIED and TRACKED use closed typed reasons and strict precedence"
+      - "partial/revoked/error states remain visible; a failed Mandate switch clears all prior Mandate truth"
+      - "Mandate IDs round-trip as strict single path segments; malformed, ambiguous, slash, control and double-encoded paths fail closed"
+      - "default in-memory composition shares one per-instance canonical SQLite URI without cwd files or cross-instance leakage"
+      - "the surface is read-only except Mandate selection and refresh; it contains no activate, execute, approve, edit, link or revoke control"
+      - "the separate value scorer requires external gold/order hashes and mechanically verifies order generation; it cannot freeze, run or authorize a claim"
+    dated_verification:
+      date: "2026-07-18"
+      reviewed_code_head: "3c7f524a4603f53f02f69f41e8af533d1014d3ce"
+      component_reviews: "APPROVE_RESPONSIBILITY_CORE / APPROVE_RESPONSIBILITY_API_UI / APPROVE_RESPONSIBILITY_VALUE_FALSIFIER"
+      integration_review: "APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT"
+      targeted: "143 responsibility/adjacent passed; 25 file-persistence passed; 170 frozen/integrity passed"
+      full_product_and_product_eval: "2504 passed, 1 skipped, 7 failed; full_suite_green=false; task-specific failures=0"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; diff-check clean; desktop, 390px and injected partial/failure browser paths verified"
+      durable_review: ".agent_runs/mandate-responsibility-view-20260718/messages.jsonl"
+    boundary: "This is an explicit-link read projection and measurement machine only. It does not own a continuing Outcome Portfolio, form goals, settle commitments, activate Tasks, grant capabilities, execute effects, prove reduced Founder cognitive load, establish sustained responsibility, freeze/run a value comparison, or support an autonomy claim."
+  responsibility_loop_persistence_foundation:
+    status: "MAIN_INTEGRATED_AS_PART_OF_RESPONSIBILITY_SLICE / TECHNICAL_APPROVE_FOUNDATION / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A future Mandate-scoped continuing Work controller has a fail-closed SQLite foundation for single-owner leases, takeover fences, effect reservations and receipts, restart checkpoints, cycle-to-outcome truth and HCW measurement provenance."
+    real_entry_points:
+      - "SQLiteResponsibilityLoopStore persistence API"
+      - "ResponsibilityLoopBinding and fenced lease/checkpoint/effect/cycle methods"
+      - "HCW operator-event and measurement receipt methods"
+    verified_properties:
+      - "stable Mandate+tenant+workspace lease scope; binding drift and stale owners fail closed"
+      - "external effect callbacks run outside the takeover lock; APPLIED requires a content-bound receipt and stable identity reservation"
+      - "checkpoint head uses monotonic CAS and exact fencing; takeover owners must write a recovery checkpoint before sealing a cycle"
+      - "cycle receipts are idempotent across response-loss retry and bind canonical SettlementRecord, commitment and portfolio scope"
+      - "HCW measurement revalidates the complete cycle/bridge/settlement/commitment/portfolio truth chain"
+      - "rebind provenance and isolated projection deletion are detected through content-bound reservations and audit linkage"
+      - "non-empty prior foundation schemas migrate transactionally and idempotently; ambiguous provenance fails closed"
+    dated_verification:
+      date: "2026-07-30"
+      exact_head: "ddb021bead18151f3e97f8e8467473a89c068508"
+      independent_review: "TECHNICAL_APPROVE_FOUNDATION / P0=0 / P1=0 / P2=0"
+      targeted: "38 passed"
+      adjacent: "117 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; cumulative and incremental diff-check clean; manual old-database migration attacks passed"
+      durable_review: ".agent_runs/agent-responsibility-loop-s1-20260730/independent-foundation-approval.md"
+    boundary: "Foundation only. ResponsibilityLoopController, agent run/status/answer/correct/resume, responsibility admission, Outcome/Help application integration and a real A-to-B-to-A CLI fixture are not implemented. No merge, release, HCW reduction, sustained responsibility, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
+  responsibility_work_slice:
+    status: "MAIN_INTEGRATED / TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A local operator can run one Mandate-scoped foreground Agent Work loop across real process restarts without restating responsibility, receive typed Help, correct active work, and inspect honest responsibility/effect/HCW status."
+    real_entry_points:
+      - "agent run / status / answer / correct / resume"
+      - "ResponsibilityLoopController over canonical MandateTaskLink, Outcome Portfolio, Task and Run"
+      - "RunCoordinator effect custody through SQLiteResponsibilityLoopStore"
+    verified_properties:
+      - "real A-to-B-to-A CLI subprocess recovery uses SQLite and does not depend on terminal_session.json"
+      - "provider/tool/failure-commit boundaries heartbeat and reject stale responsibility owners"
+      - "unknown or APPLIED-without-Task-receipt effects are visible and cannot be repeated silently"
+      - "settlement, cycle receipt, binding and HCW finalization recover idempotently at four crash points"
+      - "authority is bound to the canonical portfolio creator plus a bearer digest set in the admin-authorized portfolio creation transaction"
+      - "persisted SELFDEV work_route reaches a real typed SELFDEV_ROUTE_NOT_BOUND result with no execution"
+      - "tool-window Ctrl-C writes correction and STOPPED checkpoint and exits 130"
+      - "status declares manual resume only; resident watcher and automatic wake are false"
+    dated_verification:
+      date: "2026-07-30"
+      exact_head: "d0b942ba6b79161e0a6a69437e0ac8fe1a3b184d"
+      main_merge_receipt: "1f78937076ca76699c91a5447218e108e3d41146"
+      independent_review: "TECHNICAL_APPROVE_RESPONSIBILITY_SLICE / P0=0 / P1=0 / P2=2"
+      targeted: "70 responsibility/controller/CLI passed"
+      adjacent: "64 responsibility-store/portfolio/long-horizon passed; writer combined suite 122 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; responsibility delta clean; inherited three-line whitespace debt exists outside the responsibility delta"
+      durable_review: ".agent_runs/agent-responsibility-loop-s1-20260730/independent-controller-approval.md"
+    boundary: "LOCAL_CONTROLLED_ONLY. Task runtime lease may remain until its five-minute TTL after tool-window KeyboardInterrupt. Bearer admission has no KMS/keychain, rotation, revocation, entropy or local-DB-write resistance. No resident daemon, automatic wake, SELFDEV execution, HCW reduction, release, general intelligence or Autonomy(S,E,O,V,T) claim."
+  selfdev_responsibility_organ:
+    status: "MAIN_INTEGRATED_AGENTLOOP_BRIDGE / TECHNICAL_APPROVE / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A persisted SELFDEV responsibility can use the one Agent Surface to carry multiple precise provider edits through the same linked Task and Run, wait for an external exact-action decision, preserve responsibility custody across effects and receipts, and recover or compensate deterministically after interruption."
+    real_entry_points:
+      - "agent run / answer / resume over ResponsibilityLoopController"
+      - "SelfDevelopmentOrgan bound as the SELFDEV execution port"
+      - "RunCoordinator and WorkspaceSandbox selfdev_verification_snapshot"
+    verified_properties:
+      - "exact linked Git worktree, non-main branch, base HEAD, clean index/worktree/untracked state and post-execution path scope are revalidated"
+      - "new SELFDEV links require a persisted single-target spec; legacy spec-less links remain decodable and typed blocked"
+      - "tests/docs cannot be candidate write targets; files above 20k characters fail closed until precise-edit integration"
+      - "the only admitted workflow is read-provider-external approval-single compensatable patch-pytest-evaluation-terminal"
+      - "Help decisions cannot contradict or hide durable Task approval; invalid Help payloads create no orphan approval"
+      - "pytest runs with base Python -S in a temporary mirror and non-editable runtime under macOS sandbox-exec; original authority, repository, secret and global tmp writes/reads fail closed"
+      - "NOT_MET, node-loop KeyboardInterrupt and finalization-window KeyboardInterrupt prevent VERIFIED and compensate the exact target preimage"
+      - "no second SELFDEV CLI or Task is created; no commit, push, merge, main, release or promotion capability is exposed"
+      - "ActionPipeline enforces the exact approval requirement below AgentLoop control flow; stale or substituted action approval fails closed"
+      - "RunCoordinator and AgentLoop share the governed ActionPipeline path; responsibility effect custody precedes Task receipt and compensation is custody-bound"
+      - "stable action/effect/resource identities reconcile receipt-loss and effect/receipt/tool-completion crash windows without duplicating effects"
+      - "authority, policy, contracts, task/runtime, responsibility and the unique agent_cli surface are contract-denied SELFDEV targets through primary and additional paths"
+    dated_verification:
+      date: "2026-08-01"
+      reviewed_code_head: "6a68b677bf0db40d13a268f4f77df457addf7c4b"
+      main_merge_receipt: "6180c458919526aff8bde5467d1108116a7de912"
+      independent_review: "TECHNICAL_APPROVE / P0=0 / P1=0"
+      integration: "139 related Product tests passed independently"
+      quality: "Ruff clean; cf1bf1f7..6a68b677 diff-check clean; reviewed worktree clean"
+      durable_review: ".agent_runs/agentloop-selfdev-bridge-20260801/verification.md"
+    boundary: "LOCAL_MACOS_CONTROLLED_PRECISE_AGENTLOOP_SELFDEV / TRUSTED_HOST_RUNTIME / EXTERNAL_EXACT_APPROVAL / RESPONSIBILITY_EFFECT_CUSTODY / SHADOW_WORKTREE_ONLY. No resident daemon, automatic wake, promotion, release, HCW superiority, self-improvement, general intelligence or Autonomy(S,E,O,V,T) claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
@@ -154,6 +360,22 @@ verified_capabilities:
     verified: "130 targeted snapshot/binding/adjacent bypass tests passed; full Product suite reached 473 passed and 1 skipped with two named pre-existing fixed-NOW evaluation-API expiry failures outside ADM-P4; ruff clean; pyright 0 errors/0 warnings; compileall and git diff checks passed. Review-remediation tests cover C7 guard-entry expiry races for seal/start, real capability-spec version binding, digest sensitivity, lineage tamper, closed caller fields and every reserved prior/runtime-input key in addition to exact event rehydration, reserved-Run binding, same-lock exclusion, restart reads and HTTP cache bypass. The first exact-head Kimi run was hard-stopped at 15 minutes without verdict after confirming the stale-clock blocker; the exact remediation head requires the same reviewer identity to return literal TECHNICAL_APPROVE."
     boundary: "This is an immutable Product configuration and exact later-Run reference binding only. The optional prior remains inert/reference-only and never reaches provider, policy, capability or tool inputs. Production V1 creates no prior. Provider/grant configuration is point-in-time rather than a durable ledger, so restart/reconfiguration may make bound start fail closed. No prior application/effectiveness, representation mutation, evaluator execution, materializer acquisition, adaptive competence, cross-process atomicity, migration, push, merge or release is established."
     source: "docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md"
+  research_aba_stage1_qualification_scaffold:
+    status: "IMPLEMENTED_TESTED_INDEPENDENTLY_APPROVED / PUBLIC_INTEGRITY_ONLY / EXPERIMENT_IMPLEMENTATION_DENIED / NOT_FROZEN / NOT_RUN"
+    evidence_level: "E1_PUBLIC_PROTOCOL_SCAFFOLD_ONLY"
+    implementation_head: "24280fc46879a2b4a4f9884af6bf10fb179406e7"
+    implemented:
+      - "closed B1-B5 public manifest and acceptance contracts with mandatory semantic children"
+      - "canonical JSON/SHA-256 and separately supplied external acceptance-root equality"
+      - "exact Stage-1 stage-spec, slot-set, block-set and scorer-subject projection into post-seal receipt validation"
+      - "fail-closed Stage-1 disposition precedence and canonical-only trust-boundary consumption"
+    verified: "40 targeted public scaffold tests plus 93 prior r_srl_1 tests = 133 passed; Ruff clean; exact uv Pyright 0 errors/0 warnings; independent APPROVE_QUALIFICATION_SCAFFOLD_IMPLEMENTATION with P0/P1/P2=0/0/0."
+    boundary: "Integrity/qualification scaffold only. It authenticates no root supplier, accepts no B1-B5 bundle, holds no hidden material and implements no real arm, scorer, freezer, curator, executor, provider, signature, freeze or run authority. No W1/W2 effect, REDUCES_TO claim, Product value or autonomy evidence follows."
+    source:
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/implementation_final_review.md"
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/verification_report.md"
+      - "src/aac/r_w1w2_aba"
+      - "tests/research/r_w1w2_aba"
   research_g10:
     status: "MET / NARROW / FINAL_IN_FROZEN_SYNTHETIC_FAMILY"
     statement: "P0 confidence-gated subject-side belief-to-action coupling decisively reduces regret versus named cheap arms in its preregistered family and survived recorded trap tests."
@@ -216,6 +438,89 @@ active_capacity_routing:
   resource_interpretation: "45% decisive M1/M2/M3 kill-or-open uncertainty; 35% SELFDEV/Mandate product loop and HCW measurement; 15% consumer-pulled Runtime integration; 5% minimum credible governance."
 
 active_work:
+  - id: "P-AGENT-RESPONSIBILITY-LOOP-1"
+    track: "product"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TECHNICAL_APPROVE_RESPONSIBILITY_SLICE_AT_D0B942B / P0_0_P1_0_P2_2 / NOT_RELEASED"
+    purpose: "One foreground Agent CLI Work loop maintains Mandate-scoped responsibility across cycles and restarts, settles Outcome/Help, records HCW and preserves C7/no-self-approval."
+    boundary: "Exact implementation approval is local controlled only at d0b942b and main merge receipt is 1f78937. Slice 1 excludes resident daemon/automatic wake, SELFDEV execution, BlueprintGap evolution, production authentication, HCW reduction, activation and release. Tool-window Ctrl-C can leave the Task runtime lease until its five-minute TTL."
+    evidence: "Spec R3 SPEC_APPROVE P0=0/P1=0. Foundation ddb021b TECHNICAL_APPROVE_FOUNDATION. Complete slice d0b942b TECHNICAL_APPROVE_RESPONSIBILITY_SLICE P0=0/P1=0/P2=2; independent integration worktree at 1f78937 passed 122 targeted/adjacent tests, Ruff, changed-scope Pyright and diff-check."
+    source:
+      - "docs/superpowers/specs/2026-07-30-agent-cli-continuous-responsibility-loop-design.md"
+      - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-2026-07-30.md"
+      - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-R2-2026-07-30.md"
+      - "docs/product/P-AGENT-RESPONSIBILITY-LOOP-1-INDEPENDENT-REVIEW-R3-2026-07-30.md"
+      - ".agent_runs/agent-responsibility-loop-s1-20260730/independent-foundation-review.md"
+      - ".agent_runs/agent-responsibility-loop-s1-20260730/independent-controller-approval.md"
+  - id: "P-AGENT-CLI-V0"
+    track: "product"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TARGETED_TESTED / LIVE_PROVIDER_GREEN / INDEPENDENT_REVIEW_APPROVE_WITH_BASELINE_DEBT / REVIEW_DEBT_REMEDIATED / NOT_RELEASED"
+    purpose: "Single Agent OS terminal entry under Mandate with governed SE organ (AgentLoop/PolicyKernel), durable resume; coding is organ not product name."
+    boundary: "Clean worktree only. No MCP/sub-agent/TUI/Data Agent organ. No synthetic permits. No usable-alpha, Autonomy, or release claim. Review debt remediated locally: -p AutoApproveGateway (tier<3), session.v1 database bind, resume rejects non-resumable/halted runs."
+    evidence: "Independent review APPROVE_WITH_BASELINE_DEBT at 083f0c4; remediation tests terminal+v0+p1+stream+review_debt => 48 passed; DeepSeek live green via harness"
+    source:
+      - "docs/product/GC-AGENT-CLI-V0-2026-07-27.md"
+      - "docs/product/CP-AGENT-CLI-V0-2026-07-27.md"
+      - "docs/architecture/A-AGENT-CLI-V0-2026-07-27.md"
+      - "docs/product/AGENT-CLI-V0-verification-2026-07-27.md"
+      - "docs/product/AGENT-CLI-V0-independent-review-request-2026-07-27.md"
+      - "docs/product/AGENT-CLI-V0-independent-review-2026-07-27.md"
+      - "docs/product/AGENT-CLI-V0-review-debt-remediation-2026-07-27.md"
+      - "packages/os_core/src/agent_os_core/agent_cli.py"
+      - "packages/os_core/src/agent_os_core/agent_loop.py"
+  - id: "P-AGENT-CLI-P1"
+    track: "product"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TARGETED_TESTED / NOT_INDEPENDENTLY_REVIEWED_AS_OWN_SLICE / NOT_RELEASED"
+    purpose: "AGENTS.md discovery/injection into Agent CLI system prompt and trusted shell profile for bounded git/lint/test commands."
+    boundary: "Exact-string shell allowlist only; symlink/outside-workspace AGENTS.md fail closed; no arbitrary shell or release claim."
+    evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py tests/product/test_agent_cli_p1.py -q"
+    source:
+      - "docs/product/GC-AGENT-CLI-P1-2026-07-27.md"
+      - "packages/os_core/src/agent_os_core/agent_context.py"
+      - "packages/os_core/src/agent_os_core/trusted_commands.py"
+      - "tests/product/test_agent_cli_p1.py"
+  - id: "P-AGENT-CLI-STREAM"
+    track: "product"
+    status: "MAIN_INTEGRATED_AT_1F78937 / TARGETED_TESTED / NOT_INDEPENDENTLY_REVIEWED_AS_OWN_SLICE / NOT_RELEASED"
+    purpose: "Provider SSE streaming to Agent CLI with governed binding/receipt preservation and clean KeyboardInterrupt correction halt."
+    boundary: "Worktree-only slice; no MCP/TUI; non-stream complete() unchanged; --no-stream debug flag; no release claim."
+    evidence: "uv run pytest tests/product/test_terminal_chat_loop.py tests/product/test_agent_cli_v0.py tests/product/test_agent_cli_p1.py tests/product/test_agent_cli_stream.py -q => 40 passed; ruff clean; live SSE not re-verified"
+    source:
+      - "docs/product/GC-AGENT-CLI-P1-STREAM-2026-07-27.md"
+      - "packages/os_core/src/agent_os_core/provider.py"
+      - "packages/os_core/src/agent_os_core/agent_loop.py"
+      - "packages/os_core/src/agent_os_core/agent_cli.py"
+      - "tests/product/test_agent_cli_stream.py"
+  - id: "P-MANDATE-ACTIVE-PERCEPTION-1"
+    track: "product"
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_AT_4BA2612 / PROPOSAL_ONLY / NOT_RELEASED"
+    purpose: "Reduce operator-driven polling by letting a scoped Mandate repeatedly observe an already-authorized source under durable budgets, exact recovery and fail-closed completion authority."
+    boundary: "This closes bounded polling and restart recovery only. It does not form or manage an outcome/commitment portfolio, activate Tasks, grant capabilities, cause external effects, prove reduced Founder cognitive load or establish sustained responsibility/autonomy."
+    source:
+      - "apps/api_server/mandate_active_perception.py"
+      - "tests/product/test_mandate_active_perception.py"
+      - "docs/superpowers/plans/2026-07-18-mandate-active-perception-review-closure.md"
+  - id: "R-NONORACLE-PERTURB-KILL-1"
+    track: "research"
+    status: "PARK_HMAC_ASSIGNMENT_COMMITMENT_AT_88CB028 / CUSTODY_TRANSCRIPT_VIOLATION / QUALIFICATION_AND_PROVENANCE_RETAINED / MARGIN_0 / NOT_FROZEN / NOT_RUN"
+    purpose: "Test whether a non-oracle procedure can recover intervention-relevant structure under real perturbation shift without outcome-guide leakage or post-hoc route rescue."
+    boundary: "Data qualification and the exact five-member selective-source provenance manifest remain approved. The technical HMAC assignment counts passed, but the split gate is invalid because hidden identity keys entered a reviewer tool transcript. One-shot/no-retry forbids re-key or rescue. A successor is a new route requiring new preregistration and an external non-LLM transcript-safe scorer service."
+    source:
+      - "docs/superpowers/specs/2026-07-18-nonoracle-intervention-shift-design.md"
+      - "docs/research/R-NONORACLE-PERTURB-KILL-1-data-qualification-report.md"
+      - "codex/r-nonoracle-intervention-shift-1-20260718@88cb028687e76a530d629954443958b9cfb52740"
+      - "docs/research/R-NONORACLE-PERTURB-KILL-1-negative-map.md"
+  - id: "R-W1W2-ABA-1"
+    track: "research"
+    status: "QUALIFICATION_SCAFFOLD_IMPLEMENTED_TESTED_APPROVED_AT_24280FC / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN"
+    purpose: "Kill or sharply narrow the claim that bounded typed W1 state plus candidate W2 strategy selection adds value beyond W1-only, version-keyed cache, bounded full log and saved workflow under identical information and resources."
+    boundary: "The public scaffold validates future externally pinned B1-B5 commitments and closed post-seal receipts only. B1 is unaccepted and B2-B5 are unbound; external non-LLM transcript-safe custody/scoring, prospective disjoint families, exact five-arm liveness/parity, one-shot execution integrity, preregistration freeze and run authority do not exist. The B1-B5 closure audit permits only a time-boxed B4 independent custody boundary proof before any B3/B5 implementation work; all local same-principal custody variants are PARK."
+    source:
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/preregistration_candidate.md"
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/implementation_final_review.md"
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/b1b5_external_closure_audit.md"
+      - ".agent_runs/r-w1w2-aba-1-b4-boundary-proof-20260718/spec.md"
+      - "src/aac/r_w1w2_aba"
+      - "tests/research/r_w1w2_aba"
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
     status: "ADM_P1_P2_P3_P4_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6 / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
@@ -540,6 +845,7 @@ recently_completed:
 blockers:
   product:
     - "AGENT-OS-SELFDEV-1 has one isolated synthetic real-provider smoke comparison and one non-synthetic baseline-verified/provider-blocked attempt. It cannot make a product-value or durable comparative HCW claim until non-synthetic provider result/compare completes on a matched Agent OS task portfolio with frozen assignment parity, realistic operator work accounting and independent review."
+    - "The installable Agent Surface and precise AgentLoop-to-SELFDEV bridge are main-integrated, but an operator still must pre-provision the full durable Task/Run/commitment/outcome/link graph. There is no atomic, idempotent SELFDEV responsibility admission, real live-provider Outcome/Help receipt for this path, trustworthy HCW minutes, resident watcher, automatic wake or promotion path."
     - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
@@ -550,12 +856,15 @@ blockers:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "Research capacity is now terminal-gap gated: lanes that mainly retest known LLM-as-judge, active probing, typed-state/context, extra zero-success folds, or no-consumer architecture conclusions remain PARK unless a distinct mechanism and live M1/M2/M3/HCW consumer are named."
     - "No non-oracle real-world structure/mechanism discovery result closes the current gap."
+    - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
+    - "R-W1W2-ABA-1 has an independently approved public qualification scaffold at `24280fc`, but B1 is unaccepted and B2-B5 are unbound. External non-LLM transcript-safe scorer/freezer custody, prospective disjoint units, exact treatment/liveness parity, one-shot execution integrity, new preregistration, freeze and run remain absent; no REDUCES_TO claim or mechanism result exists."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "The approved canonical convergence train through 0097336 is on remote main but is not released. Local main checkouts may lag or contain unrelated dirty work and must not be used as state truth without fetching."
+    - "Responsibility Slice reviewed code head d0b942b is integrated on main at merge receipt 1f78937. The last repository-wide run on the prior candidate was 2616 passed/1 skipped/27 failed; dated fixture expiry, frozen-source/environment drift and ledger contamination remain explicit, so full-suite-green is false."
+    - "The responsibility-view code through reviewed head 3c7f524 is integrated on main but not released. Repository-wide Product+product_eval remains non-green at 2504 passed/1 skipped/7 failed; five failures reproduce on the no-feature baseline and two elapsed/order-sensitive tests pass targeted, but the debt must not be called green."
     - "Task 7 is integrated on main. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
     - "Actor transport c72375a remains an approved isolated Research candidate. W1/W2 direct adaptation and independent scorer/freezer custody remain unimplemented."
 
@@ -581,11 +890,15 @@ next_actions:
   - priority: 1
     action: "P — AGENT-OS-TERMINAL-1: daily-drive `agent-os --continue '...'` from repos; merge to canonical; no HCW claim until this is the operator surface."
   - priority: 2
-    action: "P/R — AGENT-OS-SELFDEV-6/7: prompt-alignment rounds adjudicated — E6 NEGATIVE with unanswered-question caveat (83% quota-destroyed), E7 INSUFFICIENT_DATA under the new frozen adequacy floor (both arms below 12/24 weather-free; chain 1/12 vs baseline 2/12 numerically not promoted). Chain solved django-11066 5/5 completed attempts across E5/E6/E7; weather-free failure rates now comparable across arms (9/11 vs 6/9) — the E5 residual narrowed, not closed. Next: if the question stays open, a larger-N or sustained-healthy-window round under a NEW prereg with the standing machinery (adequacy floor + pause-on-403 + whitelist abort + health gate); otherwise PARK the benchmark series and redirect capacity."
+    action: "P/R — AGENT-OS-SELFDEV-6/7: prompt-alignment rounds adjudicated — E6 NEGATIVE with unanswered-question caveat (83% quota-destroyed), E7 INSUFFICIENT_DATA under the new frozen adequacy floor (both arms below 12/24 weather-free; chain 1/12 vs baseline 2/12 numerically not promoted). Chain solved django-11066 5/5 completed attempts across E5/E6/E7; weather-free failure rates now comparable across arms (9/11 vs 6/9) — the E5 residual narrowed, not closed. Next: SELFDEV-6 re-prereg under Phase 0 condition 6 on the unified acceptance head, gated by the founder cast; otherwise PARK the benchmark series and redirect capacity."
   - priority: 3
-    action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity; remain NOT_FROZEN/NO_RESULT_RUN until Mandate terminal is the measurement surface or blockers are PARKed."
+    action: "P — atomic admit-selfdev is now integrated on this branch (802ad985..323fab1); the open step is one live-provider edit -> exact approval -> resume -> verification chain capturing truthful Outcome/Help/count-only HCW evidence; keep it count-only and non-comparative until a founder cast."
   - priority: 4
-    action: "Portfolio discipline: PARK known-result retests; keep SPINE-1/release gated."
+    action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity; remain NOT_FROZEN/NO_RESULT_RUN until Mandate terminal is the measurement surface or blockers are PARKed."
+  - priority: 5
+    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
+  - priority: 6
+    action: "Portfolio discipline: PARK known-result retests; keep SPINE-1, release and production activation gated; do not expand ADM/UCM/AWL/CLS breadth."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
@@ -594,7 +907,7 @@ test_commands:
   quality:
     - "uv run --extra product-test ruff check apps packages/os_core/src packages/contracts/src tests/product"
     - "uv run --extra product-test pyright apps packages/os_core/src packages/contracts/src tests/product"
-  caution: "ADM-P2/Product commands were rerun on 2026-07-15 as recorded in its evidence artifact. A separate Product-eval run ended with 765 passed and two pre-existing external-artifact failures; do not call the repository-wide suite green."
+  caution: "The 2026-07-18 responsibility integration run ended with 2504 passed, 1 skipped and 7 failed. Five failures reproduce without the feature; two elapsed/order-sensitive tests pass targeted. Task-specific failures are zero, but the repository-wide suite is not green and no Product/research claim may erase that debt."
 
 source_refs:
   product:
@@ -630,11 +943,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-22T23:59:30+08:00"
+  checked_at: "2026-08-13T15:40:00+08:00"
   branch: "codex/canonical-convergence-20260715"
-  canonical_head: "ce9cb54"
-  prior_canonical_head: "a8c71b152b57ab78720ce8bd09f1ab2f7eed78e9"
-  merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
-  commit_state: "SELFDEV_S1_TO_S13_PLUS_LOCAL_PROVIDER_ENV_GUARD / LOCAL_PROVIDER_READINESS_CHECK_PASSED / REAL_PROVIDER_SYNTHETIC_SMOKE_VERIFIED / NON_SYNTHETIC_BASELINE_VERIFIED_PROVIDER_COMPARE_BLOCKED / TARGETED_SELFDEV_6_PRODUCT_PASSED / TARGETED_RUFF_PYRIGHT_CLEAN / NOT_RELEASED"
-  merge_scope: "Remote main contains the approved canonical Product train through the prior integration windows, but SELFDEV-S1 through S12, local provider env ignore guard and the real-provider synthetic smoke evidence live on codex/canonical-convergence-20260715 through e9251e5. No production activation, Data Agent migration, merge to main or release follows from this state."
-  evidence_separation: "SELFDEV-S1 through S13 are Product/Translational infrastructure, one isolated synthetic real-provider smoke receipt and one non-synthetic provider-blocked attempt, not a real founder task portfolio result, not durable product-value evidence and not a comparative HCW superiority claim. S11 closes the measurement-truth bypass by requiring comparison against a post-run record, not spec estimates; S12 closes the exact configuration snapshot scope gap found during real execution; S13 prevents shared evidence refs from making the two-arm comparison non-independent. R-SRL-1 is harness and methodology infrastructure, not a result-bearing run. Neither establishes customer outcome, general cognition or Autonomy(S,E,O,V,T)."
+  canonical_head: "317a2070"
+  prior_canonical_head: "ce9cb54"
+  merge_base: "6b565396e1"
+  commit_state: "ORACLE_LINE_INTEGRATED / SCOPED_VERIFIER_B32F2CB / SSE_FAIL_CLOSED_7CC3F6FF / PHASE0_TYPED_DENIALS_E53D972A_REVIEWED_991F42A5_APPROVE_WITH_P2 / NOT_RELEASED"
+  merge_scope: "The 2026-08-13 founder-directed merge brings codex/selfdev-live-sse-oracle-20260809 (b32f2cb scoped product verifiers, 7cc3f6ff SSE malformed fail-closed, both independently APPROVE_WITH_P2) and the main product train through 3a70592d (installable Agent Surface) into codex/canonical-convergence-20260715 (Phase 0 typed denial reason codes + enumerable admissible alternatives, APPROVE_WITH_P2 at exact head 991f42a5). This forms the single Phase 0 acceptance-head candidate. No production activation, Data Agent migration, merge to main or release follows from this state."
+  evidence_separation: "SELFDEV-S1 through S13 are Product/Translational infrastructure, one isolated synthetic real-provider smoke receipt and one non-synthetic provider-blocked attempt, not a real founder task portfolio result, not durable product-value evidence and not a comparative HCW superiority claim. S11 closes the measurement-truth bypass by requiring comparison against a post-run record, not spec estimates; S12 closes the exact configuration snapshot scope gap found during real execution; S13 prevents shared evidence refs from making the two-arm comparison non-independent. The ABA scaffold and B1-B5 closure audit are Research protocol/integrity infrastructure, not research evidence or Product capability; non-oracle HMAC custody remains PARK at 88cb028. R-SRL-1 is harness and methodology infrastructure, not a result-bearing run. None is customer evidence, sustained responsibility, autonomy or general intelligence."

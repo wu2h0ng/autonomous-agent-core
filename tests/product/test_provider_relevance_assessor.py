@@ -1156,7 +1156,13 @@ def test_revocation_wins_over_blocked_replay_across_sqlite_instances(tmp_path) -
     thread = threading.Thread(target=replay)
     thread.start()
     assert started.wait(timeout=5)
-    SQLiteSituatedAssessmentStore(database).revoke("mandate:agent-os", expected_epoch=0)
+    SQLiteSituatedAssessmentStore(database).revoke(
+        "mandate:agent-os",
+        expected_epoch=0,
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
     release.set()
     thread.join(timeout=5)
 

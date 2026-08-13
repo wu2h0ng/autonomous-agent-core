@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .capability import DenialReasonCode
+
 
 class AgentOSCoreError(RuntimeError):
     pass
@@ -150,4 +155,28 @@ class TaskConfigurationNotBound(TaskConfigurationError):
 
 
 class TaskConfigurationDrift(TaskConfigurationError):
+    pass
+
+
+class RunExecutionError(AgentOSCoreError):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        reason_code: DenialReasonCode | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+class WorkerInterrupted(RunExecutionError):
+    """Test/worker crash boundary; durable event state remains resumable."""
+    pass
+
+
+class WaitingForApproval(RunExecutionError):
+    pass
+
+
+class UnsupportedNodeError(RunExecutionError):
     pass

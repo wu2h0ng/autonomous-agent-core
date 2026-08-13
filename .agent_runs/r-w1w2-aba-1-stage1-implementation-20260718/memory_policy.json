@@ -1,0 +1,18 @@
+{
+  "dedupe_similarity_threshold": 0.92,
+  "not_met_promotable": true,
+  "promotion_requires_approval": true,
+  "retention": {
+    "forget_mode": "active-recall-only",
+    "preserve_audit_tombstone": true,
+    "rewrite_git_history": false
+  },
+  "tag_vocab": [
+    "decision",
+    "failure-pattern",
+    "not-met",
+    "research",
+    "workflow"
+  ],
+  "version": 1
+}

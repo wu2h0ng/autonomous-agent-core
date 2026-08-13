@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Queue
 from types import MappingProxyType
 from threading import RLock, Thread
-from typing import Callable, Mapping, Protocol, TypedDict
+from typing import Callable, Mapping, Protocol, TypedDict, cast
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 from agent_os_contracts import (
@@ -23,7 +23,9 @@ from agent_os_contracts import (
     CredentialStatus,
     EnvironmentEvent,
     EvidenceRef,
+    LedgerAccessScope,
     OperationalProjectionRef,
+    SituatedAssessmentRecord,
     canonical_json,
     content_digest,
 )
@@ -33,6 +35,7 @@ from agent_os_core import (
     EnvCredentialBroker,
     SituationalBinding,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.data_agent_report_policy import (
     ADAPTER_VERSION as _ADAPTER_VERSION,
     CREDENTIAL_PROVIDER as _CREDENTIAL_PROVIDER,
@@ -47,6 +50,36 @@ from apps.api_server.data_agent_report_policy import (
 
 Clock = Callable[[], datetime]
 _TRACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def _active_perception_binding_digest(
+    *,
+    principal_id: str,
+    tenant_id: str,
+    workspace_id: str,
+    mandate_id: str,
+    environment_binding_id: str,
+    state_namespace: str,
+    admission_policy_digest: str,
+    canonical_database_path: Path,
+) -> str:
+    return content_digest(
+        {
+            "contract": "agent-os/active-perception-binding/v1",
+            "principal_id": principal_id,
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+            "mandate_id": mandate_id,
+            "environment_binding_id": environment_binding_id,
+            "state_namespace": state_namespace,
+            "admission_policy_digest": admission_policy_digest,
+            "canonical_database_path": str(canonical_database_path),
+        }
+    )
+
+
+def _system_utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class _DataAgentReportFeedEvent(TypedDict):
@@ -254,6 +287,34 @@ class DataAgentReportPollResult:
 
 
 @dataclass(frozen=True)
+class DataAgentReportDispatch:
+    dispatch_id: str
+    dispatch_digest: str
+    namespace_digest: str
+    source_id: str
+    source_tenant_id: str
+    principal_id: str
+    tenant_id: str
+    workspace_id: str
+    mandate_id: str
+    environment_binding_id: str
+    environment_event_id: str
+    projection_id: str
+    bundle_digest: str
+    status: str
+    outcome_kind: str | None = None
+    outcome_record_id: str | None = None
+    outcome_digest: str | None = None
+    completed_at: datetime | None = None
+    consumer_id: str | None = None
+    authority_snapshot_digest: str | None = None
+    completion_digest: str | None = None
+    activation_authorized: bool = False
+    capability_grant_authorized: bool = False
+    external_effects_authorized: bool = False
+
+
+@dataclass(frozen=True)
 class DataAgentReportStoredObservation:
     observation_key: str
     report_trace_id: str
@@ -282,6 +343,11 @@ class DataAgentReportStateStore(Protocol):
         *,
         object_kind: str,
         object_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        environment_binding_id: str,
     ) -> DataAgentReportStoredObservation | None: ...
 
     def save(
@@ -314,17 +380,70 @@ class DataAgentReportStateStore(Protocol):
         next_cursor: str | None,
     ) -> bool: ...
 
+    def stage_feed_dispatches(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+        consumed_cursors: tuple[str, ...],
+        dispatches: tuple[DataAgentReportDispatch, ...],
+    ) -> bool: ...
+
+    def list_dispatches(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        status: str,
+    ) -> tuple[DataAgentReportDispatch, ...]: ...
+
+    def complete_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord | None,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+        outcome_kind: str | None = None,
+        outcome_digest: str | None = None,
+    ) -> DataAgentReportDispatch: ...
+
+    def get_dispatch(
+        self,
+        namespace_digest: str,
+        dispatch_id: str,
+    ) -> DataAgentReportDispatch | None: ...
+
 
 class SQLiteDataAgentReportStateStore:
     """Durable first-seen identity and exact-byte store shared across processes."""
 
     durable = True
-    _SCHEMA_VERSION = 2
+    _SCHEMA_VERSION = 5
     _SCHEMA_COMPONENT = "data-agent-report-adapter"
     _OBJECT_KINDS = frozenset({"artifact", "evidence", "event", "projection"})
 
     def __init__(self, database: str | Path) -> None:
-        self._database = str(database)
+        database_value = str(database)
+        normalized = database_value.strip().lower()
+        self._canonical_database_path = (
+            None
+            if not normalized
+            or normalized == ":memory:"
+            or normalized.startswith("file:")
+            or "mode=memory" in normalized
+            else Path(database_value).expanduser().resolve()
+        )
+        self._database = (
+            database_value
+            if self._canonical_database_path is None
+            else str(self._canonical_database_path)
+        )
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -338,6 +457,10 @@ class SQLiteDataAgentReportStateStore:
             raise DataAgentReportAdapterError(
                 "durable external report state schema is unavailable"
             ) from None
+
+    @property
+    def canonical_database_path(self) -> Path | None:
+        return self._canonical_database_path
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database, timeout=10)
@@ -534,6 +657,105 @@ class SQLiteDataAgentReportStateStore:
                 PRIMARY KEY (
                     namespace_digest, source_id, source_tenant_id, cursor
                 )
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_dispatch_outbox (
+                dispatch_id TEXT NOT NULL PRIMARY KEY,
+                dispatch_digest TEXT NOT NULL,
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                principal_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                mandate_id TEXT NOT NULL,
+                environment_binding_id TEXT NOT NULL,
+                environment_event_id TEXT NOT NULL,
+                projection_id TEXT NOT NULL,
+                bundle_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                outcome_kind TEXT,
+                outcome_record_id TEXT,
+                outcome_digest TEXT,
+                completed_at TEXT,
+                consumer_id TEXT,
+                authority_snapshot_digest TEXT,
+                completion_digest TEXT,
+                activation_authorized INTEGER NOT NULL,
+                capability_grant_authorized INTEGER NOT NULL,
+                external_effects_authorized INTEGER NOT NULL
+            )
+            """
+        )
+        outbox_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(data_agent_report_dispatch_outbox)"
+            )
+        }
+        for column in (
+            "outcome_record_id",
+            "consumer_id",
+            "authority_snapshot_digest",
+            "completion_digest",
+        ):
+            if column not in outbox_columns:
+                connection.execute(
+                    f"ALTER TABLE data_agent_report_dispatch_outbox ADD COLUMN {column} TEXT"
+                )
+        cls._require_table_contract(
+            cls._table_contract(connection, "data_agent_report_dispatch_outbox"),
+            {
+                "dispatch_id": ("TEXT", 1, 1),
+                "dispatch_digest": ("TEXT", 1, 0),
+                "namespace_digest": ("TEXT", 1, 0),
+                "source_id": ("TEXT", 1, 0),
+                "source_tenant_id": ("TEXT", 1, 0),
+                "principal_id": ("TEXT", 1, 0),
+                "tenant_id": ("TEXT", 1, 0),
+                "workspace_id": ("TEXT", 1, 0),
+                "mandate_id": ("TEXT", 1, 0),
+                "environment_binding_id": ("TEXT", 1, 0),
+                "environment_event_id": ("TEXT", 1, 0),
+                "projection_id": ("TEXT", 1, 0),
+                "bundle_digest": ("TEXT", 1, 0),
+                "status": ("TEXT", 1, 0),
+                "outcome_kind": ("TEXT", 0, 0),
+                "outcome_record_id": ("TEXT", 0, 0),
+                "outcome_digest": ("TEXT", 0, 0),
+                "completed_at": ("TEXT", 0, 0),
+                "consumer_id": ("TEXT", 0, 0),
+                "authority_snapshot_digest": ("TEXT", 0, 0),
+                "completion_digest": ("TEXT", 0, 0),
+                "activation_authorized": ("INTEGER", 1, 0),
+                "capability_grant_authorized": ("INTEGER", 1, 0),
+                "external_effects_authorized": ("INTEGER", 1, 0),
+            },
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_feed_page_commits (
+                page_commit_digest TEXT NOT NULL PRIMARY KEY,
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                expected_cursor TEXT,
+                next_cursor TEXT,
+                consumed_cursors_json TEXT NOT NULL,
+                dispatch_ids_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_feed_page_members (
+                dispatch_id TEXT NOT NULL PRIMARY KEY,
+                page_commit_digest TEXT NOT NULL,
+                environment_event_id TEXT NOT NULL,
+                projection_id TEXT NOT NULL
             )
             """
         )
@@ -849,6 +1071,11 @@ class SQLiteDataAgentReportStateStore:
         *,
         object_kind: str,
         object_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        environment_binding_id: str,
     ) -> DataAgentReportStoredObservation | None:
         if object_kind not in self._OBJECT_KINDS:
             raise DataAgentReportAdapterError(
@@ -898,6 +1125,40 @@ class SQLiteDataAgentReportStateStore:
                     observation_key,
                 ),
             ).fetchone()
+            if observation_row is not None and observation_key.startswith("feed:"):
+                committed_rows = connection.execute(
+                    self._dispatch_select()
+                    + """
+                    WHERE namespace_digest = ? AND source_id = ?
+                      AND source_tenant_id = ? AND environment_event_id = ?
+                      AND projection_id = ?
+                    """,
+                    (
+                        namespace_digest,
+                        source_id,
+                        source_tenant_id,
+                        str(observation_row[2]),
+                        str(observation_row[3]),
+                    ),
+                ).fetchall()
+                if len(committed_rows) != 1:
+                    if not committed_rows:
+                        return None
+                    raise DataAgentReportAdapterError(
+                        "durable external report dispatch is ambiguous"
+                    )
+                committed = self._dispatch_from_row(committed_rows[0])
+                self._validate_dispatch_observation(connection, committed)
+                if (
+                    committed.principal_id != principal_id
+                    or committed.tenant_id != tenant_id
+                    or committed.workspace_id != workspace_id
+                    or committed.mandate_id != mandate_id
+                    or committed.environment_binding_id != environment_binding_id
+                ):
+                    raise DataAgentReportAdapterError(
+                        "durable external report dispatch scope is invalid"
+                    )
         if observation_row is None:
             raise DataAgentReportAdapterError(
                 "durable external report object index target is unavailable"
@@ -1154,6 +1415,965 @@ class SQLiteDataAgentReportStateStore:
                 "durable external report cursor state is unavailable"
             ) from None
 
+    @staticmethod
+    def _dispatch_payload(dispatch: DataAgentReportDispatch) -> dict[str, object]:
+        return {
+            "namespace_digest": dispatch.namespace_digest,
+            "source_id": dispatch.source_id,
+            "source_tenant_id": dispatch.source_tenant_id,
+            "principal_id": dispatch.principal_id,
+            "tenant_id": dispatch.tenant_id,
+            "workspace_id": dispatch.workspace_id,
+            "mandate_id": dispatch.mandate_id,
+            "environment_binding_id": dispatch.environment_binding_id,
+            "environment_event_id": dispatch.environment_event_id,
+            "projection_id": dispatch.projection_id,
+            "bundle_digest": dispatch.bundle_digest,
+            "activation_authorized": False,
+            "capability_grant_authorized": False,
+            "external_effects_authorized": False,
+        }
+
+    @classmethod
+    def _validate_dispatch(cls, dispatch: DataAgentReportDispatch) -> None:
+        digest = content_digest(cls._dispatch_payload(dispatch))
+        if (
+            dispatch.dispatch_id != f"data-agent-dispatch:{digest}"
+            or dispatch.dispatch_digest != digest
+            or dispatch.status not in {"PENDING", "COMPLETED"}
+            or dispatch.activation_authorized
+            or dispatch.capability_grant_authorized
+            or dispatch.external_effects_authorized
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch binding is invalid"
+            )
+        if dispatch.status == "PENDING":
+            if any(
+                value is not None
+                for value in (
+                    dispatch.outcome_kind,
+                    dispatch.outcome_record_id,
+                    dispatch.outcome_digest,
+                    dispatch.completed_at,
+                    dispatch.consumer_id,
+                    dispatch.authority_snapshot_digest,
+                    dispatch.completion_digest,
+                )
+            ):
+                raise DataAgentReportAdapterError(
+                    "durable external report dispatch state is invalid"
+                )
+        elif (
+            dispatch.outcome_kind not in {"TASK_DRAFT", "HELP_REQUEST", "NO_PROPOSAL"}
+            or dispatch.outcome_record_id is None
+            or not dispatch.outcome_record_id.strip()
+            or dispatch.outcome_digest is None
+            or re.fullmatch(r"[0-9a-f]{64}", dispatch.outcome_digest) is None
+            or dispatch.completed_at is None
+            or dispatch.consumer_id is None
+            or not dispatch.consumer_id.strip()
+            or dispatch.authority_snapshot_digest is None
+            or re.fullmatch(r"[0-9a-f]{64}", dispatch.authority_snapshot_digest) is None
+            or dispatch.completion_digest
+            != content_digest(
+                {
+                    "dispatch_id": dispatch.dispatch_id,
+                    "dispatch_digest": dispatch.dispatch_digest,
+                    "outcome_kind": dispatch.outcome_kind,
+                    "outcome_record_id": dispatch.outcome_record_id,
+                    "outcome_digest": dispatch.outcome_digest,
+                    "completed_at": dispatch.completed_at,
+                    "consumer_id": dispatch.consumer_id,
+                    "authority_snapshot_digest": (dispatch.authority_snapshot_digest),
+                }
+            )
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is invalid"
+            )
+
+    @classmethod
+    def _dispatch_from_row(cls, row: tuple[object, ...]) -> DataAgentReportDispatch:
+        completed_at: datetime | None = None
+        if row[17] is not None:
+            try:
+                completed_at = _utc(datetime.fromisoformat(str(row[17])))
+            except (TypeError, ValueError):
+                raise DataAgentReportAdapterError(
+                    "durable external report dispatch timestamp is invalid"
+                ) from None
+        try:
+            dispatch = DataAgentReportDispatch(
+                dispatch_id=str(row[0]),
+                dispatch_digest=str(row[1]),
+                namespace_digest=str(row[2]),
+                source_id=str(row[3]),
+                source_tenant_id=str(row[4]),
+                principal_id=str(row[5]),
+                tenant_id=str(row[6]),
+                workspace_id=str(row[7]),
+                mandate_id=str(row[8]),
+                environment_binding_id=str(row[9]),
+                environment_event_id=str(row[10]),
+                projection_id=str(row[11]),
+                bundle_digest=str(row[12]),
+                status=str(row[13]),
+                outcome_kind=None if row[14] is None else str(row[14]),
+                outcome_record_id=None if row[15] is None else str(row[15]),
+                outcome_digest=None if row[16] is None else str(row[16]),
+                completed_at=completed_at,
+                consumer_id=None if row[18] is None else str(row[18]),
+                authority_snapshot_digest=(None if row[19] is None else str(row[19])),
+                completion_digest=None if row[20] is None else str(row[20]),
+                activation_authorized=bool(row[21]),
+                capability_grant_authorized=bool(row[22]),
+                external_effects_authorized=bool(row[23]),
+            )
+        except (TypeError, ValueError):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch encoding is invalid"
+            ) from None
+        if any(
+            type(row[index]) is not int or row[index] != 0 for index in (21, 22, 23)
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch authority is invalid"
+            )
+        cls._validate_dispatch(dispatch)
+        return dispatch
+
+    @staticmethod
+    def _dispatch_select() -> str:
+        return """
+            SELECT dispatch_id, dispatch_digest, namespace_digest, source_id,
+                   source_tenant_id, principal_id, tenant_id, workspace_id,
+                   mandate_id, environment_binding_id, environment_event_id,
+                   projection_id, bundle_digest, status, outcome_kind,
+                   outcome_record_id, outcome_digest, completed_at, consumer_id,
+                   authority_snapshot_digest, completion_digest,
+                   activation_authorized,
+                   capability_grant_authorized, external_effects_authorized
+            FROM data_agent_report_dispatch_outbox
+        """
+
+    def _validate_dispatch_observation(
+        self,
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+        *,
+        require_committed_page: bool = True,
+    ) -> None:
+        observation = connection.execute(
+            """
+            SELECT bundle_json FROM data_agent_report_observations
+            WHERE namespace_digest = ? AND source_id = ?
+              AND source_tenant_id = ? AND event_id = ? AND projection_id = ?
+            """,
+            (
+                dispatch.namespace_digest,
+                dispatch.source_id,
+                dispatch.source_tenant_id,
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+            ),
+        ).fetchone()
+        if observation is None:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch observation is unavailable"
+            )
+        bundle = self._deserialize(str(observation[0]))
+        if (
+            bundle.event.environment_event_id != dispatch.environment_event_id
+            or bundle.event.tenant_id != dispatch.tenant_id
+            or bundle.event.workspace_id != dispatch.workspace_id
+            or bundle.event.mandate_id != dispatch.mandate_id
+            or bundle.event.environment_binding_id != dispatch.environment_binding_id
+            or bundle.projection.projection_id != dispatch.projection_id
+            or content_digest({"event": bundle.event, "projection": bundle.projection})
+            != dispatch.bundle_digest
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch bundle is invalid"
+            )
+        if not require_committed_page:
+            return
+        member = connection.execute(
+            """
+            SELECT page_commit_digest, environment_event_id, projection_id
+            FROM data_agent_report_feed_page_members WHERE dispatch_id = ?
+            """,
+            (dispatch.dispatch_id,),
+        ).fetchone()
+        if member is None or (
+            str(member[1]) != dispatch.environment_event_id
+            or str(member[2]) != dispatch.projection_id
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report committed page provenance is unavailable"
+            )
+        page = connection.execute(
+            """
+            SELECT namespace_digest, source_id, source_tenant_id,
+                   expected_cursor, next_cursor, consumed_cursors_json,
+                   dispatch_ids_json
+            FROM data_agent_report_feed_page_commits
+            WHERE page_commit_digest = ?
+            """,
+            (str(member[0]),),
+        ).fetchone()
+        if page is None:
+            raise DataAgentReportAdapterError(
+                "durable external report committed page provenance is unavailable"
+            )
+        try:
+            consumed = tuple(json.loads(str(page[5])))
+            dispatch_ids = tuple(json.loads(str(page[6])))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise DataAgentReportAdapterError(
+                "durable external report committed page provenance is invalid"
+            ) from None
+        page_payload = self._page_commit_payload(
+            namespace_digest=str(page[0]),
+            source_id=str(page[1]),
+            source_tenant_id=str(page[2]),
+            expected_cursor=None if page[3] is None else str(page[3]),
+            next_cursor=None if page[4] is None else str(page[4]),
+            consumed_cursors=consumed,
+            dispatch_ids=dispatch_ids,
+        )
+        if (
+            str(page[0]) != dispatch.namespace_digest
+            or str(page[1]) != dispatch.source_id
+            or str(page[2]) != dispatch.source_tenant_id
+            or str(member[0]) != content_digest(page_payload)
+            or dispatch.dispatch_id not in dispatch_ids
+            or any(type(item) is not str or not item for item in consumed)
+            or any(type(item) is not str or not item for item in dispatch_ids)
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report committed page provenance is invalid"
+            )
+        for cursor in consumed:
+            seen = connection.execute(
+                """
+                SELECT 1 FROM data_agent_report_feed_cursor_history
+                WHERE namespace_digest = ? AND source_id = ?
+                  AND source_tenant_id = ? AND cursor = ?
+                """,
+                (
+                    dispatch.namespace_digest,
+                    dispatch.source_id,
+                    dispatch.source_tenant_id,
+                    cursor,
+                ),
+            ).fetchone()
+            if seen is None:
+                raise DataAgentReportAdapterError(
+                    "durable external report committed page provenance is invalid"
+                )
+
+    @staticmethod
+    def _validate_outcome_record(
+        dispatch: DataAgentReportDispatch,
+        record: SituatedAssessmentRecord,
+    ) -> None:
+        assessment = record.assessment
+        if (
+            record.tenant_id != dispatch.tenant_id
+            or record.workspace_id != dispatch.workspace_id
+            or assessment.tenant_id != dispatch.tenant_id
+            or assessment.workspace_id != dispatch.workspace_id
+            or assessment.mandate_id != dispatch.mandate_id
+            or assessment.environment_binding_id != dispatch.environment_binding_id
+            or assessment.environment_event_id != dispatch.environment_event_id
+            or assessment.projection_id != dispatch.projection_id
+            or not record.assessment_record_id.strip()
+        ):
+            raise DataAgentReportAdapterError(
+                "durable outcome record does not match dispatch"
+            )
+
+    @classmethod
+    def _canonical_outcome_record(
+        cls,
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+        requested: SituatedAssessmentRecord,
+    ) -> SituatedAssessmentRecord:
+        if type(requested) is not SituatedAssessmentRecord:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        try:
+            row = connection.execute(
+                """
+                SELECT assessment_id, assessment_record_id, source_binding_digest,
+                       input_binding_digest, principal_id, tenant_id, workspace_id,
+                       record_json
+                FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND assessment_record_id = ?
+                """,
+                (
+                    dispatch.principal_id,
+                    dispatch.tenant_id,
+                    dispatch.workspace_id,
+                    requested.assessment_record_id,
+                ),
+            ).fetchone()
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            ) from None
+        if row is None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        try:
+            record = SituatedAssessmentRecord.model_validate_json(str(row[7]))
+        except Exception:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            ) from None
+        if (
+            record != requested
+            or canonical_json(record) != str(row[7])
+            or str(row[0]) != record.assessment.assessment_id
+            or str(row[1]) != record.assessment_record_id
+            or str(row[2]) != record.source_binding_digest
+            or str(row[3]) != record.assessment.input_binding_digest
+            or str(row[4]) != dispatch.principal_id
+            or str(row[5]) != record.tenant_id
+            or str(row[6]) != record.workspace_id
+        ):
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        cls._validate_outcome_record(dispatch, record)
+        return record
+
+    @staticmethod
+    def _requires_active_perception_completion(
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+    ) -> bool:
+        table = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'mandate_active_perception_schedule'
+            """
+        ).fetchone()
+        if table is None:
+            return False
+        row = connection.execute(
+            """
+            SELECT 1 FROM mandate_active_perception_schedule
+            WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+              AND mandate_id = ? AND environment_binding_id = ?
+            LIMIT 1
+            """,
+            (
+                dispatch.principal_id,
+                dispatch.tenant_id,
+                dispatch.workspace_id,
+                dispatch.mandate_id,
+                dispatch.environment_binding_id,
+            ),
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _assert_recovery_batch_membership(
+        connection: sqlite3.Connection,
+        *,
+        schedule_id: str,
+        config_digest: str,
+        dispatch_id: str,
+        feed_limit: int,
+    ) -> None:
+        row = connection.execute(
+            """
+            SELECT config_digest, dispatch_ids_json, batch_digest
+            FROM mandate_active_perception_recovery_batch
+            WHERE schedule_id = ?
+            """,
+            (schedule_id,),
+        ).fetchone()
+        try:
+            parsed = None if row is None else json.loads(str(row[1]))
+            dispatch_ids = tuple(parsed) if isinstance(parsed, list) else ()
+        except (TypeError, ValueError, json.JSONDecodeError):
+            dispatch_ids = ()
+        payload = {
+            "schedule_id": schedule_id,
+            "config_digest": config_digest,
+            "dispatch_ids": dispatch_ids,
+        }
+        if (
+            row is None
+            or str(row[0]) != config_digest
+            or json.dumps(list(dispatch_ids), separators=(",", ":")) != str(row[1])
+            or not dispatch_ids
+            or len(dispatch_ids) > feed_limit
+            or any(
+                type(member_id) is not str or not member_id
+                for member_id in dispatch_ids
+            )
+            or len(set(dispatch_ids)) != len(dispatch_ids)
+            or str(row[2]) != content_digest(payload)
+            or dispatch_id not in dispatch_ids
+        ):
+            raise DataAgentReportAdapterError(
+                "active perception recovery batch is unavailable or invalid"
+            )
+
+    @classmethod
+    def _prepare_dispatch_completion(
+        cls,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        cls._validate_dispatch(dispatch)
+        if dispatch.status != "PENDING":
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch is not pending"
+            )
+        cls._validate_outcome_record(dispatch, outcome_record)
+        resolved_kind = outcome_record.outcome_kind.value
+        record_id = outcome_record.assessment_record_id
+        record_digest = content_digest(outcome_record)
+        completion_time = _utc(completed_at)
+        completion_payload = {
+            "dispatch_id": dispatch.dispatch_id,
+            "dispatch_digest": dispatch.dispatch_digest,
+            "outcome_kind": resolved_kind,
+            "outcome_record_id": record_id,
+            "outcome_digest": record_digest,
+            "completed_at": completion_time,
+            "consumer_id": consumer_id,
+            "authority_snapshot_digest": authority_snapshot_digest,
+        }
+        completed = DataAgentReportDispatch(
+            **{
+                **dispatch.__dict__,
+                "status": "COMPLETED",
+                "outcome_kind": resolved_kind,
+                "outcome_record_id": record_id,
+                "outcome_digest": record_digest,
+                "completed_at": completion_time,
+                "consumer_id": consumer_id,
+                "authority_snapshot_digest": authority_snapshot_digest,
+                "completion_digest": content_digest(completion_payload),
+            }
+        )
+        cls._validate_dispatch(completed)
+        return completed
+
+    @staticmethod
+    def _page_commit_payload(
+        *,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+        consumed_cursors: tuple[str, ...],
+        dispatch_ids: tuple[str, ...],
+    ) -> dict[str, object]:
+        return {
+            "namespace_digest": namespace_digest,
+            "source_id": source_id,
+            "source_tenant_id": source_tenant_id,
+            "expected_cursor": expected_cursor,
+            "next_cursor": next_cursor,
+            "consumed_cursors": consumed_cursors,
+            "dispatch_ids": dispatch_ids,
+        }
+
+    def stage_feed_dispatches(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+        consumed_cursors: tuple[str, ...],
+        dispatches: tuple[DataAgentReportDispatch, ...],
+    ) -> bool:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                cursor_row = connection.execute(
+                    """
+                    SELECT cursor FROM data_agent_report_feed_cursors
+                    WHERE namespace_digest = ? AND source_id = ?
+                      AND source_tenant_id = ?
+                    """,
+                    (namespace_digest, source_id, source_tenant_id),
+                ).fetchone()
+                current = (
+                    str(cursor_row[0])
+                    if cursor_row is not None and cursor_row[0] is not None
+                    else None
+                )
+                if current != expected_cursor:
+                    return False
+                for consumed_cursor in consumed_cursors:
+                    seen = connection.execute(
+                        """
+                        SELECT 1 FROM data_agent_report_feed_cursor_history
+                        WHERE namespace_digest = ? AND source_id = ?
+                          AND source_tenant_id = ? AND cursor = ?
+                        """,
+                        (
+                            namespace_digest,
+                            source_id,
+                            source_tenant_id,
+                            consumed_cursor,
+                        ),
+                    ).fetchone()
+                    if seen is not None:
+                        raise DataAgentReportConflict(
+                            "external report feed cursor was already consumed"
+                        )
+                dispatch_ids = tuple(item.dispatch_id for item in dispatches)
+                page_payload = self._page_commit_payload(
+                    namespace_digest=namespace_digest,
+                    source_id=source_id,
+                    source_tenant_id=source_tenant_id,
+                    expected_cursor=expected_cursor,
+                    next_cursor=next_cursor,
+                    consumed_cursors=consumed_cursors,
+                    dispatch_ids=dispatch_ids,
+                )
+                page_commit_digest = content_digest(page_payload)
+                connection.execute(
+                    """
+                    INSERT INTO data_agent_report_feed_page_commits (
+                        page_commit_digest, namespace_digest, source_id,
+                        source_tenant_id, expected_cursor, next_cursor,
+                        consumed_cursors_json, dispatch_ids_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(page_commit_digest) DO NOTHING
+                    """,
+                    (
+                        page_commit_digest,
+                        namespace_digest,
+                        source_id,
+                        source_tenant_id,
+                        expected_cursor,
+                        next_cursor,
+                        canonical_json(consumed_cursors),
+                        canonical_json(dispatch_ids),
+                    ),
+                )
+                for dispatch in dispatches:
+                    self._validate_dispatch(dispatch)
+                    if (
+                        dispatch.namespace_digest != namespace_digest
+                        or dispatch.source_id != source_id
+                        or dispatch.source_tenant_id != source_tenant_id
+                        or dispatch.status != "PENDING"
+                    ):
+                        raise DataAgentReportAdapterError(
+                            "durable external report dispatch scope is invalid"
+                        )
+                    self._validate_dispatch_observation(
+                        connection, dispatch, require_committed_page=False
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO data_agent_report_dispatch_outbox (
+                            dispatch_id, dispatch_digest, namespace_digest,
+                            source_id, source_tenant_id, principal_id, tenant_id,
+                            workspace_id, mandate_id, environment_binding_id,
+                            environment_event_id, projection_id, bundle_digest,
+                            status, outcome_kind, outcome_record_id,
+                            outcome_digest, completed_at,
+                            consumer_id, authority_snapshot_digest,
+                            completion_digest,
+                            activation_authorized, capability_grant_authorized,
+                            external_effects_authorized
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0)
+                        ON CONFLICT(dispatch_id) DO NOTHING
+                        """,
+                        (
+                            dispatch.dispatch_id,
+                            dispatch.dispatch_digest,
+                            dispatch.namespace_digest,
+                            dispatch.source_id,
+                            dispatch.source_tenant_id,
+                            dispatch.principal_id,
+                            dispatch.tenant_id,
+                            dispatch.workspace_id,
+                            dispatch.mandate_id,
+                            dispatch.environment_binding_id,
+                            dispatch.environment_event_id,
+                            dispatch.projection_id,
+                            dispatch.bundle_digest,
+                            dispatch.status,
+                        ),
+                    )
+                    row = connection.execute(
+                        self._dispatch_select() + " WHERE dispatch_id = ?",
+                        (dispatch.dispatch_id,),
+                    ).fetchone()
+                    if row is None or self._dispatch_from_row(row) != dispatch:
+                        raise DataAgentReportConflict(
+                            "durable external report dispatch identity conflict"
+                        )
+                    connection.execute(
+                        """
+                        INSERT INTO data_agent_report_feed_page_members (
+                            dispatch_id, page_commit_digest,
+                            environment_event_id, projection_id
+                        ) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(dispatch_id) DO NOTHING
+                        """,
+                        (
+                            dispatch.dispatch_id,
+                            page_commit_digest,
+                            dispatch.environment_event_id,
+                            dispatch.projection_id,
+                        ),
+                    )
+                    member = connection.execute(
+                        """
+                        SELECT page_commit_digest, environment_event_id, projection_id
+                        FROM data_agent_report_feed_page_members WHERE dispatch_id = ?
+                        """,
+                        (dispatch.dispatch_id,),
+                    ).fetchone()
+                    if member != (
+                        page_commit_digest,
+                        dispatch.environment_event_id,
+                        dispatch.projection_id,
+                    ):
+                        raise DataAgentReportConflict(
+                            "durable external report committed page identity conflict"
+                        )
+                if cursor_row is None:
+                    connection.execute(
+                        """
+                        INSERT INTO data_agent_report_feed_cursors (
+                            namespace_digest, source_id, source_tenant_id, cursor
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (namespace_digest, source_id, source_tenant_id, next_cursor),
+                    )
+                else:
+                    connection.execute(
+                        """
+                        UPDATE data_agent_report_feed_cursors SET cursor = ?
+                        WHERE namespace_digest = ? AND source_id = ?
+                          AND source_tenant_id = ?
+                        """,
+                        (next_cursor, namespace_digest, source_id, source_tenant_id),
+                    )
+                for consumed_cursor in consumed_cursors:
+                    connection.execute(
+                        """
+                        INSERT INTO data_agent_report_feed_cursor_history (
+                            namespace_digest, source_id, source_tenant_id, cursor
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            namespace_digest,
+                            source_id,
+                            source_tenant_id,
+                            consumed_cursor,
+                        ),
+                    )
+                return True
+        except DataAgentReportAdapterError:
+            raise
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is unavailable"
+            ) from None
+
+    def list_dispatches(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        status: str,
+    ) -> tuple[DataAgentReportDispatch, ...]:
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    self._dispatch_select()
+                    + " WHERE namespace_digest = ? AND status = ? ORDER BY dispatch_id",
+                    (namespace_digest, status),
+                ).fetchall()
+                dispatches = tuple(self._dispatch_from_row(row) for row in rows)
+                for dispatch in dispatches:
+                    self._validate_dispatch_observation(connection, dispatch)
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is unavailable"
+            ) from None
+        if any(
+            item.source_id != source_id
+            or item.source_tenant_id != source_tenant_id
+            or item.namespace_digest != namespace_digest
+            for item in dispatches
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch scope is invalid"
+            )
+        return dispatches
+
+    def latest_completed_dispatch_ids(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        limit: int,
+    ) -> tuple[str, ...]:
+        if type(limit) is not int or limit < 1:
+            raise DataAgentReportAdapterError(
+                "completed dispatch validation limit is invalid"
+            )
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT dispatch_id FROM data_agent_report_dispatch_outbox
+                    WHERE namespace_digest = ? AND source_id = ?
+                      AND source_tenant_id = ? AND status = 'COMPLETED'
+                    ORDER BY completed_at DESC, dispatch_id DESC
+                    LIMIT ?
+                    """,
+                    (
+                        namespace_digest,
+                        source_id,
+                        source_tenant_id,
+                        limit,
+                    ),
+                ).fetchall()
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is unavailable"
+            ) from None
+        return tuple(str(row[0]) for row in rows)
+
+    def _complete_dispatch_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+        completed: DataAgentReportDispatch,
+    ) -> DataAgentReportDispatch:
+        row = connection.execute(
+            self._dispatch_select() + " WHERE dispatch_id = ?",
+            (dispatch.dispatch_id,),
+        ).fetchone()
+        if row is None:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch is unavailable"
+            )
+        current = self._dispatch_from_row(row)
+        self._validate_dispatch_observation(connection, current)
+        if current.status == "COMPLETED":
+            if current == completed:
+                return current
+            raise DataAgentReportConflict(
+                "durable external report dispatch completion conflict"
+            )
+        if current != dispatch:
+            raise DataAgentReportConflict(
+                "durable external report dispatch changed concurrently"
+            )
+        changed = connection.execute(
+            """
+            UPDATE data_agent_report_dispatch_outbox
+            SET status = 'COMPLETED', outcome_kind = ?,
+                outcome_record_id = ?, outcome_digest = ?,
+                completed_at = ?, consumer_id = ?,
+                authority_snapshot_digest = ?, completion_digest = ?
+            WHERE dispatch_id = ? AND status = 'PENDING'
+            """,
+            (
+                completed.outcome_kind,
+                completed.outcome_record_id,
+                completed.outcome_digest,
+                completed.completed_at.isoformat()
+                if completed.completed_at is not None
+                else None,
+                completed.consumer_id,
+                completed.authority_snapshot_digest,
+                completed.completion_digest,
+                dispatch.dispatch_id,
+            ),
+        ).rowcount
+        if changed != 1:
+            raise DataAgentReportConflict(
+                "durable external report dispatch changed concurrently"
+            )
+        return completed
+
+    def complete_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord | None,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+        outcome_kind: str | None = None,
+        outcome_digest: str | None = None,
+    ) -> DataAgentReportDispatch:
+        if outcome_record is None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is required for dispatch completion"
+            )
+        if outcome_kind is not None or outcome_digest is not None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record cannot be replaced by self-reported outcome"
+            )
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if self._requires_active_perception_completion(connection, dispatch):
+                    raise DataAgentReportAdapterError(
+                        "active perception dispatch requires lease-fenced completion"
+                    )
+                completed = self._prepare_dispatch_completion(
+                    dispatch,
+                    outcome_record=outcome_record,
+                    completed_at=completed_at,
+                    consumer_id=consumer_id,
+                    authority_snapshot_digest=authority_snapshot_digest,
+                )
+                return self._complete_dispatch_in_transaction(
+                    connection,
+                    dispatch,
+                    completed,
+                )
+        except DataAgentReportAdapterError:
+            raise
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is unavailable"
+            ) from None
+
+    def complete_active_perception_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord,
+        schedule_id: str,
+        config_digest: str,
+        worker_id: str,
+        lease_fence: int,
+        completed_at: datetime,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        completion_time = _utc(completed_at)
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                transaction_now = _utc(_system_utc_now())
+                lease = connection.execute(
+                    """
+                    SELECT config_digest, lease_owner, lease_fence, lease_expires_at,
+                           principal_id, tenant_id, workspace_id, mandate_id,
+                           environment_binding_id, feed_limit
+                    FROM mandate_active_perception_schedule
+                    WHERE schedule_id = ?
+                    """,
+                    (schedule_id,),
+                ).fetchone()
+                try:
+                    lease_expires_at = (
+                        None
+                        if lease is None or lease[3] is None
+                        else _utc(datetime.fromisoformat(str(lease[3])))
+                    )
+                except (TypeError, ValueError):
+                    lease_expires_at = None
+                if (
+                    lease is None
+                    or str(lease[0]) != config_digest
+                    or str(lease[1]) != worker_id
+                    or type(lease[2]) is not int
+                    or type(lease_fence) is not int
+                    or int(lease[2]) != lease_fence
+                    or lease_expires_at is None
+                    or transaction_now >= lease_expires_at
+                    or str(lease[4]) != dispatch.principal_id
+                    or str(lease[5]) != dispatch.tenant_id
+                    or str(lease[6]) != dispatch.workspace_id
+                    or str(lease[7]) != dispatch.mandate_id
+                    or str(lease[8]) != dispatch.environment_binding_id
+                    or type(lease[9]) is not int
+                    or int(lease[9]) < 1
+                ):
+                    raise DataAgentReportAdapterError(
+                        "active perception lease fence is stale"
+                    )
+                self._assert_recovery_batch_membership(
+                    connection,
+                    schedule_id=schedule_id,
+                    config_digest=config_digest,
+                    dispatch_id=dispatch.dispatch_id,
+                    feed_limit=int(lease[9]),
+                )
+                canonical_record = self._canonical_outcome_record(
+                    connection,
+                    dispatch,
+                    outcome_record,
+                )
+                completed = self._prepare_dispatch_completion(
+                    dispatch,
+                    outcome_record=canonical_record,
+                    completed_at=completion_time,
+                    consumer_id=worker_id,
+                    authority_snapshot_digest=authority_snapshot_digest,
+                )
+                return self._complete_dispatch_in_transaction(
+                    connection,
+                    dispatch,
+                    completed,
+                )
+        except DataAgentReportAdapterError:
+            raise
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable active perception dispatch state is unavailable"
+            ) from None
+
+    def get_dispatch(
+        self,
+        namespace_digest: str,
+        dispatch_id: str,
+    ) -> DataAgentReportDispatch | None:
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    self._dispatch_select()
+                    + " WHERE namespace_digest = ? AND dispatch_id = ?",
+                    (namespace_digest, dispatch_id),
+                ).fetchone()
+                if row is None:
+                    return None
+                dispatch = self._dispatch_from_row(row)
+                self._validate_dispatch_observation(connection, dispatch)
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is unavailable"
+            ) from None
+        return dispatch
+
 
 class _InMemoryDataAgentReportStateStore:
     durable = False
@@ -1165,6 +2385,7 @@ class _InMemoryDataAgentReportStateStore:
         self._object_index: dict[tuple[str, str, str], tuple[str, str, str, str]] = {}
         self._feed_cursors: dict[tuple[str, str, str], str | None] = {}
         self._feed_cursor_history: set[tuple[str, str, str, str]] = set()
+        self._dispatches: dict[str, DataAgentReportDispatch] = {}
 
     def get(
         self,
@@ -1185,7 +2406,13 @@ class _InMemoryDataAgentReportStateStore:
         *,
         object_kind: str,
         object_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        environment_binding_id: str,
     ) -> DataAgentReportStoredObservation | None:
+        del principal_id, tenant_id, workspace_id, mandate_id, environment_binding_id
         row_key = self._object_index.get((namespace_digest, object_kind, object_id))
         if row_key is None or row_key[1:3] != (source_id, source_tenant_id):
             return None
@@ -1268,6 +2495,143 @@ class _InMemoryDataAgentReportStateStore:
         if next_cursor is not None and next_cursor != expected_cursor:
             self._feed_cursor_history.add(history_key)
         return True
+
+    def stage_feed_dispatches(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+        consumed_cursors: tuple[str, ...],
+        dispatches: tuple[DataAgentReportDispatch, ...],
+    ) -> bool:
+        key = (namespace_digest, source_id, source_tenant_id)
+        if self._feed_cursors.get(key) != expected_cursor:
+            return False
+        pending = dict(self._dispatches)
+        for dispatch in dispatches:
+            SQLiteDataAgentReportStateStore._validate_dispatch(dispatch)
+            existing = pending.get(dispatch.dispatch_id)
+            if existing is not None and existing != dispatch:
+                raise DataAgentReportConflict(
+                    "durable external report dispatch identity conflict"
+                )
+            pending[dispatch.dispatch_id] = dispatch
+        if any(
+            (namespace_digest, source_id, source_tenant_id, cursor)
+            in self._feed_cursor_history
+            for cursor in consumed_cursors
+        ):
+            raise DataAgentReportConflict(
+                "external report feed cursor was already consumed"
+            )
+        if not self.advance_feed_cursor(
+            namespace_digest,
+            source_id,
+            source_tenant_id,
+            expected_cursor=expected_cursor,
+            next_cursor=next_cursor,
+        ):
+            return False
+        self._dispatches = pending
+        self._feed_cursor_history.update(
+            (namespace_digest, source_id, source_tenant_id, cursor)
+            for cursor in consumed_cursors
+        )
+        return True
+
+    def list_dispatches(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        status: str,
+    ) -> tuple[DataAgentReportDispatch, ...]:
+        return tuple(
+            sorted(
+                (
+                    item
+                    for item in self._dispatches.values()
+                    if item.namespace_digest == namespace_digest
+                    and item.source_id == source_id
+                    and item.source_tenant_id == source_tenant_id
+                    and item.status == status
+                ),
+                key=lambda item: item.dispatch_id,
+            )
+        )
+
+    def complete_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord | None,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+        outcome_kind: str | None = None,
+        outcome_digest: str | None = None,
+    ) -> DataAgentReportDispatch:
+        current = self._dispatches.get(dispatch.dispatch_id)
+        if outcome_record is None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is required for dispatch completion"
+            )
+        if outcome_kind is not None or outcome_digest is not None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record cannot be replaced by self-reported outcome"
+            )
+        SQLiteDataAgentReportStateStore._validate_outcome_record(
+            dispatch, outcome_record
+        )
+        resolved_kind = outcome_record.outcome_kind.value
+        record_id = outcome_record.assessment_record_id
+        record_digest = content_digest(outcome_record)
+        completion_payload = {
+            "dispatch_id": dispatch.dispatch_id,
+            "dispatch_digest": dispatch.dispatch_digest,
+            "outcome_kind": resolved_kind,
+            "outcome_record_id": record_id,
+            "outcome_digest": record_digest,
+            "completed_at": _utc(completed_at),
+            "consumer_id": consumer_id,
+            "authority_snapshot_digest": authority_snapshot_digest,
+        }
+        completed = DataAgentReportDispatch(
+            **{
+                **dispatch.__dict__,
+                "status": "COMPLETED",
+                "outcome_kind": resolved_kind,
+                "outcome_record_id": record_id,
+                "outcome_digest": record_digest,
+                "completed_at": _utc(completed_at),
+                "consumer_id": consumer_id,
+                "authority_snapshot_digest": authority_snapshot_digest,
+                "completion_digest": content_digest(completion_payload),
+            }
+        )
+        SQLiteDataAgentReportStateStore._validate_dispatch(completed)
+        if current == completed:
+            return completed
+        if current != dispatch:
+            raise DataAgentReportConflict(
+                "durable external report dispatch changed concurrently"
+            )
+        self._dispatches[dispatch.dispatch_id] = completed
+        return completed
+
+    def get_dispatch(
+        self,
+        namespace_digest: str,
+        dispatch_id: str,
+    ) -> DataAgentReportDispatch | None:
+        dispatch = self._dispatches.get(dispatch_id)
+        if dispatch is None or dispatch.namespace_digest != namespace_digest:
+            return None
+        return dispatch
 
 
 def _utc(value: datetime) -> datetime:
@@ -1512,11 +2876,209 @@ class DataAgentReportAdapter:
         return self._state_store.durable
 
     @property
+    def active_perception_database_path(self) -> Path | None:
+        if type(self._state_store) is not SQLiteDataAgentReportStateStore:
+            return None
+        return self._state_store.canonical_database_path
+
+    @property
+    def active_perception_binding_digest(self) -> str:
+        database = self.active_perception_database_path
+        if database is None:
+            raise DataAgentReportAdapterError(
+                "active perception requires canonical SQLite report state"
+            )
+        descriptor = self.admission_policy_descriptor
+        return _active_perception_binding_digest(
+            principal_id=self._config.principal_id,
+            tenant_id=self._config.target_tenant_id,
+            workspace_id=self._config.target_workspace_id,
+            mandate_id=self._config.mandate_id,
+            environment_binding_id=self._config.environment_binding_id,
+            state_namespace=self._state_namespace,
+            admission_policy_digest=descriptor.policy_digest,
+            canonical_database_path=database,
+        )
+
+    @property
     def feed_cursor(self) -> str | None:
         return self._state_store.get_feed_cursor(
             self._state_namespace,
             self._config.source_id,
             self._config.source_tenant_id,
+        )
+
+    def pending_dispatches(self) -> tuple[DataAgentReportDispatch, ...]:
+        dispatches = self._state_store.list_dispatches(
+            self._state_namespace,
+            self._config.source_id,
+            self._config.source_tenant_id,
+            status="PENDING",
+        )
+        for dispatch in dispatches:
+            self._assert_dispatch_scope(dispatch)
+        return dispatches
+
+    def completed_dispatch(self, dispatch_id: str) -> DataAgentReportDispatch | None:
+        dispatch = self._state_store.get_dispatch(
+            self._state_namespace,
+            dispatch_id,
+        )
+        if dispatch is None or dispatch.status != "COMPLETED":
+            return None
+        self._assert_dispatch_scope(dispatch)
+        database = self.active_perception_database_path
+        if (
+            database is None
+            or dispatch.outcome_record_id is None
+            or dispatch.outcome_digest is None
+        ):
+            raise DataAgentReportAdapterError(
+                "durable outcome record authority is required"
+            )
+        try:
+            authority = SQLiteSituatedAssessmentStore(database).scoped_reader(
+                LedgerAccessScope(
+                    principal_id=self._config.principal_id,
+                    tenant_id=self._config.target_tenant_id,
+                    workspace_id=self._config.target_workspace_id,
+                )
+            )
+            outcome_record = authority.record_by_assessment_record_id(
+                dispatch.outcome_record_id
+            )
+        except Exception:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            ) from None
+        if (
+            type(outcome_record) is not SituatedAssessmentRecord
+            or outcome_record.assessment_record_id != dispatch.outcome_record_id
+            or content_digest(outcome_record) != dispatch.outcome_digest
+        ):
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        SQLiteDataAgentReportStateStore._validate_outcome_record(
+            dispatch, outcome_record
+        )
+        return dispatch
+
+    def validate_latest_completed_dispatches(
+        self,
+        *,
+        limit: int,
+    ) -> tuple[DataAgentReportDispatch, ...]:
+        if type(self._state_store) is not SQLiteDataAgentReportStateStore:
+            raise DataAgentReportAdapterError(
+                "completed dispatch validation requires canonical SQLite state"
+            )
+        state_store = cast(SQLiteDataAgentReportStateStore, self._state_store)
+        dispatch_ids = state_store.latest_completed_dispatch_ids(
+            self._state_namespace,
+            self._config.source_id,
+            self._config.source_tenant_id,
+            limit=limit,
+        )
+        return tuple(
+            validated
+            for dispatch_id in dispatch_ids
+            if (validated := self.completed_dispatch(dispatch_id)) is not None
+        )
+
+    def _assert_dispatch_scope(self, dispatch: DataAgentReportDispatch) -> None:
+        if (
+            dispatch.namespace_digest != self._state_namespace
+            or dispatch.source_id != self._config.source_id
+            or dispatch.source_tenant_id != self._config.source_tenant_id
+            or dispatch.principal_id != self._config.principal_id
+            or dispatch.tenant_id != self._config.target_tenant_id
+            or dispatch.workspace_id != self._config.target_workspace_id
+            or dispatch.mandate_id != self._config.mandate_id
+            or dispatch.environment_binding_id != self._config.environment_binding_id
+        ):
+            raise DataAgentReportAdapterError(
+                "external report dispatch scope does not match adapter"
+            )
+
+    def complete_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord | None = None,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+        outcome_kind: str | None = None,
+        outcome_digest: str | None = None,
+    ) -> DataAgentReportDispatch:
+        self._assert_dispatch_scope(dispatch)
+        return self._state_store.complete_dispatch(
+            dispatch,
+            outcome_record=outcome_record,
+            outcome_kind=outcome_kind,
+            outcome_digest=outcome_digest,
+            completed_at=completed_at,
+            consumer_id=consumer_id,
+            authority_snapshot_digest=authority_snapshot_digest,
+        )
+
+    def complete_active_perception_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord,
+        schedule_id: str,
+        config_digest: str,
+        worker_id: str,
+        lease_fence: int,
+        completed_at: datetime,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        self._assert_dispatch_scope(dispatch)
+        if not isinstance(self._state_store, SQLiteDataAgentReportStateStore):
+            raise TypeError(
+                "active perception requires SQLite file-backed report state"
+            )
+        return self._state_store.complete_active_perception_dispatch(
+            dispatch,
+            outcome_record=outcome_record,
+            schedule_id=schedule_id,
+            config_digest=config_digest,
+            worker_id=worker_id,
+            lease_fence=lease_fence,
+            completed_at=completed_at,
+            authority_snapshot_digest=authority_snapshot_digest,
+        )
+
+    def _dispatch_for_bundle(
+        self, bundle: TrustedObservationBundle
+    ) -> DataAgentReportDispatch:
+        bundle_digest = content_digest(
+            {"event": bundle.event, "projection": bundle.projection}
+        )
+        payload = {
+            "namespace_digest": self._state_namespace,
+            "source_id": self._config.source_id,
+            "source_tenant_id": self._config.source_tenant_id,
+            "principal_id": self._config.principal_id,
+            "tenant_id": self._config.target_tenant_id,
+            "workspace_id": self._config.target_workspace_id,
+            "mandate_id": self._config.mandate_id,
+            "environment_binding_id": self._config.environment_binding_id,
+            "environment_event_id": bundle.event.environment_event_id,
+            "projection_id": bundle.projection.projection_id,
+            "bundle_digest": bundle_digest,
+            "activation_authorized": False,
+            "capability_grant_authorized": False,
+            "external_effects_authorized": False,
+        }
+        digest = content_digest(payload)
+        return DataAgentReportDispatch(
+            dispatch_id=f"data-agent-dispatch:{digest}",
+            dispatch_digest=digest,
+            status="PENDING",
+            **payload,
         )
 
     def _validate_credential_contract(self) -> None:
@@ -1725,17 +3287,30 @@ class DataAgentReportAdapter:
                         body=body,
                         raw_digest=actual_digest,
                         observed_at=now,
+                        register=False,
                     )
                 )
-            if not self._state_store.advance_feed_cursor(
+            dispatches = tuple(self._dispatch_for_bundle(bundle) for bundle in bundles)
+            if not self._state_store.stage_feed_dispatches(
                 self._state_namespace,
                 self._config.source_id,
                 self._config.source_tenant_id,
                 expected_cursor=prior_cursor,
                 next_cursor=next_cursor,
+                consumed_cursors=tuple(event["cursor"] for event in events),
+                dispatches=dispatches,
             ):
                 raise DataAgentReportConflict(
                     "external report feed cursor changed concurrently"
+                )
+            for event, bundle in zip(events, bundles, strict=True):
+                raw_digest = event["content_sha256"]
+                self._register_atomically(
+                    f"feed:{event['trace_id']}:{raw_digest}",
+                    event["trace_id"],
+                    raw_digest,
+                    canonical_json(event["report"]).encode("utf-8"),
+                    bundle,
                 )
             return DataAgentReportPollResult(
                 bundles=tuple(bundles),
@@ -1864,6 +3439,7 @@ class DataAgentReportAdapter:
         body: bytes,
         raw_digest: str,
         observed_at: datetime,
+        register: bool = True,
     ) -> TrustedObservationBundle:
         with self._registry_lock:
             previous_digest = self._digests_by_observation.get(observation_key)
@@ -1890,13 +3466,14 @@ class DataAgentReportAdapter:
                     raise DataAgentReportConflict(
                         "external report changed for an already observed identity"
                     )
-                self._register_atomically(
-                    stored.observation_key,
-                    stored.report_trace_id,
-                    stored.raw_digest,
-                    stored.body,
-                    stored.bundle,
-                )
+                if register:
+                    self._register_atomically(
+                        stored.observation_key,
+                        stored.report_trace_id,
+                        stored.raw_digest,
+                        stored.body,
+                        stored.bundle,
+                    )
                 return stored.bundle
 
             candidate = self._build_bundle(trace_id, body, raw_digest, observed_at)
@@ -1930,13 +3507,14 @@ class DataAgentReportAdapter:
                 raise DataAgentReportConflict(
                     "external report changed during durable registration"
                 )
-            self._register_atomically(
-                canonical.observation_key,
-                canonical.report_trace_id,
-                canonical.raw_digest,
-                canonical.body,
-                canonical.bundle,
-            )
+            if register:
+                self._register_atomically(
+                    canonical.observation_key,
+                    canonical.report_trace_id,
+                    canonical.raw_digest,
+                    canonical.body,
+                    canonical.bundle,
+                )
             return canonical.bundle
 
     def _validate_http_response(
@@ -2100,6 +3678,11 @@ class DataAgentReportAdapter:
             self._config.source_tenant_id,
             object_kind=object_kind,
             object_id=object_id,
+            principal_id=self._config.principal_id,
+            tenant_id=self._config.target_tenant_id,
+            workspace_id=self._config.target_workspace_id,
+            mandate_id=self._config.mandate_id,
+            environment_binding_id=self._config.environment_binding_id,
         )
         if stored is None:
             return

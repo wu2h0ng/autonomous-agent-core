@@ -317,6 +317,34 @@ class MandateSteward:
                 current_trace, record, duration_ms=active_ms
             )
 
+    def observe_event_record(
+        self,
+        event_id: str,
+        projection_id: str,
+        admission_receipt_id: str,
+    ) -> SituatedAssessmentRecord:
+        result = self.observe_event(event_id, projection_id, admission_receipt_id)
+        receipt = self._admission_reader.by_receipt_id(admission_receipt_id)
+        if receipt is None:
+            raise SituationalPersistenceConflict(
+                "completed situated assessment lacks admission receipt"
+            )
+        trace = self._admission_reader.by_trace_id(_trace_id(receipt, projection_id))
+        if (
+            trace is None
+            or trace.status is not SituatedTraceStatus.COMPLETED
+            or trace.result_binding_digest is None
+        ):
+            raise SituationalPersistenceConflict(
+                "completed situated assessment lacks durable result binding"
+            )
+        record = self._authority.record_by_result_digest(trace.result_binding_digest)
+        if record is None or proposal_result(record) != result:
+            raise SituationalPersistenceConflict(
+                "completed situated assessment result binding conflicts"
+            )
+        return record
+
     def _resolve_and_validate(
         self,
         receipt: EnvironmentEventAdmissionReceipt,

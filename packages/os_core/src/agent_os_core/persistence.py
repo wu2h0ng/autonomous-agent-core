@@ -22,10 +22,15 @@ from .errors import ConcurrentWriteError, DuplicateEventError, EventStreamError
 class SQLiteTaskEventStore:
     """Crash-safe append-only task event store with lease/idempotency primitives."""
 
-    def __init__(self, path: str | Path = ":memory:") -> None:
+    def __init__(self, path: str | Path = ":memory:", *, uri: bool = False) -> None:
         self.path = str(path)
+        self._uri = uri
         self._lock = RLock()
-        self._db = sqlite3.connect(self.path, check_same_thread=False)
+        self._db = sqlite3.connect(
+            self.path,
+            check_same_thread=False,
+            uri=self._uri,
+        )
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.execute("PRAGMA journal_mode = WAL")

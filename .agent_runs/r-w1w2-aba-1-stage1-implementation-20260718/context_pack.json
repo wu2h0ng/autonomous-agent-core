@@ -1,0 +1,79 @@
+{
+  "run_id": "r-w1w2-aba-1-stage1-implementation-20260718",
+  "track": "Research",
+  "primary_requirement_class": "R",
+  "current_state": "DRAFT_PUBLIC_PREREG_TEMPLATE / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN",
+  "canonical_base": {
+    "repository": "autonomous-agent-core",
+    "branch": "origin/main",
+    "head": "6c94bd8c6f27da6d327a6841fd5c434e8e555206",
+    "current_state_updated": "2026-07-18T13:51:50+08:00"
+  },
+  "approved_design": {
+    "source_commit": "76c92c531d2f00fe2ddca754495f14079fedebf8",
+    "local_cherry_pick": "61f417599bdab9a6410125a184590dbaec75a242",
+    "spec_sha256": "3a534f6919fdc8c6936e49d2de3485f0619d200717ffad9a5ceb4ccb2be92904",
+    "research_sha256": "825a1969a541af71738c2692f8606d1a208105e013184828b0b6972b74978e1e",
+    "verdict": "APPROVE_ABA_DESIGN_CANDIDATE",
+    "receipt_precedence": "messages.jsonl final exact-byte APPROVE receipt supersedes stale internal workflow labels in research.md/spec.md; it does not change the boundary",
+    "boundary": "PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN"
+  },
+  "files_read": [
+    "docs/CURRENT_STATE.yaml",
+    "codebase_index.md",
+    ".agent_runs/r-w1w2-aba-1-design-20260718/brief.md",
+    ".agent_runs/r-w1w2-aba-1-design-20260718/research.md",
+    ".agent_runs/r-w1w2-aba-1-design-20260718/spec.md",
+    ".agent_runs/r-w1w2-aba-1-design-20260718/status.md",
+    ".agent_runs/r-w1w2-aba-1-design-20260718/messages.jsonl"
+  ],
+  "parent_truth_read": [
+    "origin/main:docs/GOAL-BLUEPRINT.md",
+    "origin/main:docs/CURRENT_STATE.yaml",
+    "docs/research/RR-0024-operational-foundations-cleanup.md",
+    "docs/research/RR-0029-architecture-theory-defect-retrospective.md",
+    "docs/research/RR-0030-program-architecture-theory-review.md",
+    "docs/research/RR-0031-agent-cognitive-calibration-gate.md",
+    "docs/research/founder-decision-2026-07-16-adaptive-write-channels-and-requirement-taxonomy.md"
+  ],
+  "prior_negative_map": [
+    "R-NONORACLE-PERTURB-KILL-1 custody transcript violation: hidden identity material in an LLM/reviewer tool transcript permanently PARKED the one-shot route.",
+    "Belief-side organs repeatedly failed against cheap baselines; Stage 1 therefore uses version cache, bounded full log, saved workflow and W1-only as mandatory killers.",
+    "The prior W1/W2 branches at 8c090f1 and a4afe14 are unaccepted implementation donors until exact compatibility review; line count or green unit tests are not evidence."
+  ],
+  "architecture_theory_gate": {
+    "claim_class": "Research route-kill only",
+    "write_channels": ["W1 typed state", "W2 in-envelope strategy selection"],
+    "control_boundary": "No permission expansion, W3/W4 promotion, W5 write, evaluator ownership or C7 mutation",
+    "cheap_baselines": ["W1_ONLY", "VERSION_KEYED_CACHE", "BOUNDED_FULL_LOG", "SAVED_WORKFLOW"],
+    "oracle_boundary": "External non-LLM candidate-blind curator/freezer/scorer with no transcript exposure",
+    "product_process_boundary": "No Product capability or user-value claim"
+  },
+  "unclosed_admission_evidence": [
+    "accepted DESIGN_AUTHORITY_BUNDLE exact-byte prereg and SESOI rationale",
+    "candidate-blind prospective frame with at least three mechanically groundable independent families",
+    "accepted semantic novelty/difficulty protocol",
+    "frozen observable information, release, reread, static prior/build corpus and resource rights",
+    "accepted arm treatment/liveness evidence under representation-only differences",
+    "external non-LLM transcript-safe freezer/scorer identity, service digest and private egress proof",
+    "execution-integrity bundle and separate future run authorization"
+  ],
+  "controlled_exposure": {
+    "qualification_cast_audit": "REVISE; advisory because the first auditor read the task packet before a machine-bound RR-0031 record",
+    "rr0031_delta": "APPROVE_QUALIFICATION_SCAFFOLD_CAST; exact correction re-review found P0=0 and P1=0; experiment implementation remains denied",
+    "package_path_delta": "APPROVE_QUALIFICATION_SCAFFOLD_PATH_DELTA with P0=0/P1=0; canonical Research Track root is src/aac/r_w1w2_aba; experiment authority unchanged",
+    "legacy_heads": [
+      "8c090f1604b83a6d10c3a1cbe6f557cfe1553e6e",
+      "a4afe1401671c3ea0dae3efde6ecf0284d5f9269"
+    ],
+    "legacy_test_characterization": "75 passed + 3 subtests and 108 passed + 3 subtests; green characterization does not grant reuse or research authority",
+    "boundary": "no legacy module is REUSE_AS_IS; exact dispositions await independent characterization receipt"
+  },
+  "assumptions": [
+    "No private hidden material has been created or opened in this package.",
+    "No result-bearing command is necessary to decide experiment implementation admission.",
+    "A missing or unaccepted bundle denies experiment implementation and cannot be replaced by a narrative waiver.",
+    "A future qualification-only scaffold may only reject public artifacts; it cannot select units, execute arms, score private outcomes, freeze, run or produce evidence.",
+    "The qualification scaffold uses the canonical Research Track root src/aac/r_w1w2_aba and must not create a parallel top-level Python package."
+  ]
+}

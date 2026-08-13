@@ -35,7 +35,10 @@ AUTHORIZATION_SCOPE_DIGEST = content_digest(
         "mandate_id": "mandate:build-agent-os",
         "environment_binding_id": "binding:data-agent-reports",
         "environment_binding_version": 1,
-        "environment_binding_digest": "b" * 64,
+        "environment_binding_digest": (
+            "866b22d41dde83e25afb71fdeb350d1de"
+            "cd1c0a9dbb4e73a2398fc04cf4751bd"
+        ),
     }
 )
 
@@ -319,7 +322,11 @@ def test_scope_or_correction_drift_fails_before_provider(tmp_path: Path) -> None
         control_sink=control_sink,
     )
     adapter._on_load = lambda: control_sink[0].pause(
-        "mandate:build-agent-os", expected_epoch=0
+        "mandate:build-agent-os",
+        expected_epoch=0,
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
     )
 
     with pytest.raises(SituationalTrustDenied):

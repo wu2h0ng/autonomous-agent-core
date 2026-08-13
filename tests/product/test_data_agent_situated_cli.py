@@ -290,7 +290,7 @@ class TestCliFlag:
 
 
 class TestBuilder:
-    def test_binds_preexisting_authority_with_zero_provider_calls(
+    def test_rejects_legacy_preexisting_authority_with_zero_provider_calls(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setenv(RESOLVER_ENV_KEY, "raw-source-secret")
@@ -304,23 +304,16 @@ class TestBuilder:
             or (_ for _ in ()).throw(AssertionError("no net calls"))
         )  # type: ignore[assignment]
         try:
-            app = _build()(
-                config_path=config,
-                database=str(tmp_path / "runtime.sqlite3"),
-                workspace=str(tmp_path),
-                clock=lambda: NOW,
-            )
+            with pytest.raises(DataAgentSituatedStartupConfigError):
+                _build()(
+                    config_path=config,
+                    database=str(tmp_path / "runtime.sqlite3"),
+                    workspace=str(tmp_path),
+                    clock=lambda: NOW,
+                )
         finally:
             urllib.request.urlopen = orig  # type: ignore[assignment]
         assert count[0] == 0
-        r = getattr(app, "_data_agent_situated_runtime", None)
-        assert r is not None
-        assert r.principal_scope == (
-            "principal-77",
-            "tenant-golden-1",
-            "workspace-golden-1",
-        )
-        app.store.close()
 
     def test_rejects_memory_database(self, tmp_path: Path) -> None:
         config = _setup(tmp_path)
@@ -350,7 +343,13 @@ class TestBuilder:
     def test_authority_revoked_fails(self, tmp_path: Path) -> None:
         config = _setup(tmp_path)
         s = _seed(tmp_path / "authority.sqlite3", [_mandate()])
-        s.revoke("mandate-situated-42", expected_epoch=2)
+        s.revoke(
+            "mandate-situated-42",
+            expected_epoch=2,
+            principal_id="principal-77",
+            tenant_id="tenant-golden-1",
+            workspace_id="workspace-golden-1",
+        )
         with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
             _build()(
                 config_path=config,
@@ -364,7 +363,13 @@ class TestBuilder:
     def test_authority_paused_fails(self, tmp_path: Path) -> None:
         config = _setup(tmp_path)
         s = _seed(tmp_path / "authority.sqlite3", [_mandate()])
-        s.pause("mandate-situated-42", expected_epoch=2)
+        s.pause(
+            "mandate-situated-42",
+            expected_epoch=2,
+            principal_id="principal-77",
+            tenant_id="tenant-golden-1",
+            workspace_id="workspace-golden-1",
+        )
         with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
             _build()(
                 config_path=config,

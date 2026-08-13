@@ -91,7 +91,7 @@ The user can inspect what the system believes, what it plans to do, what authori
 | Object | Responsibility | Must not become |
 |---|---|---|
 | `Task` / `Commitment` | goal, scope, constraints and accepted work contract | free-form prompt as authority |
-| `WorkflowGraph` | typed executable dependency graph | product identity or untyped prompt chain |
+| `WorkflowGraph` | typed acyclic DAG (`WorkflowGraph/dag_v1`); advanced control-flow reserved | product identity or untyped prompt chain |
 | `AgentRun` / event log | durable execution, leases, retry, replay and terminal state | mutable chat transcript as state source |
 | `CapabilitySpec` | typed operation, input/output, risk and policy requirements | skill name that grants authority |
 | `CapabilityBroker` | resolve and invoke authorized capabilities | plugin-controlled dispatcher |

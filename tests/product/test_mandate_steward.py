@@ -678,7 +678,13 @@ def test_completed_trace_rejects_current_authority_drift_without_mutation(
     steward.observe_event("event-1", "projection-1", receipt.receipt_id)
     trace_id = f"situated-evaluation:{content_digest({'admission_receipt_digest': receipt.receipt_digest, 'projection_id': 'projection-1'})}"
     before = reader.by_trace_id(trace_id)
-    authority.pause("mandate-1", expected_epoch=3)
+    authority.pause(
+        "mandate-1",
+        expected_epoch=3,
+        principal_id="principal-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+    )
     with pytest.raises(SituationalTrustDenied):
         steward.observe_event("event-1", "projection-1", receipt.receipt_id)
     assert reader.by_trace_id(trace_id) == before

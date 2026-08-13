@@ -86,8 +86,10 @@ def bootstrap_mandate(
     mandate: RatifiedMandateRef,
     relevance_context: MandateRelevanceContext | None = None,
     workspace: Path | None = None,
+    evaluated_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Persist ratified Mandate into durable situated store; optional context sidecar."""
+    when = evaluated_at or _utc_now()
     store = SQLiteSituatedAssessmentStore(Path(database), mandates=(mandate,))
     # reopen verifies durable bytes
     restarted = SQLiteSituatedAssessmentStore(Path(database))
@@ -98,7 +100,7 @@ def bootstrap_mandate(
         principal_id=mandate.owner_principal_id,
         tenant_id=mandate.tenant_id,
         workspace_id=mandate.workspace_id,
-        evaluated_at=_utc_now(),
+        evaluated_at=when,
     )
     context_written = None
     if relevance_context is not None:
@@ -371,8 +373,6 @@ def _load_relevance_context(
     return context
 
 
-
-
 def ensure_local_mandate_session(
     *,
     workspace: Path,
@@ -386,25 +386,33 @@ def ensure_local_mandate_session(
     Returns (session, created_new).
     """
     workspace = Path(workspace)
-    database = Path(database)
-    wall = _utc_now()
-    when = evaluated_at or wall
+    database = Path(database).resolve()
+    when = evaluated_at or _utc_now()
     attach = attach_path(workspace)
     if attach.is_file():
         try:
             session = load_attach_session(workspace)
-            store = SQLiteSituatedAssessmentStore(Path(session.database))
-            store.resolve_active(
-                session.mandate_id,
-                session.environment_binding_id,
-                principal_id=session.principal_id,
-                tenant_id=session.tenant_id,
-                workspace_id=session.workspace_id,
-                evaluated_at=when,
-            )
-            return session, False
-        except (MandateTerminalError, SituationalTrustDenied, OSError, ValueError):
-            pass
+        except MandateTerminalError:
+            session = None
+        else:
+            if Path(session.database).resolve() != database:
+                raise MandateTerminalError(
+                    "attached Mandate database does not match requested --database; "
+                    "use the original database or remove .agent_os/mandate_attach.json"
+                )
+            try:
+                store = SQLiteSituatedAssessmentStore(Path(session.database))
+                store.resolve_active(
+                    session.mandate_id,
+                    session.environment_binding_id,
+                    principal_id=session.principal_id,
+                    tenant_id=session.tenant_id,
+                    workspace_id=session.workspace_id,
+                    evaluated_at=when,
+                )
+                return session, False
+            except (SituationalTrustDenied, OSError, ValueError):
+                pass
 
     digest = "a" * 64
     binding_digest = "b" * 64
@@ -422,9 +430,9 @@ def ensure_local_mandate_session(
         workspace_id="workspace:local",
         owner_principal_id="user:founder",
         ratified_by="user:founder",
-        ratified_at=wall - timedelta(hours=1),
-        valid_from=wall - timedelta(hours=1),
-        expires_at=wall + timedelta(days=30),
+        ratified_at=when - timedelta(hours=1),
+        valid_from=when - timedelta(hours=1),
+        expires_at=when + timedelta(days=30),
         correction_epoch=0,
         authority_envelope_digest="e" * 64,
         allowed_environment_bindings=(
@@ -466,6 +474,7 @@ def ensure_local_mandate_session(
         mandate=mandate,
         relevance_context=context,
         workspace=workspace,
+        evaluated_at=when,
     )
     session = attach_mandate(
         workspace=workspace,

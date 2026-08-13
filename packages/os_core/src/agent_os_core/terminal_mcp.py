@@ -17,8 +17,7 @@ import subprocess
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
-from uuid import uuid4
+from typing import Any
 
 
 class McpError(RuntimeError):

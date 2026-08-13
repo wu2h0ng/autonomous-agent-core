@@ -41,7 +41,7 @@ from .mandate_terminal import (
 )
 from .terminal_mcp import MandateMcpHub, McpError
 from .terminal_tui import TerminalRenderer
-from .terminal_session import (
+from .terminal_session_state import (
     TerminalSessionState,
     TerminalSessionTurn,
     load_terminal_session,
@@ -140,13 +140,13 @@ def format_status_banner(
         f"repo: {repo_root}",
         f"tools: {'ON ' + ','.join(TERMINAL_CAPABILITIES) if tools_enabled else 'OFF (chat only)'}",
     ]
-    if commitments:
+    if isinstance(commitments, list):
         lines.append("open commitments:")
         for item in commitments:
             if isinstance(item, dict):
                 lines.append(f"  - {item.get('commitment_id')}: {item.get('statement')}")
     constraints = status.get("permanent_constraints") or []
-    if constraints:
+    if isinstance(constraints, list):
         lines.append("constraints: " + "; ".join(str(c) for c in constraints))
     lines.extend(
         [

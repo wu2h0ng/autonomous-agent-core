@@ -16,16 +16,18 @@ from agent_os_contracts import (
     RelevanceDisposition,
     content_digest,
 )
-from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server import _data_agent_situated_startup as startup
 from apps.api_server._data_agent_situated_startup import (
     DataAgentSituatedStartupConfigError,
 )
 from apps.api_server.server import Handler
-from tests.product.test_data_agent_external_report_adapter import _report_bytes
+from tests.product.test_data_agent_external_report_adapter import (
+    _adapter as _test_adapter,
+    _config as _test_source_config,
+    _report_bytes,
+)
 from tests.product.test_data_agent_situated_cli import (
     NOW,
-    _mandate,
     _policy,
 )
 from tests.product.test_data_agent_situated_startup import (
@@ -37,6 +39,10 @@ from tests.product.test_data_agent_situated_startup import (
     write_config,
 )
 from tests.product.test_provider_relevance_assessor import _draft
+from tests.product.mandate_observation_support import (
+    authorize_workspace_observation,
+    create_workspace_record,
+)
 
 
 class _ProviderResponse:
@@ -141,6 +147,7 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
                 sorted(
                     (
                         "reports:read",
+                        "report-events:read",
                         f"data-agent-origin:{source_origin}",
                         "data-agent-tenant:upstream-tenant-9",
                     )
@@ -150,8 +157,32 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
     )
     provider_ref = provider_credential()
     policy = _policy(provider_ref)
+    authority_database = tmp_path / "authority.sqlite3"
+    authority_adapter, _, _ = _test_adapter(
+        config=_test_source_config(
+            source_id="data-agent-source-main",
+            base_url=source_origin,
+            source_tenant_id="upstream-tenant-9",
+            credential=source,
+            principal_id="principal-77",
+            target_tenant_id="tenant-golden-1",
+            target_workspace_id="workspace-golden-1",
+            mandate_id="mandate-situated-42",
+            environment_binding_id="binding-situated-42",
+            scope_ref="scope:data-agent-reports",
+            allow_loopback_http=True,
+            timeout_seconds=10,
+            max_response_bytes=1_048_576,
+            freshness_seconds=300,
+        )
+    )
+    workspace_record = create_workspace_record(
+        authority_database, tmp_path, adapter=authority_adapter, now=NOW
+    )
     context = relevance_context().model_copy(
         update={
+            "mandate_version": 1,
+            "mandate_digest": content_digest(workspace_record.mandate),
             "open_commitments": (
                 MandateCommitmentContext(
                     commitment_id="commitment:quality",
@@ -167,7 +198,22 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
     write_canonical(tmp_path / "provider-policy.json", policy)
     write_canonical(tmp_path / "relevance-context.json", context)
     config = valid_config_data()
-    config["authority_database"] = str(tmp_path / "authority.sqlite3")
+    config["config_contract"] = "agent-os.data-agent-situated-startup-config.v3"
+    config["active_perception"] = {
+        "interval_seconds": 60,
+        "budget_window_seconds": 3600,
+        "wake_budget_per_window": 8,
+        "query_budget_per_window": 8,
+        "feed_limit": 10,
+        "lease_seconds": 30,
+    }
+    config["authority_database"] = str(authority_database)
+    config["expected_mandate_version"] = 1
+    config["expected_mandate_digest"] = content_digest(workspace_record.mandate)
+    config["expected_correction_epoch"] = 0
+    config["expected_binding_digest"] = (
+        authority_adapter.admission_policy_descriptor.policy_digest
+    )
     config["source"].update(
         {
             "base_url": source_origin,
@@ -183,8 +229,14 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
         }
     )
     config_path = write_config(tmp_path, config)
-    mandate = _mandate(policy=policy, relevance_context=context.ref())
-    SQLiteSituatedAssessmentStore(tmp_path / "authority.sqlite3", mandates=(mandate,))
+    authorize_workspace_observation(
+        authority_database,
+        tmp_path,
+        adapter=authority_adapter,
+        assessor=policy.assessor_ref(),
+        context=context.ref(),
+        now=NOW,
+    )
 
     provider_calls = [0]
     real_urlopen = urllib.request.urlopen
@@ -224,6 +276,7 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
     )
     runtime = application._data_agent_situated_runtime
     assert runtime is not None
+    assert application._mandate_active_perception_service is not None
     constructed_provider = runtime._steward._proposal_service._assessor._provider
     assert content_digest(constructed_provider.invocation_binding) == content_digest(
         policy.provider_invocation

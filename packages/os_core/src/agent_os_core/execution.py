@@ -43,8 +43,14 @@ from agent_os_contracts import (
 )
 
 from .capability import CapabilityBroker, CapabilityResult, DenialReasonCode, WorkspaceSandbox
+from .action_pipeline import ActionPipeline
 from .benchmark_baseline import extract_unified_diff, validate_unified_diff
-from .errors import ConcurrentWriteError
+from .errors import (
+    ConcurrentWriteError,
+    RunExecutionError,
+    UnsupportedNodeError,
+    WorkerInterrupted,
+)
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
 from .provider import ProviderPort
 from .task_service import (
@@ -52,6 +58,11 @@ from .task_service import (
     ValidatedTestReport,
     expected_outcome_contract_error,
 )
+
+EffectCustodyPort = Callable[
+    [str, str, Callable[[], CapabilityResult]],
+    CapabilityResult,
+]
 
 
 def _strict_exit_code(output: object) -> int | None:
@@ -62,7 +73,6 @@ def _strict_exit_code(output: object) -> int | None:
         return None
     return value
 
-
 def _diff_header_path(diff_text: str) -> str | None:
     """Extract the stripped single-file path from +++ headers of a validated diff."""
     for line in diff_text.splitlines():
@@ -72,32 +82,6 @@ def _diff_header_path(diff_text: str) -> str | None:
                 candidate = candidate[2:]
             return candidate or None
     return None
-
-
-class RunExecutionError(RuntimeError):
-    def __init__(
-        self,
-        message: str = "",
-        *,
-        reason_code: DenialReasonCode | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.reason_code = reason_code
-
-
-class WorkerInterrupted(RunExecutionError):
-    """Test/worker crash boundary; durable event state remains resumable."""
-    pass
-
-
-class WaitingForApproval(RunExecutionError):
-    pass
-
-
-class UnsupportedNodeError(RunExecutionError):
-    pass
-
-
 class DeterministicOutcomeEvaluator:
     """Evaluator consumes tool evidence, never provider narration."""
 
@@ -226,6 +210,13 @@ class RunCoordinator:
         self.tasks.bind_artifact_reader(sandbox.read_artifact_bytes)
         self.tasks.bind_correction_reader(correction)
         self.broker = CapabilityBroker(sandbox, correction)
+        self.actions = ActionPipeline(
+            task_service,
+            self.broker,
+            policy,
+            correction,
+            grant,
+        )
         self.provider = provider
         self.provider_profile = provider_profile
         self.policy = policy
@@ -245,12 +236,19 @@ class RunCoordinator:
         *,
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ):
+        def assert_execution_fence(phase: str) -> None:
+            if execution_fence is not None:
+                execution_fence(phase)
+
         inputs = inputs or {}
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None or aggregate.workflow is None or aggregate.commitment is None or aggregate.expected_outcome is None:
             raise RunExecutionError("task is not committed and started")
         run = aggregate.run
+        assert_execution_fence("before_run_execution")
         lease_fence = 0
         owner: str | None = None
         acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
@@ -369,6 +367,7 @@ class RunCoordinator:
         for node in self._ordered_nodes(aggregate.workflow):
             if node.node_id in completed_nodes:
                 continue
+            assert_execution_fence(f"before_node:{node.node_id}")
             try:
                 self.tasks.append_event(task_id, TaskEventType.NODE_STARTED, {"node_id": node.node_id}, correlation_id=run.run_id)
             except Exception:
@@ -384,7 +383,9 @@ class RunCoordinator:
                         node.node_id,
                         provider_event_id,
                         context,
+                        execution_fence=execution_fence,
                     )
+                    assert_execution_fence("before_provider_projection")
                     context[node.node_id] = provider_output
                     if provider_receipt is None:
                         self.tasks.append_event(
@@ -438,6 +439,8 @@ class RunCoordinator:
                         aggregate.approval,
                         node.risk_tier,
                         context.get(f"action:{node.capability}"),
+                        execution_fence=execution_fence,
+                        effect_custody=effect_custody,
                     )
                     context[node.node_id] = result.output
                     context[node.capability or node.node_id] = result.output
@@ -448,6 +451,7 @@ class RunCoordinator:
                         if exit_code is not None:
                             test_exit_codes[node.node_id] = exit_code
                 elif node.kind is NodeKind.EVALUATION:
+                    assert_execution_fence("before_outcome_evaluation")
                     test_exit_code = next(
                         (code for code in test_exit_codes.values() if code != 0),
                         0 if test_exit_codes else None,
@@ -518,6 +522,7 @@ class RunCoordinator:
                         self._release_lease(run.run_id, owner)
                         return self.tasks.get_task(task_id)
                 elif node.kind is NodeKind.WAIT_EVENT:
+                    assert_execution_fence("before_wait_registration")
                     waiting = self.tasks.register_wait(task_id, node)
                     self._release_lease(run.run_id, owner)
                     return waiting
@@ -529,20 +534,42 @@ class RunCoordinator:
                 payload: dict[str, Any] = {"node_id": node.node_id}
                 if isinstance(output, dict):
                     payload["output"] = output
+                assert_execution_fence(f"before_node_commit:{node.node_id}")
                 self.tasks.append_event(task_id, TaskEventType.NODE_COMPLETED, payload, correlation_id=run.run_id)
                 if stop_after_node == node.node_id:
                     raise WorkerInterrupted(f"worker interrupted after node {node.node_id}")
             except WorkerInterrupted:
                 raise
-            except Exception as exc:
+            except KeyboardInterrupt:
                 try:
-                    self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
-                    self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
-                    self._attempt_automatic_compensation(
+                    self._handle_keyboard_interrupt(
                         task_id,
                         principal,
-                        held_lease_fence=lease_fence,
+                        run_id=run.run_id,
+                        node_id=node.node_id,
+                        lease_fence=lease_fence,
+                        effect_custody=effect_custody,
                     )
+                finally:
+                    self._release_lease(run.run_id, owner)
+                raise
+            except Exception as exc:
+                failure_commit_allowed = True
+                if execution_fence is not None:
+                    try:
+                        execution_fence("before_failure_commit")
+                    except Exception:
+                        failure_commit_allowed = False
+                try:
+                    if failure_commit_allowed:
+                        self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
+                        self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
+                        self._attempt_automatic_compensation(
+                            task_id,
+                            principal,
+                            held_lease_fence=lease_fence,
+                            effect_custody=effect_custody,
+                        )
                 finally:
                     self._release_lease(run.run_id, owner)
                 raise RunExecutionError(
@@ -553,6 +580,7 @@ class RunCoordinator:
             self._release_lease(run.run_id, owner)
             raise RunExecutionError("workflow completed without an evaluation node")
         try:
+            assert_execution_fence("before_run_finalization")
             observed_outcome = self._revalidate_outcome_before_finalization(
                 task_id,
                 observed_outcome,
@@ -571,10 +599,71 @@ class RunCoordinator:
                     task_id,
                     principal,
                     held_lease_fence=lease_fence,
+                    effect_custody=effect_custody,
                 )
+        except KeyboardInterrupt:
+            self._handle_keyboard_interrupt(
+                task_id,
+                principal,
+                run_id=run.run_id,
+                node_id="run-finalization",
+                lease_fence=lease_fence,
+                effect_custody=effect_custody,
+            )
+            raise
         finally:
             self._release_lease(run.run_id, owner)
         return self.tasks.get_task(task_id)
+
+    def _handle_keyboard_interrupt(
+        self,
+        task_id: str,
+        principal: PrincipalIdentity,
+        *,
+        run_id: str,
+        node_id: str,
+        lease_fence: int,
+        effect_custody: EffectCustodyPort | None = None,
+    ) -> None:
+        current = self.tasks.current_outcome(task_id)
+        if current is not None and current.status is OutcomeStatus.VERIFIED:
+            self.tasks.record_outcome(
+                task_id,
+                ObservedOutcome(
+                    observed_outcome_id=f"observed-{uuid4()}",
+                    expected_outcome_id=current.expected_outcome_id,
+                    task_id=current.task_id,
+                    run_id=current.run_id,
+                    tenant_id=current.tenant_id,
+                    workspace_id=current.workspace_id,
+                    evaluator_type=current.evaluator_type,
+                    evaluator_version=current.evaluator_version,
+                    status=OutcomeStatus.UNRESOLVED,
+                    score=None,
+                    confidence=1.0,
+                    evidence_refs=current.evidence_refs,
+                    unresolved_gaps=("execution interrupted before finalization",),
+                    observed_at=self.tasks.now(),
+                ),
+            )
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.NODE_FAILED,
+            {"node_id": node_id, "error": "KeyboardInterrupt"},
+            correlation_id=run_id,
+        )
+        self.tasks.update_run_status(
+            task_id,
+            RunStatus.FAILED,
+            event_type=TaskEventType.RUN_FAILED,
+            active_node_id=node_id,
+        )
+        self._attempt_automatic_compensation(
+            task_id,
+            principal,
+            held_lease_fence=lease_fence,
+            effect_custody=effect_custody,
+        )
 
     def _revalidate_outcome_before_finalization(
         self,
@@ -612,12 +701,29 @@ class RunCoordinator:
         self,
         task_id: str,
         principal: PrincipalIdentity,
+        *,
+        effect_custody: EffectCustodyPort | None = None,
     ):
+        if effect_custody is None and self._requires_effect_custody(task_id):
+            raise RunExecutionError(
+                "durable external-exact Task compensation requires effect custody"
+            )
         return self._compensate_with_mode(
             task_id,
             principal,
             mode=CompensationMode.MANUAL,
             held_lease_fence=None,
+            effect_custody=effect_custody,
+        )
+
+    def _requires_effect_custody(self, task_id: str) -> bool:
+        return any(
+            ActionContract.model_validate(event.decoded_payload()["action"])
+            .approval_requirement
+            == "external_exact"
+            for event in self.tasks._event_store.read(task_id)
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+            and isinstance(event.decoded_payload().get("action"), dict)
         )
 
     def _auto_compensate_task(
@@ -626,12 +732,14 @@ class RunCoordinator:
         principal: PrincipalIdentity,
         *,
         held_lease_fence: int,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         return self._compensate_with_mode(
             task_id,
             principal,
             mode=CompensationMode.AUTOMATIC,
             held_lease_fence=held_lease_fence,
+            effect_custody=effect_custody,
         )
 
     def _attempt_automatic_compensation(
@@ -640,6 +748,7 @@ class RunCoordinator:
         principal: PrincipalIdentity,
         *,
         held_lease_fence: int,
+        effect_custody: EffectCustodyPort | None = None,
     ) -> None:
         """Keep an already-persisted failure authoritative if rollback infrastructure fails."""
 
@@ -648,6 +757,7 @@ class RunCoordinator:
                 task_id,
                 principal,
                 held_lease_fence=held_lease_fence,
+                effect_custody=effect_custody,
             )
         except Exception:
             # The original RUN_FAILED/NOT_MET is already durable. A broken event store
@@ -661,6 +771,7 @@ class RunCoordinator:
         *,
         mode: CompensationMode,
         held_lease_fence: int | None,
+        effect_custody: EffectCustodyPort | None,
     ):
         if mode is CompensationMode.MANUAL and principal.role not in {
             PrincipalRole.PRINCIPAL,
@@ -731,6 +842,7 @@ class RunCoordinator:
                 principal,
                 mode=mode,
                 lease_fence=acquired_fence,
+                effect_custody=effect_custody,
             )
         finally:
             self._release_lease(aggregate.run.run_id, owner)
@@ -742,6 +854,7 @@ class RunCoordinator:
         *,
         mode: CompensationMode,
         lease_fence: int | None,
+        effect_custody: EffectCustodyPort | None,
     ):
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None or aggregate.workflow is None:
@@ -749,9 +862,11 @@ class RunCoordinator:
         run = aggregate.run
         events = self.tasks._event_store.read(task_id)
         actions_by_node: dict[str, ActionContract] = {}
+        actions_by_id: dict[str, ActionContract] = {}
         outputs_by_node: dict[str, dict[str, Any]] = {}
         completed_node_ids: set[str] = set()
         compensated_nodes: set[str] = set()
+        effect_candidates: list[tuple[int, ActionContract, dict[str, Any]]] = []
         for event in events:
             payload = event.decoded_payload()
             if event.event_type is TaskEventType.ACTION_PROPOSED:
@@ -759,6 +874,25 @@ class RunCoordinator:
                 if isinstance(value, dict):
                     action = ActionContract.model_validate(value)
                     actions_by_node[action.node_id] = action
+                    actions_by_id[action.action_id] = action
+            elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
+                effect = payload.get("effect")
+                decision = payload.get("decision")
+                if isinstance(effect, dict) and isinstance(decision, dict):
+                    action_id = decision.get("action_id")
+                    action = (
+                        actions_by_id.get(action_id)
+                        if isinstance(action_id, str)
+                        else None
+                    )
+                    if (
+                        action is not None
+                        and action.capability_id
+                        in {"workspace.apply_patch", "workspace.edit"}
+                    ):
+                        effect_candidates.append(
+                            (event.sequence, action, dict(effect))
+                        )
             elif event.event_type is TaskEventType.NODE_COMPLETED:
                 node_id = payload.get("node_id")
                 output = payload.get("output")
@@ -772,17 +906,36 @@ class RunCoordinator:
                     record = PatchCompensationRecord.model_validate(value)
                     compensated_nodes.add(record.node_id)
 
-        candidates = [
-            node
+        durable_effect_nodes = {
+            action.node_id for _, action, _ in effect_candidates
+        }
+        candidates: list[tuple[ActionContract | None, dict[str, Any]]] = [
+            (action, output)
+            for _, action, output in sorted(
+                effect_candidates,
+                key=lambda candidate: candidate[0],
+                reverse=True,
+            )
+            if action.node_id not in compensated_nodes
+        ]
+        candidates.extend(
+            (
+                actions_by_node.get(node.node_id),
+                outputs_by_node.get(node.node_id, {}),
+            )
             for node in reversed(self._ordered_nodes(aggregate.workflow))
             if node.capability == "workspace.apply_patch"
             and node.idempotency.value == "compensatable"
             and node.node_id in completed_node_ids
             and node.node_id not in compensated_nodes
-        ]
-        for node in candidates:
-            original = actions_by_node.get(node.node_id)
-            output = outputs_by_node.get(node.node_id, {})
+            and node.node_id not in durable_effect_nodes
+        )
+        for original, output in candidates:
+            node_id = (
+                original.node_id
+                if original is not None
+                else "unknown-compensatable-action"
+            )
             compensation_ref = output.get("compensation_ref")
             manifest_sha256 = output.get("manifest_sha256")
             path = output.get("path")
@@ -797,11 +950,11 @@ class RunCoordinator:
                     compensation_id=attempt_id,
                     task_id=task_id,
                     run_id=run.run_id,
-                    node_id=node.node_id,
+                    node_id=node_id,
                     original_action_id=(
                         original.action_id
                         if original is not None
-                        else f"action:missing:{node.node_id}"
+                        else f"action:missing:{node_id}"
                     ),
                     mode=mode,
                     status=CompensationStatus.FAILED,
@@ -823,11 +976,21 @@ class RunCoordinator:
                 "compensation_ref": compensation_ref,
                 "manifest_sha256": manifest_sha256,
             }
+            compensation_identity = content_digest(
+                {
+                    "task_id": task_id,
+                    "run_id": run.run_id,
+                    "node_id": node_id,
+                    "original_action_id": original.action_id,
+                    "compensation_ref": compensation_ref,
+                    "manifest_sha256": manifest_sha256,
+                }
+            )
             compensation_action = ActionContract(
-                action_id=f"action-{uuid4()}",
+                action_id=f"action:compensate:{compensation_identity}",
                 task_id=task_id,
                 run_id=run.run_id,
-                node_id=node.node_id,
+                node_id=node_id,
                 principal_id=principal.principal_id,
                 tenant_id=principal.tenant_id,
                 workspace_id=principal.workspace_id,
@@ -835,7 +998,7 @@ class RunCoordinator:
                 capability_version="1",
                 arguments_json=json.dumps(arguments),
                 risk_tier=1,
-                idempotency_key=f"{run.run_id}:compensate:{node.node_id}",
+                idempotency_key=f"{run.run_id}:compensate:{node_id}",
                 estimated_budget=ResourceBudget(
                     max_cost_usd=Decimal("0"),
                     max_duration_seconds=120,
@@ -850,13 +1013,13 @@ class RunCoordinator:
                 ),
                 expected_outcome_id=original.expected_outcome_id,
                 candidate_envelope_id=original.candidate_envelope_id,
-                created_at=self.tasks.now(),
+                created_at=original.created_at,
             )
             record_kwargs = {
                 "compensation_id": attempt_id,
                 "task_id": task_id,
                 "run_id": run.run_id,
-                "node_id": node.node_id,
+                "node_id": node_id,
                 "original_action_id": original.action_id,
                 "compensation_action_id": compensation_action.action_id,
                 "compensation_ref": compensation_ref,
@@ -970,7 +1133,17 @@ class RunCoordinator:
                     raise PermissionError(
                         "original capability correction halted compensation"
                     )
-                result = self.broker.invoke(compensation_action, permit)
+                def invoke_compensation() -> CapabilityResult:
+                    return self.broker.invoke(compensation_action, permit)
+                result = (
+                    effect_custody(
+                        f"compensate:{original.node_id}",
+                        compensation_action.action_digest(),
+                        invoke_compensation,
+                    )
+                    if effect_custody is not None
+                    else invoke_compensation()
+                )
                 self.tasks._record_action_receipt(
                     task_id,
                     action=compensation_action,
@@ -1053,6 +1226,8 @@ class RunCoordinator:
         node_id: str,
         source_event_id: str,
         context: dict[str, Any],
+        *,
+        execution_fence: Callable[[str], None] | None = None,
     ) -> tuple[dict[str, Any], ProviderExecutionReceipt | None]:
         aggregate = self.tasks.get_task(task_id)
         snapshot = aggregate.configuration_snapshot
@@ -1099,8 +1274,29 @@ class RunCoordinator:
         read_output = context.get("workspace.read") or context.get("read")
         if not target_path or not isinstance(read_output, dict):
             raise RunExecutionError("provider requires a target path and completed workspace.read")
+        if aggregate.commitment is None:
+            raise RunExecutionError("provider requires a canonical Commitment")
         current_content = str(read_output.get("content", ""))
         goal = str(context.get("goal") or context.get("prompt") or "Produce the requested repository patch.")
+        acceptance_criteria = "\n".join(
+            f"- {criterion}" for criterion in aggregate.commitment.acceptance_criteria
+        )
+        selfdev_envelope = context.get("selfdev_execution_envelope")
+        selfdev_contract = ""
+        if isinstance(selfdev_envelope, dict):
+            prohibited = ", ".join(
+                str(value)
+                for value in selfdev_envelope.get("prohibited_effects", ())
+            )
+            selfdev_contract = (
+                "SELFDEV persisted execution envelope:\n"
+                f"Exact base HEAD: {selfdev_envelope.get('repository_head', '')}\n"
+                f"Isolated branch: {selfdev_envelope.get('isolated_branch', '')}\n"
+                f"Allowed write path: {selfdev_envelope.get('allowed_write_path', '')}\n"
+                f"Verifier: {selfdev_envelope.get('verifier_command', '')}\n"
+                f"Rollback: {selfdev_envelope.get('rollback_strategy', '')}\n"
+                f"Prohibited effects: {prohibited}.\n"
+            )
         patch_format = str(context.get("patch_format") or "complete_file")
         if patch_format not in {"complete_file", "unified_diff"}:
             raise RunExecutionError(f"unsupported patch_format: {patch_format}")
@@ -1116,18 +1312,18 @@ class RunCoordinator:
                 "include any explanation."
             )
         else:
-            proposal_instruction = (
-                "Propose the complete replacement content by calling only the "
-                "workspace.apply_patch tool. Include path and content. Do not call any "
-                "other capability and do not claim that the patch was applied."
-            )
             prompt = (
                 f"Repository task: {goal}\n"
+                "Acceptance criteria:\n"
+                f"{acceptance_criteria}\n"
+                f"{selfdev_contract}"
                 f"Target path: {target_path}\n"
                 f"Current SHA-256: {read_output.get('sha256', '')}\n"
                 "Current file content follows:\n"
                 f"---BEGIN FILE---\n{current_content[:20000]}\n---END FILE---\n"
-                f"{proposal_instruction}"
+                "Propose the complete replacement content by calling only the "
+                "workspace.apply_patch tool. Include path and content. Do not call any "
+                "other capability and do not claim that the patch was applied."
             )
         request = ProviderRequest(
             request_id=f"request-{uuid4()}", task_id=task_id, run_id=run_id,
@@ -1144,6 +1340,8 @@ class RunCoordinator:
             )
             if self.correction.halted(task_id, run_id, capability):
                 raise RunExecutionError("provider invocation is correction halted")
+        if execution_fence is not None:
+            execution_fence("before_provider")
         response = self.provider.complete(request)
         if isinstance(response, ProviderFailure):
             raise RunExecutionError(f"provider {response.code.value}: {response.safe_message}")
@@ -1314,6 +1512,8 @@ class RunCoordinator:
                 raise RunExecutionError(
                     "provider correction epoch changed during invocation"
                 )
+            if execution_fence is not None:
+                execution_fence("before_provider_commit")
             receipt_payload["post_correction_epochs"] = (
                 post_correction_epochs.model_dump(mode="json")
             )
@@ -1329,7 +1529,23 @@ class RunCoordinator:
             )
         return provider_output, receipt
 
-    def _call_tool(self, task_id: str, run_id: str, node_id: str, capability_id: str, principal: PrincipalIdentity, args: Any, expected: ExpectedOutcome, envelope_id: str, approval: Any = None, risk_tier: int = 0, proposed_action: Any = None) -> CapabilityResult:
+    def _call_tool(
+        self,
+        task_id: str,
+        run_id: str,
+        node_id: str,
+        capability_id: str,
+        principal: PrincipalIdentity,
+        args: Any,
+        expected: ExpectedOutcome,
+        envelope_id: str,
+        approval: Any = None,
+        risk_tier: int = 0,
+        proposed_action: Any = None,
+        *,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
+    ) -> CapabilityResult:
         if capability_id == "workspace.compensate_patch":
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
@@ -1363,62 +1579,15 @@ class RunCoordinator:
                 {"action": action.model_dump(mode="json")},
                 correlation_id=run_id,
             )
-        grant = self.grant[capability_id] if isinstance(self.grant, dict) else self.grant
-        bound_approval = (
-            approval
-            if approval is not None and approval.action_digest == action.action_digest()
-            else None
-        )
-        decision = self.policy.decide(
+        return self.actions.execute(
             action,
-            PolicyInput(
-                principal=principal,
-                grant=grant,
-                capability=self.sandbox.specs().get(capability_id),
-                approval=bound_approval,
-            ),
+            principal,
+            capability_spec=self.sandbox.specs().get(capability_id),
+            approval=approval,
+            record_artifacts=True,
+            execution_fence=execution_fence,
+            effect_custody=effect_custody,
         )
-        self.tasks.append_event(task_id, TaskEventType.POLICY_DECIDED, {"decision": decision.model_dump(mode="json")}, correlation_id=run_id)
-        if decision.verdict is not PolicyVerdict.ALLOW:
-            raise PermissionError(f"policy denied {capability_id}: {decision.reason_codes}")
-        aggregate = self.tasks.get_task(task_id)
-        lease_fence = aggregate.run.lease_fence if aggregate.run is not None else 0
-        permit = self.policy.permit(action, decision, grant, lease_fence=lease_fence)
-        current_fence = getattr(self.tasks._event_store, "lease_fence", lambda _run_id: lease_fence)(run_id)
-        if current_fence != permit.lease_fence:
-            raise PermissionError("stale worker lease")
-        result = self.broker.invoke(action, permit)
-        self.tasks._record_action_receipt(
-            task_id,
-            action=action,
-            decision=decision,
-            permit=permit,
-            receipt=result.receipt,
-            writer_token=self.tasks._runtime_writer_token,
-        )
-        if result.receipt.status.value != "SUCCEEDED":
-            error_detail = ""
-            reason_code: DenialReasonCode | None = None
-            if isinstance(result.output, dict):
-                detail_value = result.output.get("error_detail")
-                if isinstance(detail_value, str) and detail_value:
-                    error_detail = f": {detail_value}"
-                code_value = result.output.get("reason_code")
-                if isinstance(code_value, str) and code_value:
-                    reason_code = DenialReasonCode(code_value)
-            code_fragment = f" [{reason_code.value}]" if reason_code is not None else ""
-            raise RunExecutionError(
-                f"tool failed: {result.receipt.error_code}{code_fragment}{error_detail}",
-                reason_code=reason_code,
-            )
-        for artifact_id in result.receipt.output_artifact_ids:
-            self.tasks.record_artifact(
-                task_id,
-                artifact_id,
-                node_id=node_id,
-                action_id=action.action_id,
-            )
-        return result
 
     def _build_action(
         self,
@@ -1433,17 +1602,16 @@ class RunCoordinator:
         envelope_id: str,
         risk_tier: int,
     ) -> ActionContract:
-        return ActionContract(
-            action_id=f"action-{uuid4()}", task_id=task_id, run_id=run_id, node_id=node_id,
-            principal_id=principal.principal_id, tenant_id=principal.tenant_id,
-            workspace_id=principal.workspace_id, capability_id=capability_id,
-            capability_version="1", arguments_json=json.dumps(args), risk_tier=risk_tier,
-            idempotency_key=f"{run_id}:{node_id}",
-            estimated_budget=ResourceBudget(max_cost_usd=Decimal("0"), max_duration_seconds=120, max_provider_tokens=0, max_tool_calls=1),
-            policy_version=self.policy.policy_version,
-            observed_correction_epochs=self.correction.snapshot(task_id, run_id, capability_id),
-            expected_outcome_id=expected.expected_outcome_id, candidate_envelope_id=envelope_id,
-            created_at=datetime.now(timezone.utc),
+        return self.actions.build_action(
+            task_id=task_id,
+            run_id=run_id,
+            node_id=node_id,
+            capability_id=capability_id,
+            principal=principal,
+            args=args,
+            expected=expected,
+            envelope_id=envelope_id,
+            risk_tier=risk_tier,
         )
 
     @staticmethod
@@ -1474,7 +1642,19 @@ class RunCoordinator:
             return {"path": path}
         if capability_id == "workspace.run_tests":
             command = context.get("test_command") or context.get("command") or "python -m pytest"
-            return {"command": str(command)}
+            arguments: dict[str, Any] = {"command": str(command)}
+            selfdev_envelope = context.get("selfdev_execution_envelope")
+            if isinstance(selfdev_envelope, dict):
+                arguments["selfdev_verification_snapshot"] = {
+                    "repository_head": selfdev_envelope.get("repository_head"),
+                    "verifier_bindings": selfdev_envelope.get(
+                        "verifier_bindings"
+                    ),
+                    "verifier_binding_digest": selfdev_envelope.get(
+                        "verifier_binding_digest"
+                    ),
+                }
+            return arguments
         explicit = context.get(capability_id)
         if isinstance(explicit, dict):
             return dict(explicit)

@@ -470,11 +470,17 @@ def test_revoked_sqlite_mandate_is_terminal_across_instances(tmp_path) -> None:
     first = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
     second = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
 
-    revoked = first.revoke("mandate:agent-os", expected_epoch=0)
+    revoked = first.revoke(
+        "mandate:agent-os", expected_epoch=0,
+        principal_id="user:local", tenant_id="tenant:local", workspace_id="workspace:local"
+    )
 
     assert revoked.correction_epoch == 1
     with pytest.raises(SituationalTrustDenied, match="terminal"):
-        second.pause("mandate:agent-os", expected_epoch=1)
+        second.pause(
+            "mandate:agent-os", expected_epoch=1,
+            principal_id="user:local", tenant_id="tenant:local", workspace_id="workspace:local"
+        )
 
 
 def test_sqlite_store_persists_task_draft_assessment_across_restart(tmp_path) -> None:
@@ -576,7 +582,10 @@ def test_sqlite_revoke_in_one_instance_blocks_other_instance_guarded_emit(
     worker = Thread(target=run)
     worker.start()
     assert assessor.started.wait(timeout=5)
-    authority.revoke("mandate:agent-os", expected_epoch=0)
+    authority.revoke(
+        "mandate:agent-os", expected_epoch=0,
+        principal_id="user:local", tenant_id="tenant:local", workspace_id="workspace:local"
+    )
     assessor.release.set()
     worker.join(timeout=5)
 
@@ -590,11 +599,17 @@ def test_sqlite_mandate_epoch_cas_survives_other_instance_and_restart(tmp_path) 
     first = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
     second = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
 
-    paused = first.pause("mandate:agent-os", expected_epoch=0)
+    paused = first.pause(
+        "mandate:agent-os", expected_epoch=0,
+        principal_id="user:local", tenant_id="tenant:local", workspace_id="workspace:local"
+    )
 
     assert paused.correction_epoch == 1
     with pytest.raises(SituationalTrustDenied, match="epoch"):
-        second.revoke("mandate:agent-os", expected_epoch=0)
+        second.revoke(
+            "mandate:agent-os", expected_epoch=0,
+            principal_id="user:local", tenant_id="tenant:local", workspace_id="workspace:local"
+        )
     restarted = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
     with pytest.raises(SituationalTrustDenied, match="active"):
         restarted.resolve_active(

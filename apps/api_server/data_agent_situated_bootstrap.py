@@ -17,6 +17,7 @@ from agent_os_contracts import (
     TaskDraftProposal,
     HelpRequest,
     ProtocolIngressReceipt,
+    SituatedAssessmentRecord,
     WorkloadIdentityRegistration,
     canonical_json,
     content_digest,
@@ -31,6 +32,7 @@ from agent_os_core import (
     InMemoryExternalStateAuthorizationRegistry,
     MandateSteward,
     OperationalProposalService,
+    ProviderRelevanceAssessor,
     RelevanceAssessorPort,
     ScopedEventAdmissionReader,
     SQLiteProtocolIngressStore,
@@ -45,6 +47,7 @@ from agent_os_core.srl_event_store import _create_event_admission_store
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     TrustedObservationBundle,
+    _active_perception_binding_digest,
 )
 from apps.api_server.data_agent_report_admission import (
     DataAgentReportAdmissionError,
@@ -90,6 +93,55 @@ class _AdmissionState:
     writer: Any
     required_scopes: frozenset[str]
     clock: Clock
+
+
+@dataclass(frozen=True)
+class _ObservationAuthorityGuard:
+    control: SQLiteSituatedAssessmentStore
+    descriptor: Any
+    assessor_ref: Any
+    context_ref: Any
+    scope: LedgerAccessScope
+    clock: Clock
+
+    def snapshot(self) -> str:
+        mandate, binding = self.control.resolve_observation_authority(
+            self.descriptor.mandate_id,
+            self.descriptor.environment_binding_id,
+            principal_id=self.scope.principal_id,
+            tenant_id=self.scope.tenant_id,
+            workspace_id=self.scope.workspace_id,
+            evaluated_at=self.clock(),
+            source_descriptor_digest=self.descriptor.policy_digest,
+            relevance_assessor=self.assessor_ref,
+            relevance_context=self.context_ref,
+        )
+        if (
+            mandate.relevance_assessor != self.assessor_ref
+            or mandate.relevance_context != self.context_ref
+            or binding.environment_binding_id != self.descriptor.environment_binding_id
+        ):
+            raise SituationalTrustDenied(
+                "current observation authority differs from active perception binding"
+            )
+        return content_digest(
+            {
+                "mandate_id": mandate.mandate_id,
+                "mandate_version": mandate.version,
+                "mandate_digest": mandate.mandate_digest,
+                "correction_epoch": mandate.correction_epoch,
+                "observation_authorization_id": mandate.observation_authorization_id,
+                "observation_authorization_receipt_digest": (
+                    mandate.observation_authorization_receipt_digest
+                ),
+                "workspace_record_digest": mandate.workspace_record_digest,
+                "environment_binding": binding,
+                "source_descriptor_digest": self.descriptor.policy_digest,
+                "relevance_assessor": self.assessor_ref,
+                "relevance_context": self.context_ref,
+                "scope": self.scope,
+            }
+        )
 
 
 def _canonical_authorization(value: object) -> CredentialAuthorizationSnapshot:
@@ -240,6 +292,10 @@ class DataAgentSituatedRuntime:
 
     __slots__ = (
         "_admission",
+        "_active_perception_binding_digest",
+        "_active_perception_database_path",
+        "_active_perception_environment_binding_id",
+        "_active_perception_mandate_id",
         "_adapter",
         "_composition_seal",
         "_principal_scope",
@@ -247,6 +303,7 @@ class DataAgentSituatedRuntime:
         "_protocol_ingress_store",
         "_workload_identity_adapter",
         "_steward",
+        "_observation_authority_guard",
     )
 
     def __init__(self) -> None:
@@ -262,6 +319,7 @@ class DataAgentSituatedRuntime:
         envelope_adapter: EventEnvelopeAdapter,
         protocol_ingress_store: SQLiteProtocolIngressStore,
         workload_identity_adapter: WorkloadIdentityAdapter,
+        observation_authority_guard: _ObservationAuthorityGuard | None = None,
         composition_seal: object | None = None,
     ) -> DataAgentSituatedRuntime:
         if (
@@ -288,10 +346,13 @@ class DataAgentSituatedRuntime:
         if (
             admission._trust is not adapter
             or steward._trust is not adapter
+            or admission._authority is not steward._authority
             or admission._reader is not steward._admission_reader
             or admission._writer is not steward._trace_writer
         ):
             raise TypeError("runtime composition reader chain is inconsistent")
+        if type(observation_authority_guard) is not _ObservationAuthorityGuard:
+            raise TypeError("runtime requires an observation authority guard")
         self = object.__new__(cls)
         self._adapter = adapter
         self._admission = admission
@@ -299,7 +360,27 @@ class DataAgentSituatedRuntime:
         self._envelope_adapter = envelope_adapter
         self._protocol_ingress_store = protocol_ingress_store
         self._workload_identity_adapter = workload_identity_adapter
+        self._observation_authority_guard = observation_authority_guard
         self._principal_scope = principal_scope
+        database = observation_authority_guard.control.canonical_database_path
+        descriptor = observation_authority_guard.descriptor
+        if adapter.active_perception_database_path != database:
+            raise TypeError("runtime report and situated databases must be identical")
+        self._active_perception_database_path = database
+        self._active_perception_mandate_id = descriptor.mandate_id
+        self._active_perception_environment_binding_id = (
+            descriptor.environment_binding_id
+        )
+        self._active_perception_binding_digest = _active_perception_binding_digest(
+            principal_id=principal_scope[0],
+            tenant_id=principal_scope[1],
+            workspace_id=principal_scope[2],
+            mandate_id=descriptor.mandate_id,
+            environment_binding_id=descriptor.environment_binding_id,
+            state_namespace=adapter._state_namespace,
+            admission_policy_digest=descriptor.policy_digest,
+            canonical_database_path=database,
+        )
         self._composition_seal = composition_seal
         return self
 
@@ -313,8 +394,27 @@ class DataAgentSituatedRuntime:
     def principal_scope(self) -> tuple[str, str, str]:
         return self._principal_scope
 
+    @property
+    def active_perception_binding_digest(self) -> str:
+        return self._active_perception_binding_digest
+
+    @property
+    def active_perception_database_path(self) -> Path:
+        return self._active_perception_database_path
+
+    @property
+    def active_perception_mandate_id(self) -> str:
+        return self._active_perception_mandate_id
+
+    @property
+    def active_perception_environment_binding_id(self) -> str:
+        return self._active_perception_environment_binding_id
+
     def admit_event(self, event_id: str) -> EnvironmentEventAdmissionReceipt:
         return self._admission.admit_event(event_id)
+
+    def assert_observation_authority(self) -> str:
+        return self._observation_authority_guard.snapshot()
 
     def propose(
         self,
@@ -323,6 +423,14 @@ class DataAgentSituatedRuntime:
         receipt_id: str,
     ) -> ProposalResult:
         return self._steward.observe_event(event_id, projection_id, receipt_id)
+
+    def propose_record(
+        self,
+        event_id: str,
+        projection_id: str,
+        receipt_id: str,
+    ) -> SituatedAssessmentRecord:
+        return self._steward.observe_event_record(event_id, projection_id, receipt_id)
 
     def propose_authenticated_protocol_envelope(
         self,
@@ -333,9 +441,7 @@ class DataAgentSituatedRuntime:
         authorization = self._workload_identity_adapter.authenticate(
             workload_assertion, envelope, self._principal_scope
         )
-        replay = self._protocol_ingress_store.replay_or_reserve(
-            authorization, envelope
-        )
+        replay = self._protocol_ingress_store.replay_or_reserve(authorization, envelope)
         if replay is not None:
             return replay
         try:
@@ -404,9 +510,7 @@ class DataAgentSituatedRuntime:
             task_draft=task_draft,
             help_request=help_request,
         )
-        return self._protocol_ingress_store.complete(
-            authorization, envelope, receipt
-        )
+        return self._protocol_ingress_store.complete(authorization, envelope, receipt)
 
 
 class DataAgentSituatedBootstrap:
@@ -436,9 +540,57 @@ class DataAgentSituatedBootstrap:
             )
         if type(control) is not SQLiteSituatedAssessmentStore:
             raise TypeError("composition requires the durable situated authority store")
+        report_database = adapter.active_perception_database_path
+        if (
+            report_database is None
+            or control.canonical_database_path != report_database
+        ):
+            raise TypeError(
+                "composition report and situated databases must be identical"
+            )
         if adapter._credential_authorization_reader_for_composition is not credentials:
             raise TypeError("composition requires one credential authorization reader")
         principal_id, tenant_id, workspace_id = adapter.principal_scope
+        descriptor = adapter.admission_policy_descriptor
+        candidate_mandate, _ = control.resolve_active(
+            descriptor.mandate_id,
+            descriptor.environment_binding_id,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            evaluated_at=clock(),
+        )
+        context_ref = candidate_mandate.relevance_context
+        mandate, binding = control.resolve_observation_authority(
+            descriptor.mandate_id,
+            descriptor.environment_binding_id,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            evaluated_at=clock(),
+            source_descriptor_digest=descriptor.policy_digest,
+            relevance_assessor=assessor.ref,
+            relevance_context=context_ref,
+        )
+        if context_ref is None:
+            raise SituationalTrustDenied(
+                "verified observation authorization context is unavailable"
+            )
+        context = (
+            assessor._resolve_context_for_composition(context_ref)
+            if type(assessor) is ProviderRelevanceAssessor
+            else None
+        )
+        if type(assessor) is ProviderRelevanceAssessor and (
+            context is None
+            or context.ref() != context_ref
+            or context.mandate_id != mandate.mandate_id
+            or context.mandate_version != mandate.version
+            or context.mandate_digest != mandate.mandate_digest
+            or context.tenant_id != mandate.tenant_id
+            or context.workspace_id != mandate.workspace_id
+        ):
+            raise TypeError("composition requires exact observation authorization")
         scope = LedgerAccessScope(
             principal_id=principal_id,
             tenant_id=tenant_id,
@@ -499,6 +651,14 @@ class DataAgentSituatedBootstrap:
             envelope_adapter=EventEnvelopeAdapter(),
             protocol_ingress_store=SQLiteProtocolIngressStore(admission_database),
             workload_identity_adapter=WorkloadIdentityAdapter(workload_identities),
+            observation_authority_guard=_ObservationAuthorityGuard(
+                control=control,
+                descriptor=descriptor,
+                assessor_ref=assessor.ref,
+                context_ref=context_ref,
+                scope=scope,
+                clock=clock,
+            ),
             composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )
 

@@ -400,6 +400,8 @@ class TaskAggregate:
                 elif event.event_type is TaskEventType.RUN_FAILED:
                     task_status = TaskStatus.FAILED
                 approval = self.approval
+                if event.event_type is TaskEventType.ACTION_PROPOSED:
+                    approval = None
                 if event.event_type is TaskEventType.APPROVAL_RECORDED:
                     approval = ApprovalDecision.model_validate(payload["approval"])
                 return replace(
@@ -435,6 +437,16 @@ class TaskAggregate:
             raise EventStreamError(
                 f"invalid {event.event_type.value} payload: {exc}"
             ) from exc
+        if event.event_type in {
+            TaskEventType.SESSION_TURN_STARTED,
+            TaskEventType.SESSION_TURN_COMPLETED,
+        }:
+            # Chat-turn audit markers carry no aggregate state transition.
+            return replace(
+                self,
+                sequence=event.sequence,
+                last_event_id=event.event_id,
+            )
         raise EventStreamError(f"unsupported task event: {event.event_type.value}")
 
     def _validate_commitment_bindings(

@@ -40,6 +40,12 @@ from apps.api_server.data_agent_report_adapter import (
     SQLiteDataAgentReportStateStore,
 )
 from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from apps.api_server.mandate_active_perception import (
+    ActivePerceptionDisposition,
+    MandateActivePerceptionConfig,
+    MandateActivePerceptionService,
+    SQLiteMandateActivePerceptionStore,
+)
 from tests.product.test_data_agent_external_report_adapter import (
     NOW,
     TRACE_ID,
@@ -57,15 +63,19 @@ from tests.product.test_provider_relevance_assessor import (
     _invocation as _provider_invocation,
     _policy as _provider_policy,
 )
+from tests.product.mandate_observation_support import (
+    authorize_workspace_observation,
+    create_workspace_record,
+)
 
 
-def _context() -> MandateRelevanceContext:
+def _context(*, mandate_digest: str = "a" * 64) -> MandateRelevanceContext:
     return MandateRelevanceContext(
         relevance_context_id="mandate-context:data-agent-reports-v1",
         version=1,
         mandate_id="mandate:build-agent-os",
         mandate_version=1,
-        mandate_digest="a" * 64,
+        mandate_digest=mandate_digest,
         tenant_id="tenant:local",
         workspace_id="workspace:local",
         mission_statement=(
@@ -139,14 +149,40 @@ def _application(
     configured = credentials.resolve_authorization(credential.credential_ref_id)
     assert configured is not None
     assert configured.credential_ref_digest == content_digest(credential)
+    authority_database = Path(control._database)
+    workspace_record = create_workspace_record(
+        authority_database, workspace, adapter=adapter, now=NOW
+    )
+    context = _context(mandate_digest=content_digest(workspace_record.mandate))
     assessor = ProviderRelevanceAssessor(
         provider=provider,
         provider_profile=provider_profile
         or policy.provider_invocation.provider_profile,
         policy=policy,
         trust=adapter,
-        contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+        contexts=InMemoryMandateRelevanceContextRegistry((context,)),
     )
+    with sqlite3.connect(authority_database) as connection:
+        table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'mandate_observation_authorizations'"
+        ).fetchone()
+        authorization_exists = (
+            connection.execute(
+                "SELECT 1 FROM mandate_observation_authorizations LIMIT 1"
+            ).fetchone()
+            if table_exists is not None
+            else None
+        )
+    if authorization_exists is None:
+        authorize_workspace_observation(
+            authority_database,
+            workspace,
+            adapter=adapter,
+            assessor=assessor.ref,
+            context=context.ref(),
+            now=NOW,
+        )
     runtime = DataAgentSituatedBootstrap.compose(
         adapter=adapter,
         material_store=SQLiteDataAgentReportAdmissionMaterialStore(
@@ -183,18 +219,14 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     tmp_path: Path,
 ) -> None:
     report_database = tmp_path / "reports.sqlite3"
-    situated_database = tmp_path / "situated.sqlite3"
+    situated_database = report_database
     task_database = tmp_path / "agent-os.sqlite3"
     policy = _provider_policy()
-    mandate = _mandate(policy)
     first_adapter, first_broker, first_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
     first_provider = _provider(policy)
-    first_control = SQLiteSituatedAssessmentStore(
-        situated_database,
-        mandates=(mandate,),
-    )
+    first_control = SQLiteSituatedAssessmentStore(situated_database)
     first_app = _application(
         task_database=task_database,
         workspace=tmp_path,
@@ -253,29 +285,114 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     assert persisted is not None
     replay_app.store.close()
 
-    replay_control.revoke(mandate.mandate_id, expected_epoch=0)
+    replay_control.revoke(
+        "mandate:build-agent-os",
+        expected_epoch=0,
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
     revoked_adapter, revoked_broker, revoked_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
     revoked_provider = _provider(policy)
-    revoked_app = _application(
-        task_database=task_database,
-        workspace=tmp_path,
-        adapter=revoked_adapter,
-        control=SQLiteSituatedAssessmentStore(situated_database),
-        provider=revoked_provider,
-        policy=policy,
-    )
-
     with pytest.raises(SituationalTrustDenied, match="not active"):
-        revoked_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
+        _application(
+            task_database=task_database,
+            workspace=tmp_path,
+            adapter=revoked_adapter,
+            control=SQLiteSituatedAssessmentStore(situated_database),
+            provider=revoked_provider,
+            policy=policy,
+        )
 
-    assert revoked_app.store.list_task_ids() == ()
-    assert len(revoked_broker.resolved) == 2
-    assert len(revoked_transport.requests) == 1
+    assert revoked_broker.resolved == []
+    assert len(revoked_transport.requests) == 0
     assert revoked_provider.decision_requests == []
     assert replay_control.record_by_input_binding(input_digest) == persisted
-    revoked_app.store.close()
+
+
+def test_active_perception_completed_replay_does_not_call_provider_again(
+    tmp_path: Path,
+) -> None:
+    runtime_database = tmp_path / "runtime.sqlite3"
+    credential = _data_credential(
+        scopes=(
+            "reports:read",
+            "report-events:read",
+            "data-agent-origin:http://127.0.0.1:8765",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    cursor = "cursor-active-1"
+    adapter, _, _ = _adapter(
+        response=_response(
+            _feed_bytes([_feed_event(cursor)], next_cursor=cursor),
+            final_url="http://127.0.0.1:8765/external/report-events?limit=1",
+        ),
+        config=_config(credential=credential),
+        state_store=SQLiteDataAgentReportStateStore(runtime_database),
+    )
+    policy = _provider_policy()
+    provider = _provider(policy)
+    control = SQLiteSituatedAssessmentStore(runtime_database)
+    app = _application(
+        task_database=tmp_path / "agent-os.sqlite3",
+        workspace=tmp_path,
+        adapter=adapter,
+        control=control,
+        provider=provider,
+        policy=policy,
+        credential=credential,
+    )
+    runtime = app._data_agent_situated_runtime
+    assert runtime is not None
+    config = MandateActivePerceptionConfig(
+        schedule_id="schedule:provider-active",
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-reports",
+        interval_seconds=60,
+        budget_window_seconds=3600,
+        wake_budget_per_window=4,
+        query_budget_per_window=4,
+        feed_limit=1,
+        lease_seconds=30,
+    )
+    store = SQLiteMandateActivePerceptionStore(runtime_database)
+    service = MandateActivePerceptionService(
+        config=config,
+        store=store,
+        adapter=adapter,
+        runtime=runtime,
+        clock=lambda: NOW,
+    )
+    service.ensure_schedule(first_wake_at=NOW)
+
+    first = service.run_due_once(worker_id="worker-1")
+    service.reschedule(next_wake_at=NOW + timedelta(hours=1))
+    replay = service.run_due_once(worker_id="worker-2")
+
+    assert first.disposition is ActivePerceptionDisposition.COMPLETED
+    assert first.proposal_count == 1
+    assert replay.disposition is ActivePerceptionDisposition.NOT_DUE
+    assert len(provider.decision_requests) == 1
+    assert adapter.pending_dispatches() == ()
+    with sqlite3.connect(runtime_database) as connection:
+        outcome_record_id, outcome_digest = connection.execute(
+            """
+            SELECT outcome_record_id, outcome_digest
+            FROM data_agent_report_dispatch_outbox WHERE status = 'COMPLETED'
+            """
+        ).fetchone()
+    durable_record = control.record_by_result_digest(outcome_digest)
+    assert durable_record is not None
+    assert outcome_record_id == durable_record.assessment_record_id
+    assert outcome_digest == content_digest(durable_record)
+    assert app.store.list_task_ids() == ()
+    app.store.close()
 
 
 def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
@@ -298,10 +415,7 @@ def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         adapter=restarted_adapter,
-        control=SQLiteSituatedAssessmentStore(
-            tmp_path / "situated.sqlite3",
-            mandates=(_mandate(policy),),
-        ),
+        control=SQLiteSituatedAssessmentStore(report_database),
         provider=provider,
         policy=policy,
     )
@@ -345,10 +459,7 @@ def test_foreign_namespace_never_rehydrates_or_calls_provider(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         adapter=local_adapter,
-        control=SQLiteSituatedAssessmentStore(
-            tmp_path / "situated.sqlite3",
-            mandates=(_mandate(policy),),
-        ),
+        control=SQLiteSituatedAssessmentStore(report_database),
         provider=provider,
         policy=policy,
     )
@@ -405,10 +516,7 @@ def test_corrupt_durable_report_fails_closed_before_provider_without_partial_reg
     )
     policy = _provider_policy()
     provider = _provider(policy)
-    control = SQLiteSituatedAssessmentStore(
-        tmp_path / f"situated-{corruption}.sqlite3",
-        mandates=(_mandate(policy),),
-    )
+    control = SQLiteSituatedAssessmentStore(report_database)
     app = _application(
         task_database=tmp_path / f"agent-os-{corruption}.sqlite3",
         workspace=tmp_path,
@@ -426,7 +534,7 @@ def test_corrupt_durable_report_fails_closed_before_provider_without_partial_reg
     assert transport.requests == []
     assert provider.decision_requests == []
     assert app.store.list_task_ids() == ()
-    with sqlite3.connect(tmp_path / f"situated-{corruption}.sqlite3") as connection:
+    with sqlite3.connect(report_database) as connection:
         count = connection.execute(
             "SELECT COUNT(*) FROM situated_assessment_records"
         ).fetchone()
@@ -438,7 +546,7 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
     tmp_path: Path,
 ) -> None:
     report_database = tmp_path / "reports.sqlite3"
-    situated_database = tmp_path / "situated.sqlite3"
+    situated_database = report_database
     task_database = tmp_path / "agent-os.sqlite3"
     first_feed = _feed_event("opaque-cursor-1")
     second_feed = _feed_event(
@@ -471,16 +579,12 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
     )
     bundles = writer.poll_once(limit=2).bundles
     policy = _provider_policy()
-    mandate = _mandate(policy)
     restarted, broker, transport = _adapter(
         config=feed_config,
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
     provider = _provider(policy)
-    control = SQLiteSituatedAssessmentStore(
-        situated_database,
-        mandates=(mandate,),
-    )
+    control = SQLiteSituatedAssessmentStore(situated_database)
     app = _application(
         task_database=task_database,
         workspace=tmp_path,
@@ -596,8 +700,7 @@ def test_same_id_provider_binding_drift_fails_during_application_construction(
             workspace=tmp_path,
             adapter=adapter,
             control=SQLiteSituatedAssessmentStore(
-                tmp_path / f"situated-{drift}.sqlite3",
-                mandates=(_mandate(policy),),
+                tmp_path / f"reports-{drift}.sqlite3"
             ),
             provider=provider,
             policy=policy,

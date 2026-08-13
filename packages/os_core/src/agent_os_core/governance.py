@@ -46,8 +46,9 @@ POLICY_KERNEL_V1_SPEC = {
 POLICY_KERNEL_V1_DIGEST = content_digest(POLICY_KERNEL_V1_SPEC)
 
 
-class CorrectionGuard(Protocol):
-    """Minimal correction contract required by local effect writers."""
+class CorrectionReadPort(Protocol):
+    """Minimal correction contract required by local effect writers.
+    Runtime code receives this; admin write methods (correct/resume) are NOT on this port."""
 
     def snapshot(
         self,
@@ -65,6 +66,9 @@ class CorrectionGuard(Protocol):
         capability_id: str,
         observed_epochs: CorrectionEpochVector,
     ) -> AbstractContextManager[bool]: ...
+
+
+CorrectionGuard = CorrectionReadPort  # backward compatibility
 
 
 class ExternalPolicyBackend(Protocol):
@@ -187,7 +191,7 @@ class PolicyKernel:
 
     def __init__(
         self,
-        correction: CorrectionAuthority,
+        correction: CorrectionReadPort,
         policy_version: str = "policy-1",
         external_backend: ExternalPolicyBackend | None = None,
         clock: Callable[[], datetime] | None = None,

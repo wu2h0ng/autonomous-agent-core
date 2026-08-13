@@ -103,6 +103,43 @@ def valid_config_data() -> dict[str, Any]:
     }
 
 
+def active_config_data() -> dict[str, Any]:
+    data = valid_config_data()
+    data["config_contract"] = "agent-os.data-agent-situated-startup-config.v3"
+    data["active_perception"] = {
+        "interval_seconds": 60,
+        "budget_window_seconds": 3600,
+        "wake_budget_per_window": 8,
+        "query_budget_per_window": 8,
+        "feed_limit": 10,
+        "lease_seconds": 30,
+    }
+    return data
+
+
+def test_v3_active_perception_contract_is_typed() -> None:
+    config = DataAgentSituatedStartupConfig.model_validate(active_config_data())
+
+    assert config.active_perception is not None
+    assert config.active_perception.feed_limit == 10
+
+
+def test_v2_cannot_smuggle_active_perception() -> None:
+    data = active_config_data()
+    data["config_contract"] = "agent-os.data-agent-situated-startup-config.v2"
+
+    with pytest.raises(ValidationError):
+        DataAgentSituatedStartupConfig.model_validate(data)
+
+
+def test_v3_requires_active_perception_contract() -> None:
+    data = valid_config_data()
+    data["config_contract"] = "agent-os.data-agent-situated-startup-config.v3"
+
+    with pytest.raises(ValidationError):
+        DataAgentSituatedStartupConfig.model_validate(data)
+
+
 REMOVE = object()
 
 

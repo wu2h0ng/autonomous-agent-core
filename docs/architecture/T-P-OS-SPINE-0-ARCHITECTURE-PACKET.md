@@ -318,25 +318,21 @@ untyped text in a product ledger.
 
 ## 6. WorkflowGraph v1
 
-### 6.1 Static representation
+### 6.1a dag_v1 (SPINE-0 executable)
 
-`WorkflowGraph v1` is a validated static graph with typed nodes and edges. The definition
-is acyclic at the outer level. Repetition is represented only through a bounded `loop` or
-`map` node whose iteration limit, body reference, stop predicate and budget are explicit.
+`WorkflowGraph/dag_v1` is the validated static acyclic DAG profile used by SPINE-0 Product
+Runtime. Executable node kinds are `provider`, `tool`, `transform`, `decision`, `approval`,
+`evaluation`, `wait_event` and `terminal`. Conditional edges, failure-edge routing, bounded
+retry and advanced control-flow fields are rejected at validation.
 
-Required initial node families are:
+### 6.1b reserved (not executable in dag_v1)
 
-- `provider`;
-- `tool`;
-- `transform`;
-- `decision`;
-- `approval`;
-- `evaluation`;
-- `wait_event`;
+The following remain in the schema for forward tooling but are **not** valid in
+`WorkflowGraph/dag_v1`:
+
 - `loop` with a finite bound;
 - `parallel_map` with a concurrency bound;
-- `subworkflow` pinned to a version;
-- `terminal`.
+- `subworkflow` pinned to a version.
 
 Every executable node declares input/output schemas, timeout, retry class, idempotency,
 failure edge, risk tier and required capability. A node with a side effect must emit an

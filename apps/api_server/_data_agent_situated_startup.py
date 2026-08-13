@@ -64,6 +64,11 @@ from .data_agent_report_adapter import (
     _normalized_origin,
 )
 from .data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from .mandate_active_perception import (
+    MandateActivePerceptionConfig,
+    MandateActivePerceptionService,
+    SQLiteMandateActivePerceptionStore,
+)
 
 _MAX_CONFIG_BYTES: Final = 65_536
 _MAX_MATERIAL_BYTES: Final = 262_144
@@ -154,10 +159,28 @@ class DataAgentSituatedStartupProviderConfig(ContractModel):
     expected_credential_digest: Sha256Digest
 
 
+class DataAgentSituatedStartupActivePerceptionConfig(ContractModel):
+    interval_seconds: StrictInt = Field(ge=1, le=86_400)
+    budget_window_seconds: StrictInt = Field(ge=1, le=604_800)
+    wake_budget_per_window: StrictInt = Field(ge=1, le=10_000)
+    query_budget_per_window: StrictInt = Field(ge=1, le=10_000)
+    feed_limit: StrictInt = Field(ge=1, le=100)
+    lease_seconds: StrictInt = Field(ge=1, le=3_600)
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> DataAgentSituatedStartupActivePerceptionConfig:
+        if self.budget_window_seconds < self.interval_seconds:
+            raise ValueError("budget window must cover at least one interval")
+        return self
+
+
 class DataAgentSituatedStartupConfig(ContractModel):
     """Closed startup configuration data; direct construction also validates."""
 
-    config_contract: Literal["agent-os.data-agent-situated-startup-config.v2"]
+    config_contract: Literal[
+        "agent-os.data-agent-situated-startup-config.v2",
+        "agent-os.data-agent-situated-startup-config.v3",
+    ]
     principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
@@ -170,6 +193,15 @@ class DataAgentSituatedStartupConfig(ContractModel):
     authority_database: NonEmptyStr
     source: DataAgentSituatedStartupSourceConfig
     provider: DataAgentSituatedStartupProviderConfig
+    active_perception: DataAgentSituatedStartupActivePerceptionConfig | None = None
+
+    @model_validator(mode="after")
+    def _validate_contract_version(self) -> DataAgentSituatedStartupConfig:
+        if (
+            self.config_contract == "agent-os.data-agent-situated-startup-config.v2"
+        ) != (self.active_perception is None):
+            raise ValueError("active perception does not match config contract")
+        return self
 
 
 class _DataAgentSituatedStartupProvisioningView:
@@ -317,6 +349,8 @@ class _DataAgentSituatedStartupProvisioningView:
             f"data-agent-origin:{source_origin}",
             f"data-agent-tenant:{config.source.source_tenant_id}",
         }
+        if config.active_perception is not None:
+            required_source_scopes.add("report-events:read")
         if (
             source_credential.provider_id != "data-agent-external-report"
             or tuple(source_credential.scopes) != tuple(sorted(required_source_scopes))
@@ -887,7 +921,7 @@ def _build_data_agent_situated_application(
                 source_reader, clock=clock
             ),
             credential_authorizations=source_reader,
-            state_store=SQLiteDataAgentReportStateStore(database),
+            state_store=SQLiteDataAgentReportStateStore(authority_database),
             clock=clock,
         )
 
@@ -931,9 +965,39 @@ def _build_data_agent_situated_application(
             role=PrincipalRole.PRINCIPAL,
             authenticated_at=evaluated_at,
         )
+        active_perception_service = None
+        if config.active_perception is not None:
+            active = config.active_perception
+            active_config = MandateActivePerceptionConfig(
+                schedule_id=(
+                    f"active-perception:{config.principal_id}:{config.tenant_id}:"
+                    f"{config.workspace_id}:{config.mandate_id}:"
+                    f"{config.environment_binding_id}"
+                ),
+                principal_id=config.principal_id,
+                tenant_id=config.tenant_id,
+                workspace_id=config.workspace_id,
+                mandate_id=config.mandate_id,
+                environment_binding_id=config.environment_binding_id,
+                interval_seconds=active.interval_seconds,
+                budget_window_seconds=active.budget_window_seconds,
+                wake_budget_per_window=active.wake_budget_per_window,
+                query_budget_per_window=active.query_budget_per_window,
+                feed_limit=active.feed_limit,
+                lease_seconds=active.lease_seconds,
+            )
+            active_perception_service = MandateActivePerceptionService(
+                config=active_config,
+                store=SQLiteMandateActivePerceptionStore(authority_database),
+                adapter=adapter,
+                runtime=runtime,
+                clock=clock,
+            )
+            active_perception_service.ensure_schedule(first_wake_at=evaluated_at)
         return AgentOSApplication._with_data_agent_situated_runtime(
             situated_runtime=runtime,
             principal=principal,
+            active_perception_service=active_perception_service,
             database=database,
             workspace=workspace,
             clock=clock,

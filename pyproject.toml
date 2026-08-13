@@ -2,10 +2,14 @@
 name = "autonomous-agent-core"
 version = "0.0.1"
 description = "Agent OS dual-track monorepo: product runtime plus evidence-gated autonomous-agent research."
-requires-python = ">=3.10"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "agent-os-contracts==0.1.0",
+    "agent-os-core==0.1.0",
+]
 
 [project.scripts]
+agent = "apps.cli.__main__:main"
 agent-os = "apps.cli.__main__:main"
 
 [project.optional-dependencies]
@@ -22,8 +26,19 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = [".", "packages/contracts/src", "packages/os_core/src", "src"]
-include = ["apps*", "agent_os_contracts*", "agent_os_core*", "aac*"]
+where = ["src", "."]
+include = ["aac*", "envs*", "apps*", "domain_packs*"]
+exclude = ["packages*", "tests*", "product_evals*", "research*"]
+
+[tool.setuptools.package-data]
+"apps.api_server" = ["*.html"]
+
+[tool.uv.workspace]
+members = ["packages/contracts", "packages/os_core"]
+
+[tool.uv.sources]
+agent-os-contracts = { workspace = true }
+agent-os-core = { workspace = true }
 
 [tool.pytest.ini_options]
 pythonpath = [

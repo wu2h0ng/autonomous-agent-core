@@ -1,0 +1,28 @@
+{
+  "providers": [
+    {
+      "approval_request_id": "perm_405b984cdd5c4f38",
+      "argv_template": [],
+      "capabilities": [
+        "single_writer_implementation",
+        "test_execution"
+      ],
+      "command": "",
+      "detected": true,
+      "display_name": "Codex control surface",
+      "evidence_refs": [
+        "goal_card.md"
+      ],
+      "kind": "desktop",
+      "launch_status": "metadata_only",
+      "notes": [
+        "No provider process is launched for this session anchor."
+      ],
+      "permission_profile": "gated",
+      "provider_id": "codex",
+      "risk_level": "R3",
+      "updated_at": "2026-07-18T06:05:32+00:00"
+    }
+  ],
+  "updated_at": "2026-07-18T06:05:32+00:00"
+}

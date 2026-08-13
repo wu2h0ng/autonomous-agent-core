@@ -161,6 +161,9 @@ class RatifiedMandateRef(ContractModel):
     )
     relevance_assessor: RelevanceAssessorRef
     relevance_context: MandateRelevanceContextRef | None = None
+    observation_authorization_id: NonEmptyStr | None = None
+    observation_authorization_receipt_digest: Sha256Digest | None = None
+    workspace_record_digest: Sha256Digest | None = None
 
     @field_validator("allowed_environment_bindings", mode="after")
     @classmethod

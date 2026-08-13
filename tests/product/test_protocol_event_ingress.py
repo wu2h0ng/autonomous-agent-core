@@ -517,7 +517,7 @@ def test_protocol_ingress_persists_complete_task6_evidence_chain(
     assert trace_contract.admission_receipt_digest
     assert trace_contract.result_binding_digest
 
-    with sqlite3.connect(tmp_path / "situated.sqlite3") as connection:
+    with sqlite3.connect(tmp_path / "reports.sqlite3") as connection:
         assessment_row = connection.execute(
             "SELECT source_binding_digest, record_json FROM situated_assessment_records"
         ).fetchone()

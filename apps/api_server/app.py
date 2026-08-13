@@ -3,13 +3,17 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from agent_os_contracts import (
     ActionContract,
@@ -23,6 +27,7 @@ from agent_os_contracts import (
     CandidatePromotionDecision,
     CandidatePromotionResult,
     Commitment,
+    CreateMandateCommand,
     CredentialRef,
     CredentialStatus,
     DomainCandidate,
@@ -33,17 +38,25 @@ from agent_os_contracts import (
     ExternalSignal,
     Goal,
     HelpRequest,
+    MandateObservationAuthorizationCommand,
+    MandateTaskLinkCommand,
+    MandateTaskLinkRevocationCommand,
+    NodeKind,
+    NodeSpec,
+    ObservationBindingDescriptor,
     OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
     ProviderProfile,
     ProviderFailure,
+    ProviderInvocationBinding,
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
     ProtocolIngressReceipt,
     ResourceBudget,
     RunStatus,
+    SessionRef,
     TaskConfigurationSnapshot,
     TaskConfigurationSnapshotCommand,
     TaskEventType,
@@ -51,9 +64,16 @@ from agent_os_contracts import (
     TaskStatus,
     TrajectoryProjection,
     WorkflowGraph,
+    content_digest,
 )
 from agent_os_core import (
+    AgentLoop,
+    AgentLoopConfig,
+    CHAT_CAPABILITY_IDS,
+    CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
+    ChatSession,
+    ConfirmationGateway,
     CandidateEvaluationScopeMismatch,
     CandidatePromotionScopeMismatch,
     Clock,
@@ -71,6 +91,11 @@ from agent_os_core import (
     SQLiteCandidateEvaluationStore,
     SQLiteCandidatePromotionStore,
     SQLiteTaskEventStore,
+    SQLiteMandateWorkspaceStore,
+    SQLiteMandateObservationAuthorizationStore,
+    MandateResponsibilityProjector,
+    SQLiteMandateOutcomePortfolioStore,
+    SQLiteMandateResponsibilityStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -88,6 +113,7 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
+from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
@@ -97,6 +123,10 @@ from .data_agent_report_adapter import (
     TrustedObservationBundle,
 )
 from .data_agent_situated_bootstrap import DataAgentSituatedRuntime
+from .mandate_active_perception import (
+    ActivePerceptionReceipt,
+    MandateActivePerceptionService,
+)
 
 
 def _utc_now() -> datetime:
@@ -112,6 +142,7 @@ class AgentOSApplication:
         *,
         situated_runtime: DataAgentSituatedRuntime,
         principal: PrincipalIdentity,
+        active_perception_service: MandateActivePerceptionService | None = None,
         database: str | Path = ":memory:",
         workspace: str | Path = ".",
         clock: Clock = _utc_now,
@@ -147,6 +178,10 @@ class AgentOSApplication:
             **application_options,
         )
         application._data_agent_situated_runtime = situated_runtime
+        if active_perception_service is not None:
+            if active_perception_service._runtime is not situated_runtime:
+                raise TypeError("active perception must use the bound situated runtime")
+            application._mandate_active_perception_service = active_perception_service
         return application
 
     @classmethod
@@ -160,6 +195,7 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
+        observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
         **application_options: Any,
     ) -> AgentOSApplication:
         """Bind one pre-composed, scope-authenticated steward to the application."""
@@ -184,6 +220,7 @@ class AgentOSApplication:
             clock=clock,
             situational_trust=situational_trust,
             data_agent_reports=data_agent_reports,
+            observation_binding_descriptors=observation_binding_descriptors,
             **application_options,
         )
         application._mandate_steward = mandate_steward
@@ -200,6 +237,7 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
+        observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -213,8 +251,46 @@ class AgentOSApplication:
         self._evaluation_grant_override = evaluation_grant
         self._promotion_grant_override = promotion_grant
         self._configuration_lock = RLock()
-        self.store = SQLiteTaskEventStore(database)
+        canonical_database: str | Path = database
+        canonical_database_uri = False
+        if str(database) == ":memory:":
+            canonical_database = f"file:agent-os-{uuid4().hex}?mode=memory&cache=shared"
+            canonical_database_uri = True
+        self.store = SQLiteTaskEventStore(
+            canonical_database,
+            uri=canonical_database_uri,
+        )
+        self.mandate_workspace = SQLiteMandateWorkspaceStore(
+            canonical_database,
+            uri=canonical_database_uri,
+        )
+        self.observation_binding_descriptors = observation_binding_descriptors
+        self.mandate_observation_authorizations = (
+            SQLiteMandateObservationAuthorizationStore(
+                database,
+                mandate_workspace=self.mandate_workspace,
+                descriptors=observation_binding_descriptors,
+            )
+            if str(database) != ":memory:" and observation_binding_descriptors
+            else None
+        )
         self.tasks = TaskService(self.store, clock=self._clock)
+        self.mandate_responsibility_store = SQLiteMandateResponsibilityStore(
+            canonical_database,
+            clock=self._clock,
+            uri=canonical_database_uri,
+        )
+        self.mandate_responsibility = MandateResponsibilityProjector(
+            self.mandate_responsibility_store,
+            self.tasks,
+            clock=self._clock,
+        )
+        self.mandate_outcome_portfolio_store = SQLiteMandateOutcomePortfolioStore(
+            canonical_database,
+            clock=self._clock,
+            uri=canonical_database_uri,
+            task_reader=self.tasks,
+        )
         if (
             situational_trust is not None
             and data_agent_reports is not None
@@ -237,6 +313,9 @@ class AgentOSApplication:
             )
         self.data_agent_reports = data_agent_reports
         self._data_agent_situated_runtime: DataAgentSituatedRuntime | None = None
+        self._mandate_active_perception_service: (
+            MandateActivePerceptionService | None
+        ) = None
         self._mandate_steward: MandateSteward | None = None
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
@@ -261,8 +340,7 @@ class AgentOSApplication:
             clock=self._clock,
         )
         self.policy = PolicyKernel(self.correction)
-        live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
-        live_model = os.environ.get("AGENT_OS_PROVIDER_MODEL", "gpt-4o-mini")
+        live_base_url, live_model, credential_key = self._resolve_live_provider_env()
         live_model_revision_digest = os.environ.get(
             "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
         )
@@ -275,9 +353,6 @@ class AgentOSApplication:
             ) from exc
         if live_timeout <= 0:
             raise ValueError("AGENT_OS_PROVIDER_TIMEOUT_SECONDS must be positive")
-        credential_key = os.environ.get(
-            "AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY"
-        )
         credential_ref = CredentialRef(
             credential_ref_id="credential:default",
             owner_principal_id=self.principal.principal_id,
@@ -303,6 +378,21 @@ class AgentOSApplication:
             request_timeout_seconds=live_timeout,
             created_at=built_in_profile_created_at,
         )
+        deterministic_binding = ProviderInvocationBinding(
+            provider_profile=self.provider_profile,
+            provider_id=self.provider_profile.provider_id,
+            endpoint_class=self.provider_profile.endpoint_class,
+            credential_ref_id=self.provider_profile.credential_ref_id,
+            credential_ref_digest=content_digest(credential_ref),
+            max_context_tokens=self.provider_profile.max_context_tokens,
+            adapter_kind="deterministic",
+            transport="in-process",
+            base_url="in-process:deterministic",
+            endpoint_path="/complete",
+            model_id=self.provider_profile.model_id,
+            request_timeout_seconds=self.provider_profile.request_timeout_seconds,
+            temperature=Decimal("0"),
+        )
         self.provider = (
             OpenAICompatibleProvider(
                 base_url=live_base_url,
@@ -313,7 +403,10 @@ class AgentOSApplication:
                 provider_profile=self.provider_profile,
             )
             if live_base_url
-            else DeterministicProvider(text="provider proposal accepted")
+            else DeterministicProvider(
+                text="provider proposal accepted",
+                invocation_binding=deterministic_binding,
+            )
         )
         self.provider_configured = bool(live_base_url)
         self.grants = self._build_grants(now)
@@ -350,6 +443,7 @@ class AgentOSApplication:
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or self._clock()
+        specs = self.sandbox.specs(issued)
         grants = {
             capability_id: CapabilityGrant(
                 grant_id=f"grant:{capability_id}",
@@ -358,7 +452,7 @@ class AgentOSApplication:
                 workspace_id=self.principal.workspace_id,
                 capability_id=capability_id,
                 capability_version="1",
-                max_risk_tier=1,
+                max_risk_tier=spec.risk_tier,
                 budget_limit=ResourceBudget(
                     max_cost_usd=Decimal("10"),
                     max_duration_seconds=3600,
@@ -370,7 +464,7 @@ class AgentOSApplication:
                 granted_at=issued,
                 expires_at=issued + timedelta(days=30),
             )
-            for capability_id in self.sandbox.specs(issued)
+            for capability_id, spec in specs.items()
         }
         self.evaluation_grant = (
             self._evaluation_grant_override or self._build_evaluation_grant(issued)
@@ -394,12 +488,26 @@ class AgentOSApplication:
             TASK_CONFIGURATION_CAPABILITY_VERSION
         )
         return TaskConfigurationRuntime(
-            policy_version="policy-1",
+            policy_version=self.policy.policy_version,
             policy_digest=POLICY_KERNEL_V1_DIGEST,
             provider_profile=self.provider_profile,
             grants=dict(self.grants),
             capability_versions=capability_versions,
         )
+
+    @contextmanager
+    def selfdev_admission_configuration_lease(
+        self,
+    ) -> Iterator[tuple[bool, TaskConfigurationRuntime]]:
+        """Freeze the existing authoritative Runtime configuration for admission."""
+        with self._configuration_lock:
+            yield self.provider_configured, self._task_configuration_runtime()
+
+    @contextmanager
+    def _selfdev_configuration_write(self) -> Iterator[None]:
+        """Lock-aware mutation seam used by bounded admission drift tests."""
+        with self._configuration_lock:
+            yield
 
     def _build_task_configuration_grant(
         self,
@@ -555,6 +663,70 @@ class AgentOSApplication:
             self.grants.update(rebuilt_grants)
         return self.workspace_status()
 
+    @staticmethod
+    def _normalize_provider_base_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        base = value.strip().rstrip("/")
+        if not base:
+            return None
+        if base.endswith("/chat/completions"):
+            base = base[: -len("/chat/completions")]
+        return base or None
+
+    @classmethod
+    def _resolve_live_provider_env(cls) -> tuple[str | None, str, str]:
+        """Resolve live provider base_url, model, and credential env var name.
+
+        Precedence:
+        1. Explicit AGENT_OS_PROVIDER_* overrides
+        2. AGENT_OS_PROVIDER_PROFILE=<kimi|openai|anthropic|deepseek>
+        3. Legacy OPENAI_API_URL / OPENAI_BASE_URL / OPENAI_MODEL / OPENAI_API_KEY
+        """
+        profile = os.environ.get("AGENT_OS_PROVIDER_PROFILE", "").strip().lower()
+        explicit_base = cls._normalize_provider_base_url(
+            os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
+        )
+        explicit_model = (os.environ.get("AGENT_OS_PROVIDER_MODEL") or "").strip()
+        explicit_key_env = (
+            os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV") or ""
+        ).strip()
+
+        profile_prefix = {
+            "kimi": "KIMI",
+            "openai": "OPENAI",
+            "anthropic": "ANTHROPIC",
+            "deepseek": "DEEPSEEK",
+        }.get(profile)
+
+        profile_base = None
+        profile_model = ""
+        profile_key_env = ""
+        if profile_prefix is not None:
+            profile_base = cls._normalize_provider_base_url(
+                os.environ.get(f"{profile_prefix}_BASE_URL")
+                or os.environ.get(f"{profile_prefix}_API_URL")
+            )
+            profile_model = (
+                os.environ.get(f"{profile_prefix}_MODEL") or ""
+            ).strip()
+            profile_key_env = f"{profile_prefix}_API_KEY"
+            profile_temp = os.environ.get(f"{profile_prefix}_TEMPERATURE")
+            if profile_temp and not os.environ.get("AGENT_OS_PROVIDER_TEMPERATURE"):
+                os.environ["AGENT_OS_PROVIDER_TEMPERATURE"] = profile_temp
+
+        legacy_base = cls._normalize_provider_base_url(
+            os.environ.get("OPENAI_API_URL") or os.environ.get("OPENAI_BASE_URL")
+        )
+        legacy_model = (os.environ.get("OPENAI_MODEL") or "").strip()
+
+        live_base_url = explicit_base or profile_base or legacy_base
+        live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
+        credential_key = (
+            explicit_key_env or profile_key_env or "OPENAI_API_KEY"
+        )
+        return live_base_url, live_model, credential_key
+
     def provider_status(self) -> dict[str, Any]:
         return {
             "configured": self.provider_configured,
@@ -574,7 +746,10 @@ class AgentOSApplication:
         if model_revision_digest is not None and (
             not isinstance(model_revision_digest, str)
             or len(model_revision_digest) != 64
-            or any(character not in "0123456789abcdef" for character in model_revision_digest)
+            or any(
+                character not in "0123456789abcdef"
+                for character in model_revision_digest
+            )
         ):
             raise ValueError("model_revision_digest must be a lowercase SHA-256 digest")
         api_key = payload.get("api_key")
@@ -651,6 +826,181 @@ class AgentOSApplication:
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
 
+    def create_mandate_workspace_record(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        command = CreateMandateCommand.model_validate(payload)
+        record = self.mandate_workspace.create(command, self.principal, self._clock())
+        return record.model_dump(mode="json")
+
+    def get_mandate_workspace_record(self, mandate_id: str) -> dict[str, Any]:
+        record = self.mandate_workspace.get(mandate_id, self.principal)
+        return record.model_dump(mode="json")
+
+    def list_mandate_workspace_records(self) -> list[dict[str, Any]]:
+        return [
+            record.model_dump(mode="json")
+            for record in self.mandate_workspace.list(self.principal)
+        ]
+
+    def create_mandate_task_link(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        command = MandateTaskLinkCommand.model_validate(payload)
+        link = self.mandate_responsibility_store.create_link(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return link.model_dump(mode="json")
+
+    def list_mandate_task_links(self, mandate_id: str) -> list[dict[str, Any]]:
+        return [
+            link.model_dump(mode="json")
+            for link in self.mandate_responsibility_store.list_links(
+                mandate_id,
+                self.principal,
+            )
+        ]
+
+    def revoke_mandate_task_link(
+        self,
+        mandate_id: str,
+        link_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        command = MandateTaskLinkRevocationCommand.model_validate(payload)
+        revocation = self.mandate_responsibility_store.revoke_link(
+            command,
+            mandate_id,
+            link_id,
+            self.principal,
+        )
+        return revocation.model_dump(mode="json")
+
+    def mandate_responsibility_view(self, mandate_id: str) -> dict[str, Any]:
+        view = self.mandate_responsibility.project(mandate_id, self.principal)
+        return view.model_dump(mode="json")
+
+    def create_outcome_portfolio(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import OutcomePortfolioCreateCommand
+
+        command = OutcomePortfolioCreateCommand.model_validate(payload or {})
+        portfolio = self.mandate_outcome_portfolio_store.create_portfolio(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return portfolio.model_dump(mode="json")
+
+    def get_outcome_portfolio(self, mandate_id: str) -> dict[str, Any]:
+        view = self.mandate_outcome_portfolio_store.get_view(
+            mandate_id,
+            self.principal,
+        )
+        return view.model_dump(mode="json")
+
+    def list_outcome_portfolio_help_requests(
+        self,
+        mandate_id: str,
+        *,
+        include_resolved: bool = False,
+    ) -> list[dict[str, Any]]:
+        return [
+            record.model_dump(mode="json")
+            for record in self.mandate_outcome_portfolio_store.list_help_requests(
+                mandate_id,
+                self.principal,
+                include_resolved=include_resolved,
+            )
+        ]
+
+    def respond_outcome_portfolio_help_request(
+        self,
+        mandate_id: str,
+        help_request_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import OutcomePortfolioHelpRespondCommand
+
+        command = OutcomePortfolioHelpRespondCommand.model_validate(payload)
+        record = self.mandate_outcome_portfolio_store.respond_help_request(
+            command,
+            mandate_id,
+            help_request_id,
+            self.principal,
+        )
+        return record.model_dump(mode="json")
+
+    def attach_persistent_commitment(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import PersistentCommitmentAttachCommand
+
+        command = PersistentCommitmentAttachCommand.model_validate(payload)
+        record = self.mandate_outcome_portfolio_store.attach_commitment(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return record.model_dump(mode="json")
+
+    def settle_persistent_commitment(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import SettlementCommand
+
+        command = SettlementCommand.model_validate(payload)
+        record = self.mandate_outcome_portfolio_store.settle(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return record.model_dump(mode="json")
+
+    def authorize_mandate_observation_binding(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.mandate_observation_authorizations is None:
+            raise RuntimeError(
+                "Mandate observation authorization requires durable storage"
+            )
+        command = MandateObservationAuthorizationCommand.model_validate(payload)
+        receipt = self.mandate_observation_authorizations.authorize(
+            mandate_id,
+            command,
+            self.principal,
+            self._clock(),
+        )
+        return receipt.model_dump(mode="json")
+
+    def list_mandate_observation_authorizations(
+        self,
+        mandate_id: str,
+    ) -> list[dict[str, Any]]:
+        if self.mandate_observation_authorizations is None:
+            raise RuntimeError(
+                "Mandate observation authorization requires durable storage"
+            )
+        return [
+            receipt.model_dump(mode="json")
+            for receipt in self.mandate_observation_authorizations.list(
+                mandate_id, self.principal
+            )
+        ]
+
     def project_task_trajectory(
         self,
         task_id: str,
@@ -687,6 +1037,15 @@ class AgentOSApplication:
         if self.data_agent_reports is None:
             raise RuntimeError("Data Agent external report source is not configured")
         return self.data_agent_reports.poll_once(limit=limit)
+
+    def run_active_perception_once(
+        self,
+        *,
+        worker_id: str,
+    ) -> ActivePerceptionReceipt:
+        if self._mandate_active_perception_service is None:
+            raise RuntimeError("Mandate active perception is not configured")
+        return self._mandate_active_perception_service.run_due_once(worker_id=worker_id)
 
     def propose_situated_work(
         self,
@@ -733,9 +1092,11 @@ class AgentOSApplication:
         """Public ingress with transport parsing separated from workload authority."""
         if self._data_agent_situated_runtime is None:
             raise RuntimeError("Data Agent situated runtime is not configured")
-        return self._data_agent_situated_runtime.propose_authenticated_protocol_envelope(
-            raw_envelope,
-            workload_assertion,
+        return (
+            self._data_agent_situated_runtime.propose_authenticated_protocol_envelope(
+                raw_envelope,
+                workload_assertion,
+            )
         )
 
     def commit_task(self, task_id: str, payload: dict[str, Any]):
@@ -745,7 +1106,13 @@ class AgentOSApplication:
         return self.tasks.commit_task(task_id, commitment, workflow, expected)
 
     def validate_workflow(self, payload: dict[str, Any]) -> dict[str, Any]:
-        workflow = WorkflowGraph.model_validate(payload)
+        try:
+            workflow = WorkflowGraph.model_validate(payload)
+        except ValidationError as exc:
+            return {
+                "valid": False,
+                "errors": json.loads(exc.json()),
+            }
         return {
             "valid": True,
             "workflow": workflow.model_dump(mode="json"),
@@ -924,6 +1291,8 @@ class AgentOSApplication:
         configuration_snapshot_id: str | None = None,
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
     ):
         forbidden_configuration_inputs = {
             "configuration_snapshot",
@@ -996,7 +1365,148 @@ class AgentOSApplication:
             inputs,
             stop_after_node=stop_after_node,
             recover_stale_lease=recover_stale_lease,
+            execution_fence=execution_fence,
+            effect_custody=effect_custody,
         )
+
+    def open_chat_session(
+        self,
+        statement: str,
+        gateway: ConfirmationGateway,
+        *,
+        loop_config: AgentLoopConfig | None = None,
+    ) -> tuple[ChatSession, AgentLoop]:
+        """Open a governed terminal chat session (task + run) and its loop."""
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before opening a chat session"
+            )
+        now = self._clock()
+        goal_id = f"goal:chat:{uuid4().hex[:12]}"
+        task = self.create_task(
+            {
+                "goal_id": goal_id,
+                "tenant_id": self.principal.tenant_id,
+                "workspace_id": self.principal.workspace_id,
+                "created_by": self.principal.principal_id,
+                "created_at": now,
+                "statement": statement,
+            }
+        )
+        workflow = WorkflowGraph(
+            workflow_id=f"workflow:chat:{task.task_id}",
+            version=1,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            created_by=self.principal.principal_id,
+            created_at=now,
+            policy_version=self.policy.policy_version,
+            evaluator_refs=("evaluator:pytest:1",),
+            nodes=(NodeSpec(node_id="done", kind=NodeKind.TERMINAL),),
+            edges=(),
+        )
+        self.commit_task(
+            task.task_id,
+            {
+                "commitment": {
+                    "commitment_id": f"commitment:chat:{task.task_id}",
+                    "task_id": task.task_id,
+                    "goal_id": goal_id,
+                    "tenant_id": self.principal.tenant_id,
+                    "workspace_id": self.principal.workspace_id,
+                    "accepted_by": self.principal.principal_id,
+                    "accepted_at": now,
+                    "deliverables": ["interactive chat session outcome"],
+                    "acceptance_criteria": ["user request addressed"],
+                    "authority_scopes": [
+                        "workspace:read",
+                        "workspace:write",
+                        TASK_CONFIGURATION_CAPABILITY,
+                    ],
+                    "budget": {
+                        "max_cost_usd": "10",
+                        "max_duration_seconds": 28800,
+                        "max_provider_tokens": 500000,
+                        "max_tool_calls": 500,
+                    },
+                    "risk_tier": 1,
+                    "exit_conditions": ["session closed"],
+                    "expires_at": now + timedelta(hours=8),
+                },
+                "workflow": workflow.model_dump(mode="json"),
+                "expected_outcome": {
+                    "expected_outcome_id": f"expected:chat:{task.task_id}",
+                    "task_id": task.task_id,
+                    "tenant_id": self.principal.tenant_id,
+                    "workspace_id": self.principal.workspace_id,
+                    "evaluator_type": "pytest",
+                    "evaluator_version": "1",
+                    "evidence_requirements": ["test-report"],
+                    "failure_semantics": ["non-zero exit"],
+                    "threshold": 1,
+                    "observation_window_seconds": 28800,
+                    "frozen_at": now,
+                },
+            },
+        )
+        snapshot = self.seal_task_configuration(task.task_id, {})
+        aggregate = self.start_run(task.task_id, snapshot.snapshot_id)
+        if (
+            aggregate.run is None
+            or aggregate.expected_outcome is None
+            or aggregate.commitment is None
+        ):
+            raise RuntimeError("chat session run failed to start")
+        session = ChatSession(
+            ref=SessionRef(
+                session_id=f"session-{uuid4()}",
+                task_id=task.task_id,
+                run_id=aggregate.run.run_id,
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+            ),
+            envelope_id=f"envelope-{uuid4()}",
+            expected=aggregate.expected_outcome,
+        )
+        grants = dict(self.grants)
+        for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
+            grant = grants.get(capability_id)
+            if grant is None:
+                raise RuntimeError(f"chat capability is not granted: {capability_id}")
+            if grant.max_risk_tier < max_tier:
+                raise RuntimeError(
+                    f"chat capability risk tier is not granted: {capability_id}"
+                )
+        chat_grants = {
+            capability_id: grants[capability_id]
+            for capability_id in CHAT_CAPABILITY_IDS
+        }
+        loop = AgentLoop(
+            tasks=self.tasks,
+            provider=self.provider,
+            provider_profile=self.provider_profile,
+            policy=self.policy,
+            correction=self.correction,
+            sandbox=self.sandbox,
+            grants=chat_grants,
+            principal=self.principal,
+            gateway=gateway,
+            config=loop_config,
+        )
+        self.tasks.append_event(
+            task.task_id,
+            TaskEventType.CANDIDATES_GENERATED,
+            {
+                "envelope": {
+                    "envelope_id": session.envelope_id,
+                    "generator_id": "terminal-chat-loop",
+                    "generator_version": "1",
+                    "allowed_capability_ids": sorted(CHAT_CAPABILITY_IDS),
+                }
+            },
+            correlation_id=session.run_id,
+        )
+        return session, loop
 
     def pause_task(self, task_id: str):
         return self.tasks.update_run_status(
@@ -1119,7 +1629,7 @@ class AgentOSApplication:
         )
         return self.tasks.get_task(task_id)
 
-    def compensate_task(self, task_id: str):
+    def compensate_task(self, task_id: str, *, effect_custody=None):
         runner = RunCoordinator(
             self.tasks,
             self.sandbox,
@@ -1130,24 +1640,25 @@ class AgentOSApplication:
             self.grants,
             compensation_grant=self.compensation_grant,
         )
-        return runner.compensate_task(task_id, self.principal)
+        return runner.compensate_task(
+            task_id,
+            self.principal,
+            effect_custody=effect_custody,
+        )
 
     def record_approval(self, task_id: str, payload: dict[str, Any]):
         task = self.tasks.get_task(task_id)
         if task.commitment is None or task.run is None:
             raise ValueError("approval requires an active committed task")
-        action: ActionContract | None = None
-        for event in reversed(self.store.read(task_id)):
-            if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
-                break
-            if event.event_type is not TaskEventType.ACTION_PROPOSED:
-                continue
-            candidate = event.decoded_payload().get("action")
-            if isinstance(candidate, dict):
-                action = ActionContract.model_validate(candidate)
-                break
+        action = self.tasks.pending_action(task_id)
         if action is None:
             raise ValueError("no pending provider action is available for review")
+        expected_action_digest = payload.get("action_digest")
+        if (
+            expected_action_digest is not None
+            and expected_action_digest != action.action_digest()
+        ):
+            raise ValueError("approval payload does not bind the pending action")
         disposition = ApprovalDisposition(str(payload.get("disposition", "APPROVE")))
         reason = str(
             payload.get("reason", "Reviewed in Agent OS Task Workspace")

@@ -1,0 +1,32 @@
+{
+  "autonomy_cap": "gated",
+  "collaborators": [
+    "Paradigm Builder A",
+    "Alternative Builder B",
+    "Skeptic Architect",
+    "Autonomous Core CTO Agent"
+  ],
+  "gates": [
+    "context_calibration",
+    "foundational_problem_lock",
+    "frontier_anomaly_intake",
+    "paradigm_thesis",
+    "independent_architecture_design",
+    "architecture_debate",
+    "architecture_theory_gate",
+    "formal_algorithm_spec",
+    "implementation_cast",
+    "pr_architecture_review",
+    "result_adjudication",
+    "architecture_lesson_review",
+    "paradigm_learning_review",
+    "route_product_projection_update"
+  ],
+  "governance_profile": "research",
+  "max_agent_retries": 2,
+  "mode": "gated",
+  "mode_source": "founder_selected",
+  "primary_agent": "Autonomous Research Director Agent",
+  "risk_level": "R3",
+  "task_type": "research"
+}

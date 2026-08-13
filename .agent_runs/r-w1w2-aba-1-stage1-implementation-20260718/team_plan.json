@@ -1,0 +1,149 @@
+{
+  "agents": [
+    {
+      "agent_id": "codex-builder-root",
+      "role": "single-writer",
+      "status": "active"
+    },
+    {
+      "agent_id": "aba_blind_calibrator",
+      "role": "read-only-rr0031-reviewer",
+      "status": "done"
+    },
+    {
+      "agent_id": "aba_stage1_cast_audit",
+      "role": "read-only-advisory-auditor",
+      "status": "done"
+    },
+    {
+      "agent_id": "legacy_w1w2_characterizer",
+      "role": "read-only-donor-reviewer",
+      "status": "done"
+    },
+    {
+      "agent_id": "aba_implementation_reviewer",
+      "role": "read-only-independent-code-reviewer",
+      "status": "done"
+    }
+  ],
+  "approval_request_id": "perm_4217fb6d688360bf",
+  "evidence_refs": [
+    "qualification_cast_review.md",
+    "messages.jsonl"
+  ],
+  "permission_action": "team.plan.write",
+  "tasks": [
+    {
+      "agent_id": "aba_blind_calibrator",
+      "depends_on": [],
+      "evidence_refs": [
+        "goal_card.md"
+      ],
+      "expected_artifacts": [
+        "cognitive_calibration_record.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-RR0031-BLIND-CALIBRATION"
+    },
+    {
+      "agent_id": "aba_stage1_cast_audit",
+      "depends_on": [
+        "ABA-RR0031-BLIND-CALIBRATION"
+      ],
+      "evidence_refs": [
+        "goal_card.md",
+        "cognitive_calibration_record.md"
+      ],
+      "expected_artifacts": [
+        "advisory_cast_review.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-STAGE1-ADVISORY-CAST-AUDIT"
+    },
+    {
+      "agent_id": "legacy_w1w2_characterizer",
+      "depends_on": [],
+      "evidence_refs": [
+        "goal_card.md"
+      ],
+      "expected_artifacts": [
+        "legacy_characterization_review.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-LEGACY-CHARACTERIZATION"
+    },
+    {
+      "agent_id": "codex-builder-root",
+      "depends_on": [
+        "ABA-STAGE1-ADVISORY-CAST-AUDIT",
+        "ABA-LEGACY-CHARACTERIZATION"
+      ],
+      "evidence_refs": [
+        "goal_card.md",
+        "context_pack.json",
+        "legacy_characterization_review.md",
+        "advisory_cast_review.md"
+      ],
+      "expected_artifacts": [
+        "implementation_plan.md",
+        "preregistration_candidate.md",
+        "verification_report.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-STAGE1-CAST-REVISION"
+    },
+    {
+      "agent_id": "aba_blind_calibrator",
+      "depends_on": [
+        "ABA-STAGE1-CAST-REVISION"
+      ],
+      "evidence_refs": [
+        "goal_card.md",
+        "context_pack.json",
+        "cognitive_calibration_record.md",
+        "qualification_cast_review.md"
+      ],
+      "expected_artifacts": [
+        "cognitive_calibration_record.md",
+        "qualification_cast_review.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-RR0031-CONTROLLED-DELTA"
+    },
+    {
+      "agent_id": "codex-builder-root",
+      "depends_on": [
+        "ABA-RR0031-CONTROLLED-DELTA"
+      ],
+      "evidence_refs": [
+        "implementation_plan.md",
+        "qualification_cast_review.md"
+      ],
+      "expected_artifacts": [
+        "verification_report.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-QUALIFICATION-SCAFFOLD-TDD"
+    },
+    {
+      "agent_id": "aba_implementation_reviewer",
+      "depends_on": [
+        "ABA-QUALIFICATION-SCAFFOLD-TDD"
+      ],
+      "evidence_refs": [
+        "goal_card.md",
+        "qualification_cast_review.md",
+        "verification_report.md",
+        "implementation_final_review.md"
+      ],
+      "expected_artifacts": [
+        "implementation_review.md",
+        "implementation_correction_review_1.md",
+        "implementation_correction_review_2.md",
+        "implementation_final_review.md"
+      ],
+      "status": "done",
+      "task_id": "ABA-SCAFFOLD-INDEPENDENT-REVIEW"
+    }
+  ]
+}

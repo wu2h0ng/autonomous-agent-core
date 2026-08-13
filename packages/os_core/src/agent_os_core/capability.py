@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import os
-import shutil
-import shlex
-import subprocess
 import re
-from fnmatch import fnmatch
+import shutil
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -23,9 +23,10 @@ from agent_os_contracts import (
     CapabilitySpec,
     ReceiptStatus,
     SideEffectGuarantee,
+    content_digest,
 )
 
-from .governance import CorrectionAuthority
+from .governance import CorrectionReadPort
 
 
 class DenialReasonCode(str, Enum):
@@ -61,6 +62,7 @@ class DenialReasonCode(str, Enum):
     DIFF_CONTEXT_MISMATCH = "DIFF_CONTEXT_MISMATCH"
     # apply-gate: command allowlist
     TEST_COMMAND_NOT_ALLOWLISTED = "TEST_COMMAND_NOT_ALLOWLISTED"
+    SHELL_COMMAND_NOT_ALLOWLISTED = "SHELL_COMMAND_NOT_ALLOWLISTED"
     SHELL_PROGRAM_DENIED = "SHELL_PROGRAM_DENIED"
     SHELL_METACHARACTER_DENIED = "SHELL_METACHARACTER_DENIED"
     SHELL_PATH_OUTSIDE_WORKSPACE = "SHELL_PATH_OUTSIDE_WORKSPACE"
@@ -85,10 +87,29 @@ class CapabilityResult:
     output: dict[str, object]
 
 
+class CapabilityPort(Protocol):
+    """Generic capability dispatch interface. Core depends on this, not on WorkspaceSandbox."""
+
+    def invoke(
+        self,
+        action: ActionContract,
+        permit: ActionPermit,
+        correction: CorrectionReadPort,
+        attempt: int = 1,
+    ) -> CapabilityResult: ...
+
+    def specs(
+        self,
+        now: datetime | None = None,
+        *,
+        include_internal: bool = False,
+    ) -> dict[str, CapabilitySpec]: ...
+
+
 class CapabilityBroker:
     """The only execution boundary for typed capability actions."""
 
-    def __init__(self, connector: WorkspaceSandbox, correction: CorrectionAuthority) -> None:
+    def __init__(self, connector: CapabilityPort, correction: CorrectionReadPort) -> None:
         self.connector = connector
         self.correction = correction
 
@@ -99,14 +120,23 @@ class CapabilityBroker:
 
 
 class WorkspaceSandbox:
-    """Allowlisted repository capabilities on a disposable, path-confined workspace."""
+    """Allowlisted repository capabilities on a disposable, path-confined workspace.
+    Implements CapabilityPort for generic Core consumption."""
 
-    def __init__(self, root: str | Path, artifacts: str | Path | None = None, idempotency_store: object | None = None) -> None:
+    def __init__(self, root: str | Path, artifacts: str | Path | None = None, idempotency_store: object | None = None, shell_allowlist: tuple[str, ...] | None = None) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = Path(artifacts or self.root / ".agent-os-artifacts").resolve()
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self._idempotency_store = idempotency_store
+        self._shell_allowlist = (
+            tuple(shell_allowlist)
+            if shell_allowlist is not None
+            else ("pytest", "python -m pytest", "python3 -m pytest")
+        )
+
+    def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None:
+        self._shell_allowlist = tuple(allowlist)
 
     def specs(
         self,
@@ -135,15 +165,20 @@ class WorkspaceSandbox:
             "workspace.apply_patch": CapabilitySpec(
                 capability_id="workspace.apply_patch", version="1", display_name="Apply unified patch",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=True, **common,
+                cancellation_supported=True, compensation_supported=True, **{**common, "risk_tier": 2},
             ),
             "workspace.run_tests": CapabilitySpec(
                 capability_id="workspace.run_tests", version="1", display_name="Run allowlisted tests",
                 side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
+            "workspace.edit": CapabilitySpec(
+                capability_id="workspace.edit", version="1", display_name="Exact string replacement edit",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=True, **{**common, "risk_tier": 2},
+            ),
             "workspace.search": CapabilitySpec(
-                capability_id="workspace.search", version="1", display_name="Search workspace files",
+                capability_id="workspace.search", version="1", display_name="Search workspace (glob/grep/ls)",
                 side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
@@ -153,9 +188,9 @@ class WorkspaceSandbox:
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
             "workspace.shell": CapabilitySpec(
-                capability_id="workspace.shell", version="1", display_name="Run shell argv (meta ;|& banned)",
-                side_effect_guarantee=SideEffectGuarantee.NON_IDEMPOTENT_NON_QUERYABLE, idempotency_supported=False,
-                cancellation_supported=True, compensation_supported=False, **common,
+                capability_id="workspace.shell", version="1", display_name="Run allowlisted shell command",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **{**common, "risk_tier": 3},
             ),
             "artifact.write": CapabilitySpec(
                 capability_id="artifact.write", version="1", display_name="Write content-addressed artifact",
@@ -176,7 +211,7 @@ class WorkspaceSandbox:
             )
         return specs
 
-    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionAuthority, attempt: int = 1) -> CapabilityResult:
+    def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionReadPort, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("permit does not match action")
         if permit.expires_at <= datetime.now(timezone.utc):
@@ -203,7 +238,7 @@ class WorkspaceSandbox:
             intent_fingerprint,
         )
         if stored is not None:
-            if action.capability_id == "workspace.apply_patch":
+            if action.capability_id in {"workspace.apply_patch", "workspace.edit"}:
                 self._validate_cached_patch_effect(args, stored)
             elif action.capability_id == "workspace.compensate_patch":
                 self._validate_cached_compensation_effect(args, stored)
@@ -307,16 +342,18 @@ class WorkspaceSandbox:
             return {"path": str(path.relative_to(self.root)), "content": content, "sha256": _sha256(content.encode())}
         if capability_id == "workspace.apply_patch":
             return self._apply_patch(args, action_key)
+        if capability_id == "workspace.edit":
+            return self._edit(args, action_key)
+        if capability_id == "workspace.search":
+            return self._search(args)
+        if capability_id == "workspace.shell":
+            return self._shell(args, action_key)
         if capability_id == "workspace.compensate_patch":
             return self._compensate_patch(args)
         if capability_id == "workspace.run_tests":
             return self._run_tests(args, action_key)
-        if capability_id == "workspace.search":
-            return self._search(args)
         if capability_id == "workspace.glob":
             return self._glob(args)
-        if capability_id == "workspace.shell":
-            return self._run_shell(args, action_key)
         if capability_id == "artifact.write":
             content = str(args.get("content", "")).encode("utf-8")
             digest = _sha256(content)
@@ -347,13 +384,18 @@ class WorkspaceSandbox:
                 "path must be a relative workspace path",
                 reason_code=DenialReasonCode.PATH_NOT_RELATIVE,
             )
-        if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
+        first = Path(value).parts[0] if Path(value).parts else ""
+        if first in {".agent-os-artifacts", ".agent_os"}:
             raise CapabilityDenied(
-                "workspace artifact state is reserved",
+                "workspace agent state is reserved",
                 reason_code=DenialReasonCode.WORKSPACE_STATE_RESERVED,
             )
         raw = self.root / value
-        if any(part.is_symlink() for part in (self.root, *raw.parents) if part.exists()):
+        if any(
+            part.is_symlink()
+            for part in (self.root, *raw.parents, raw)
+            if part.exists() or part.is_symlink()
+        ):
             raise CapabilityDenied(
                 "symlink paths are forbidden",
                 reason_code=DenialReasonCode.SYMLINK_FORBIDDEN,
@@ -366,7 +408,13 @@ class WorkspaceSandbox:
             )
         if candidate == self.artifacts or self.artifacts in candidate.parents:
             raise CapabilityDenied(
-                "workspace artifact state is reserved",
+                "workspace agent state is reserved",
+                reason_code=DenialReasonCode.WORKSPACE_STATE_RESERVED,
+            )
+        agent_os_dir = (self.root / ".agent_os").resolve()
+        if candidate == agent_os_dir or agent_os_dir in candidate.parents:
+            raise CapabilityDenied(
+                "workspace agent state is reserved",
                 reason_code=DenialReasonCode.WORKSPACE_STATE_RESERVED,
             )
         return candidate
@@ -724,7 +772,6 @@ class WorkspaceSandbox:
         finally:
             temp_path.unlink(missing_ok=True)
 
-
     def _glob(self, args: dict[str, object]) -> dict[str, object]:
         pattern = str(args.get("pattern", "")).strip()
         if not pattern:
@@ -749,7 +796,7 @@ class WorkspaceSandbox:
             kind = "dir" if path.is_dir() else "file" if path.is_file() else "other"
             if kind == "other":
                 continue
-            if fnmatch(rel, pattern) or fnmatch(path.name, pattern):
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(path.name, pattern):
                 matches.append(rel if kind == "file" else rel.rstrip("/") + "/")
         return {
             "pattern": pattern,
@@ -822,21 +869,167 @@ class WorkspaceSandbox:
                     output[key] = applied[0][key]
         return output
 
-    def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
-        command = str(args.get("command", ""))
-        allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
-        if command not in allowed:
+    def _edit(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        relative_path = str(args.get("path", ""))
+        path = self._safe_path(relative_path)
+        if not path.is_file():
+            raise FileNotFoundError(relative_path)
+        old_string = str(args.get("old_string", ""))
+        new_string = str(args.get("new_string", ""))
+        if not old_string:
             raise CapabilityDenied(
-                "only the allowlisted test commands are permitted",
-                reason_code=DenialReasonCode.TEST_COMMAND_NOT_ALLOWLISTED,
+                "workspace.edit requires a non-empty old_string",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
             )
-        timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
+        if old_string == new_string:
+            raise CapabilityDenied(
+                "workspace.edit old_string and new_string are identical",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            )
+        content = path.read_text(encoding="utf-8")
+        occurrences = content.count(old_string)
+        if occurrences != 1:
+            raise CapabilityDenied(
+                f"workspace.edit old_string must match exactly once (found {occurrences})",
+                reason_code=DenialReasonCode.DIFF_CONTEXT_MISMATCH,
+            )
+        patch_args: dict[str, object] = {
+            "path": relative_path,
+            "content": content.replace(old_string, new_string, 1),
+        }
+        if args.get("expected_sha256") is not None:
+            patch_args["expected_sha256"] = args["expected_sha256"]
+        return self._apply_patch(patch_args, action_key)
+
+    _SEARCH_SKIP_DIRS = frozenset(
+        {".git", ".agent-os-artifacts", ".agent_os", "node_modules", "__pycache__", ".venv"}
+    )
+    _SEARCH_MAX_RESULTS = 200
+    _SEARCH_MAX_OUTPUT_CHARS = 20000
+
+    def _search(self, args: dict[str, object]) -> dict[str, object]:
+        mode = str(args.get("mode", ""))
+        base_value = str(args.get("path", "") or ".")
+        base = self.root if base_value == "." else self._safe_path(base_value)
+        if mode == "ls":
+            if not base.is_dir():
+                raise FileNotFoundError(base_value)
+            entries = sorted(
+                entry.name + ("/" if entry.is_dir() else "")
+                for entry in base.iterdir()
+                if entry.name not in self._SEARCH_SKIP_DIRS
+            )
+            truncated = len(entries) > self._SEARCH_MAX_RESULTS
+            return {
+                "mode": "ls",
+                "entries": entries[: self._SEARCH_MAX_RESULTS],
+                "truncated": truncated,
+            }
+        if mode == "glob":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                raise CapabilityDenied(
+                    "workspace.search glob requires a pattern",
+                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+                )
+            matches: list[str] = []
+            for candidate in sorted(self.root.rglob("*")):
+                if (
+                    any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
+                    or not self._is_safe_search_candidate(candidate)
+                ):
+                    continue
+                relative = str(candidate.relative_to(self.root))
+                if fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(
+                    candidate.name, pattern
+                ):
+                    matches.append(relative + ("/" if candidate.is_dir() else ""))
+                if len(matches) >= self._SEARCH_MAX_RESULTS:
+                    break
+            truncated = len(matches) >= self._SEARCH_MAX_RESULTS
+            return {"mode": "glob", "matches": matches, "truncated": truncated}
+        if mode == "grep":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                raise CapabilityDenied(
+                    "workspace.search grep requires a pattern",
+                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+                )
+            try:
+                regex = re.compile(pattern)
+            except re.error as exc:
+                raise CapabilityDenied(
+                    f"invalid grep pattern: {exc}",
+                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+                ) from exc
+            matches = []
+            scanned = 0
+            truncated = False
+            for candidate in sorted(base.rglob("*") if base.is_dir() else [base]):
+                if (
+                    any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
+                    or not self._is_safe_search_candidate(candidate)
+                ):
+                    continue
+                if not candidate.is_file() or candidate.stat().st_size > 1_000_000:
+                    continue
+                scanned += 1
+                if scanned > 1000:
+                    truncated = True
+                    break
+                try:
+                    text = candidate.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    continue
+                for lineno, line in enumerate(text.splitlines(), start=1):
+                    if regex.search(line):
+                        matches.append(
+                            f"{candidate.relative_to(self.root)}:{lineno}:{line[:500]}"
+                        )
+                        if len(matches) >= self._SEARCH_MAX_RESULTS:
+                            truncated = True
+                            break
+                if truncated:
+                    break
+            output = matches
+            total = 0
+            for index, line in enumerate(matches):
+                total += len(line) + 1
+                if total > self._SEARCH_MAX_OUTPUT_CHARS:
+                    output = matches[:index]
+                    truncated = True
+                    break
+            return {"mode": "grep", "matches": output, "truncated": truncated}
+        raise CapabilityDenied(
+            f"unsupported workspace.search mode: {mode}",
+            reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+        )
+
+    def _is_safe_search_candidate(self, candidate: Path) -> bool:
+        if candidate.is_symlink():
+            return False
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            return False
+        if resolved != self.root and self.root not in resolved.parents:
+            return False
+        return resolved != self.artifacts and self.artifacts not in resolved.parents
+
+    def _shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        command = " ".join(str(args.get("command", "")).split())
+        if command not in self._shell_allowlist:
+            raise CapabilityDenied(
+                "command is not in the shell allowlist",
+                reason_code=DenialReasonCode.SHELL_COMMAND_NOT_ALLOWLISTED,
+            )
+        timeout = min(int(str(args.get("timeout_seconds", 120))), 300)
         result = subprocess.run(
             command.split(), cwd=self.root, capture_output=True, text=True,
-            timeout=timeout, check=False, env={**os.environ, "NO_COLOR": "1"},
+            timeout=timeout, check=False, env=_subprocess_env(),
         )
         report = {
-            "schema_version": "test-report.v1",
+            "schema_version": "shell-report.v1",
             "action_key_sha256": _sha256(action_key.encode("utf-8")),
             "command": command,
             "exit_code": result.returncode,
@@ -848,173 +1041,280 @@ class WorkspaceSandbox:
         artifact = self.artifacts / digest
         if not artifact.exists():
             artifact.write_bytes(output)
-        return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
-
-    # Free argv/bash: any program except denylist; still forbid shell metacharacters.
-    _SHELL_DENIED_PROGRAMS = frozenset({
-        "sudo", "su", "doas", "pkexec", "chmod", "chown", "launchctl", "osascript",
-    })
-    _SHELL_DENIED_TOKENS = frozenset({";", "|", "&", "`", "$(", "${", ">", "<", "\n", "\r"})
-
-    def _search(self, args: dict[str, object]) -> dict[str, object]:
-        pattern = str(args.get("pattern", ""))
-        if not pattern:
-            raise CapabilityDenied(
-                "workspace.search requires pattern",
-                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
-            )
-        try:
-            regex = re.compile(pattern)
-        except re.error as exc:
-            raise CapabilityDenied(
-                f"invalid search pattern: {exc}",
-                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
-            ) from exc
-        glob_pat = str(args.get("glob", "**/*"))
-        rel_root = str(args.get("path", ".")).strip() or "."
-        max_matches = min(int(str(args.get("max_matches", 50))), 200)
-        max_file_bytes = min(int(str(args.get("max_file_bytes", 200_000))), 1_000_000)
-        base = self.root if rel_root in {".", ""} else self._safe_path(rel_root)
-        if not base.exists():
-            raise FileNotFoundError(rel_root)
-        matches: list[dict[str, object]] = []
-        skip_dirs = {".git", ".hg", ".svn", "node_modules", ".agent-os-artifacts", "__pycache__", ".venv", "venv"}
-        for path in base.rglob("*"):
-            if len(matches) >= max_matches:
-                break
-            if not path.is_file() or path.is_symlink():
-                continue
-            if any(part in skip_dirs for part in path.parts):
-                continue
-            try:
-                rel = str(path.relative_to(self.root))
-            except ValueError:
-                continue
-            if glob_pat not in {"**/*", "*"}:
-                if not (
-                    fnmatch(rel, glob_pat)
-                    or fnmatch(path.name, glob_pat)
-                    or fnmatch(rel, glob_pat.lstrip("./"))
-                ):
-                    continue
-            try:
-                if path.stat().st_size > max_file_bytes:
-                    continue
-                data = path.read_bytes()
-            except OSError:
-                continue
-            if b"\x00" in data[:4096]:
-                continue
-            try:
-                text = data.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-            for lineno, line in enumerate(text.splitlines(), start=1):
-                if regex.search(line):
-                    matches.append({"path": rel, "line": lineno, "text": line[:400]})
-                    if len(matches) >= max_matches:
-                        break
         return {
-            "pattern": pattern,
-            "glob": glob_pat,
-            "path": rel_root,
-            "match_count": len(matches),
-            "matches": matches,
-            "truncated": len(matches) >= max_matches,
+            "exit_code": result.returncode,
+            "stdout": result.stdout[-4000:],
+            "stderr": result.stderr[-4000:],
+            "artifact_ids": (f"artifact:{digest}",),
+            "digest": digest,
         }
 
-    def _run_shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
-        raw = args.get("argv")
-        if isinstance(raw, str):
-            try:
-                argv = shlex.split(raw)
-            except ValueError as exc:
-                raise CapabilityDenied(
-                    f"invalid shell argv string: {exc}",
-                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
-                ) from exc
-        elif isinstance(raw, (list, tuple)):
-            argv = [str(item) for item in raw]
+    def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
+        command = str(args.get("command", ""))
+        allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
+        if command not in allowed:
+            raise CapabilityDenied(
+                "only the allowlisted test commands are permitted",
+                reason_code=DenialReasonCode.TEST_COMMAND_NOT_ALLOWLISTED,
+            )
+        timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
+        snapshot = args.get("selfdev_verification_snapshot")
+        verifier_bindings: list[dict[str, str]] | None = None
+        verifier_argv: list[str] | None = None
+        if isinstance(snapshot, dict):
+            result, verifier_bindings, verifier_argv = self._run_selfdev_tests_in_mirror(
+                command,
+                timeout,
+                snapshot,
+            )
         else:
-            raise CapabilityDenied(
-                "workspace.shell requires argv list or string",
-                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            result = subprocess.run(
+                command.split(), cwd=self.root, capture_output=True, text=True,
+                timeout=timeout, check=False, env=_subprocess_env(),
             )
-        if not argv:
-            raise CapabilityDenied(
-                "workspace.shell argv is empty",
-                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
-            )
-        joined = " ".join(argv)
-        for token in self._SHELL_DENIED_TOKENS:
-            if token in joined:
-                raise CapabilityDenied(
-                    f"shell metacharacter denied: {token}",
-                    reason_code=DenialReasonCode.SHELL_METACHARACTER_DENIED,
-                )
-        prog = Path(argv[0]).name
-        if prog in self._SHELL_DENIED_PROGRAMS:
-            raise CapabilityDenied(
-                f"shell program denied: {prog}",
-                reason_code=DenialReasonCode.SHELL_PROGRAM_DENIED,
-            )
-        if prog in {"bash", "sh", "zsh"} and "-c" in argv:
-            c_index = argv.index("-c")
-            if c_index + 1 >= len(argv):
-                raise CapabilityDenied(
-                    "shell -c requires a command string",
-                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
-                )
-            command = argv[c_index + 1]
-            for token in self._SHELL_DENIED_TOKENS:
-                if token in command:
-                    raise CapabilityDenied(
-                        f"shell -c metacharacter denied: {token}",
-                        reason_code=DenialReasonCode.SHELL_METACHARACTER_DENIED,
-                    )
-        for item in argv[1:]:
-            if item.startswith("/") and not item.startswith(str(self.root)):
-                if item not in {"/dev/null"} and not (
-                    item.startswith("/bin/") or item.startswith("/usr/bin/")
-                ):
-                    raise CapabilityDenied(
-                        f"absolute path outside workspace denied: {item}",
-                        reason_code=DenialReasonCode.SHELL_PATH_OUTSIDE_WORKSPACE,
-                    )
-        timeout = min(int(str(args.get("timeout_seconds", 60))), 120)
-        result = subprocess.run(
-            argv,
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env={**os.environ, "NO_COLOR": "1"},
-        )
-        stdout = result.stdout[:20_000]
-        stderr = result.stderr[:8_000]
         report = {
-            "schema_version": "shell-report.v1",
+            "schema_version": "test-report.v1",
             "action_key_sha256": _sha256(action_key.encode("utf-8")),
-            "argv": argv,
+            "command": command,
             "exit_code": result.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
         }
+        if verifier_bindings is not None and verifier_argv is not None:
+            report["verifier_bindings"] = verifier_bindings
+            report["verifier_binding_digest"] = content_digest(
+                {"verifier_bindings": verifier_bindings}
+            )
+            report["argv"] = verifier_argv
         output = _canonical_json_bytes(report)
         digest = _sha256(output)
         artifact = self.artifacts / digest
         if not artifact.exists():
             artifact.write_bytes(output)
-        return {
-            "exit_code": result.returncode,
-            "argv": argv,
-            "stdout": stdout,
-            "stderr": stderr,
-            "artifact_ids": (f"artifact:{digest}",),
-            "digest": digest,
-        }
+        return {"exit_code": result.returncode, "artifact_ids": (f"artifact:{digest}",), "digest": digest}
 
+    def _run_selfdev_tests_in_mirror(
+        self,
+        command: str,
+        timeout: int,
+        snapshot: dict[str, object],
+    ) -> tuple[
+        subprocess.CompletedProcess[str],
+        list[dict[str, str]],
+        list[str],
+    ]:
+        expected_head = str(snapshot.get("repository_head", ""))
+        if set(snapshot) != {
+            "repository_head",
+            "verifier_bindings",
+            "verifier_binding_digest",
+        }:
+            raise CapabilityDenied("SELFDEV verifier snapshot is malformed")
+        raw_bindings = snapshot.get("verifier_bindings")
+        if not isinstance(raw_bindings, (list, tuple)) or not 1 <= len(raw_bindings) <= 8:
+            raise CapabilityDenied("SELFDEV verifier binding set is invalid")
+        verifier_bindings: list[dict[str, str]] = []
+        base_blobs: list[bytes] = []
+        for raw_binding in raw_bindings:
+            if not isinstance(raw_binding, dict) or set(raw_binding) != {
+                "schema_version",
+                "path",
+                "base_blob_sha256",
+            } or raw_binding.get("schema_version") != "1.0":
+                raise CapabilityDenied("SELFDEV verifier binding is malformed")
+            path = str(raw_binding["path"])
+            digest = str(raw_binding["base_blob_sha256"])
+            if re.fullmatch(r"tests/product/test_[A-Za-z0-9_]+\.py", path) is None:
+                raise CapabilityDenied("SELFDEV verifier path is invalid")
+            tree = subprocess.run(
+                ["git", "-C", str(self.root), "ls-tree", expected_head, "--", path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            records = tuple(line for line in tree.stdout.splitlines() if line)
+            if tree.returncode != 0 or len(records) != 1 or "\t" not in records[0]:
+                raise CapabilityDenied("SELFDEV verifier base blob is unavailable")
+            metadata, recorded_path = records[0].split("\t", 1)
+            parts = metadata.split()
+            if (
+                len(parts) != 3
+                or parts[0] not in {"100644", "100755"}
+                or parts[1] != "blob"
+                or recorded_path != path
+            ):
+                raise CapabilityDenied("SELFDEV verifier base object is not a regular blob")
+            blob = subprocess.run(
+                ["git", "-C", str(self.root), "cat-file", "blob", parts[2]],
+                capture_output=True,
+                check=False,
+            )
+            oracle = self._safe_path(path)
+            if (
+                blob.returncode != 0
+                or _sha256(blob.stdout) != digest
+                or not oracle.is_file()
+                or oracle.is_symlink()
+                or _sha256(oracle.read_bytes()) != digest
+            ):
+                raise CapabilityDenied("SELFDEV verifier blob or worktree oracle drift")
+            verifier_bindings.append(
+                {
+                    "schema_version": "1.0",
+                    "path": path,
+                    "base_blob_sha256": digest,
+                }
+            )
+            base_blobs.append(blob.stdout)
+        target_paths = tuple(binding["path"] for binding in verifier_bindings)
+        if len(set(target_paths)) != len(target_paths):
+            raise CapabilityDenied("SELFDEV verifier binding paths must be unique")
+        if snapshot.get("verifier_binding_digest") != content_digest(
+            {"verifier_bindings": verifier_bindings}
+        ):
+            raise CapabilityDenied("SELFDEV verifier binding digest drift")
+        head = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if head.returncode != 0 or head.stdout.strip() != expected_head:
+            raise CapabilityDenied("SELFDEV verifier repository HEAD drift")
+        sandbox_exec = shutil.which("sandbox-exec")
+        if sandbox_exec is None:
+            raise CapabilityDenied(
+                "SELFDEV verifier requires an OS filesystem sandbox"
+            )
+        with tempfile.TemporaryDirectory(prefix="agent-os-selfdev-verify-") as raw:
+            verification_root = Path(raw).resolve()
+            mirror = verification_root / "workspace"
+            shutil.copytree(
+                self.root,
+                mirror,
+                symlinks=True,
+                ignore=shutil.ignore_patterns(
+                    ".git",
+                    ".agent_os",
+                    ".agent-os-artifacts",
+                    "agent-os.sqlite3*",
+                    "__pycache__",
+                    ".pytest_cache",
+                ),
+            )
+            for target_path, base_blob in zip(target_paths, base_blobs, strict=True):
+                mirrored_oracle = mirror / target_path
+                mirrored_oracle.parent.mkdir(parents=True, exist_ok=True)
+                mirrored_oracle.write_bytes(base_blob)
+            sandbox_tmp = verification_root / "tmp"
+            sandbox_home = verification_root / "home"
+            runtime_site = verification_root / "runtime-site"
+            sandbox_tmp.mkdir()
+            sandbox_home.mkdir()
+            source_site = next(
+                (
+                    Path(value)
+                    for value in sys.path
+                    if value.endswith("site-packages")
+                    and (Path(value) / "pytest").is_dir()
+                ),
+                None,
+            )
+            if source_site is None:
+                raise CapabilityDenied("SELFDEV verifier pytest runtime is unavailable")
+
+            def ignore_runtime(_directory: str, names: list[str]) -> set[str]:
+                return {
+                    name
+                    for name in names
+                    if name.endswith(".pth")
+                    or name.startswith("__editable__")
+                    or name.startswith("_virtualenv")
+                }
+
+            def hardlink_or_copy(source: str, destination: str) -> str:
+                try:
+                    os.link(source, destination)
+                    return destination
+                except OSError:
+                    return shutil.copy2(source, destination)
+
+            shutil.copytree(
+                source_site,
+                runtime_site,
+                symlinks=False,
+                ignore=ignore_runtime,
+                copy_function=hardlink_or_copy,
+            )
+            base_executable = Path(
+                getattr(sys, "_base_executable", sys.executable)
+            ).resolve()
+            base_runtime = base_executable.parent.parent
+            profile = "\n".join(
+                (
+                    "(version 1)",
+                    "(deny default)",
+                    "(allow process*)",
+                    "(allow sysctl-read)",
+                    "(deny network*)",
+                    "(allow file-read*)",
+                    '(deny file-read* (subpath "/Users") '
+                    '(subpath "/Volumes") (subpath "/Network") '
+                    '(subpath "/private/tmp") '
+                    '(subpath "/private/var/folders"))',
+                    "(allow file-read* "
+                    f'(subpath "{mirror}") '
+                    f'(subpath "{runtime_site}") '
+                    f'(subpath "{base_runtime}") '
+                    f'(subpath "{verification_root}"))',
+                    "(allow file-write* "
+                    f'(subpath "{sandbox_tmp}") '
+                    f'(subpath "{sandbox_home}") '
+                    '(literal "/dev/null"))',
+                )
+            )
+            python_paths = (
+                runtime_site,
+                mirror,
+                mirror / "packages" / "contracts" / "src",
+                mirror / "packages" / "os_core" / "src",
+                mirror / "apps",
+            )
+            environment = {
+                "HOME": str(sandbox_home),
+                "TMPDIR": str(sandbox_tmp),
+                "TEMP": str(sandbox_tmp),
+                "TMP": str(sandbox_tmp),
+                "PATH": "/usr/bin:/bin",
+                "PYTHONPATH": os.pathsep.join(str(path) for path in python_paths),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                "NO_COLOR": "1",
+                "LANG": os.environ.get("LANG", "C.UTF-8"),
+            }
+            argv = [
+                    sandbox_exec,
+                    "-p",
+                    profile,
+                    str(base_executable),
+                    "-S",
+                    "-m",
+                    "pytest",
+                    "-p",
+                    "no:cacheprovider",
+                    "-q",
+                    *target_paths,
+                ]
+            result = subprocess.run(
+                argv,
+                cwd=mirror,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=environment,
+            )
+            return result, verifier_bindings, [str(value) for value in argv]
 
 
 def _parse_unified_diff(diff_text: str) -> list[dict[str, object]]:
@@ -1134,6 +1434,31 @@ def _apply_hunks_to_lines(current: list[str], hunks: list[tuple[int, int, list[s
 
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _subprocess_env() -> dict[str, str]:
+    allowed = {
+        "CI",
+        "COLORTERM",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "PATH",
+        "PYTHONPATH",
+        "SYSTEMROOT",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "VIRTUAL_ENV",
+        "WINDIR",
+    }
+    environment = {
+        key: value for key, value in os.environ.items() if key in allowed
+    }
+    environment["NO_COLOR"] = "1"
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
 
 
 def _canonical_json_bytes(value: object) -> bytes:
