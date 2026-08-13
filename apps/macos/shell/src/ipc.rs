@@ -13,7 +13,7 @@ pub const ALLOWED_COMMANDS: &[&str] = &[
     "daemon_restart",
     "daemon_status",
     "runtime_connection",
-    "custody_status",
+    "custody_status_cmd",
     "custody_set_provider_key",
     "custody_clear_provider_key",
     "folder_request",
@@ -58,7 +58,7 @@ pub fn parse_command(name: &str) -> Result<IpcCommand, IpcRejected> {
         "daemon_restart" => Ok(IpcCommand::DaemonRestart),
         "daemon_status" => Ok(IpcCommand::DaemonStatus),
         "runtime_connection" => Ok(IpcCommand::RuntimeConnection),
-        "custody_status" => Ok(IpcCommand::CustodyStatus),
+        "custody_status_cmd" => Ok(IpcCommand::CustodyStatus),
         "custody_set_provider_key" => Ok(IpcCommand::CustodySetProviderKey),
         "custody_clear_provider_key" => Ok(IpcCommand::CustodyClearProviderKey),
         "folder_request" => Ok(IpcCommand::FolderRequest),
@@ -101,6 +101,28 @@ mod tests {
                 parse_command(name).is_err(),
                 "must reject {name:?}"
             );
+        }
+    }
+
+    #[test]
+    fn allowlist_matches_the_live_handler_registration() {
+        // generate_handler! registers commands by `stringify!(fn_name)`.
+        let live_handlers = [
+            "daemon_start",
+            "daemon_stop",
+            "daemon_restart",
+            "daemon_status",
+            "runtime_connection",
+            "custody_status_cmd",
+            "custody_set_provider_key",
+            "custody_clear_provider_key",
+            "folder_request",
+            "folder_status",
+            "notify_approval",
+        ];
+        assert_eq!(ALLOWED_COMMANDS, live_handlers);
+        for handler in live_handlers {
+            assert!(parse_command(handler).is_ok(), "must allow {handler}");
         }
     }
 
