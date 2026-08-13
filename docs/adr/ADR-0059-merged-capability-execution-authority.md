@@ -26,11 +26,31 @@ Neither lineage alone covers both requirements: main's thin broker has no durabl
 
 Concrete invariants (unchanged from both lineages, now enforced on ONE path):
 - typed ActionContract/ActionPermit match before any effect;
+- **deterministic deny checks (argument allowlist/path preflight) run BEFORE durable reservation** — a deterministic DENIED raises `CapabilityDenied` without creating a reservation; only exceptions after reservation begins become typed UNKNOWN (no deny-to-UNKNOWN promotion);
 - durable reservation before dispatch; reservation-without-outcome is typed UNKNOWN and never resent;
 - lease-fenced reservation insert; execution ownership only via an explicit lease;
 - C7 correction linearized against dispatch (`guard_unchanged`); reentrant correction aborts dispatch;
-- receipts/outcomes sealed once; known replays return the original receipt/output;
+- receipts/outcomes sealed once and **the sealed receipt reuses the reservation's `receipt_id`** (no fresh uuid at seal time); known replays return the original receipt/output;
+- **fail-closed**: if the connector has no durable outcome repository, the broker refuses dispatch;
 - RunCoordinator run-level custody/compensation unchanged.
+
+## Amended merge file list (supersedes the merge assessment list)
+
+The lease-fenced idempotency primitives are wave-lineage additions and must be carried into merged main, or the approval path raises `TypeError`:
+
+- `packages/os_core/src/agent_os_core/persistence.py` — `acquire_lease_if_idempotency_absent`, `put_idempotency_guarded_by_lease`, `_lease_active`, `_held_leases` release/close semantics
+- `packages/os_core/src/agent_os_core/postgres.py` — the Postgres equivalents (advisory lock + guarded insert)
+- `packages/os_core/src/agent_os_core/_action_outcome.py` — `DurableActionOutcomeRepository`, `ExecutionLease`, `ExecutionLeaseConflict`
+- `packages/os_core/src/agent_os_core/governance.py` — `guard_unchanged` + `CorrectionGuardConflict`
+- `packages/os_core/src/agent_os_core/capability.py` — the merged broker + connector (this ADR)
+- then execution.py, action_pipeline.py, task_service.py, agent_loop.py, app.py, cli, and test reconciliation in the order below.
+
+## Recorded behavioral reconciliations (intended, not regressions)
+
+- **R1 legacy outcome scope**: records already in the legacy `"capability"` idempotency scope are judged `LEGACY_OUTCOME_WITHOUT_RECEIPT → UNKNOWN`; crash-window double-write between the adapter's internal idempotency and the durable repo is accepted and fail-closed.
+- **R2 run-path C7**: after the merge, a reentrant correction during run-path dispatch changes from "silently continues" to "aborts dispatch → UNKNOWN". This is an intentional strengthening of the main lineage behavior; the change is recorded, not hidden as "unchanged".
+- **R3 receipt identity**: receipt_id is taken from the reservation (single identity), not freshly generated at seal.
+- **R4 test reconciliation**: terminal_chat_loop.py (1078-line diff) and long_horizon_compensation.py require a bidirectional assertion checklist (each lineage's assertions preserved on the merged path) before the merge commit; recorded as an explicit gate item.
 
 ## Consequences
 
