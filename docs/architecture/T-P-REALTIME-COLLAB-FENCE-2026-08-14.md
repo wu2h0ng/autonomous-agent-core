@@ -3,7 +3,7 @@
 > 配套 Goal Card: `docs/product/GC-REALTIME-COLLAB-NATIVE-SURFACE-2026-08-14.md`
 > 配套 Context Pack: `docs/product/CP-REALTIME-COLLAB-NATIVE-SURFACE-2026-08-14.md`
 > Date: 2026-08-14
-> Status: `DRAFT / FOR_CTO_GATE`
+> Status: `SPEC_APPROVED / CTO_IMPLEMENTATION_AUTHORIZED / NOT_IMPLEMENTED`
 > Primary class: `P/A`（产品能力 + authority 不变量）
 
 ## 1. 目标架构
@@ -66,11 +66,12 @@ CapabilityBroker.invoke(action, permit, attempt=1, *, execution_claim)
     必须 **fail-closed**（拒绝 dispatch，不产生 reservation），不能 no-op。
   - collaboration-required 标记来自 capability spec（如 `CapabilitySpec.collaboration_required:
     bool = False`），是 typed、可审计的选择机制，避免「默认 None」成为 workspace write 的
-    绕过路径。
+    绕过路径。该 spec 必须由 connector/registry 的可信注册表解析；不得从 action arguments、
+    模型输出或调用者可覆盖字段推导。
 - deny（`CONFLICT/CANCEL/REPLAN`）在 `outcomes.reserve` 之前发生：
   - `CONFLICT/CANCEL`：raise `WorkspaceWriteRejected`（确定性拒绝）。
-  - `REPLAN`：同样阻止 dispatch，raise 或返回 typed `ReplanRequired` 信号给 orchestration，
-    绝不继续原 action。
+  - `REPLAN`：同样阻止 dispatch；broker 必须 raise typed `ReplanRequired` 给 orchestration，
+    绝不继续原 action，也不把它混入 `CapabilityResult` 成功返回。
 
 ### 2.3 Fence 实现（`domain_packs/developer_agent` 或 node 级 adapter）
 
@@ -132,7 +133,7 @@ watcher、CRDT、语义 merge、跨主机/网络分区、多 agent 调度、exac
 3. Surface 最小冲突粒度：**file-level 起步**。symbol-level 保留 selector 扩展能力，不进首版
    实现与完成声明。
 
-## 7. 实现前必须关闭的 P1（CTO_REVISE_TO_SPEC）
+## 7. 初审 P1 关闭记录（原 CTO_REVISE_TO_SPEC）
 
 - [x] REPLAN 也必须阻止当前 action（零 reservation、零 connector 调用），是重规划信号非放行。
 - [x] fence 不持有外部效果真相；删除 PREPARED/COMMITTED/UNKNOWN，效果状态只归
@@ -147,3 +148,12 @@ watcher、CRDT、语义 merge、跨主机/网络分区、多 agent 调度、exac
 三件套 + CTO verdict 已从误放的默认 checkout `e06ab992` 迁移到基于
 `main@1e479093820d888de6ea17bc61be09ba6746d815` 的干净 spec 分支。实现 worktree 应从此 spec
 分支开出。
+
+## 9. 新 CTO implementation gate（2026-08-14）
+
+Exact reviewed spec head：`ad83b855b00f1174d5c9c34e80a05bb9988d1374`。
+
+Verdict：`CTO_IMPLEMENTATION_AUTHORIZED / P0=0 / P1=0`。授权范围仅为本文最小纵切的本地实现、
+测试与独立评审。实现必须从 exact reviewed head 开分支，以 failing/bypass-detecting 测试先行；
+不得直接复用旧 `CollaborativeCapabilityBroker` 或旧 fence 效果状态机。merge、push、release、
+生产激活及产品完成声明均需后续独立 gate。

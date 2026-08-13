@@ -2,7 +2,7 @@
 
 > 配套 Goal Card: `docs/product/GC-REALTIME-COLLAB-NATIVE-SURFACE-2026-08-14.md`
 > Date: 2026-08-14
-> Status: `DRAFT / FOR_CTO_GATE`
+> Status: `SPEC_APPROVED / CTO_IMPLEMENTATION_AUTHORIZED / NOT_IMPLEMENTED`
 
 ## 1. 现状与分叉根因
 
@@ -73,3 +73,8 @@ event_batch, write_scopes, now, attempt)` 入口，把 `WorkLease` 作为平行�
 - 已关闭 P1：REPLAN 不放行、required-preflight fail-closed、单一效果真相、exact-base
   provenance（三件套 + CTO verdict 已落 `spec/realtime-collab-fence-20260814`，base
   `main@1e479093820d888de6ea17bc61be09ba6746d815`）。
+- 新 gate 已锁定两个实现期解释：`REPLAN` 由 broker raise typed `ReplanRequired`，不扩展
+  `CapabilityBroker.invoke` 的成功返回联合；`collaboration_required` 只从 connector/registry
+  提供的可信 `CapabilitySpec` 读取，不接受 action arguments、模型输出或调用者覆盖。
+- 2026-08-14 exact-head gate `ad83b855`：`CTO_IMPLEMENTATION_AUTHORIZED`。不授权 merge、push、
+  release；实现完成后仍需独立 exact-head review 与单独 merge gate。

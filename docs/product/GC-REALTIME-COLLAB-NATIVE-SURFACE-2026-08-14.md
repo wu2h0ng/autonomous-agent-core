@@ -2,7 +2,7 @@
 
 > Date: 2026-08-14
 > Track: Product
-> Status: **SPECIFIED_ONLY / CTO_REVISE_TO_SPEC / NOT_IMPLEMENTATION_AUTHORIZED / NO_RELEASE_AUTHORITY**
+> Status: **SPEC_APPROVED / CTO_IMPLEMENTATION_AUTHORIZED / NOT_IMPLEMENTED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
 > Exact base: `1e479093820d888de6ea17bc61be09ba6746d815`（main；spec branch `spec/realtime-collab-fence-20260814`）
 > Authority: `docs/research/founder-decision-2026-08-14-post-convergence-route-cast.md` §2
 > Requirement: GOAL-BLUEPRINT M2「人/Agent 同空间并发工作」真实产品需求
@@ -77,7 +77,8 @@ dispatch 路径上的**前置校验阶段**（不是第二个 broker），在 `e
 
 ## 下一步 gate
 
-三项 route choice 已锁定（构造注入 / WorkLease 独立+同源校验 / file-level Surface），但当前
-CTO verdict 为 `REVISE_TO_SPEC / NOT_IMPLEMENTATION_AUTHORIZED`。关闭 4 个 P1（REPLAN 不放行、
-required-preflight fail-closed、单一效果真相、exact-base provenance）后重新提交
-implementation authorization。
+三项 route choice 已锁定（构造注入 / WorkLease 独立+同源校验 / file-level Surface），4 个
+规格 P1 已关闭。2026-08-14 新 CTO gate 对 exact spec head `ad83b855` 返回
+`CTO_IMPLEMENTATION_AUTHORIZED`：允许从该 head 开实现分支，按 failing/bypass-detecting 测试
+先行实现最小纵切。此授权不包含 merge、push、release 或产品完成声明；实现仍须全 Product
+回归零新增失败、独立 exact-head review 与单独 merge gate。
