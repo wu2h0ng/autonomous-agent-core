@@ -161,6 +161,9 @@ from .capability import (
     CapabilityEffect,
     CapabilityPort,
     CapabilityResult,
+    CollaborationPreflightPort,
+    ReplanRequired,
+    WorkspaceWriteRejected,
 )
 from ._action_outcome import (
     DurableActionOutcomeRepository,
@@ -462,6 +465,9 @@ __all__ = [
     "CapabilityEffect",
     "CapabilityPort",
     "CapabilityResult",
+    "CollaborationPreflightPort",
+    "ReplanRequired",
+    "WorkspaceWriteRejected",
     "AgentCLIError",
     "AgentCLIResult",
     "event_types",

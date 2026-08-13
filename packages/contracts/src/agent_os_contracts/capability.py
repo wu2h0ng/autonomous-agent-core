@@ -40,6 +40,7 @@ class CapabilitySpec(ContractModel):
     audit_policy: NonEmptyStr
     created_by: NonEmptyStr
     created_at: UtcDateTime
+    collaboration_required: bool = False
 
     @model_validator(mode="after")
     def _validate_side_effect_guarantee(self) -> CapabilitySpec:

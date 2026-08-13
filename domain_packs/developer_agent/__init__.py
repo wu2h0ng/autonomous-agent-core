@@ -6,6 +6,13 @@ from agent_os_contracts import DomainPackManifest
 
 from .repository_patch_profile import DeveloperRepositoryPatchProfile
 from .workspace_capability import DeveloperWorkspaceAdapter
+from .workspace_collaboration import (
+    SQLiteWorkspaceCommitFence,
+    WorkspaceCollaborationPreflight,
+    WorkspaceCommitFence,
+    WorkspaceCommitFencePort,
+    WorkspaceFenceUnavailable,
+)
 
 WorkspaceSandbox = DeveloperWorkspaceAdapter
 
@@ -13,6 +20,11 @@ __all__ = [
     "DeveloperRepositoryPatchProfile",
     "DeveloperWorkspaceAdapter",
     "WorkspaceSandbox",
+    "SQLiteWorkspaceCommitFence",
+    "WorkspaceCollaborationPreflight",
+    "WorkspaceCommitFence",
+    "WorkspaceCommitFencePort",
+    "WorkspaceFenceUnavailable",
     "manifest",
 ]
 

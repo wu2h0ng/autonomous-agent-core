@@ -11,7 +11,9 @@ from agent_os_contracts import (
     ActionPermit,
     ActionReceipt,
     CapabilitySpec,
+    CollaborationDisposition,
     ReceiptStatus,
+    WorkspaceWriteDecision,
 )
 
 from ._action_outcome import (
@@ -27,6 +29,41 @@ from .governance import CorrectionGuardConflict, CorrectionReadPort
 
 class CapabilityCorrectionBlocked(CapabilityDenied):
     """C7 changed before an effect was dispatched."""
+
+
+class WorkspaceWriteRejected(CapabilityDenied):
+    """A collaboration fence deterministically denied a pre-dispatch write."""
+
+    def __init__(self, decision: WorkspaceWriteDecision) -> None:
+        self.decision = decision
+        super().__init__(
+            f"workspace write rejected [{decision.disposition.value}]: "
+            f"{decision.reason}"
+        )
+
+
+class ReplanRequired(CapabilityDenied):
+    """The current action must be replanned; it is not dispatched."""
+
+    def __init__(self, decision: WorkspaceWriteDecision) -> None:
+        self.decision = decision
+        super().__init__(
+            f"workspace write requires replanning: {decision.reason}"
+        )
+
+
+class CollaborationPreflightPort(Protocol):
+    """Pre-dispatch collaboration check on the ADR-0059 single spine.
+
+    The port reads the current lease/event/cursor from the authoritative
+    coordination store using only `action` and `claim`; it must not trust any
+    lease/event data supplied by the caller. Any non-CONTINUE disposition
+    blocks dispatch before reservation.
+    """
+
+    def preflight(
+        self, action: ActionContract, claim: ExecutionLease
+    ) -> WorkspaceWriteDecision: ...
 
 
 @dataclass(frozen=True)
@@ -82,9 +119,15 @@ class CapabilityBroker:
     reservation, so DENIED never produces a reservation or an UNKNOWN record.
     """
 
-    def __init__(self, connector: CapabilityPort, correction: CorrectionReadPort) -> None:
+    def __init__(
+        self,
+        connector: CapabilityPort,
+        correction: CorrectionReadPort,
+        collaboration_preflight: CollaborationPreflightPort | None = None,
+    ) -> None:
         self.connector = connector
         self.correction = correction
+        self.collaboration_preflight = collaboration_preflight
 
     def invoke(
         self,
@@ -121,6 +164,9 @@ class CapabilityBroker:
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
             raise CapabilityDenied("capability arguments must be an object")
+        # Collaboration deny runs before the durable-store requirement: a
+        # deterministic non-CONTINUE decision never needs a reservation store.
+        self._enforce_collaboration(action, execution_claim)
         outcomes = self.connector.outcomes()
         if outcomes is None:
             raise CapabilityDenied(
@@ -192,6 +238,37 @@ class CapabilityBroker:
                 detail="stored capability outcome permit/action mismatch",
             )
         return result
+
+    def _enforce_collaboration(
+        self, action: ActionContract, execution_claim: ExecutionLease
+    ) -> None:
+        """Run the collaboration preflight for collaboration-required writes.
+
+        The `collaboration_required` flag comes from the connector's trusted
+        capability registry (`CapabilityPort.specs()`), never from caller
+        arguments or model output. A collaboration-required write dispatched
+        through a broker without a preflight fails closed.
+        """
+        spec = self._lookup_spec(action.capability_id)
+        if spec is None or not spec.collaboration_required:
+            return
+        if self.collaboration_preflight is None:
+            raise CapabilityDenied(
+                "collaboration-required capability dispatched without a "
+                "collaboration preflight"
+            )
+        decision = self.collaboration_preflight.preflight(action, execution_claim)
+        if decision.disposition is CollaborationDisposition.CONTINUE:
+            return
+        if decision.disposition is CollaborationDisposition.REPLAN:
+            raise ReplanRequired(decision)
+        raise WorkspaceWriteRejected(decision)
+
+    def _lookup_spec(self, capability_id: str) -> CapabilitySpec | None:
+        try:
+            return self.connector.specs().get(capability_id)
+        except Exception:
+            return None
 
 
 def _build_receipt(
