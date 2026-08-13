@@ -1811,10 +1811,16 @@ class AgentOSApplication:
             event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
             for event in self.store.read(task_id)
         )
+        run_status = "NONE"
+        run_id = ""
+        if run is not None:
+            run_status = run.status.value
+            run_id = run.run_id
         return {
             "task_id": task_id,
-            "task_status": aggregate.status.value,
-            "run_status": run.status.value if run is not None else "NONE",
+            "task_status": (aggregate.status.value if aggregate.status is not None else "NONE"),
+            "run_status": run_status,
+            "run_id": run_id,
             "expected_outcome_id": (
                 aggregate.expected_outcome.expected_outcome_id
                 if aggregate.expected_outcome is not None

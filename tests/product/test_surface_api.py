@@ -581,6 +581,7 @@ def test_overview_route_returns_closed_task_projection(
         "task_id",
         "task_status",
         "run_status",
+        "run_id",
         "expected_outcome_id",
         "receipt_count",
         "session_id",
