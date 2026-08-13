@@ -10,13 +10,14 @@ live_pins:
     - "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1 (typed SrlHelpResponse + settle auto-cancel)"
     - "prior: ABA B4 PARK disposition"
     - "P-SELFDEV-SCOPED-VERIFIER + malformed SSE delta oracle (local no-ff merge 0705de64; no push)"
+    - "ADR-0059 capability execution authority merge (wave2a spine into main; merge-prep branch 97d15a9d; committed locally, NOT pushed)"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
   approved_designs:
     - "P-AGENT-RESPONSIBILITY-LOOP-1 design at 5036ab7; Kimi R3 SPEC_APPROVE; persistence foundation at exact head ddb021b independently returned TECHNICAL_APPROVE_FOUNDATION; controller/CLI/application loop remains incomplete"
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-12T02:30:00+08:00"
+updated: "2026-08-13T12:00:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
