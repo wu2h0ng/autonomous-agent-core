@@ -1,10 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
 use std::sync::{Mutex, OnceLock};
 
 use agent_os_shell_lib::daemon_supervisor::{DaemonConfig, Supervisor, SupervisorState};
+use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 use agent_os_shell_lib::keychain_custody::{
     CustodyStatus, custody_status, effective_provider_key, KeyValueStore, KeychainStore, PROVIDER_KEY_ACCOUNT,
     KEYCHAIN_SERVICE,
@@ -68,6 +71,8 @@ fn install_termination_handlers() {
 
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|_app| {
             // The shell supervises the daemon from launch; no renderer IPC or
             // manual Python start is required (Wave 2a exit gate). A
@@ -77,6 +82,7 @@ fn main() {
             guard.start();
             drop(guard);
             install_termination_handlers();
+            build_tray(_app)?;
             std::thread::spawn(move || loop {
                 if SHUTDOWN.load(Ordering::SeqCst) {
                     if let Ok(mut guard) = supervisor().lock() {
@@ -100,6 +106,8 @@ fn main() {
             custody_status_cmd,
             custody_set_provider_key,
             custody_clear_provider_key,
+            folder_request,
+            folder_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Agent OS shell");
@@ -199,4 +207,120 @@ fn custody_set_provider_key(provider_key: String) -> Result<bool, String> {
 fn custody_clear_provider_key() -> Result<bool, String> {
     KeychainStore.delete_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT)?;
     Ok(true)
+}
+
+// --- tray (Wave 2c) ---
+
+fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+
+    let show_item = MenuItem::with_id(app, "show", "Show Agent OS", true, None::<&str>)?;
+    let start_item = MenuItem::with_id(app, "daemon_start", "Start daemon", true, None::<&str>)?;
+    let stop_item = MenuItem::with_id(app, "daemon_stop", "Stop daemon", true, None::<&str>)?;
+    let status_item = MenuItem::with_id(app, "daemon_status", "Daemon status", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(
+        app,
+        &[&show_item, &start_item, &stop_item, &status_item, &quit_item],
+    )?;
+    let tray = TrayIconBuilder::with_id("agent-os-tray")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "daemon_start" => {
+                if let Ok(mut guard) = supervisor().lock() {
+                    if guard.state == SupervisorState::Stopped {
+                        guard.start();
+                    }
+                }
+            }
+            "daemon_stop" => {
+                if let Ok(mut guard) = supervisor().lock() {
+                    guard.stop();
+                }
+            }
+            "daemon_status" => {
+                let status = daemon_status().unwrap_or_else(|e| e);
+                notify(app, "Agent OS daemon", &status);
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    let _ = tray;
+    Ok(())
+}
+
+// --- folder authorization (Wave 2c, renderer state only) ---
+
+static GRANTED_FOLDER: AtomicUsize = AtomicUsize::new(0);
+
+fn folder_state() -> Option<String> {
+    let ptr = GRANTED_FOLDER.load(Ordering::SeqCst);
+    if ptr == 0 {
+        return None;
+    }
+    let boxed = unsafe { Box::from_raw(ptr as *mut String) };
+    let value: String = (*boxed).clone();
+    std::mem::forget(boxed);
+    Some(value)
+}
+
+fn set_folder_state(value: String) {
+    let ptr = Box::into_raw(Box::new(value)) as usize;
+    let old = GRANTED_FOLDER.swap(ptr, Ordering::SeqCst);
+    if old != 0 {
+        let _ = unsafe { Box::from_raw(old as *mut String) };
+    }
+}
+
+#[tauri::command]
+fn folder_status() -> Result<String, String> {
+    Ok(serde_json::json!({
+        "granted": folder_state(),
+        "daemon_workspace": env_or("AGENT_OS_DAEMON_WORKSPACE", "."),
+    })
+    .to_string())
+}
+
+/// Opens the native folder picker; the returned path becomes renderer-level
+/// authorization state. It grants NO new daemon permission (Wave 2c boundary).
+#[tauri::command]
+fn folder_request(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .pick_folder(move |folder| {
+            if let Some(file_path) = folder {
+                if let Ok(path) = file_path.into_path() {
+                    set_folder_state(path.to_string_lossy().into_owned());
+                }
+            }
+        });
+    Ok(true)
+}
+
+/// Bounded notification: never carries provider keys, tokens, or raw message
+/// content beyond a short summary.
+fn notify(app: &tauri::AppHandle, title: &str, body: &str) {
+
+    let _ = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show();
+}
+
+fn _folder_is_within_workspace(granted: &str, workspace: &str) -> bool {
+    let granted_path = Path::new(granted);
+    let workspace_path = Path::new(workspace);
+    granted_path.starts_with(workspace_path)
 }

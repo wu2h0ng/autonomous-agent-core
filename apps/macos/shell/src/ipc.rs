@@ -16,6 +16,8 @@ pub const ALLOWED_COMMANDS: &[&str] = &[
     "custody:status",
     "custody:set_provider_key",
     "custody:clear_provider_key",
+    "folder:request",
+    "folder:status",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +30,8 @@ pub enum IpcCommand {
     CustodyStatus,
     CustodySetProviderKey,
     CustodyClearProviderKey,
+    FolderRequest,
+    FolderStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +59,8 @@ pub fn parse_command(name: &str) -> Result<IpcCommand, IpcRejected> {
         "custody:status" => Ok(IpcCommand::CustodyStatus),
         "custody:set_provider_key" => Ok(IpcCommand::CustodySetProviderKey),
         "custody:clear_provider_key" => Ok(IpcCommand::CustodyClearProviderKey),
+        "folder:request" => Ok(IpcCommand::FolderRequest),
+        "folder:status" => Ok(IpcCommand::FolderStatus),
         other => Err(IpcRejected {
             command: other.to_string(),
         }),

@@ -9,6 +9,31 @@ export interface RuntimeConnection {
   bearer_token: string;
 }
 
+export async function folderRequest(): Promise<boolean> {
+  const invoke = tauriInvoke();
+  if (invoke === null) {
+    throw new Error("folder request unavailable outside the Agent OS shell");
+  }
+  return (await invoke("folder:request")) === true;
+}
+
+export async function folderStatus(): Promise<{ granted: string | null; daemon_workspace: string }> {
+  const invoke = tauriInvoke();
+  if (invoke === null) {
+    return { granted: null, daemon_workspace: "" };
+  }
+  const value = await invoke("folder:status");
+  const parsed = JSON.parse(String(value)) as {
+    granted?: unknown;
+    daemon_workspace?: unknown;
+  };
+  return {
+    granted: typeof parsed.granted === "string" ? parsed.granted : null,
+    daemon_workspace:
+      typeof parsed.daemon_workspace === "string" ? parsed.daemon_workspace : "",
+  };
+}
+
 interface TauriWindow {
   __TAURI__?: {
     core?: {

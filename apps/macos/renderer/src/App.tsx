@@ -13,6 +13,9 @@ import { fetchOverview, type TaskOverview } from "./panels/plan_tasks";
 import { recentDiffs, type DiffSummary } from "./panels/diff";
 import { terminalEvents, type TerminalLine } from "./panels/terminal";
 import { closedShellState, type ClosedIntegrationId } from "./panels/closed_shell";
+import { askTransition, initialAskState, upgradeToWork, type AskState } from "./panels/ask";
+import { observeEvents, type ObserveItem } from "./panels/observe";
+import { folderRequest, folderStatus } from "./tauri";
 
 type Phase =
   | { kind: "connecting" }
@@ -179,6 +182,12 @@ export function App(): React.JSX.Element {
   const [overview, setOverview] = useState<TaskOverview | null>(null);
   const [diffs, setDiffs] = useState<DiffSummary[] | null>(null);
   const [terminal, setTerminal] = useState<TerminalLine[] | null>(null);
+  const [ask, setAsk] = useState<AskState>(initialAskState);
+  const [observe, setObserve] = useState<ObserveItem[] | null>(null);
+  const [folder, setFolder] = useState<{ granted: string | null; daemon_workspace: string }>({
+    granted: null,
+    daemon_workspace: "",
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -215,6 +224,7 @@ export function App(): React.JSX.Element {
       const events = await client.events(opened.session.task_id, 0, 0);
       setDiffs(recentDiffs(events.events));
       setTerminal(terminalEvents(events.events));
+      setObserve(observeEvents(events.events));
     } catch (error) {
       setNotice(`error: ${String(error)}`);
     }
@@ -234,6 +244,27 @@ export function App(): React.JSX.Element {
         setNotice(response.text || `[${response.stop_reason}]`);
       }
       setThread(await resumeThread(client, snapshot.session.task_id, thread?.nextSequence ?? 0));
+    } catch (error) {
+      setNotice(`error: ${String(error)}`);
+    }
+  }
+
+  async function upgradeAsk(): Promise<void> {
+    if (client === null) return;
+    try {
+      const next = await upgradeToWork(client, ask);
+      setAsk(next);
+      setNotice(`upgraded to Work: ${next.session_id}`);
+    } catch (error) {
+      setNotice(`error: ${String(error)}`);
+    }
+  }
+
+  async function requestFolder(): Promise<void> {
+    try {
+      await folderRequest();
+      const status = await folderStatus();
+      setFolder(status);
     } catch (error) {
       setNotice(`error: ${String(error)}`);
     }
@@ -270,6 +301,52 @@ export function App(): React.JSX.Element {
       <nav style={{ width: 180, borderRight: "1px solid #ccc", padding: 12 }}>
         <h2>Workspaces</h2>
         <button onClick={openSession}>New session</button>
+        <div>
+          <h3 style={{ fontSize: 12 }}>Ask</h3>
+          {ask.phase === "work" ? (
+            <p style={{ fontSize: 12 }}>Work session: {ask.session_id}</p>
+          ) : (
+            <>
+              <input
+                style={{ width: "90%" }}
+                placeholder="Ask (no effect)…"
+                value={ask.question}
+                onChange={(event) =>
+                  setAsk({ ...ask, question: event.target.value })
+                }
+              />
+              {ask.phase === "idle" ? (
+                <button onClick={() => setAsk(askTransition(ask, "start"))}>Ask</button>
+              ) : (
+                <>
+                  <button onClick={() => void upgradeAsk()}>Upgrade to Work</button>
+                  <button onClick={() => setAsk(askTransition(ask, "cancel"))}>Cancel</button>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div>
+          <h3 style={{ fontSize: 12 }}>Observe</h3>
+          {observe === null || observe.length === 0 ? (
+            <p style={{ fontSize: 12 }}>No risks or help requests.</p>
+          ) : (
+            <ul style={{ fontSize: 12 }}>
+              {observe.map((item) => (
+                <li key={item.sequence}>
+                  {item.kind}: {item.summary}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h3 style={{ fontSize: 12 }}>Folder</h3>
+          <p style={{ fontSize: 12 }}>
+            granted: {folder.granted ?? "none"} · workspace: {folder.daemon_workspace}
+          </p>
+          <button onClick={() => void requestFolder()}>Authorize folder</button>
+        </div>
         <select
           value={layout.id}
           onChange={(event) => {
