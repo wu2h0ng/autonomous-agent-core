@@ -14,6 +14,12 @@ use std::time::Duration;
 
 pub const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[link(name = "c")]
+extern "C" {
+    #[link_name = "kill"]
+    fn c_kill(pid: i32, sig: i32) -> i32;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DaemonDescriptor {
     pub pid: i64,
@@ -154,8 +160,7 @@ pub fn decide(
 /// Minimal authenticated health probe over a raw loopback socket.
 /// Returns Ok(true) for HTTP 200, Ok(false) for HTTP 401 (server is up but
 /// token mismatch), and Err only when the server cannot be reached.
-pub fn probe_health(port: u16, token: &str) -> Result<bool, String> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port))
+pub fn probe_health(port: u16, token: &str) -> Result<bool, String> {    let mut stream = TcpStream::connect(("127.0.0.1", port))
         .map_err(|e| format!("health connect failed: {e}"))?;
     stream
         .set_read_timeout(Some(HEALTH_TIMEOUT))
@@ -220,8 +225,24 @@ impl Supervisor {
 
     pub fn stop(&mut self) {
         if let Some(child) = self.process.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+            let pid = child.id();
+            // Graceful SIGTERM first so the daemon removes its own descriptor
+            // (boot-id match) and closes SQLite; SIGKILL only as fallback.
+            unsafe {
+                c_kill(pid as i32, 15);
+            }
+            let mut exited = false;
+            for _ in 0..50 {
+                if child.try_wait().ok().flatten().is_some() {
+                    exited = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if !exited {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
         self.process = None;
         self.state = SupervisorState::Stopped;

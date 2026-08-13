@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev --prefix ../renderer",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build --prefix ../renderer",
+    "beforeBuildCommand": "npm run build --prefix ./renderer",
     "frontendDist": "../renderer/dist"
   },
   "app": {
@@ -23,7 +23,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": [
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

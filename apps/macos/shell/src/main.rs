@@ -1,12 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use agent_os_shell_lib::daemon_supervisor::{DaemonConfig, Supervisor, SupervisorState};
 use agent_os_shell_lib::keychain_custody::{
-    effective_provider_key, custody_status, CustodyStatus, KeyValueStore, KeychainStore,
-    PROVIDER_KEY_ACCOUNT, KEYCHAIN_SERVICE,
+    CustodyStatus, custody_status, effective_provider_key, KeyValueStore, KeychainStore, PROVIDER_KEY_ACCOUNT,
+    KEYCHAIN_SERVICE,
 };
 
 const PROVIDER_KEY_ENV: &str = "AGENT_OS_PROVIDER_API_KEY_ENV";
@@ -17,7 +18,8 @@ fn env_or(name: &str, default: &str) -> String {
 }
 
 /// Dev-scope daemon configuration (PATH-independent python resolution is
-/// supplied by the caller; the app config overrides env for the dev artifact).
+/// supplied via AGENT_OS_DAEMON_PYTHON; the app config overrides env for the
+/// dev artifact).
 fn default_daemon_config() -> DaemonConfig {
     let python = PathBuf::from(env_or("AGENT_OS_DAEMON_PYTHON", "python3"));
     DaemonConfig {
@@ -34,16 +36,55 @@ fn default_daemon_config() -> DaemonConfig {
     }
 }
 
-struct AppState {
-    supervisor: Mutex<Supervisor>,
+fn supervisor() -> &'static Mutex<Supervisor> {
+    static SUPERVISOR: OnceLock<Mutex<Supervisor>> = OnceLock::new();
+    SUPERVISOR.get_or_init(|| Mutex::new(Supervisor::new(default_daemon_config())))
+}
+
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn handle_termination(_sig: i32) {
+    SHUTDOWN.store(true, Ordering::SeqCst);
+}
+
+#[link(name = "c")]
+extern "C" {
+    #[link_name = "signal"]
+    fn c_signal(sig: i32, handler: usize) -> usize;
+}
+
+fn install_termination_handlers() {
+    unsafe {
+        c_signal(15, handle_termination as usize); // SIGTERM
+        c_signal(2, handle_termination as usize); // SIGINT
+    }
 }
 
 fn main() {
-    let state = AppState {
-        supervisor: Mutex::new(Supervisor::new(default_daemon_config())),
-    };
-    tauri::Builder::default()
-        .manage(state)
+    let app = tauri::Builder::default()
+        .setup(|_app| {
+            // The shell supervises the daemon from launch; no renderer IPC or
+            // manual Python start is required (Wave 2a exit gate). A
+            // background thread ticks the supervisor so crash-restart works
+            // without renderer interaction, and drains it on SIGTERM/SIGINT.
+            let mut guard = supervisor().lock().map_err(|e| e.to_string())?;
+            guard.start();
+            drop(guard);
+            install_termination_handlers();
+            std::thread::spawn(move || loop {
+                if SHUTDOWN.load(Ordering::SeqCst) {
+                    if let Ok(mut guard) = supervisor().lock() {
+                        guard.stop();
+                    }
+                    std::process::exit(0);
+                }
+                if let Ok(mut guard) = supervisor().lock() {
+                    guard.tick();
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             daemon_start,
             daemon_stop,
@@ -52,15 +93,24 @@ fn main() {
             custody_set_provider_key,
             custody_clear_provider_key,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the Agent OS shell");
+        .build(tauri::generate_context!())
+        .expect("error while building the Agent OS shell");
+    app.run(|_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            // Boot-id-matched descriptor removal and SQLite close happen in
+            // the daemon itself on SIGTERM; stop() reaps the child here.
+            if let Ok(mut guard) = supervisor().lock() {
+                guard.stop();
+            }
+        }
+    });
 }
 
 // --- daemon lifecycle (supervisor) ---
 
 #[tauri::command]
-fn daemon_start(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let mut supervisor = state.supervisor.lock().map_err(|e| e.to_string())?;
+fn daemon_start() -> Result<String, String> {
+    let mut supervisor = supervisor().lock().map_err(|e| e.to_string())?;
     if supervisor.state == SupervisorState::Stopped {
         supervisor.start();
     }
@@ -68,15 +118,15 @@ fn daemon_start(state: tauri::State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn daemon_stop(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let mut supervisor = state.supervisor.lock().map_err(|e| e.to_string())?;
+fn daemon_stop() -> Result<String, String> {
+    let mut supervisor = supervisor().lock().map_err(|e| e.to_string())?;
     supervisor.stop();
     Ok("stopped".to_string())
 }
 
 #[tauri::command]
-fn daemon_status(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let supervisor = state.supervisor.lock().map_err(|e| e.to_string())?;
+fn daemon_status() -> Result<String, String> {
+    let supervisor = supervisor().lock().map_err(|e| e.to_string())?;
     let state_name = match supervisor.state {
         SupervisorState::Stopped => "stopped",
         SupervisorState::Starting => "starting",
