@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_accepts_exactly_the_six_commands() {
+    fn allowlist_accepts_exactly_the_eight_commands() {
         for name in ALLOWED_COMMANDS {
             assert!(parse_command(name).is_ok(), "must allow {name}");
         }

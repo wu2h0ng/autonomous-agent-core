@@ -1,7 +1,7 @@
 //! Opt-in real Keychain integration test (ADR-0058).
 //!
-//! Touches the user's login Keychain, so it is skipped unless
-//! `AGENT_OS_WAVE2_KEYCHAIN_TEST=1` is set. The Task 7 exit gate performs the
+//! Touches the user's login Keychain, so it is #[ignore]d by default and
+//! runs only with `AGENT_OS_WAVE2_KEYCHAIN_TEST=1 cargo test -- --ignored`. The Task 7 exit gate performs the
 //! authoritative real-Keychain verification during the `.app` launch.
 
 use agent_os_shell_lib::keychain_custody::{

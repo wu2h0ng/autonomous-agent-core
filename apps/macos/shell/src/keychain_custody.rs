@@ -111,69 +111,77 @@ mod tests {
         }
     }
 
-    // Distinct env names per test: cargo runs tests in parallel threads and
-    // the process environment is shared.
-    const ENV_NAME: &str = "AGENT_OS_PROVIDER_WAVE2A_TEST_KEY";
+    // Unique env name per test: cargo runs tests in parallel threads and
+    // the process environment is shared, so a shared name would let one
+    // test observe another test's set/remove and flake.
+    const ENV_A: &str = "AGENT_OS_PROVIDER_WAVE2A_TEST_KEY_A";
+    const ENV_B: &str = "AGENT_OS_PROVIDER_WAVE2A_TEST_KEY_B";
+    const ENV_C: &str = "AGENT_OS_PROVIDER_WAVE2A_TEST_KEY_C";
+    const ENV_D: &str = "AGENT_OS_PROVIDER_WAVE2A_TEST_KEY_D";
 
     #[test]
     fn environment_variable_wins_over_keychain() {
+        let env_name = ENV_A;
         let store = MemoryStore::default();
         store
             .set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, "keychain-value")
             .unwrap();
         unsafe {
-            env::set_var(ENV_NAME, "env-value");
+            env::set_var(env_name, "env-value");
         }
         assert_eq!(
-            effective_provider_key(ENV_NAME, Some(&store)),
+            effective_provider_key(env_name, Some(&store)),
             Some("env-value".to_string())
         );
         assert_eq!(
-            custody_status(ENV_NAME, Some(&store)),
+            custody_status(env_name, Some(&store)),
             CustodyStatus::EnvOverride
         );
         unsafe {
-            env::remove_var(ENV_NAME);
+            env::remove_var(env_name);
         }
     }
 
     #[test]
     fn keychain_value_is_used_when_environment_absent() {
+        let env_name = ENV_B;
         let store = MemoryStore::default();
         store
             .set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, "keychain-value")
             .unwrap();
         unsafe {
-            env::remove_var(ENV_NAME);
+            env::remove_var(env_name);
         }
         assert_eq!(
-            effective_provider_key(ENV_NAME, Some(&store)),
+            effective_provider_key(env_name, Some(&store)),
             Some("keychain-value".to_string())
         );
         assert_eq!(
-            custody_status(ENV_NAME, Some(&store)),
+            custody_status(env_name, Some(&store)),
             CustodyStatus::Present
         );
     }
 
     #[test]
     fn absent_keychain_and_env_report_absent_without_value() {
+        let env_name = ENV_C;
         let store = MemoryStore::default();
         unsafe {
-            env::remove_var(ENV_NAME);
+            env::remove_var(env_name);
         }
         assert_eq!(
-            custody_status(ENV_NAME, Some(&store)),
+            custody_status(env_name, Some(&store)),
             CustodyStatus::Absent
         );
         assert_eq!(
-            effective_provider_key(ENV_NAME, Some(&store)),
+            effective_provider_key(env_name, Some(&store)),
             None
         );
     }
 
     #[test]
     fn clear_removes_the_item() {
+        let env_name = ENV_D;
         let store = MemoryStore::default();
         store
             .set_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT, "secret")
@@ -181,6 +189,6 @@ mod tests {
         store
             .delete_secret(KEYCHAIN_SERVICE, PROVIDER_KEY_ACCOUNT)
             .unwrap();
-        assert_eq!(custody_status(ENV_NAME, Some(&store)), CustodyStatus::Absent);
+        assert_eq!(custody_status(env_name, Some(&store)), CustodyStatus::Absent);
     }
 }
