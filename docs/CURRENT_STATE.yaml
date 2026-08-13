@@ -317,6 +317,20 @@ research_ledger:
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
 active_work:
+  - id: "P-NATIVE-SURFACE-WAVE2B-20260812"
+    track: "product"
+    status: "IMPLEMENTED / TESTED / INTEGRATED / REVIEWED: pending / PUSHED: false / RELEASED: false / DAILY_USABLE: false / NOT_MERGED / BRANCH_CONTAINED codex/native-surface-wave2a-macos-shell-20260812"
+    purpose: "Wave 2b slice: layout template engine over the closed ten-panel set, Plan and Tasks overview projection, read-only Diff and Terminal panels over the task event stream, and four closed shells (Chrome Live, Embedded Web, Gmail, Calendar) with zero external connectivity."
+    boundary: "All Wave 2a boundaries carry forward. Panels are typed Surface consumers; none can call native capabilities, Google APIs, Chrome automation, shell commands, or Worker endpoints. Terminal panel is read-only event rendering; the only shell path remains the typed workspace.shell command with approval. Layout templates are renderer-local data (no durable layout store in 2b). Real Chrome/Google integrations remain Wave 3. No push/merge/release/signing/notarization/daily-usability claim."
+    source:
+      - "docs/superpowers/plans/2026-08-11-agent-os-native-surface-wave2b-panels-layouts.md"
+      - "apps/macos/renderer/src/panels/layout.ts"
+      - "apps/macos/renderer/src/panels/plan_tasks.ts"
+      - "apps/macos/renderer/src/panels/diff.ts"
+      - "apps/macos/renderer/src/panels/terminal.ts"
+      - "apps/macos/renderer/src/panels/closed_shell.ts"
+      - "apps/api_server/surface_routes.py"
+    verification: "Renderer 21 Vitest tests + build green; focused Python 20 passed; full tests/product 1803 passed / 18 failed / 1 skipped with the same pre-existing baseline (no regression); Ruff clean; Pyright 0 errors on Wave 2 paths. Layout engine rejects unknown/duplicate/overlapping/negative-sized panels and multiple focused panels; the Canvas renders panels ordered by template placement; overview route returns a closed schema with auth+scope+ownership."
   - id: "P-NATIVE-SURFACE-WAVE2A-20260812"
     track: "product"
     status: "IMPLEMENTED / TESTED / INTEGRATED / REVIEWED: pending / PUSHED: false / RELEASED: false / DAILY_USABLE: false / NOT_MERGED / BRANCH_CONTAINED codex/native-surface-wave2a-macos-shell-20260812"
