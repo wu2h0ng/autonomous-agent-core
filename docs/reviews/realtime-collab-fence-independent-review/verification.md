@@ -1,42 +1,45 @@
-# Verification Record Supplied to Reviewer
+# Verification Record Supplied to Reviewer (Round 2)
 
 ## Head under review
 
-- Target: `34d2d376431adb69817c1ed66f0e862801e453e6`
-- Base: `c819f75b9ad01850a90850d72da2b621129308a2` (spec head, CTO_IMPLEMENTATION_AUTHORIZED)
-- Target is exactly base + 1 commit (9 files, +1206/-1). Not pushed.
+- Target: `d0afc3a6106809c2736d5e5f780151f8ff55f1b3`
+- Base: `c819f75b9ad01850a90850d72da2b621129308a2` (spec head)
+- First review `84b41e2c` (REVISE / P1=5) is an ancestor via `b2428eee` (packet).
 
 ## Test results
 
-- New tests: `tests/product/test_workspace_collaboration_fence.py` (13) +
-  `tests/product/test_workspace_commit_fence.py` (9) = **22 passed**.
-- Full Product: **2187 passed, 1 skipped, 1 failed**.
+- Collaboration tests (fence seam + commit fence + entry-point): **35 passed**.
+- Full Product: **2200 passed, 1 skipped, 1 failed**.
 - The single failure `test_product_entrypoint.py::test_installed_product_package_contains_api_surface_resources`
-  reproduces on base `c819f75` (editable-install environment debt; `index.html`
-  exists in source but not in the editable install). Pre-existing, not introduced.
+  reproduces on base `c819f75` (editable-install environment debt). Pre-existing.
 
 ## Static checks
 
-- Ruff (changed scope + full canonical scope): PASS on changed files. Two
-  pre-existing `F401` in `domain_packs/developer_agent/workspace_capability.py`
-  (untouched by this change).
-- Pyright (changed files): **0 errors, 0 warnings**.
+- Ruff (changed files + full canonical scope): PASS (all checks passed).
+- Pyright (changed files): 0 errors, 0 warnings.
 - Pyright (full scope): 110 errors, identical to pre-existing baseline (zero new).
 
 ## P1 closure spot-checks
 
-- REPLAN blocks: `capability.py` `_enforce_collaboration` raises `ReplanRequired`
-  before `outcomes.reserve`; test `test_replan_blocks_dispatch_with_zero_connector_calls`
-  asserts `execute_calls == 0`. PASS.
-- No effect truth in fence: `WorkspaceCommitFence`/`SQLiteWorkspaceCommitFence` expose
-  only `install_lease`/`append_event`/`current_lease`/`read_after`; `test_fence_holds_no_effect_truth`
-  asserts no PREPARED/COMMITTED/UNKNOWN attr and no `dispatch`. PASS.
-- Trusted registry: `_lookup_spec` reads `connector.specs()`; `test_collaboration_required_reads_trusted_registry_not_caller_args`
-  proves caller args cannot downgrade. PASS.
-- Replay before preflight: `invoke` calls `replay()` before `_enforce_collaboration`;
-  `test_replay_before_preflight_returns_sealed_outcome_unchanged` asserts the hostile
-  preflight is never invoked (`seen_claim is None`). PASS.
-- Same-origin binding: `WorkspaceCollaborationPreflight.preflight` checks
-  `claim.run_id/owner/fence` vs lease; `test_preflight_cancel_on_fence_token_mismatch`. PASS.
+1. Registry fail-closed: `capability.py::_lookup_spec` raises on registry exception
+   and on missing spec; tests `test_registry_exception_fails_closed_not_noop`,
+   `test_missing_spec_fails_closed` assert `execute_calls == 0`.
+2. Real wiring: `workspace.edit`/`workspace.apply_patch` marked
+   `collaboration_required=True` in `DeveloperWorkspaceAdapter.specs()`;
+   `AgentOSApplication` builds `workspace_fence` + `collaboration_preflight` and
+   injects into `RunCoordinator`, `AgentLoop`, `agent_cli`, `responsibility_surface`;
+   `_install_run_work_lease` installs an authoritative lease at `start_run`;
+   `test_production_registry_marks_*`, `test_production_composition_root_wires_*`,
+   `test_collaboration_required_write_without_lease_fails_closed` cover it.
+3. Same-origin: preflight checks action `task_id`/`run_id`/`tenant_id`/
+   `workspace_id`/`principal_id` against the lease; `test_task_id_mismatch_fails_closed`,
+   `test_tenant_id_mismatch_fails_closed`, `test_preflight_cancel_on_execution_claim_run_mismatch`.
+4. Scope fail-closed: `_file_scope_from_action` returning empty → CANCEL;
+   `test_unresolvable_write_scope_fails_closed`. `ResourceScope.covers/overlaps`
+   gained directory-prefix semantics (`file:///ws` covers `file:///ws/a.txt`).
+5. Complete batch + linearization: `WorkspaceEventBatch` built via `build_batch`
+   with contiguity validation; append-only (`INSERT`, duplicate rejected by
+   `WorkspaceEventSequenceConflict`); `read_coordination` atomic snapshot; POSIX
+   `flock`; tests for duplicate rejection and gap fail-closed.
 
 Verification is necessary but not approval. Reviewer must inspect the diff and source.

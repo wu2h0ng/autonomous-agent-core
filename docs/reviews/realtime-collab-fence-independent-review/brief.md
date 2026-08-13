@@ -1,31 +1,30 @@
-# Realtime Collaboration Fence — Independent Exact-Head Review Brief
+# Realtime Collaboration Fence — Independent Exact-Head Review Brief (Round 2)
 
-- Review target: `34d2d376431adb69817c1ed66f0e862801e453e6` (feature/realtime-collab-fence-20260814)
+- Review target: `d0afc3a6106809c2736d5e5f780151f8ff55f1b3` (feature/realtime-collab-fence-20260814)
 - Base: `c819f75b9ad01850a90850d72da2b621129308a2` (CTO_IMPLEMENTATION_AUTHORIZED spec head)
+- First review: `84b41e2c` (REVISE, 5 P1) — this round closes all five.
 - Track: Product / Architecture / Engineering review
-- Reviewer: OpenCode with `deepseek/deepseek-v4-pro`, read-only
+- Reviewer: TBD (recast, must differ from builder session/model)
 - Builder: Codex
-- Authority: `docs/product/CTO-GATE-REALTIME-COLLAB-2026-08-14.md` (P0=0/P1=0/P2=2 test debts)
 
 ## Question
 
-Review whether the minimal vertical slice correctly implements the collaboration
-fence as a **preflight seam on the ADR-0059 single dispatch spine** (not a second
-broker), and whether it closes the four P1s and the two P2 test debts bound by the
-CTO gate:
+Review whether the second implementation round closes all five P1 findings from
+the first independent review (REVISE / P0=0 / P1=5):
 
-1. REPLAN also blocks the current action (zero reservation, zero connector calls).
-2. The fence holds no external-effect truth (no PREPARED/COMMITTED/UNKNOWN).
-3. collaboration-required capability fails closed without a preflight, and the
-   `collaboration_required` flag is read from the trusted registry, not caller args.
-4. exact-base provenance (implementation sits on spec head `c819f75`).
-5. P2 debt 1: caller cannot downgrade `collaboration_required=true`.
-6. P2 debt 2: a sealed replay outcome is not rewritten by new events, while a new
-   action still passes the fence.
+1. registry exception/missing-spec no longer becomes a collaboration no-op;
+2. real Product wiring: write capabilities marked collaboration-required, one
+   authoritative fence/preflight injected at every production composition root,
+   plus entry-point integration tests;
+3. same-origin binding covers task/run/tenant/workspace/principal, not run/fence
+   alone;
+4. an unresolvable write scope fails closed (CANCEL) rather than continuing;
+5. event reads produce a complete, contiguous, provenance-bound batch with
+   append-only semantics and single-host cross-process linearization.
 
-The reviewer must not edit implementation files. Findings must cite files/lines and
-conclude with `APPROVE`, `APPROVE_WITH_P2`, or `REVISE`.
+The reviewer must not edit implementation files. Findings must cite files/lines
+and conclude `APPROVE`, `APPROVE_WITH_P2`, or `REVISE`.
 
 ## Exact-content manifest
 
-`manifest.sha256` binds the four mechanism files. Drift invalidates this review.
+`manifest.sha256` binds the eight mechanism files. Drift invalidates this review.
