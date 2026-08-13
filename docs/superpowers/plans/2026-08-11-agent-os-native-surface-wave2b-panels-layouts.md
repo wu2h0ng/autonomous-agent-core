@@ -34,7 +34,7 @@ Wave 2b adds the remaining Canvas surface on top of the Wave 2a shell:
 
 ## Exit gate (2b)
 
-The Canvas renders all ten panel types (7 functional in 2a/2b + 3 closed shells), layout templates apply/validate, and every panel remains a typed Surface consumer with zero direct native/Google/Chrome/shell/Worker calls.
+The Canvas renders all ten panel types (6 functional in 2a/2b + 4 closed shells), layout templates apply/validate, and every panel remains a typed Surface consumer with zero direct native/Google/Chrome/shell/Worker calls.
 
 ## Claim ceiling
 

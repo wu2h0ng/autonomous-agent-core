@@ -330,7 +330,7 @@ active_work:
       - "apps/macos/renderer/src/panels/terminal.ts"
       - "apps/macos/renderer/src/panels/closed_shell.ts"
       - "apps/api_server/surface_routes.py"
-    verification: "Renderer 21 Vitest tests + build green; focused Python 20 passed; full tests/product 1803 passed / 18 failed / 1 skipped with the same pre-existing baseline (no regression); Ruff clean; Pyright 0 errors on Wave 2 paths. Layout engine rejects unknown/duplicate/overlapping/negative-sized panels and multiple focused panels; the Canvas renders panels ordered by template placement; overview route returns a closed schema with auth+scope+ownership."
+    verification: "Renderer 21 Vitest tests + build green; focused Python 20 passed; full tests/product 1803 passed / 18 failed / 1 skipped with the same pre-existing baseline (no regression); Ruff clean; Pyright 0 errors on Wave 2 paths. Layout engine rejects unknown/duplicate/overlapping/negative-sized panels and multiple focused panels; the Canvas renders panels ordered by template placement with template-driven widths (Default vs Focus templates visibly differ); the overview route is authenticated and validates task existence."
   - id: "P-NATIVE-SURFACE-WAVE2A-20260812"
     track: "product"
     status: "IMPLEMENTED / TESTED / INTEGRATED / REVIEWED: pending / PUSHED: false / RELEASED: false / DAILY_USABLE: false / NOT_MERGED / BRANCH_CONTAINED codex/native-surface-wave2a-macos-shell-20260812"

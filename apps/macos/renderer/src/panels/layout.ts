@@ -78,6 +78,16 @@ export function validateTemplate(template: LayoutTemplate): string | null {
   return null;
 }
 
+export const FOCUS_TEMPLATE: LayoutTemplate = {
+  id: "layout:focus",
+  name: "Focus",
+  panels: [
+    { panel_id: "agent-thread", x: 0, y: 0, w: 900, h: 640, focused: true },
+    { panel_id: "evidence-approval", x: 920, y: 0, w: 500, h: 320, focused: false },
+    { panel_id: "diff", x: 920, y: 340, w: 500, h: 300, focused: false },
+  ],
+};
+
 export const DEFAULT_TEMPLATE: LayoutTemplate = {
   id: "layout:default",
   name: "Default",

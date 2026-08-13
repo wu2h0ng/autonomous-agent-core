@@ -8,7 +8,7 @@ import {
   type ApprovalDisposition,
 } from "./panels/evidence_approval";
 import { fetchFiles, type FileEntry } from "./panels/files";
-import { DEFAULT_TEMPLATE, validateTemplate, type LayoutTemplate } from "./panels/layout";
+import { DEFAULT_TEMPLATE, FOCUS_TEMPLATE, validateTemplate, type LayoutTemplate } from "./panels/layout";
 import { fetchOverview, type TaskOverview } from "./panels/plan_tasks";
 import { recentDiffs, type DiffSummary } from "./panels/diff";
 import { terminalEvents, type TerminalLine } from "./panels/terminal";
@@ -18,6 +18,154 @@ type Phase =
   | { kind: "connecting" }
   | { kind: "ready" }
   | { kind: "error"; message: string };
+
+interface PanelsProps {
+  layout: LayoutTemplate;
+  thread: AgentThreadState | null;
+  snapshot: SessionSnapshot | null;
+  overview: TaskOverview | null;
+  diffs: DiffSummary[] | null;
+  terminal: TerminalLine[] | null;
+  files: FileEntry[] | null;
+  onApprove: () => void;
+  onReject: () => void;
+}
+
+function panelBody(panelId: string, props: PanelsProps): React.JSX.Element {
+  switch (panelId) {
+    case "agent-thread":
+      return (
+        <div>
+          <h3>Agent Thread</h3>
+          {props.thread === null ? (
+            <p>No session yet.</p>
+          ) : props.thread.messages.length === 0 ? (
+            <p>No messages yet.</p>
+          ) : (
+            <ul>
+              {props.thread.messages.map((message) => (
+                <li key={message.sequence}>
+                  #{message.sequence} {message.kind}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    case "evidence-approval":
+      return (
+        <div>
+          <h3>Evidence and Approval</h3>
+          {props.snapshot?.pending_approval ? (
+            <div>
+              <p>{props.snapshot.pending_approval.capability_id}</p>
+              <pre style={{ fontSize: 12 }}>{props.snapshot.pending_approval.preview}</pre>
+              <button onClick={props.onApprove}>Approve</button>
+              <button onClick={props.onReject}>Reject</button>
+            </div>
+          ) : (
+            <p>No pending approval.</p>
+          )}
+        </div>
+      );
+    case "files":
+      return (
+        <div>
+          <h3>Files</h3>
+          {props.files === null ? (
+            <p>No session yet.</p>
+          ) : (
+            <ul>
+              {props.files.map((entry) => (
+                <li key={entry.path}>
+                  {entry.path} ({entry.size}B)
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    case "plan-tasks":
+      return (
+        <div>
+          <h3>Plan and Tasks</h3>
+          {props.overview === null ? (
+            <p>No session yet.</p>
+          ) : (
+            <ul>
+              <li>task: {props.overview.task_id}</li>
+              <li>task status: {props.overview.task_status}</li>
+              <li>run status: {props.overview.run_status}</li>
+              <li>receipts: {props.overview.receipt_count}</li>
+            </ul>
+          )}
+        </div>
+      );
+    case "diff":
+      return (
+        <div>
+          <h3>Diff</h3>
+          {props.diffs === null || props.diffs.length === 0 ? (
+            <p>No diffs yet.</p>
+          ) : (
+            <ul>
+              {props.diffs.map((diff) => (
+                <li key={diff.sequence}>
+                  #{diff.sequence} {diff.path ?? "(no path)"}{" "}
+                  {diff.truncated ? "(truncated)" : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    case "terminal":
+      return (
+        <div>
+          <h3>Terminal</h3>
+          {props.terminal === null || props.terminal.length === 0 ? (
+            <p>No shell actions yet.</p>
+          ) : (
+            <ul>
+              {props.terminal.map((line) => (
+                <li key={line.sequence}>
+                  #{line.sequence} {line.summary}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    default: {
+      const state = closedShellState(panelId as ClosedIntegrationId, props.snapshot?.status ?? null);
+      return (
+        <div>
+          <h3>{state.title}</h3>
+          <p>{state.message}</p>
+        </div>
+      );
+    }
+  }
+}
+
+/** Render the panels in template placement order with template widths. */
+function renderPanels(props: PanelsProps): React.JSX.Element[] {
+  return [...props.layout.panels]
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+    .map((placement) => (
+      <div
+        key={placement.panel_id}
+        style={{
+          border: "1px solid #ddd",
+          padding: 12,
+          overflow: "auto",
+          width: `${Math.max(20, Math.min(96, placement.w / 10))}%`,
+        }}
+      >
+        {panelBody(placement.panel_id, props)}
+      </div>
+    ));
+}
 
 function closedShellMap(): Record<string, unknown> {
   return { "chrome-live": {}, "embedded-web": {}, gmail: {}, calendar: {} };
@@ -130,18 +278,17 @@ export function App(): React.JSX.Element {
           value={layout.id}
           onChange={(event) => {
             if (event.target.value === layout.id) return;
-            const candidate: LayoutTemplate = {
-              ...DEFAULT_TEMPLATE,
-              id: event.target.value,
-              name: event.target.value,
-            };
+            const candidate: LayoutTemplate =
+              event.target.value === FOCUS_TEMPLATE.id
+                ? FOCUS_TEMPLATE
+                : DEFAULT_TEMPLATE;
             if (validateTemplate(candidate) === null) {
               setLayout(candidate);
             }
           }}
         >
           <option value={DEFAULT_TEMPLATE.id}>{DEFAULT_TEMPLATE.name}</option>
-          <option value="layout:focus">Focus</option>
+          <option value={FOCUS_TEMPLATE.id}>{FOCUS_TEMPLATE.name}</option>
         </select>
         <p style={{ fontSize: 12 }}>{notice}</p>
       </nav>
@@ -153,112 +300,19 @@ export function App(): React.JSX.Element {
             {snapshot?.status ?? "—"} · Sequence: {snapshot?.event_sequence ?? 0}
           </p>
         </header>
-        <section style={{ display: "grid", gap: 12, flex: 1, minHeight: 0, gridTemplateColumns: "1fr 1fr 1fr" }}>
-          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
-            <h3>Agent Thread</h3>
-            {thread === null ? (
-              <p>No session yet.</p>
-            ) : thread.messages.length === 0 ? (
-              <p>No messages yet.</p>
-            ) : (
-              <ul>
-                {thread.messages.map((message) => (
-                  <li key={message.sequence}>
-                    #{message.sequence} {message.kind}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
-            <h3>Evidence and Approval</h3>
-            {snapshot?.pending_approval ? (
-              <div>
-                <p>{snapshot.pending_approval.capability_id}</p>
-                <pre style={{ fontSize: 12 }}>{snapshot.pending_approval.preview}</pre>
-                <button onClick={() => void decideApproval("APPROVE")}>Approve</button>
-                <button onClick={() => void decideApproval("REJECT")}>Reject</button>
-              </div>
-            ) : (
-              <p>No pending approval.</p>
-            )}
-          </div>
-          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
-            <h3>Files</h3>
-            {files === null ? (
-              <p>No session yet.</p>
-            ) : (
-              <ul>
-                {files.map((entry) => (
-                  <li key={entry.path}>
-                    {entry.path} ({entry.size}B)
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
-            <h3>Plan and Tasks</h3>
-            {overview === null ? (
-              <p>No session yet.</p>
-            ) : (
-              <ul>
-                <li>task: {overview.task_id}</li>
-                <li>task status: {overview.task_status}</li>
-                <li>run status: {overview.run_status}</li>
-                <li>receipts: {overview.receipt_count}</li>
-              </ul>
-            )}
-          </div>
-          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
-            <h3>Diff</h3>
-            {(() => {
-          const ordered = [...layout.panels].sort(
-            (a, b) => a.y - b.y || a.x - b.x,
-          );
-          return ordered.map((placement) => (
-            <span key={placement.panel_id} style={{ display: "none" }}>
-              {placement.panel_id}
-            </span>
-          ));
-        })()}
-        {diffs === null || diffs.length === 0 ? (
-              <p>No diffs yet.</p>
-            ) : (
-              <ul>
-                {diffs.map((diff) => (
-                  <li key={diff.sequence}>
-                    #{diff.sequence} {diff.path ?? "(no path)"}{" "}
-                    {diff.truncated ? "(truncated)" : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
-            <h3>Terminal</h3>
-            {terminal === null || terminal.length === 0 ? (
-              <p>No shell actions yet.</p>
-            ) : (
-              <ul>
-                {terminal.map((line) => (
-                  <li key={line.sequence}>
-                    #{line.sequence} {line.summary}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          {(Object.keys(closedShellMap()) as ClosedIntegrationId[]).map((panelId) => {
-            const state = closedShellState(panelId, snapshot?.status ?? null);
-            return (
-              <div key={panelId} style={{ border: "1px solid #ddd", padding: 12, width: "23%" }}>
-                <h3>{state.title}</h3>
-                <p>{state.message}</p>
-              </div>
-            );
+        <section style={{ display: "flex", gap: 12, flex: 1, minHeight: 0, flexWrap: "wrap" }}>
+          {renderPanels({
+            layout,
+            thread,
+            snapshot,
+            overview,
+            diffs,
+            terminal,
+            files,
+            onApprove: () => void decideApproval("APPROVE"),
+            onReject: () => void decideApproval("REJECT"),
           })}
-        </section>
+</section>
         <footer style={{ display: "flex", gap: 8 }}>
           <input
             style={{ flex: 1 }}
