@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import Lock
@@ -23,6 +23,8 @@ from agent_os_contracts.common import canonical_json
 from agent_os_core.capability import (
     CapabilityDenied,
     CapabilityEffect,
+    CapabilityEffectUnknown,
+    ExecutionLease,
 )
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.task_service import TaskService
@@ -47,18 +49,77 @@ DATA_ACTION_PROPOSAL_CAPABILITY_ID = "data.action.propose"
 
 
 class SQLiteDataQueryCapability:
-    """Read-only Data Agent query adapter behind the shared CapabilityBroker."""
+    """Read-only Data Agent query adapter behind the shared CapabilityBroker.
+
+    ADR-0059 connector contract: the broker owns the durable reservation/
+    outcome spine, so the adapter exposes outcomes/replay/preflight and the
+    execution-lease primitives over the shared Task event store.
+    """
 
     def __init__(
         self,
         database: str | Path,
         *,
         checker: DataSQLSafetyChecker | None = None,
+        idempotency_store: Any | None = None,
     ) -> None:
         self._database = Path(database).resolve()
         self._checker = checker or DataSQLSafetyChecker()
         self._execution_count_lock = Lock()
         self.execution_count = 0
+        self._idempotency_store = idempotency_store
+        self._outcomes = None
+
+    def bind_idempotency_store(self, store: Any) -> None:
+        from agent_os_core._action_outcome import (
+            DurableActionOutcomeRepository,
+        )
+
+        self._idempotency_store = store
+        self._outcomes = DurableActionOutcomeRepository(store)
+
+    def outcomes(self) -> Any:
+        if self._outcomes is None and self._idempotency_store is not None:
+            from agent_os_core._action_outcome import (
+                DurableActionOutcomeRepository,
+            )
+
+            self._outcomes = DurableActionOutcomeRepository(
+                self._idempotency_store
+            )
+        return self._outcomes
+
+    def replay(self, action: ActionContract) -> Any:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            return None
+        return outcomes.replay(action)
+
+    def preflight(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        return None
+
+    def acquire_execution_lease(
+        self, action: ActionContract, owner: str
+    ) -> ExecutionLease:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required for execution lease"
+            )
+        return outcomes.acquire_execution_lease(action, owner)
+
+    def release_execution_lease(self, lease: ExecutionLease) -> bool:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required for execution lease"
+            )
+        return outcomes.release_execution_lease(lease)
 
     def specs(
         self,
@@ -217,19 +278,35 @@ class DataAgentRuntime:
             ),
         )
         self._pipeline.record_action_proposed(action)
+        # ADR-0059: every production dispatch carries an execution claim bound
+        # to a fenced lease held in the shared Task store (founder P1).
+        lease_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+        acquire = getattr(self._tasks._event_store, "acquire_lease", None)
+        if acquire is None:
+            raise DataAgentDenied("EXECUTION_LEASE_UNAVAILABLE")
+        lease_fence = acquire(
+            request.run_id,
+            "data-agent-runtime",
+            lease_expiry.isoformat(),
+        )
         try:
             result = self._pipeline.execute_observed(
                 action,
                 request.principal,
                 capability_spec=self._capability_spec,
                 record_artifacts=False,
+                execution_claim=ExecutionLease(
+                    run_id=request.run_id,
+                    owner="data-agent-runtime",
+                    fence=lease_fence,
+                    expires_at=lease_expiry,
+                ),
             )
-        except CapabilityDenied as exc:
-            raise DataAgentDenied(f"CAPABILITY_DENIED:{exc}") from exc
-        except PermissionError as exc:
-            raise DataAgentDenied(f"POLICY_DENIED:{exc}") from exc
-        trace_id = f"trace:{request.request_id}"
-        if result.receipt.status is ReceiptStatus.UNKNOWN:
+        except CapabilityEffectUnknown as unknown:
+            # ADR-0059: a post-dispatch UNKNOWN is a typed exception, never a
+            # sealed FAILED outcome; it surfaces as an operator-help gap and
+            # automatic resend stays forbidden.
+            trace_id = f"trace:{request.request_id}"
             return DataAgentResult(
                 request_id=request.request_id,
                 task_id=request.task_id,
@@ -238,9 +315,14 @@ class DataAgentRuntime:
                 workspace_id=request.workspace_id,
                 status=DataAgentStatus.HELP_REQUIRED,
                 trace_id=trace_id,
-                failure_code=result.receipt.error_code,
+                failure_code=unknown.reason_code,
                 resend_attempts=0,
             )
+        except CapabilityDenied as exc:
+            raise DataAgentDenied(f"CAPABILITY_DENIED:{exc}") from exc
+        except PermissionError as exc:
+            raise DataAgentDenied(f"POLICY_DENIED:{exc}") from exc
+        trace_id = f"trace:{request.request_id}"
         if result.receipt.status is not ReceiptStatus.SUCCEEDED:
             return DataAgentResult(
                 request_id=request.request_id,

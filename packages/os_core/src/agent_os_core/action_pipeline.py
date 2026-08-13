@@ -64,6 +64,7 @@ class ActionPipeline:
         expected: ExpectedOutcome,
         envelope_id: str,
         risk_tier: int,
+        estimated_budget: ResourceBudget | None = None,
         approval_requirement: Literal["policy", "external_exact"] = "policy",
     ) -> ActionContract:
         candidate = ActionContract(
@@ -79,7 +80,8 @@ class ActionPipeline:
             arguments_json=json.dumps(args),
             risk_tier=risk_tier,
             idempotency_key=f"{run_id}:{node_id}",
-            estimated_budget=ResourceBudget(
+            estimated_budget=estimated_budget
+            or ResourceBudget(
                 max_cost_usd=Decimal("0"),
                 max_duration_seconds=120,
                 max_provider_tokens=0,
@@ -379,6 +381,139 @@ class ActionPipeline:
                 f"tool failed: {result.receipt.error_code}: "
                 f"{result.output.get('error', '')}"
             )
+        if not record_artifacts:
+            # Chat-loop actions use ephemeral per-turn node ids (required for
+            # idempotency uniqueness across repeated calls), which are not
+            # committed workflow nodes; the workflow-bound artifact index
+            # cannot cover them. The durable action receipt still binds the
+            # output artifact ids.
+            return result
+        for artifact_id in result.receipt.output_artifact_ids:
+            self._tasks.record_artifact(
+                action.task_id,
+                artifact_id,
+                node_id=action.node_id,
+                action_id=action.action_id,
+            )
+        return result
+
+    def execute_observed(
+        self,
+        action: ActionContract,
+        principal: PrincipalIdentity,
+        capability_spec: Any | None = None,
+        approval: Any = None,
+        *,
+        lease_fence_fn: Callable[[str], int] | None = None,
+        capability_id: str | None = None,
+        record_artifacts: bool = True,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
+        execution_claim: ExecutionLease,
+    ) -> CapabilityResult:
+        """Execute once, persist the receipt, and return every observed status.
+
+        Unlike :meth:`execute`, this seam does not translate FAILED or UNKNOWN
+        effects into an exception. Callers that reconcile effects need the
+        durable receipt before deciding whether another invocation is safe.
+        """
+        cid = capability_id or action.capability_id
+        if cid == "workspace.compensate_patch":
+            raise RunExecutionError(
+                "workspace.compensate_patch is coordinator-only"
+            )
+        self._tasks.assert_external_exact_approval(action, approval)
+        grant = (
+            self._grant[cid]
+            if isinstance(self._grant, dict)
+            else self._grant
+        )
+        bound_approval = (
+            approval
+            if approval is not None
+            and approval.action_digest == action.action_digest()
+            else None
+        )
+        decision = self._policy.decide(
+            action,
+            PolicyInput(
+                principal=principal,
+                grant=grant,
+                capability=capability_spec,
+                approval=bound_approval,
+            ),
+        )
+        self._tasks.append_event(
+            action.task_id,
+            TaskEventType.POLICY_DECIDED,
+            {"decision": decision.model_dump(mode="json")},
+            correlation_id=action.run_id,
+        )
+        if decision.verdict is not PolicyVerdict.ALLOW:
+            raise PermissionError(
+                f"policy denied {cid}: {decision.reason_codes}"
+            )
+        lease_fence = execution_claim.fence
+        try:
+            permit = self._policy.permit(
+                action, decision, grant, lease_fence=lease_fence
+            )
+        except PermissionError:
+            raise
+        run_id = action.run_id
+        if lease_fence_fn is not None:
+            current_fence = lease_fence_fn(run_id)
+        else:
+            current_fence = lease_fence
+            store = getattr(self._tasks._event_store, "lease_fence", None)
+            if store is not None:
+                current_fence = store(run_id)
+        if current_fence != permit.lease_fence:
+            raise PermissionError("stale worker lease")
+        if execution_claim.fence != permit.lease_fence:
+            raise ExecutionLeaseConflict("stale worker execution claim")
+        if execution_fence is not None:
+            execution_fence("before_tool_effect")
+
+        def invoke() -> CapabilityResult:
+            return self._broker.invoke(
+                action,
+                permit,
+                execution_claim=execution_claim,
+            )
+
+        result = (
+            effect_custody(action.node_id, action.action_digest(), invoke)
+            if effect_custody is not None
+            else invoke()
+        )
+        if execution_fence is not None:
+            execution_fence("before_tool_effect_commit")
+        self._tasks._record_action_receipt(
+            action.task_id,
+            action=action,
+            decision=decision,
+            permit=permit,
+            receipt=result.receipt,
+            writer_token=self._tasks._runtime_writer_token,
+            effect=(
+                {
+                    key: str(result.output[key])
+                    for key in (
+                        "path",
+                        "compensation_ref",
+                        "manifest_sha256",
+                        "applied_sha256",
+                    )
+                }
+                if action.capability_id
+                in {"workspace.apply_patch", "workspace.edit"}
+                and result.receipt.status.value == "SUCCEEDED"
+                else None
+            ),
+        )
+        if result.receipt.status.value != "SUCCEEDED":
+            return result
         if not record_artifacts:
             # Chat-loop actions use ephemeral per-turn node ids (required for
             # idempotency uniqueness across repeated calls), which are not

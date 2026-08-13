@@ -396,6 +396,7 @@ class AgentOSApplication:
                     "Data Agent query grant must match the application principal scope"
                 )
             connector = SQLiteDataQueryCapability(data_agent_query_database)
+            connector.bind_idempotency_store(self.tasks._event_store)
             pipeline = ActionPipeline(
                 self.tasks,
                 CapabilityBroker(connector, self.correction),
