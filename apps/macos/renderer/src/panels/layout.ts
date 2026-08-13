@@ -49,10 +49,15 @@ export function validateTemplate(template: LayoutTemplate): string | null {
     return "layout must contain at least one panel";
   }
   let focusedCount = 0;
+  const seen = new Set<string>();
   for (const placement of template.panels) {
     if (!ALL_PANEL_IDS.includes(placement.panel_id as PanelId)) {
       return `unknown panel id: ${placement.panel_id}`;
     }
+    if (seen.has(placement.panel_id)) {
+      return `duplicate panel id: ${placement.panel_id}`;
+    }
+    seen.add(placement.panel_id);
     if (placement.w <= 0 || placement.h <= 0) {
       return `panel ${placement.panel_id} has a non-positive size`;
     }

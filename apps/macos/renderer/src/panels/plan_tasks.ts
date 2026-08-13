@@ -21,6 +21,7 @@ const OVERVIEW_FIELDS = [
   "task_id",
   "task_status",
   "run_status",
+  "run_id",
   "expected_outcome_id",
   "receipt_count",
   "session_id",
@@ -46,9 +47,12 @@ export async function fetchOverview(
     throw new Error(`task overview failed: HTTP ${response.status}`);
   }
   const body = JSON.parse(await response.text()) as {
-    overview: Record<string, unknown>;
+    overview: unknown;
   };
-  const overview = body.overview;
+  if (typeof body.overview !== "object" || body.overview === null) {
+    throw new Error("task overview returned no overview object");
+  }
+  const overview = body.overview as Record<string, unknown>;
   for (const field of OVERVIEW_FIELDS) {
     if (typeof overview[field] !== "string" && field !== "receipt_count") {
       throw new Error("task overview returned an invalid field");
@@ -56,6 +60,11 @@ export async function fetchOverview(
   }
   if (typeof overview.receipt_count !== "number") {
     throw new Error("task overview returned an invalid receipt_count");
+  }
+  for (const key of Object.keys(overview)) {
+    if (!OVERVIEW_FIELDS.includes(key as (typeof OVERVIEW_FIELDS)[number])) {
+      throw new Error("task overview returned an unexpected field");
+    }
   }
   return overview as unknown as TaskOverview;
 }

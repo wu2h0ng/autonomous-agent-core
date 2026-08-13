@@ -72,6 +72,7 @@ describe("Plan and Tasks panel", () => {
             task_id: "task:1",
             task_status: "COMMITTED",
             run_status: "RUNNING",
+            run_id: "run:1",
             expected_outcome_id: "expected:1",
             receipt_count: 2,
             session_id: "session:1",

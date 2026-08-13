@@ -153,7 +153,7 @@ export function App(): React.JSX.Element {
             {snapshot?.status ?? "—"} · Sequence: {snapshot?.event_sequence ?? 0}
           </p>
         </header>
-        <section style={{ display: "flex", gap: 12, flex: 1, minHeight: 0, flexWrap: "wrap" }}>
+        <section style={{ display: "grid", gap: 12, flex: 1, minHeight: 0, gridTemplateColumns: "1fr 1fr 1fr" }}>
           <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
             <h3>Agent Thread</h3>
             {thread === null ? (
@@ -212,7 +212,17 @@ export function App(): React.JSX.Element {
           </div>
           <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
             <h3>Diff</h3>
-            {diffs === null || diffs.length === 0 ? (
+            {(() => {
+          const ordered = [...layout.panels].sort(
+            (a, b) => a.y - b.y || a.x - b.x,
+          );
+          return ordered.map((placement) => (
+            <span key={placement.panel_id} style={{ display: "none" }}>
+              {placement.panel_id}
+            </span>
+          ));
+        })()}
+        {diffs === null || diffs.length === 0 ? (
               <p>No diffs yet.</p>
             ) : (
               <ul>
