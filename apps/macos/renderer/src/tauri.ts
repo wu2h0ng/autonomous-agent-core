@@ -17,7 +17,7 @@ export async function notifyApproval(
   if (invoke === null) {
     return false;
   }
-  return (await invoke("notify:approval", {
+  return (await invoke("notify_approval", {
     capabilityId,
     actionDigest,
   })) === true;
@@ -28,7 +28,7 @@ export async function folderRequest(): Promise<boolean> {
   if (invoke === null) {
     throw new Error("folder request unavailable outside the Agent OS shell");
   }
-  return (await invoke("folder:request")) === true;
+  return (await invoke("folder_request")) === true;
 }
 
 export async function folderStatus(): Promise<{ granted: string | null; daemon_workspace: string }> {
@@ -36,7 +36,7 @@ export async function folderStatus(): Promise<{ granted: string | null; daemon_w
   if (invoke === null) {
     return { granted: null, daemon_workspace: "" };
   }
-  const value = await invoke("folder:status");
+  const value = await invoke("folder_status");
   const parsed = JSON.parse(String(value)) as {
     granted?: unknown;
     daemon_workspace?: unknown;
@@ -76,7 +76,7 @@ export async function runtimeConnection(): Promise<RuntimeConnection> {
     // this as an explicit error instead of fabricating a connection.
     throw new Error("runtime connection unavailable (not running inside the Agent OS shell)");
   }
-  const value = await invoke("runtime:connection");
+  const value = await invoke("runtime_connection");
   if (typeof value !== "string") {
     throw new Error("runtime connection returned an invalid payload");
   }

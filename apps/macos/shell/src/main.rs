@@ -86,7 +86,7 @@ fn main() {
             install_termination_handlers();
             build_tray(_app)?;
             let app_handle = _app.handle().clone();
-            let _last_boot: Option<String> = None;
+
             std::thread::spawn(move || loop {
                 if SHUTDOWN.load(Ordering::SeqCst) {
                     if let Ok(mut guard) = supervisor().lock() {
@@ -105,7 +105,7 @@ fn main() {
                             &BoundedNotification::daemon_restarted().summary(),
                         );
                     }
-                    let _ = &_last_boot;
+
                 }
                 std::thread::sleep(std::time::Duration::from_secs(2));
             });
@@ -275,17 +275,20 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 
 // --- folder authorization (Wave 2c, renderer state only) ---
 
+static GRANTED_FOLDER: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
 fn folder_state() -> Option<String> {
-    static GRANTED: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    match GRANTED.get_or_init(|| Mutex::new(None)).lock() {
+    match GRANTED_FOLDER.get_or_init(|| Mutex::new(None)).lock() {
         Ok(granted) => granted.clone(),
         Err(_) => None,
     }
 }
 
 fn set_folder_state(value: String) {
-    static GRANTED: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    if let Ok(mut granted) = GRANTED.get_or_init(|| Mutex::new(None)).lock() {
+    if let Ok(mut granted) = GRANTED_FOLDER
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+    {
         *granted = Some(value);
     }
 }
