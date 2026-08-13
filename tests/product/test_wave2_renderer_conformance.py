@@ -47,7 +47,7 @@ def test_python_client_parses_shared_sse_fixture() -> None:
     from apps.cli.surface_client import SurfaceClient
 
     body = (FIXTURES / "sse_events.txt").read_text(encoding="utf-8")
-    batch = SurfaceClient._decode_sse(None, "task:1", 2, body.encode("utf-8"))
+    batch = SurfaceClient._decode_sse("task:1", 2, body.encode("utf-8"))
     assert batch.task_id == "task:1"
     assert batch.after_sequence == 2
     assert batch.next_sequence == 3

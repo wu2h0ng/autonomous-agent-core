@@ -379,8 +379,9 @@ class SurfaceClient:
                 f"cannot reach the local runtime: {exc.reason}"
             ) from exc
 
+    @staticmethod
     def _decode_sse(
-        self, task_id: str, after_sequence: int, body: bytes
+        task_id: str, after_sequence: int, body: bytes
     ) -> SurfaceEventBatch:
         events: list[TaskEvent] = []
         current_id: int | None = None
