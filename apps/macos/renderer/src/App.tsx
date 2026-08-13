@@ -8,11 +8,20 @@ import {
   type ApprovalDisposition,
 } from "./panels/evidence_approval";
 import { fetchFiles, type FileEntry } from "./panels/files";
+import { DEFAULT_TEMPLATE, validateTemplate, type LayoutTemplate } from "./panels/layout";
+import { fetchOverview, type TaskOverview } from "./panels/plan_tasks";
+import { recentDiffs, type DiffSummary } from "./panels/diff";
+import { terminalEvents, type TerminalLine } from "./panels/terminal";
+import { closedShellState, type ClosedIntegrationId } from "./panels/closed_shell";
 
 type Phase =
   | { kind: "connecting" }
   | { kind: "ready" }
   | { kind: "error"; message: string };
+
+function closedShellMap(): Record<string, unknown> {
+  return { "chrome-live": {}, "embedded-web": {}, gmail: {}, calendar: {} };
+}
 
 export function App(): React.JSX.Element {
   const [phase, setPhase] = useState<Phase>({ kind: "connecting" });
@@ -22,6 +31,10 @@ export function App(): React.JSX.Element {
   const [files, setFiles] = useState<FileEntry[] | null>(null);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState("");
+  const [layout, setLayout] = useState<LayoutTemplate>(DEFAULT_TEMPLATE);
+  const [overview, setOverview] = useState<TaskOverview | null>(null);
+  const [diffs, setDiffs] = useState<DiffSummary[] | null>(null);
+  const [terminal, setTerminal] = useState<TerminalLine[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +67,10 @@ export function App(): React.JSX.Element {
       setSnapshot(opened);
       setThread(await resumeThread(client, opened.session.task_id, 0));
       setFiles(await fetchFiles(client.baseUrlFor(), client.tokenFor(), opened.session.task_id, fetch));
+      setOverview(await fetchOverview(client.baseUrlFor(), client.tokenFor(), opened.session.task_id, fetch));
+      const events = await client.events(opened.session.task_id, 0, 0);
+      setDiffs(recentDiffs(events.events));
+      setTerminal(terminalEvents(events.events));
     } catch (error) {
       setNotice(`error: ${String(error)}`);
     }
@@ -109,6 +126,23 @@ export function App(): React.JSX.Element {
       <nav style={{ width: 180, borderRight: "1px solid #ccc", padding: 12 }}>
         <h2>Workspaces</h2>
         <button onClick={openSession}>New session</button>
+        <select
+          value={layout.id}
+          onChange={(event) => {
+            if (event.target.value === layout.id) return;
+            const candidate: LayoutTemplate = {
+              ...DEFAULT_TEMPLATE,
+              id: event.target.value,
+              name: event.target.value,
+            };
+            if (validateTemplate(candidate) === null) {
+              setLayout(candidate);
+            }
+          }}
+        >
+          <option value={DEFAULT_TEMPLATE.id}>{DEFAULT_TEMPLATE.name}</option>
+          <option value="layout:focus">Focus</option>
+        </select>
         <p style={{ fontSize: 12 }}>{notice}</p>
       </nav>
       <section style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -119,8 +153,8 @@ export function App(): React.JSX.Element {
             {snapshot?.status ?? "—"} · Sequence: {snapshot?.event_sequence ?? 0}
           </p>
         </header>
-        <section style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
-          <div style={{ flex: 2, border: "1px solid #ddd", padding: 12, overflow: "auto" }}>
+        <section style={{ display: "flex", gap: 12, flex: 1, minHeight: 0, flexWrap: "wrap" }}>
+          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
             <h3>Agent Thread</h3>
             {thread === null ? (
               <p>No session yet.</p>
@@ -136,7 +170,7 @@ export function App(): React.JSX.Element {
               </ul>
             )}
           </div>
-          <div style={{ flex: 1, border: "1px solid #ddd", padding: 12, overflow: "auto" }}>
+          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
             <h3>Evidence and Approval</h3>
             {snapshot?.pending_approval ? (
               <div>
@@ -149,7 +183,7 @@ export function App(): React.JSX.Element {
               <p>No pending approval.</p>
             )}
           </div>
-          <div style={{ flex: 1, border: "1px solid #ddd", padding: 12, overflow: "auto" }}>
+          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "32%" }}>
             <h3>Files</h3>
             {files === null ? (
               <p>No session yet.</p>
@@ -163,6 +197,57 @@ export function App(): React.JSX.Element {
               </ul>
             )}
           </div>
+          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
+            <h3>Plan and Tasks</h3>
+            {overview === null ? (
+              <p>No session yet.</p>
+            ) : (
+              <ul>
+                <li>task: {overview.task_id}</li>
+                <li>task status: {overview.task_status}</li>
+                <li>run status: {overview.run_status}</li>
+                <li>receipts: {overview.receipt_count}</li>
+              </ul>
+            )}
+          </div>
+          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
+            <h3>Diff</h3>
+            {diffs === null || diffs.length === 0 ? (
+              <p>No diffs yet.</p>
+            ) : (
+              <ul>
+                {diffs.map((diff) => (
+                  <li key={diff.sequence}>
+                    #{diff.sequence} {diff.path ?? "(no path)"}{" "}
+                    {diff.truncated ? "(truncated)" : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div style={{ border: "1px solid #ddd", padding: 12, overflow: "auto", width: "48%" }}>
+            <h3>Terminal</h3>
+            {terminal === null || terminal.length === 0 ? (
+              <p>No shell actions yet.</p>
+            ) : (
+              <ul>
+                {terminal.map((line) => (
+                  <li key={line.sequence}>
+                    #{line.sequence} {line.summary}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {(Object.keys(closedShellMap()) as ClosedIntegrationId[]).map((panelId) => {
+            const state = closedShellState(panelId, snapshot?.status ?? null);
+            return (
+              <div key={panelId} style={{ border: "1px solid #ddd", padding: 12, width: "23%" }}>
+                <h3>{state.title}</h3>
+                <p>{state.message}</p>
+              </div>
+            );
+          })}
         </section>
         <footer style={{ display: "flex", gap: 8 }}>
           <input

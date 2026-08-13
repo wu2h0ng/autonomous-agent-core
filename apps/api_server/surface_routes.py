@@ -98,6 +98,23 @@ def _match_surface_task_events(path: str) -> str | None:
     return None
 
 
+def _match_surface_task_overview(path: str) -> str | None:
+    parsed = urlparse(path)
+    if parsed.fragment:
+        return None
+    parts = parsed.path.split("/")
+    if not (
+        len(parts) == 6
+        and parts[:4] == ["", "v1", "surface", "tasks"]
+        and parts[5] == "overview"
+    ):
+        return None
+    value = parts[4]
+    if value and "/" not in value and "\\" not in value:
+        return value
+    return None
+
+
 def _match_surface_task_files(path: str) -> str | None:
     parsed = urlparse(path)
     if parsed.fragment:
@@ -157,6 +174,10 @@ class SurfaceRoutes:
                 task_id = _match_surface_task_files(handler.path)
                 if task_id is not None:
                     self._get_files(handler, task_id)
+                    return
+                task_id = _match_surface_task_overview(handler.path)
+                if task_id is not None:
+                    self._get_overview(handler, task_id)
                     return
             if method == "POST":
                 session_id = _match_surface_session_leaf(
@@ -254,6 +275,12 @@ class SurfaceRoutes:
             )
         self._require_protocol_header(handler)
         handler._json(200, {"snapshot": self._runtime.correct(command).model_dump(mode="json")})
+
+    def _get_overview(self, handler: Any, task_id: str) -> None:
+        handler._json(
+            200,
+            {"overview": self._runtime._application.surface_task_overview(task_id)},
+        )
 
     def _get_files(self, handler: Any, task_id: str) -> None:
         handler._json(

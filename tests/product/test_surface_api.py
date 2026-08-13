@@ -558,3 +558,32 @@ def test_cors_allows_only_tauri_webview_origins(
     )
     with urllib.request.urlopen(foreign) as response:
         assert response.headers.get("Access-Control-Allow-Origin") is None
+
+
+def test_overview_route_returns_closed_task_projection(
+    surface_server: SurfaceTestServer,
+) -> None:
+    status, opened = surface_server.json(
+        "/v1/surface/sessions",
+        method="POST",
+        body=_open_command(surface_server.app),
+    )
+    snapshot = opened["snapshot"] if "snapshot" in opened else opened
+    task_id = snapshot["session"]["task_id"]
+
+    status, body = surface_server.json(
+        f"/v1/surface/tasks/{task_id}/overview",
+        method="GET",
+    )
+    assert status == 200
+    overview = body["overview"]
+    assert set(overview) == {
+        "task_id",
+        "task_status",
+        "run_status",
+        "expected_outcome_id",
+        "receipt_count",
+        "session_id",
+    }
+    assert overview["task_id"] == task_id
+    assert overview["run_status"] in {"QUEUED", "RUNNING", "WAITING_APPROVAL", "PAUSED", "SUCCEEDED", "FAILED", "CANCELLED"}

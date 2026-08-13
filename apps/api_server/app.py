@@ -1791,6 +1791,39 @@ class AgentOSApplication:
             )
         return matches[0]
 
+    def surface_task_overview(self, task_id: str) -> dict[str, object]:
+        """Closed read-only task projection for the Plan and Tasks panel."""
+
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        aggregate = self.tasks.get_task(task_id)
+        run = aggregate.run
+        session_id: str | None = None
+        for event in self.store.read(task_id):
+            if event.event_type is TaskEventType.SESSION_OPENED:
+                payload = event.decoded_payload()
+                if isinstance(payload, dict) and isinstance(
+                    payload.get("session_id"), str
+                ):
+                    session_id = payload["session_id"]
+                break
+        receipts = sum(
+            event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+            for event in self.store.read(task_id)
+        )
+        return {
+            "task_id": task_id,
+            "task_status": aggregate.status.value,
+            "run_status": run.status.value if run is not None else "NONE",
+            "expected_outcome_id": (
+                aggregate.expected_outcome.expected_outcome_id
+                if aggregate.expected_outcome is not None
+                else ""
+            ),
+            "receipt_count": receipts,
+            "session_id": session_id or "",
+        }
+
     def surface_files_listing(self, task_id: str) -> list[dict[str, object]]:
         """Bounded read-only workspace listing for the Files panel (Wave 2a).
 
