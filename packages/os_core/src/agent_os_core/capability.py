@@ -11,6 +11,7 @@ from fnmatch import fnmatch
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
@@ -27,8 +28,55 @@ from agent_os_contracts import (
 from .governance import CorrectionAuthority
 
 
+class DenialReasonCode(str, Enum):
+    """Typed reason codes for governed-chain, provider-facing denials (Phase 0).
+
+    Free-text ``error_detail`` (including the admissible-alternative hint)
+    remains as supplementary evidence; this enum is the machine-consumable
+    classification downstream drivers and adjudicators must use. Coverage is
+    deliberately scoped to provider-facing denial families — proposal
+    envelope/validation, workspace apply-gate state, path confinement, diff
+    application, command allowlist and argument shape. Internal integrity
+    denials (compensation/idempotency/snapshot/permit bindings) stay untyped:
+    they are classified by exception type, not by reason code.
+    """
+
+    # proposal envelope & validation (execution.py provider patch path)
+    PROPOSAL_AMBIGUOUS_OR_UNAUTHORIZED = "PROPOSAL_AMBIGUOUS_OR_UNAUTHORIZED"
+    PROPOSAL_ENVELOPE_KEYS = "PROPOSAL_ENVELOPE_KEYS"
+    PROPOSAL_CONTENT_MISSING = "PROPOSAL_CONTENT_MISSING"
+    PROPOSAL_PATH_MISMATCH = "PROPOSAL_PATH_MISMATCH"
+    DIFF_VALIDATION_FAILED = "DIFF_VALIDATION_FAILED"
+    # apply-gate: workspace state drift
+    WORKSPACE_CHANGED_SINCE_PROPOSAL = "WORKSPACE_CHANGED_SINCE_PROPOSAL"
+    # apply-gate: path confinement
+    PATH_NOT_RELATIVE = "PATH_NOT_RELATIVE"
+    PATH_ESCAPES_WORKSPACE = "PATH_ESCAPES_WORKSPACE"
+    SYMLINK_FORBIDDEN = "SYMLINK_FORBIDDEN"
+    WORKSPACE_STATE_RESERVED = "WORKSPACE_STATE_RESERVED"
+    # apply-gate: diff application
+    DIFF_MALFORMED = "DIFF_MALFORMED"
+    DIFF_CREATES_EXISTING_FILE = "DIFF_CREATES_EXISTING_FILE"
+    DIFF_TARGET_MISSING = "DIFF_TARGET_MISSING"
+    DIFF_CONTEXT_MISMATCH = "DIFF_CONTEXT_MISMATCH"
+    # apply-gate: command allowlist
+    TEST_COMMAND_NOT_ALLOWLISTED = "TEST_COMMAND_NOT_ALLOWLISTED"
+    SHELL_PROGRAM_DENIED = "SHELL_PROGRAM_DENIED"
+    SHELL_METACHARACTER_DENIED = "SHELL_METACHARACTER_DENIED"
+    SHELL_PATH_OUTSIDE_WORKSPACE = "SHELL_PATH_OUTSIDE_WORKSPACE"
+    # capability argument shape
+    INVALID_CAPABILITY_ARGUMENTS = "INVALID_CAPABILITY_ARGUMENTS"
+
+
 class CapabilityDenied(PermissionError):
-    pass
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        reason_code: DenialReasonCode | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 @dataclass(frozen=True)
@@ -145,7 +193,10 @@ class WorkspaceSandbox:
             raise CapabilityDenied("stale correction epoch")
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
-            raise CapabilityDenied("capability arguments must be an object")
+            raise CapabilityDenied(
+                "capability arguments must be an object",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            )
         intent_fingerprint = _intent_fingerprint(action)
         stored = self._get_idempotency(
             action.idempotency_key,
@@ -178,7 +229,17 @@ class WorkspaceSandbox:
                 )
                 error_code = "error:none"
             except Exception as exc:
-                output = {"error": type(exc).__name__, "error_detail": str(exc)[:300]}
+                reason_code = (
+                    exc.reason_code.value
+                    if isinstance(exc, CapabilityDenied)
+                    and exc.reason_code is not None
+                    else None
+                )
+                output = {
+                    "error": type(exc).__name__,
+                    "error_detail": str(exc)[:300],
+                    "reason_code": reason_code,
+                }
                 status = ReceiptStatus.FAILED
                 error_code = type(exc).__name__
         receipt = ActionReceipt(
@@ -282,17 +343,32 @@ class WorkspaceSandbox:
 
     def _safe_path(self, value: str) -> Path:
         if not value or value.startswith("/") or "\\" in value:
-            raise CapabilityDenied("path must be a relative workspace path")
+            raise CapabilityDenied(
+                "path must be a relative workspace path",
+                reason_code=DenialReasonCode.PATH_NOT_RELATIVE,
+            )
         if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
-            raise CapabilityDenied("workspace artifact state is reserved")
+            raise CapabilityDenied(
+                "workspace artifact state is reserved",
+                reason_code=DenialReasonCode.WORKSPACE_STATE_RESERVED,
+            )
         raw = self.root / value
         if any(part.is_symlink() for part in (self.root, *raw.parents) if part.exists()):
-            raise CapabilityDenied("symlink paths are forbidden")
+            raise CapabilityDenied(
+                "symlink paths are forbidden",
+                reason_code=DenialReasonCode.SYMLINK_FORBIDDEN,
+            )
         candidate = raw.resolve()
         if candidate != self.root and self.root not in candidate.parents:
-            raise CapabilityDenied("path escapes workspace")
+            raise CapabilityDenied(
+                "path escapes workspace",
+                reason_code=DenialReasonCode.PATH_ESCAPES_WORKSPACE,
+            )
         if candidate == self.artifacts or self.artifacts in candidate.parents:
-            raise CapabilityDenied("workspace artifact state is reserved")
+            raise CapabilityDenied(
+                "workspace artifact state is reserved",
+                reason_code=DenialReasonCode.WORKSPACE_STATE_RESERVED,
+            )
         return candidate
 
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
@@ -309,7 +385,8 @@ class WorkspaceSandbox:
                 if expected != actual:
                     raise CapabilityDenied(
                         "workspace changed since proposal; admissible: re-read the "
-                        f"target and re-propose against its current sha256 {actual}"
+                        f"target and re-propose against its current sha256 {actual}",
+                        reason_code=DenialReasonCode.WORKSPACE_CHANGED_SINCE_PROPOSAL,
                     )
             return self._apply_unified_diff(str(args.get("diff", "")), action_key)
         path = self._safe_path(str(args.get("path", "")))
@@ -367,7 +444,11 @@ class WorkspaceSandbox:
         before_bytes = path.read_bytes() if before_existed else b""
         actual = _sha256(before_bytes) if before_existed else None
         if expected is not None and expected != actual:
-            raise CapabilityDenied("workspace changed since proposal")
+            raise CapabilityDenied(
+                "workspace changed since proposal; admissible: re-read the "
+                f"target and re-propose against its current sha256 {actual}",
+                reason_code=DenialReasonCode.WORKSPACE_CHANGED_SINCE_PROPOSAL,
+            )
         manifest: dict[str, object] = {
             "schema_version": "1.0",
             "compensation_ref": compensation_ref,
@@ -647,7 +728,10 @@ class WorkspaceSandbox:
     def _glob(self, args: dict[str, object]) -> dict[str, object]:
         pattern = str(args.get("pattern", "")).strip()
         if not pattern:
-            raise CapabilityDenied("workspace.glob requires pattern")
+            raise CapabilityDenied(
+                "workspace.glob requires pattern",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            )
         max_results = min(int(str(args.get("max_results", 200))), 1000)
         skip_dirs = {".git", ".hg", ".svn", "node_modules", ".agent-os-artifacts", "__pycache__", ".venv", "venv"}
         matches: list[str] = []
@@ -678,7 +762,10 @@ class WorkspaceSandbox:
         """Apply a restricted unified diff (single or multi file) inside the sandbox."""
         files = _parse_unified_diff(diff_text)
         if not files:
-            raise CapabilityDenied("unified diff contained no file hunks")
+            raise CapabilityDenied(
+                "unified diff contained no file hunks",
+                reason_code=DenialReasonCode.DIFF_MALFORMED,
+            )
         applied: list[dict[str, object]] = []
         for item in files:
             rel = str(item["path"])
@@ -692,7 +779,8 @@ class WorkspaceSandbox:
                     raise CapabilityDenied(
                         f"diff creates existing file: {rel}; admissible: the "
                         "target exists at base — emit an update diff (with ---/+++ "
-                        "headers for the existing file), not a new-file diff"
+                        "headers for the existing file), not a new-file diff",
+                        reason_code=DenialReasonCode.DIFF_CREATES_EXISTING_FILE,
                     )
                 content = "".join(new_lines)
                 # reuse full-file apply for compensation semantics
@@ -703,7 +791,8 @@ class WorkspaceSandbox:
                 raise CapabilityDenied(
                     f"diff target missing: {rel}; admissible: the target does not "
                     "exist at base — emit a new-file diff (--- /dev/null header), "
-                    "not an update diff"
+                    "not an update diff",
+                    reason_code=DenialReasonCode.DIFF_TARGET_MISSING,
                 )
             current = path.read_text(encoding="utf-8")
             current_lines = current.splitlines(keepends=True)
@@ -737,7 +826,10 @@ class WorkspaceSandbox:
         command = str(args.get("command", ""))
         allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
         if command not in allowed:
-            raise CapabilityDenied("only the allowlisted test commands are permitted")
+            raise CapabilityDenied(
+                "only the allowlisted test commands are permitted",
+                reason_code=DenialReasonCode.TEST_COMMAND_NOT_ALLOWLISTED,
+            )
         timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
         result = subprocess.run(
             command.split(), cwd=self.root, capture_output=True, text=True,
@@ -767,11 +859,17 @@ class WorkspaceSandbox:
     def _search(self, args: dict[str, object]) -> dict[str, object]:
         pattern = str(args.get("pattern", ""))
         if not pattern:
-            raise CapabilityDenied("workspace.search requires pattern")
+            raise CapabilityDenied(
+                "workspace.search requires pattern",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            )
         try:
             regex = re.compile(pattern)
         except re.error as exc:
-            raise CapabilityDenied(f"invalid search pattern: {exc}") from exc
+            raise CapabilityDenied(
+                f"invalid search pattern: {exc}",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            ) from exc
         glob_pat = str(args.get("glob", "**/*"))
         rel_root = str(args.get("path", ".")).strip() or "."
         max_matches = min(int(str(args.get("max_matches", 50))), 200)
@@ -831,34 +929,58 @@ class WorkspaceSandbox:
             try:
                 argv = shlex.split(raw)
             except ValueError as exc:
-                raise CapabilityDenied(f"invalid shell argv string: {exc}") from exc
+                raise CapabilityDenied(
+                    f"invalid shell argv string: {exc}",
+                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+                ) from exc
         elif isinstance(raw, (list, tuple)):
             argv = [str(item) for item in raw]
         else:
-            raise CapabilityDenied("workspace.shell requires argv list or string")
+            raise CapabilityDenied(
+                "workspace.shell requires argv list or string",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            )
         if not argv:
-            raise CapabilityDenied("workspace.shell argv is empty")
+            raise CapabilityDenied(
+                "workspace.shell argv is empty",
+                reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+            )
         joined = " ".join(argv)
         for token in self._SHELL_DENIED_TOKENS:
             if token in joined:
-                raise CapabilityDenied(f"shell metacharacter denied: {token}")
+                raise CapabilityDenied(
+                    f"shell metacharacter denied: {token}",
+                    reason_code=DenialReasonCode.SHELL_METACHARACTER_DENIED,
+                )
         prog = Path(argv[0]).name
         if prog in self._SHELL_DENIED_PROGRAMS:
-            raise CapabilityDenied(f"shell program denied: {prog}")
+            raise CapabilityDenied(
+                f"shell program denied: {prog}",
+                reason_code=DenialReasonCode.SHELL_PROGRAM_DENIED,
+            )
         if prog in {"bash", "sh", "zsh"} and "-c" in argv:
             c_index = argv.index("-c")
             if c_index + 1 >= len(argv):
-                raise CapabilityDenied("shell -c requires a command string")
+                raise CapabilityDenied(
+                    "shell -c requires a command string",
+                    reason_code=DenialReasonCode.INVALID_CAPABILITY_ARGUMENTS,
+                )
             command = argv[c_index + 1]
             for token in self._SHELL_DENIED_TOKENS:
                 if token in command:
-                    raise CapabilityDenied(f"shell -c metacharacter denied: {token}")
+                    raise CapabilityDenied(
+                        f"shell -c metacharacter denied: {token}",
+                        reason_code=DenialReasonCode.SHELL_METACHARACTER_DENIED,
+                    )
         for item in argv[1:]:
             if item.startswith("/") and not item.startswith(str(self.root)):
                 if item not in {"/dev/null"} and not (
                     item.startswith("/bin/") or item.startswith("/usr/bin/")
                 ):
-                    raise CapabilityDenied(f"absolute path outside workspace denied: {item}")
+                    raise CapabilityDenied(
+                        f"absolute path outside workspace denied: {item}",
+                        reason_code=DenialReasonCode.SHELL_PATH_OUTSIDE_WORKSPACE,
+                    )
         timeout = min(int(str(args.get("timeout_seconds", 60))), 120)
         result = subprocess.run(
             argv,
@@ -907,14 +1029,20 @@ def _parse_unified_diff(diff_text: str) -> list[dict[str, object]]:
                 old = old[2:]
             i += 1
             if i >= len(lines) or not lines[i].startswith("+++ "):
-                raise CapabilityDenied("unified diff missing +++ line")
+                raise CapabilityDenied(
+                    "unified diff missing +++ line",
+                    reason_code=DenialReasonCode.DIFF_MALFORMED,
+                )
             new = lines[i][4:].strip()
             if new.startswith("b/"):
                 new = new[2:]
             i += 1
             path = new if new != "/dev/null" else old
             if path in {"/dev/null", ""}:
-                raise CapabilityDenied("diff file path missing")
+                raise CapabilityDenied(
+                    "diff file path missing",
+                    reason_code=DenialReasonCode.DIFF_MALFORMED,
+                )
             hunks: list[tuple[int, int, list[str]]] = []
             old_lines: list[str] = []
             new_lines: list[str] = []
@@ -924,7 +1052,10 @@ def _parse_unified_diff(diff_text: str) -> list[dict[str, object]]:
                 i += 1
                 m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", header)
                 if not m:
-                    raise CapabilityDenied(f"invalid hunk header: {header}")
+                    raise CapabilityDenied(
+                        f"invalid hunk header: {header}",
+                        reason_code=DenialReasonCode.DIFF_MALFORMED,
+                    )
                 old_start = int(m.group(1))
                 hunk_body: list[str] = []
                 while i < len(lines) and not lines[i].startswith("--- ") and not lines[i].startswith("@@"):
@@ -970,20 +1101,30 @@ def _apply_hunks_to_lines(current: list[str], hunks: list[tuple[int, int, list[s
         for row in body:
             if row.startswith(" "):
                 if cursor >= len(text_lines):
-                    raise CapabilityDenied("unified diff context past EOF")
+                    raise CapabilityDenied(
+                        "unified diff context past EOF",
+                        reason_code=DenialReasonCode.DIFF_CONTEXT_MISMATCH,
+                    )
                 if text_lines[cursor] != row[1:] and text_lines[cursor].rstrip("\n") != row[1:].rstrip("\n"):
                     raise CapabilityDenied(
                         "unified diff context mismatch; admissible: context "
                         "(space-prefixed) lines must equal the base file bytes — "
-                        f"expected {text_lines[cursor]!r}, diff carries {row[1:]!r}"
+                        f"expected {text_lines[cursor]!r}, diff carries {row[1:]!r}",
+                        reason_code=DenialReasonCode.DIFF_CONTEXT_MISMATCH,
                     )
                 out.append(text_lines[cursor])
                 cursor += 1
             elif row.startswith("-"):
                 if cursor >= len(text_lines):
-                    raise CapabilityDenied("unified diff deletion past EOF")
+                    raise CapabilityDenied(
+                        "unified diff deletion past EOF",
+                        reason_code=DenialReasonCode.DIFF_CONTEXT_MISMATCH,
+                    )
                 if text_lines[cursor] != row[1:] and text_lines[cursor].rstrip("\n") != row[1:].rstrip("\n"):
-                    raise CapabilityDenied("unified diff deletion mismatch")
+                    raise CapabilityDenied(
+                        "unified diff deletion mismatch",
+                        reason_code=DenialReasonCode.DIFF_CONTEXT_MISMATCH,
+                    )
                 cursor += 1
             elif row.startswith("+"):
                 out.append(row[1:])

@@ -22,6 +22,7 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core import (
+    DenialReasonCode,
     DeterministicProvider,
     RunExecutionError,
     TaskConfigurationNotBound,
@@ -473,3 +474,155 @@ def test_diff_mode_validation_matrix(tmp_path, arguments, inputs, detail) -> Non
         )
     assert detail in str(exc_info.value)
     assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
+
+
+def test_diff_mode_apply_denial_carries_typed_reason_code(tmp_path) -> None:
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    bad_diff = DIFF.replace(" beta = 2\n", " beta = 999\n")
+    _provider(app, {"path": TARGET, "diff": bad_diff})
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    waiting = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task_id,
+        {"disposition": "APPROVE", "reason": "exact diff approved"},
+    )
+    with pytest.raises(RunExecutionError) as exc_info:
+        app.run_task(
+            task_id,
+            _diff_inputs(),
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+    # typed reason code is the machine-consumable classification;
+    # free-text detail and admissible alternative remain as supplements
+    assert exc_info.value.reason_code is DenialReasonCode.DIFF_CONTEXT_MISMATCH
+    assert "[DIFF_CONTEXT_MISMATCH]" in str(exc_info.value)
+    assert "unified diff context mismatch" in str(exc_info.value)
+    assert "admissible:" in str(exc_info.value)
+    assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
+
+
+def test_diff_mode_workspace_changed_denial_carries_typed_reason_code(
+    tmp_path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    _provider(app, {"path": TARGET, "diff": DIFF})
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    waiting = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task_id,
+        {"disposition": "APPROVE", "reason": "exact diff approved"},
+    )
+    # drift between the approval-bound proposal sha and the live workspace
+    (workspace / TARGET).write_text(ORIGINAL + "delta = 4\n", encoding="utf-8")
+    with pytest.raises(RunExecutionError) as exc_info:
+        app.run_task(
+            task_id,
+            _diff_inputs(),
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+    assert exc_info.value.reason_code is DenialReasonCode.WORKSPACE_CHANGED_SINCE_PROPOSAL
+    assert "[WORKSPACE_CHANGED_SINCE_PROPOSAL]" in str(exc_info.value)
+    assert "workspace changed since proposal" in str(exc_info.value)
+    assert "admissible:" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_code"),
+    (
+        (
+            {"path": TARGET, "diff": DIFF, "extra": 1},
+            DenialReasonCode.PROPOSAL_ENVELOPE_KEYS,
+        ),
+        (
+            {"path": TARGET, "diff": ""},
+            DenialReasonCode.PROPOSAL_CONTENT_MISSING,
+        ),
+        (
+            {"path": TARGET, "diff": DIFF + "\nnot-a-hunk-line\n"},
+            DenialReasonCode.DIFF_VALIDATION_FAILED,
+        ),
+        (
+            {"path": "src/other.py", "diff": DIFF},
+            DenialReasonCode.PROPOSAL_PATH_MISMATCH,
+        ),
+        (
+            {"path": TARGET, "diff": DIFF.replace("src/widget.py", "src/other.py")},
+            DenialReasonCode.PROPOSAL_PATH_MISMATCH,
+        ),
+    ),
+)
+def test_proposal_denials_carry_typed_reason_codes(
+    tmp_path,
+    arguments,
+    expected_code,
+) -> None:
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    _provider(app, arguments)
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    with pytest.raises(RunExecutionError) as exc_info:
+        app.run_task(
+            task_id,
+            _diff_inputs(),
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+    assert exc_info.value.reason_code is expected_code
+    assert "admissible:" in str(exc_info.value)
+    assert (workspace / TARGET).read_text(encoding="utf-8") == ORIGINAL
+
+
+def test_denial_reason_code_wire_is_enum_typed_end_to_end(tmp_path) -> None:
+    """Bypass detection: a denial path that drops or free-texts its typed
+    reason_code fails here — the attribute must be an enum member produced
+    by the capability output wire, and the code must surface in the logged
+    failure message."""
+    workspace = _workspace(tmp_path)
+    app = AgentOSApplication(database=tmp_path / "db.sqlite3", workspace=workspace)
+    bad_diff = DIFF.replace(" beta = 2\n", " beta = 999\n")
+    _provider(app, {"path": TARGET, "diff": bad_diff})
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    waiting = app.run_task(
+        task_id,
+        _diff_inputs(),
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task_id,
+        {"disposition": "APPROVE", "reason": "exact diff approved"},
+    )
+    with pytest.raises(RunExecutionError) as exc_info:
+        app.run_task(
+            task_id,
+            _diff_inputs(),
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+    reason_code = exc_info.value.reason_code
+    assert isinstance(reason_code, DenialReasonCode)
+    assert reason_code.value in str(exc_info.value)
+    # enum surface stays enumerable and unique for downstream classifiers
+    values = [code.value for code in DenialReasonCode]
+    assert len(values) == len(set(values))

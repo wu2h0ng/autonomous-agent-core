@@ -178,6 +178,7 @@ from .capability import (
     CapabilityBroker,
     CapabilityDenied,
     CapabilityResult,
+    DenialReasonCode,
     WorkspaceSandbox,
 )
 from .execution import (
@@ -445,6 +446,7 @@ __all__ = [
     "MandateTerminalError",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
+    "DenialReasonCode",
     "CapabilityBroker",
     "CapabilityResult",
     "WorkspaceSandbox",

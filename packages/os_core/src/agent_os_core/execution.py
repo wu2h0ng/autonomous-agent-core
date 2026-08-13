@@ -42,7 +42,7 @@ from agent_os_contracts import (
     provider_execution_receipt_digest,
 )
 
-from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
+from .capability import CapabilityBroker, CapabilityResult, DenialReasonCode, WorkspaceSandbox
 from .benchmark_baseline import extract_unified_diff, validate_unified_diff
 from .errors import ConcurrentWriteError
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
@@ -75,7 +75,14 @@ def _diff_header_path(diff_text: str) -> str | None:
 
 
 class RunExecutionError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        reason_code: DenialReasonCode | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 class WorkerInterrupted(RunExecutionError):
@@ -539,7 +546,8 @@ class RunCoordinator:
                 finally:
                     self._release_lease(run.run_id, owner)
                 raise RunExecutionError(
-                    f"node {node.node_id} failed: {type(exc).__name__}: {exc}"
+                    f"node {node.node_id} failed: {type(exc).__name__}: {exc}",
+                    reason_code=getattr(exc, "reason_code", None),
                 ) from exc
         if observed_outcome is None:
             self._release_lease(run.run_id, owner)
@@ -1151,7 +1159,8 @@ class RunCoordinator:
             or proposals[0].capability_id != "workspace.apply_patch"
         ):
             raise RunExecutionError(
-                "provider returned an ambiguous or unauthorized tool proposal"
+                "provider returned an ambiguous or unauthorized tool proposal",
+                reason_code=DenialReasonCode.PROPOSAL_AMBIGUOUS_OR_UNAUTHORIZED,
             )
         if not proposals:
             if patch_format == "unified_diff":
@@ -1172,23 +1181,31 @@ class RunCoordinator:
                     )
                 ]
         if len(proposals) != 1:
-            raise RunExecutionError("provider must return exactly one workspace.apply_patch proposal")
+            raise RunExecutionError(
+                "provider must return exactly one workspace.apply_patch proposal",
+                reason_code=DenialReasonCode.PROPOSAL_AMBIGUOUS_OR_UNAUTHORIZED,
+            )
         raw_arguments = json.loads(proposals[0].arguments_json)
         if not isinstance(raw_arguments, dict):
-            raise RunExecutionError("provider patch arguments must be an object")
+            raise RunExecutionError(
+                "provider patch arguments must be an object",
+                reason_code=DenialReasonCode.PROPOSAL_ENVELOPE_KEYS,
+            )
         if patch_format == "unified_diff":
             if set(raw_arguments) != {"path", "diff"}:
                 raise RunExecutionError(
                     "provider diff arguments must contain only path and diff; "
                     "admissible: {\"path\": <target path>, \"diff\": <single-file "
                     "unified diff with ---/+++ headers for that path and "
-                    "well-formed @@ hunks>} — no other keys"
+                    "well-formed @@ hunks>} — no other keys",
+                    reason_code=DenialReasonCode.PROPOSAL_ENVELOPE_KEYS,
                 )
             proposed_diff = raw_arguments.get("diff")
             if not isinstance(proposed_diff, str) or not proposed_diff.strip():
                 raise RunExecutionError(
                     "provider proposal requires string diff content; "
-                    "admissible: non-empty unified diff text for the target path"
+                    "admissible: non-empty unified diff text for the target path",
+                    reason_code=DenialReasonCode.PROPOSAL_CONTENT_MISSING,
                 )
             try:
                 validate_unified_diff(proposed_diff)
@@ -1196,20 +1213,23 @@ class RunCoordinator:
                 raise RunExecutionError(
                     f"provider diff failed validation: {exc.detail}; "
                     "admissible: a single-file unified diff whose ---/+++ headers "
-                    "name the target path and whose hunks match their header ranges"
+                    "name the target path and whose hunks match their header ranges",
+                    reason_code=DenialReasonCode.DIFF_VALIDATION_FAILED,
                 ) from exc
         else:
             if set(raw_arguments) != {"path", "content"}:
                 raise RunExecutionError(
                     "provider patch arguments must contain only path and content; "
                     "admissible: {\"path\": <target path>, \"content\": <complete "
-                    "replacement file content>} — no other keys"
+                    "replacement file content>} — no other keys",
+                    reason_code=DenialReasonCode.PROPOSAL_ENVELOPE_KEYS,
                 )
             proposed_content = raw_arguments.get("content")
             if not isinstance(proposed_content, str):
                 raise RunExecutionError(
                     "provider proposal requires complete string content; "
-                    "admissible: the full replacement file content as a string"
+                    "admissible: the full replacement file content as a string",
+                    reason_code=DenialReasonCode.PROPOSAL_CONTENT_MISSING,
                 )
         proposed_path = str(raw_arguments.get("path", ""))
         if patch_format == "unified_diff":
@@ -1217,12 +1237,14 @@ class RunCoordinator:
             if header_path is None or header_path != proposed_path:
                 raise RunExecutionError(
                     "provider diff path does not match the proposal path; "
-                    "admissible: ---/+++ header paths must equal the proposal path"
+                    "admissible: ---/+++ header paths must equal the proposal path",
+                    reason_code=DenialReasonCode.PROPOSAL_PATH_MISMATCH,
                 )
         if proposed_path != target_path:
             raise RunExecutionError(
                 "provider proposal path does not match the reviewed target; "
-                f"admissible: path must be exactly {target_path}"
+                f"admissible: path must be exactly {target_path}",
+                reason_code=DenialReasonCode.PROPOSAL_PATH_MISMATCH,
             )
         raw_arguments["expected_sha256"] = str(read_output.get("sha256", ""))
         bound_proposal = ProviderToolProposal(
@@ -1376,12 +1398,18 @@ class RunCoordinator:
         )
         if result.receipt.status.value != "SUCCEEDED":
             error_detail = ""
+            reason_code: DenialReasonCode | None = None
             if isinstance(result.output, dict):
                 detail_value = result.output.get("error_detail")
                 if isinstance(detail_value, str) and detail_value:
                     error_detail = f": {detail_value}"
+                code_value = result.output.get("reason_code")
+                if isinstance(code_value, str) and code_value:
+                    reason_code = DenialReasonCode(code_value)
+            code_fragment = f" [{reason_code.value}]" if reason_code is not None else ""
             raise RunExecutionError(
-                f"tool failed: {result.receipt.error_code}{error_detail}"
+                f"tool failed: {result.receipt.error_code}{code_fragment}{error_detail}",
+                reason_code=reason_code,
             )
         for artifact_id in result.receipt.output_artifact_ids:
             self.tasks.record_artifact(
