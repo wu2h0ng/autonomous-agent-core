@@ -1,4 +1,4 @@
-# SELFDEV-8 (E8) Round — Adjudication
+# SELFDEV-8 (E8) Round — Adjudication (FINAL, independently amended)
 
 > Prereg: `docs/product/AGENT-OS-SELFDEV-8-phase0-unified-head-prereg-2026-08-13.md`
 > (frozen at 2b27974f + cfb2b49c driver8/solve8;manifest `.agent_runs/selfdev-8/manifest.json`)
@@ -6,7 +6,7 @@
 > Runner: driver8.py(one E8 result-bearing run,authorized by founder cast 2026-08-14 §2 after preflight PASS + freeze verification PASS)
 > Provider: deepseek-v4-flash(openai-compatible,base https://api.deepseek.com),600s timeout
 > Subset: `.agent_runs/selfdev-4/selection.json` cross-pin(fifth reuse,污染上界声明)
-> Adjudicator: 本裁决由执行会话产出,待独立 reviewer 盲锚定复核(builder ≠ reviewer)。
+> Independent adjudication: `ADJUDICATION-INDEPENDENT-2026-08-14.md` — **ADJUDICATION_AMENDED**(blind-anchored per RR-0031,builder ≠ reviewer;结论 NEGATIVE 一致;两处事实修正已采纳:信封拒绝 20× 而非 19×、freeze receipt 的 manifest 自 digest 不符)。
 
 ## 1. 运行完整性
 
@@ -37,20 +37,22 @@ MIXED         否
 baseline 的 FAILED_UNCLASSIFIED 多为 f2p 未过(模型未产出正确补丁),属正常未解。
 
 ### chain(1/12 solved)
-24 个尝试失败分布:
+24 个尝试失败分布(独立复核修正后):
 
 | 类 | 数量 | 说明 |
 |---|---|---|
-| provider diff 参数契约拒绝 | 19 | stderr 统一为 "provider diff arguments must contain only path and diff; admissible: {path, diff}" |
-| provider diff 格式拒绝 | 1 | "baseline diff ends inside a truncated hunk" |
-| BENCHMARK_PROVIDER_RUN_COMPLETED(未解) | 1 | sphinx a1 完整运行但未产出可验证候选 |
-| INVALID_PROVIDER(天气) | 2 | provider 不可用,消耗尝试 |
+| provider diff 参数契约拒绝 | 20 | stderr 统一为 "provider diff arguments must contain only path and diff; admissible: {path, diff}"(含 sphinx a1,独立复核逐字核验) |
+| provider diff 格式拒绝 | 1 | "baseline diff ends inside a truncated hunk"(sklearn a2) |
+| INVALID_PROVIDER(天气,provider MALFORMED) | 2 | sympy-13551 a2、sympy-13852 a2,消耗尝试 |
 | 独立 verifier 确认 solved | 1 | sphinx a2 → chain 1/12 |
 
-**核心归因:chain 的 19+1=20 个失败全部是受治理 provider diff 输出未通过 typed 契约信封校验**(参数含多余键 / diff 截断),即在 apply 之前就被契约层拒绝。这不是天气、不是基础设施、不是求解能力不足,而是受治理链的 provider 响应契约未闭合 —— E5 的残余问题(governed prompt/响应契约差距)在 E8 上仍为链臂主导失败类。
+**核心归因:chain 的 20+1=21 个失败全部是受治理 provider diff 输出未通过 typed 契约信封校验**(参数含多余键 / diff 截断),即在 apply 之前就被契约层拒绝(87.5% 的 chain 尝试)。这不是天气、不是基础设施、不是求解能力不足,而是受治理链的 provider 响应契约未闭合 —— E5 的残余问题(governed prompt/响应契约差距)在 E8 充足数据下确认未闭合,残余假设收窄为"差距在受治理 provider 的 diff 信封生成"。
 
-### driver8 记账层缺陷(如实记录,不影响 solved 判定)
-typed 分类器(§3.5)将上述 19+1 个契约拒绝归为 `FAILED_UNCLASSIFIED`(classifier.surface="residual"),而非既有 `INVALID_ENVELOPE` / `DIFF_INVALID` 类 —— 因为契约拒绝的 stderr 文本不含 ProviderFailure.code / DenialReasonCode 枚举成员,且分类器未把 "must contain only path and diff" 文本签名映射回尝试失败类。此缺陷改变失败类归因(裁决者已按 stderr 文本重归类),但 **不改变任何 solved 判定、不改变 NEGATIVE 结论**。该缺陷记录于负结果地图,不构成门移动。
+### driver8 记账层缺陷(独立复核确认,不影响 solved 判定)
+typed 分类器(§3.5)将上述 20+1 个契约拒绝归为 `FAILED_UNCLASSIFIED`(classifier.surface="residual"),而非既有 `INVALID_ENVELOPE` / `DIFF_INVALID` 类 —— 因为契约拒绝的 stderr 文本不含 ProviderFailure.code / DenialReasonCode 枚举成员,且分类器未把 "must contain only path and diff" 文本签名映射回尝试失败类。此缺陷改变失败类归因(裁决者已按 stderr 文本重归类),但 **不改变任何 solved 判定、不改变 NEGATIVE 结论**。该缺陷记录于负结果地图,不构成门移动。
+
+### freeze receipt 记录级缺陷(独立复核发现,不影响运行合法性)
+FREEZE-VERIFICATION-2026-08-14.md §1 声称 manifest sha256 `ec143f04…`,实际 manifest.json 字节为 `d67070e8…`;四绑定项(driver8/solve8/selection/prereg)digest 全部与 manifest 一致,此自引用 digest 不符为记录级完整性缺陷,如实记入负结果地图。
 
 ## 4. 与 E5-E7 的关联
 
@@ -67,4 +69,4 @@ typed 分类器(§3.5)将上述 19+1 个契约拒绝归为 `FAILED_UNCLASSIFIED`
 
 ## 6. 复核路径
 
-全部 48 个 attempt 文件 + stderr + 1 个独立 verifier verdict 留档于 `.agent_runs/selfdev-8/round/`;裁决者可逐文件重算。独立 reviewer 复核后本裁决定稿。
+全部 48 个 attempt 文件 + stderr + 1 个独立 verifier verdict 留档于 `.agent_runs/selfdev-8/round/`;独立 reviewer 盲锚定复核完成(ADJUDICATION_AMENDED),本裁决定稿为 FINAL。

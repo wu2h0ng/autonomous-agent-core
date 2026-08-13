@@ -10,7 +10,7 @@
 | 项 | 结果 |
 |---|---|
 | manifest 文件 | `.agent_runs/selfdev-8/manifest.json`(schema selfdev-8-e8-prereg-manifest.v1) |
-| manifest sha256 | `ec143f04a27c6a14c217515cb11e66f93d275115e76c629a4d2528531321f87e` |
+| manifest sha256 | `d67070e8544f6a6c4e962c0aca7be058ffa2a7042b6850316cbc4c9c67c16313`(独立复核修正:原记录 ec143f04… 与实际字节不符,记录级缺陷,已如实记入负结果地图;不影响四绑定项) |
 | prereg digest | `9873525f…de6bd`(docs/product/AGENT-OS-SELFDEV-8-…-prereg-2026-08-13.md) |
 | driver8 digest | `8be4595f…4f702` |
 | solve8 digest | `4c02623d…3c6db` |
