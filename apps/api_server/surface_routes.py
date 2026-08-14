@@ -163,6 +163,10 @@ class SurfaceRoutes:
                 self._post_open_session(handler)
                 return
             if method == "GET":
+                session_id = _match_surface_session_leaf(handler.path, "conflict")
+                if session_id is not None:
+                    self._get_conflict(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "")
                 if session_id is not None:
                     self._get_session(handler, session_id)
@@ -225,6 +229,18 @@ class SurfaceRoutes:
 
     def _get_session(self, handler: Any, session_id: str) -> None:
         handler._json(200, self._runtime.get_session(session_id).model_dump(mode="json"))
+
+    def _get_conflict(self, handler: Any, session_id: str) -> None:
+        projection = self._runtime.conflict_projection(session_id)
+        if projection is None:
+            handler._json(404, {"error": "surface_conflict_not_found"})
+            return
+        payload = (
+            projection.model_dump(mode="json")
+            if hasattr(projection, "model_dump")
+            else projection
+        )
+        handler._json(200, {"conflict": payload})
 
     def _post_turn(self, handler: Any, session_id: str) -> None:
         body = handler._body()

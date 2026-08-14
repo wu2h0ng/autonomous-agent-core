@@ -71,6 +71,7 @@ from agent_os_contracts import (
     SurfaceOpenSessionCommand,
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
+    SurfaceConflictProjection,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
     content_digest,
@@ -84,6 +85,8 @@ from agent_os_core import (
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
     CapabilityBroker,
+    ReplanRequired,
+    WorkspaceWriteRejected,
     ChatSession,
     ConfirmationGateway,
     CandidateEvaluationScopeMismatch,
@@ -365,6 +368,7 @@ class AgentOSApplication:
         self.collaboration_preflight = WorkspaceCollaborationPreflight(
             self.workspace_fence
         )
+        self._surface_conflicts: dict[str, SurfaceConflictProjection] = {}
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
@@ -1914,12 +1918,27 @@ class AgentOSApplication:
             command.session_id, DeferredApprovalGateway()
         )
         history_before = len(loop.history)
-        result = loop.run_turn(session, command.text)
+        try:
+            result = loop.run_turn(session, command.text)
+        except (WorkspaceWriteRejected, ReplanRequired) as exc:
+            decision = getattr(exc, "decision", None)
+            if decision is not None:
+                self._surface_conflicts[command.session_id] = (
+                    SurfaceConflictProjection.from_decision(decision)
+                )
+            raise
         return self._surface_turn_response(
             session.session_id,
             result,
             loop.history[history_before:],
         )
+
+    def surface_conflict_projection(
+        self, session_id: str
+    ) -> SurfaceConflictProjection | None:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        return self._surface_conflicts.get(session_id)
 
     def surface_decide_approval(
         self, command: SurfaceApprovalCommand

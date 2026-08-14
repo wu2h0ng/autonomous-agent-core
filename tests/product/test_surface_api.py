@@ -13,6 +13,7 @@ import pytest
 
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
+    ResourceScope,
     SurfaceClientRef,
     SurfaceCorrectionCommand,
     SurfaceOpenSessionCommand,
@@ -323,6 +324,70 @@ def test_get_session_route(
     )
     assert status == 200
     assert fetched["session"]["session_id"] == session_id
+
+
+def test_conflict_route_returns_404_without_conflict(
+    surface_server: SurfaceTestServer,
+) -> None:
+    status, opened = surface_server.json(
+        "/v1/surface/sessions",
+        method="POST",
+        body=_open_command(surface_server.app),
+    )
+    snapshot = opened["snapshot"] if "snapshot" in opened else opened
+    session_id = snapshot["session"]["session_id"]
+
+    status, body = surface_server.json(
+        f"/v1/surface/sessions/{session_id}/conflict",
+        method="GET",
+    )
+    assert status == 404
+    assert body["error"] == "surface_conflict_not_found"
+
+
+def test_conflict_route_returns_projection_after_conflict(
+    surface_server: SurfaceTestServer,
+) -> None:
+    status, opened = surface_server.json(
+        "/v1/surface/sessions",
+        method="POST",
+        body=_open_command(surface_server.app),
+    )
+    snapshot = opened["snapshot"] if "snapshot" in opened else opened
+    session_id = snapshot["session"]["session_id"]
+
+    # Inject a conflict projection directly (the fence denial path is covered
+    # by producer/preflight tests; here we verify the query/route loop).
+    from agent_os_contracts import (
+        CollaborationDisposition,
+        WorkspaceWriteDecision,
+        SurfaceConflictProjection,
+    )
+
+    decision = WorkspaceWriteDecision(
+        lease_id="lease:1",
+        action_id="action:edit",
+        plan_version=1,
+        disposition=CollaborationDisposition.CONFLICT,
+        checked_event_cursor=0,
+        relevant_event_ids=("ev:1",),
+        event_batch_provenance_ref="coordination-store",
+        write_scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),),
+        reason="write conflict",
+        decided_at=datetime.now(timezone.utc),
+    )
+    surface_server.app._surface_conflicts[session_id] = (
+        SurfaceConflictProjection.from_decision(decision)
+    )
+
+    status, body = surface_server.json(
+        f"/v1/surface/sessions/{session_id}/conflict",
+        method="GET",
+    )
+    assert status == 200
+    assert body["conflict"]["disposition"] == "CONFLICT"
+    assert body["conflict"]["suggested_action"] == "REVIEW_DIFF"
+    assert body["conflict"]["relevant_event_ids"] == ["ev:1"]
 
 
 def test_stale_sequence_conflict_returns_409(

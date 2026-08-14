@@ -79,6 +79,17 @@ export interface EventBatch {
   events: SurfaceEvent[];
 }
 
+export interface ConflictProjection {
+  protocol_version: string;
+  action_id: string;
+  lease_id: string;
+  disposition: "REPLAN" | "CONFLICT" | "CANCEL";
+  reason: string;
+  write_scope_uris: string[];
+  relevant_event_ids: string[];
+  suggested_action: "REPLAN" | "REVIEW_DIFF" | "NONE";
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -384,6 +395,81 @@ export class SurfaceClient {
     }
     return parseSse(taskId, afterSequence, body);
   }
+
+  async conflict(sessionId: string): Promise<ConflictProjection | null> {
+    let response;
+    try {
+      response = await this.fetchImpl(
+        `${this.baseUrl}/v1/surface/sessions/${encodeURIComponent(sessionId)}/conflict`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
+          },
+        },
+      );
+    } catch (error) {
+      throw new SurfaceClientConnectionError(
+        `cannot reach the local runtime: ${String(error)}`,
+      );
+    }
+    const raw = await response.text();
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new SurfaceHttpError(response.status, `HTTP ${response.status}`);
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      throw new SurfaceProtocolMismatch(
+        "local runtime returned a non-JSON response",
+      );
+    }
+    if (!isObject(value) || !isObject(value.conflict)) {
+      throw new SurfaceProtocolMismatch(
+        "local runtime returned no conflict projection",
+      );
+    }
+    return checkConflict(value.conflict as Record<string, unknown>);
+  }
+}
+
+function checkConflict(value: Record<string, unknown>): ConflictProjection {
+  checkProtocol(value);
+  const disposition = value.disposition;
+  const suggested = value.suggested_action;
+  if (
+    disposition !== "REPLAN" &&
+    disposition !== "CONFLICT" &&
+    disposition !== "CANCEL"
+  ) {
+    throw new SurfaceProtocolMismatch("conflict projection has invalid disposition");
+  }
+  if (
+    suggested !== "REPLAN" &&
+    suggested !== "REVIEW_DIFF" &&
+    suggested !== "NONE"
+  ) {
+    throw new SurfaceProtocolMismatch("conflict projection has invalid suggested_action");
+  }
+  return {
+    protocol_version: value.protocol_version as string,
+    action_id: value.action_id as string,
+    lease_id: value.lease_id as string,
+    disposition,
+    reason: value.reason as string,
+    write_scope_uris: Array.isArray(value.write_scope_uris)
+      ? (value.write_scope_uris as string[])
+      : [],
+    relevant_event_ids: Array.isArray(value.relevant_event_ids)
+      ? (value.relevant_event_ids as string[])
+      : [],
+    suggested_action: suggested,
+  };
 }
 
 export function parseSse(

@@ -93,6 +93,10 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_task_for_session(self, session_id: str) -> str: ...
 
+    def surface_conflict_projection(
+        self, session_id: str
+    ) -> Any | None: ...
+
     def surface_current_sequence(self, task_id: str) -> int: ...
 
     def surface_idempotency_record(
@@ -191,6 +195,11 @@ class SurfaceRuntime:
         if isinstance(after_sequence, bool) or after_sequence < 0:
             raise ValueError("after_sequence must be a non-negative integer")
         return self._application.surface_event_batch(task_id, after_sequence)
+
+    def conflict_projection(self, session_id: str) -> Any | None:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        return self._application.surface_conflict_projection(session_id)
 
     def _control_command(
         self,

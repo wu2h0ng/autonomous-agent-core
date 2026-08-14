@@ -47,3 +47,36 @@ export async function fetchFiles(
   }
   return body.files;
 }
+
+export interface ConflictBadge {
+  disposition: "REPLAN" | "CONFLICT" | "CANCEL";
+  suggestedAction: "REPLAN" | "REVIEW_DIFF" | "NONE";
+  reason: string;
+}
+
+const WORKSPACE_PREFIX = "file:///ws/";
+
+/** Derive the relative path a conflict projection targets, or null. */
+export function conflictPath(writeScopeUris: string[]): string | null {
+  for (const uri of writeScopeUris) {
+    if (uri.startsWith(WORKSPACE_PREFIX)) {
+      return uri.slice(WORKSPACE_PREFIX.length);
+    }
+  }
+  return writeScopeUris.length > 0 ? writeScopeUris[0] : null;
+}
+
+/** Build a renderer-facing conflict badge for a path, or null if no conflict. */
+export function conflictBadgeForPath(
+  writeScopeUris: string[],
+  disposition: "REPLAN" | "CONFLICT" | "CANCEL",
+  suggestedAction: "REPLAN" | "REVIEW_DIFF" | "NONE",
+  reason: string,
+  path: string,
+): ConflictBadge | null {
+  const target = conflictPath(writeScopeUris);
+  if (target === null || target !== path) {
+    return null;
+  }
+  return { disposition, suggestedAction, reason };
+}
