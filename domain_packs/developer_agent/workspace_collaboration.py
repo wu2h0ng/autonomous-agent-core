@@ -138,7 +138,18 @@ class WorkspaceCollaborationPreflight:
         self, action: ActionContract, claim: ExecutionLease
     ) -> WorkspaceWriteDecision:
         now = datetime.now(timezone.utc)
-        snapshot = self._fence.read_coordination(action.workspace_id)
+        try:
+            snapshot = self._fence.read_coordination(action.workspace_id)
+        except Exception as exc:
+            # A coordination-store failure cannot be distinguished from a
+            # missing authoritative snapshot; fail closed rather than continue.
+            return self._decision(
+                action,
+                None,
+                CollaborationDisposition.CANCEL,
+                now,
+                f"coordination fence unavailable: {type(exc).__name__}",
+            )
         lease = snapshot.lease
         if lease is None:
             return self._decision(action, lease, CollaborationDisposition.CANCEL, now, "no coordination lease")
@@ -151,6 +162,15 @@ class WorkspaceCollaborationPreflight:
             or action.workspace_id != lease.workspace_id
             or action.principal_id != lease.holder_id
         )
+        # Note on `claim.owner` (P2 debt): `ExecutionLease.owner` is the
+        # physical worker identity (e.g. `worker:<uuid>` issued per dispatch by
+        # RunCoordinator); `WorkLease.holder_id` is the coordination principal.
+        # These are intentionally distinct authority axes: the work lease binds
+        # the principal (action.principal_id) to the resource scopes, while the
+        # execution lease owner proves current physical custody. They are
+        # reconciled through the shared `run_id` on every dispatch, not by
+        # equating owner with holder. Revisit before multi-principal
+        # collaboration, where a holder→worker mapping may need to be typed.
         if identity_mismatch:
             return self._decision(
                 action, lease, CollaborationDisposition.CANCEL, now, "action/claim identity does not bind the work lease"
@@ -335,31 +355,37 @@ class SQLiteWorkspaceCommitFence:
             )
 
     def read_coordination(self, workspace_id: str) -> WorkspaceCoordinationSnapshot:
-        with self._thread_lock, self._flock(), self._connect() as conn:
-            lease_row = conn.execute(
-                "SELECT lease_json FROM workspace_leases WHERE workspace_id = ?",
-                (workspace_id,),
-            ).fetchone()
-            lease = (
-                WorkLease.model_validate_json(lease_row[0])
-                if lease_row is not None
-                else None
-            )
-            after = lease.event_cursor if lease is not None else 0
-            rows = conn.execute(
-                "SELECT event_json FROM workspace_events WHERE workspace_id = ? AND sequence > ? "
-                "ORDER BY sequence",
-                (workspace_id, after),
-            ).fetchall()
-            events = tuple(WorkspaceEvent.model_validate_json(row[0]) for row in rows)
-            batch = build_batch(
-                workspace_id,
-                after,
-                events,
-                source_id=self._db_path,
-                read_at=datetime.now(timezone.utc),
-            )
-            return WorkspaceCoordinationSnapshot(lease=lease, batch=batch)
+        try:
+            with self._thread_lock, self._flock(), self._connect() as conn:
+                lease_row = conn.execute(
+                    "SELECT lease_json FROM workspace_leases WHERE workspace_id = ?",
+                    (workspace_id,),
+                ).fetchone()
+                lease = (
+                    WorkLease.model_validate_json(lease_row[0])
+                    if lease_row is not None
+                    else None
+                )
+                after = lease.event_cursor if lease is not None else 0
+                rows = conn.execute(
+                    "SELECT event_json FROM workspace_events WHERE workspace_id = ? AND sequence > ? "
+                    "ORDER BY sequence",
+                    (workspace_id, after),
+                ).fetchall()
+                events = tuple(WorkspaceEvent.model_validate_json(row[0]) for row in rows)
+                batch = build_batch(
+                    workspace_id,
+                    after,
+                    events,
+                    source_id=self._db_path,
+                    read_at=datetime.now(timezone.utc),
+                )
+                return WorkspaceCoordinationSnapshot(lease=lease, batch=batch)
+        except Exception as exc:
+            raise WorkspaceFenceUnavailable(
+                f"coordination fence read failed for {workspace_id!r}: "
+                f"{type(exc).__name__}"
+            ) from exc
 
 
 class _FileLock:

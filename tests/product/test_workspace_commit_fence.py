@@ -95,6 +95,51 @@ def test_preflight_replan_on_context_change_event() -> None:
     assert decision.disposition is CollaborationDisposition.REPLAN
 
 
+def test_preflight_replan_on_plan_invalidated_event() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(
+        _event(
+            sequence=1,
+            scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),),
+            impact=WorkspaceEventImpact.PLAN_INVALIDATED,
+        )
+    )
+    preflight = WorkspaceCollaborationPreflight(fence)
+    decision = preflight.preflight(_action(), _claim())
+    assert decision.disposition is CollaborationDisposition.REPLAN
+
+
+def test_preflight_fence_read_failure_fails_closed() -> None:
+    class BrokenFence:
+        def read_coordination(self, workspace_id: str):
+            raise RuntimeError("coord store down")
+
+    preflight = WorkspaceCollaborationPreflight(BrokenFence())  # type: ignore[arg-type]
+    decision = preflight.preflight(_action(), _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL
+
+
+def test_sqlite_fence_read_failure_raises_typed_error(tmp_path: Path) -> None:
+    from domain_packs.developer_agent.workspace_collaboration import (
+        WorkspaceFenceUnavailable,
+    )
+
+    fence = SQLiteWorkspaceCommitFence(tmp_path / "coord.sqlite3")
+    fence.install_lease(_lease(event_cursor=0))
+    # Corrupt the stored lease JSON so model_validate_json raises.
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "coord.sqlite3")
+    conn.execute(
+        "UPDATE workspace_leases SET lease_json = 'not-json' WHERE workspace_id = 'workspace:local'"
+    )
+    conn.commit()
+    conn.close()
+    with pytest.raises(WorkspaceFenceUnavailable):
+        fence.read_coordination("workspace:local")
+
+
 def test_preflight_cancel_on_expired_lease() -> None:
     fence = WorkspaceCommitFence()
     now = _now()
