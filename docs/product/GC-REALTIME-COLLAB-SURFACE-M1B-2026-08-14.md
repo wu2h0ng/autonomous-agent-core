@@ -2,11 +2,11 @@
 
 > Date: 2026-08-14
 > Track: Product
-> Status: **REAL_EVENT_PRODUCER_AND_CONFLICT_PROJECTION_IMPLEMENTED / SURFACE_RENDERER_NOT_IMPLEMENTED / NOT_REVIEWED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
+> Status: **CONFLICT_PROJECTION_END_TO_END_IMPLEMENTED / NOT_REVIEWED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
 > Exact base: `34e2344d`（本地 main；M1a merge `1ea99cab` + P2 #4/#5 关闭）
 > Authority: founder decision 2026-08-14 §2；M1b CTO 三项锁定（显式钩子 / high-water cursor / file-level）
 > Requirement: GOAL-BLUEPRINT M2「人/Agent 同空间并发工作」——可见冲突/协作体验
-> Claim ceiling: `REAL_EVENT_PRODUCER_AND_CONFLICT_PROJECTION_IMPLEMENTED / SURFACE_RENDERER_NOT_IMPLEMENTED`
+> Claim ceiling: `CONFLICT_PROJECTION_END_TO_END_IMPLEMENTED`（Python 路由 + TS client/panel + 端到端查询）
 
 ## Goal
 
