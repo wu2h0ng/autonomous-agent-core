@@ -1294,6 +1294,16 @@ class AgentOSApplication:
         )
 
         workspace_scope = ResourceScope(resource_uri="file:///ws")
+        # A new run's lease cursor starts at the fence's current high-water so
+        # that replanning after a conflict does not re-block on already-seen
+        # events (M1b, closes P2 #3: cursor advances instead of hard-coding 0).
+        try:
+            snapshot = self.workspace_fence.read_coordination(
+                principal.workspace_id
+            )
+            event_cursor = snapshot.batch.through_cursor
+        except Exception:
+            event_cursor = 0
         lease = WorkLease(
             lease_id=f"lease:{run.run_id}",
             lease_version=1,
@@ -1304,7 +1314,7 @@ class AgentOSApplication:
             workspace_id=principal.workspace_id,
             holder_id=principal.principal_id,
             plan_version=1,
-            event_cursor=0,
+            event_cursor=event_cursor,
             scopes=(workspace_scope,),
             authority_context=CoordinationAuthorityContext(
                 authorization_id=f"auth:{run.run_id}",
@@ -1500,7 +1510,6 @@ class AgentOSApplication:
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None:
             aggregate = self.start_run(task_id, configuration_snapshot_id)
-        self._install_run_work_lease(aggregate)
         if aggregate.configuration_snapshot is not None:
             if configuration_snapshot_id is None:
                 raise TaskConfigurationNotBound(
@@ -2282,12 +2291,17 @@ class AgentOSApplication:
         if not reason:
             raise ValueError("replan reason is required")
         workflow = WorkflowGraph.model_validate(workflow_payload)
-        return self.tasks.replan_task(
+        aggregate = self.tasks.replan_task(
             task_id,
             workflow,
             requested_by=self.principal.principal_id,
             reason=reason,
         )
+        # Explicit replan acknowledges the conflicting events: advance the work
+        # lease cursor to the fence high-water so the next dispatch re-evaluates
+        # from the acknowledged state instead of silently overriding.
+        self._install_run_work_lease(aggregate)
+        return aggregate
 
     def resume_correction(
         self,

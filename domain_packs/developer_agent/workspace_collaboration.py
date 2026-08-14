@@ -15,9 +15,11 @@ from agent_os_contracts import (
     CollaborationDisposition,
     ResourceScope,
     WorkLease,
+    WorkspaceActorKind,
     WorkspaceEvent,
     WorkspaceEventBatch,
     WorkspaceEventImpact,
+    WorkspaceEventKind,
     WorkspaceWriteDecision,
 )
 
@@ -409,12 +411,55 @@ class _FileLock:
             fd.close()
 
 
+class WorkspaceEventProducer:
+    """Records external file writes as coordination events (M1b, closes P2 #3).
+
+    The producer translates a non-fence external write (editor, another agent,
+    or an explicit hook) into an append-only `WorkspaceEvent` on the fence. It
+    holds no authority and never dispatches: it only advances coordination
+    state so the preflight can detect a subsequent conflict.
+    """
+
+    def __init__(self, fence: WorkspaceCommitFencePort) -> None:
+        self._fence = fence
+
+    def record_external_write(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        actor_id: str,
+        actor_kind: WorkspaceActorKind,
+        impact: WorkspaceEventImpact = WorkspaceEventImpact.WRITE_CONFLICT,
+    ) -> WorkspaceEvent:
+        snapshot = self._fence.read_coordination(workspace_id)
+        high_water = snapshot.batch.through_cursor
+        sequence = high_water + 1
+        event = WorkspaceEvent(
+            event_id=f"ev:{workspace_id}:{sequence}",
+            workspace_id=workspace_id,
+            sequence=sequence,
+            actor_id=actor_id,
+            actor_kind=actor_kind,
+            kind=WorkspaceEventKind.MUTATION,
+            impact=impact,
+            affected_scopes=(ResourceScope(resource_uri=f"file:///ws/{path}"),),
+            base_version=f"v{sequence - 1}",
+            resulting_version=f"v{sequence}",
+            provenance_refs=(f"external:{actor_id}",),
+            occurred_at=datetime.now(timezone.utc),
+        )
+        self._fence.append_event(event)
+        return event
+
+
 __all__ = [
     "SQLiteWorkspaceCommitFence",
     "WorkspaceCollaborationPreflight",
     "WorkspaceCommitFence",
     "WorkspaceCommitFencePort",
     "WorkspaceCoordinationSnapshot",
+    "WorkspaceEventProducer",
     "WorkspaceEventSequenceConflict",
     "WorkspaceFenceUnavailable",
     "build_batch",
