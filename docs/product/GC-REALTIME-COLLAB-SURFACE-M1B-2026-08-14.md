@@ -2,11 +2,11 @@
 
 > Date: 2026-08-14
 > Track: Product
-> Status: **GOAL_CARD_ONLY / SPEC_IN_DRAFT / NOT_IMPLEMENTATION_AUTHORIZED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
+> Status: **REAL_EVENT_PRODUCER_AND_CONFLICT_PROJECTION_IMPLEMENTED / SURFACE_RENDERER_NOT_IMPLEMENTED / NOT_REVIEWED / NO_MERGE_PUSH_RELEASE_AUTHORITY**
 > Exact base: `34e2344d`（本地 main；M1a merge `1ea99cab` + P2 #4/#5 关闭）
-> Authority: founder decision 2026-08-14 §2（realtime-collab 是下一条 active 产品工作）；M1a 已 `REAL_PRODUCT_RUNTIME_FENCE_IMPLEMENTED / SURFACE_NOT_IMPLEMENTED`
+> Authority: founder decision 2026-08-14 §2；M1b CTO 三项锁定（显式钩子 / high-water cursor / file-level）
 > Requirement: GOAL-BLUEPRINT M2「人/Agent 同空间并发工作」——可见冲突/协作体验
-> Claim ceiling: `SPECIFIED_ONLY`
+> Claim ceiling: `REAL_EVENT_PRODUCER_AND_CONFLICT_PROJECTION_IMPLEMENTED / SURFACE_RENDERER_NOT_IMPLEMENTED`
 
 ## Goal
 

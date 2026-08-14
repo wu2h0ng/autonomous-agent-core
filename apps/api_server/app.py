@@ -1294,6 +1294,16 @@ class AgentOSApplication:
         )
 
         workspace_scope = ResourceScope(resource_uri="file:///ws")
+        # A new run's lease cursor starts at the fence's current high-water so
+        # that replanning after a conflict does not re-block on already-seen
+        # events (M1b, closes P2 #3: cursor advances instead of hard-coding 0).
+        try:
+            snapshot = self.workspace_fence.read_coordination(
+                principal.workspace_id
+            )
+            event_cursor = snapshot.batch.through_cursor
+        except Exception:
+            event_cursor = 0
         lease = WorkLease(
             lease_id=f"lease:{run.run_id}",
             lease_version=1,
@@ -1304,7 +1314,7 @@ class AgentOSApplication:
             workspace_id=principal.workspace_id,
             holder_id=principal.principal_id,
             plan_version=1,
-            event_cursor=0,
+            event_cursor=event_cursor,
             scopes=(workspace_scope,),
             authority_context=CoordinationAuthorityContext(
                 authorization_id=f"auth:{run.run_id}",
