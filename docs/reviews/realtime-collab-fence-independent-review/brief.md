@@ -4,7 +4,7 @@
 - Base: `c819f75b9ad01850a90850d72da2b621129308a2` (CTO_IMPLEMENTATION_AUTHORIZED spec head)
 - First review: `84b41e2c` (REVISE, 5 P1) — this round closes all five.
 - Track: Product / Architecture / Engineering review
-- Reviewer: TBD (recast, must differ from builder session/model)
+- Reviewer: OpenCode / DeepSeek (`deepseek/deepseek-v4-pro`), read-only review session
 - Builder: Codex
 
 ## Question
