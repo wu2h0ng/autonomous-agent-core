@@ -1355,7 +1355,12 @@ def test_real_cli_default_local_database_first_admission_and_replay(
         capture_output=True,
         text=True,
     ).stdout
-    assert "lock" not in status
     assert {
         line[3:] for line in status.splitlines()
-    } <= {"agent-os.sqlite3", "agent-os.sqlite3-shm", "agent-os.sqlite3-wal"}
+    } <= {
+        "agent-os.sqlite3",
+        "agent-os.sqlite3-shm",
+        "agent-os.sqlite3-wal",
+        "agent-os.sqlite3.collaboration",
+        "agent-os.sqlite3.collaboration.lock",
+    }

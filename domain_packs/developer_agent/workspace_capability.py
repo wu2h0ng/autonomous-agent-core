@@ -23,11 +23,9 @@ from agent_os_contracts import (
 from agent_os_core import (
     CapabilityDenied,
     CapabilityEffect,
-    CapabilityEffectUnknown,
     CapabilityResult,
     DurableActionOutcomeRepository,
     ExecutionLease,
-    ExecutionLeaseConflict,
 )
 
 
@@ -344,6 +342,7 @@ class DeveloperWorkspaceAdapter:
                 idempotency_supported=True,
                 cancellation_supported=True,
                 compensation_supported=True,
+                collaboration_required=True,
                 **{**common, "risk_tier": 2},
             ),
             "workspace.run_tests": CapabilitySpec(
@@ -364,6 +363,7 @@ class DeveloperWorkspaceAdapter:
                 idempotency_supported=True,
                 cancellation_supported=True,
                 compensation_supported=True,
+                collaboration_required=True,
                 **{**common, "risk_tier": 2},
             ),
             "workspace.search": CapabilitySpec(

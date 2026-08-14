@@ -137,6 +137,9 @@ from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import (
     DeveloperRepositoryPatchProfile,
     DeveloperWorkspaceAdapter,
+    SQLiteWorkspaceCommitFence,
+    WorkspaceCollaborationPreflight,
+    WorkspaceCommitFence,
     manifest as developer_agent_manifest,
 )
 from domain_packs.data_agent.contracts import (
@@ -353,6 +356,14 @@ class AgentOSApplication:
         self._mandate_steward: MandateSteward | None = None
         self.sandbox = DeveloperWorkspaceAdapter(
             workspace, idempotency_store=self.store
+        )
+        self.workspace_fence = (
+            WorkspaceCommitFence()
+            if str(database) == ":memory:"
+            else SQLiteWorkspaceCommitFence(f"{canonical_database}.collaboration")
+        )
+        self.collaboration_preflight = WorkspaceCollaborationPreflight(
+            self.workspace_fence
         )
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
@@ -1263,6 +1274,53 @@ class AgentOSApplication:
     ) -> tuple[TaskConfigurationSnapshot, ...]:
         return self.task_configurations.list_for_task(self.principal, task_id)
 
+    def _install_run_work_lease(self, aggregate) -> None:
+        """Install an authoritative work lease for a started run.
+
+        The lease binds the run/task/tenant/workspace/principal and covers the
+        workspace root (`file:///ws`) so that single-operator file-level writes
+        authorized by the run can dispatch; a conflicting event on any covered
+        scope still forces CONFLICT/REPLAN/CANCEL.
+        """
+        run = aggregate.run
+        if run is None:
+            return
+        now = self._clock()
+        principal = self.principal
+        from agent_os_contracts import (
+            CoordinationAuthorityContext,
+            ResourceScope,
+            WorkLease,
+        )
+
+        workspace_scope = ResourceScope(resource_uri="file:///ws")
+        lease = WorkLease(
+            lease_id=f"lease:{run.run_id}",
+            lease_version=1,
+            fence_token=1,
+            task_id=run.task_id,
+            run_id=run.run_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            holder_id=principal.principal_id,
+            plan_version=1,
+            event_cursor=0,
+            scopes=(workspace_scope,),
+            authority_context=CoordinationAuthorityContext(
+                authorization_id=f"auth:{run.run_id}",
+                principal_id=principal.principal_id,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                authorized_scopes=(workspace_scope,),
+                evidence_refs=(run.run_id,),
+                issued_at=now,
+                expires_at=now + timedelta(hours=24),
+            ),
+            issued_at=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        self.workspace_fence.install_lease(lease)
+
     def start_run(
         self,
         task_id: str,
@@ -1274,20 +1332,23 @@ class AgentOSApplication:
                 raise TaskConfigurationNotBound(
                     "exact configuration snapshot id is required before Run start"
                 )
-            return self.task_configurations.start_run(
+            aggregate = self.task_configurations.start_run(
                 self.principal,
                 task_id,
                 configuration_snapshot_id,
             )
-        if configuration_snapshot_id is not None:
+        elif configuration_snapshot_id is not None:
             raise TaskConfigurationNotBound(
                 "configuration snapshot id was supplied for an unsealed Task"
             )
-        with self._configuration_lock:
-            return self.tasks.start_run(
-                task_id,
-                provider_profile_id=self.provider_profile.profile_id,
-            )
+        else:
+            with self._configuration_lock:
+                aggregate = self.tasks.start_run(
+                    task_id,
+                    provider_profile_id=self.provider_profile.profile_id,
+                )
+        self._install_run_work_lease(aggregate)
+        return aggregate
 
     def seal_domain_candidate(
         self,
@@ -1439,6 +1500,7 @@ class AgentOSApplication:
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None:
             aggregate = self.start_run(task_id, configuration_snapshot_id)
+        self._install_run_work_lease(aggregate)
         if aggregate.configuration_snapshot is not None:
             if configuration_snapshot_id is None:
                 raise TaskConfigurationNotBound(
@@ -1462,6 +1524,7 @@ class AgentOSApplication:
                     self.correction,
                     dict(self.grants),
                     compensation_grant=self.compensation_grant,
+                    collaboration_preflight=self.collaboration_preflight,
                 )
         else:
             if configuration_snapshot_id is not None:
@@ -1479,6 +1542,7 @@ class AgentOSApplication:
                     self.correction,
                     dict(self.grants),
                     compensation_grant=self.compensation_grant,
+                    collaboration_preflight=self.collaboration_preflight,
                 )
         return runner.run(
             task_id,
@@ -1641,6 +1705,7 @@ class AgentOSApplication:
             config=config,
             initial_history=(system_message,),
             message_sink=self._record_chat_message,
+            collaboration_preflight=self.collaboration_preflight,
         )
         self.tasks.append_event(
             task.task_id,
@@ -1755,6 +1820,7 @@ class AgentOSApplication:
             initial_history=projected.history,
             message_sink=self._record_chat_message,
             resumable_turn_ids=resumable_turn_ids,
+            collaboration_preflight=self.collaboration_preflight,
         )
         return session, loop
 
@@ -2261,6 +2327,7 @@ class AgentOSApplication:
             self.correction,
             self.grants,
             compensation_grant=self.compensation_grant,
+            collaboration_preflight=self.collaboration_preflight,
         )
         return runner.compensate_task(
             task_id,

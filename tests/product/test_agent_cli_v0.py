@@ -123,6 +123,7 @@ def _session_loop(
         effect_custody=custody,
         independent_approval=True,
         external_exact_approval=True,
+        collaboration_preflight=getattr(app, "collaboration_preflight", None),
     )
 
 
@@ -418,6 +419,7 @@ def test_agent_loop_fences_after_custodied_effect_before_task_receipt(
         message_sink=_record_sink(app),
         execution_fence=assert_current,
         effect_custody=custody,
+        collaboration_preflight=getattr(app, "collaboration_preflight", None),
     )
 
     with pytest.raises(ResponsibilityLoopStaleFence, match="Process B"):

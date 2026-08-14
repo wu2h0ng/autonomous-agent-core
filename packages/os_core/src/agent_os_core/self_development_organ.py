@@ -329,6 +329,8 @@ class SelfDevelopmentOrgan:
             "agent-os.sqlite3-wal",
             "agent-os.sqlite3-journal",
             "agent-os.sqlite3.loop.lock",
+            "agent-os.sqlite3.collaboration",
+            "agent-os.sqlite3.collaboration.lock",
         }
         return {
             path
