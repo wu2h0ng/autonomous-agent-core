@@ -7,6 +7,8 @@ live_pins:
   spine_1_donor_ref: "94e2b5918d12d6592f34f3b14c44c29038a74029"
   realtime_collab_fence_merge_receipt: "1ea99cab (no-ff merge of feature/realtime-collab-fence-20260814 @ 4b5c2a50; APPROVE round-3; NOT pushed)"
   realtime_collab_fence_status: "REAL_PRODUCT_RUNTIME_FENCE_IMPLEMENTED / SURFACE_NOT_IMPLEMENTED"
+  realtime_collab_m1b_merge_receipt: "25408138 (no-ff merge of feature/realtime-collab-surface-m1b-20260814 @ e2944253; APPROVE round-2; NOT pushed)"
+  realtime_collab_m1b_status: "EVENT_PRODUCER_AND_CONFLICT_PROJECTION_IMPLEMENTED / SURFACE_RENDERER_NOT_IMPLEMENTED"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
