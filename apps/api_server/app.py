@@ -1510,7 +1510,6 @@ class AgentOSApplication:
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None:
             aggregate = self.start_run(task_id, configuration_snapshot_id)
-        self._install_run_work_lease(aggregate)
         if aggregate.configuration_snapshot is not None:
             if configuration_snapshot_id is None:
                 raise TaskConfigurationNotBound(
@@ -2292,12 +2291,17 @@ class AgentOSApplication:
         if not reason:
             raise ValueError("replan reason is required")
         workflow = WorkflowGraph.model_validate(workflow_payload)
-        return self.tasks.replan_task(
+        aggregate = self.tasks.replan_task(
             task_id,
             workflow,
             requested_by=self.principal.principal_id,
             reason=reason,
         )
+        # Explicit replan acknowledges the conflicting events: advance the work
+        # lease cursor to the fence high-water so the next dispatch re-evaluates
+        # from the acknowledged state instead of silently overriding.
+        self._install_run_work_lease(aggregate)
+        return aggregate
 
     def resume_correction(
         self,

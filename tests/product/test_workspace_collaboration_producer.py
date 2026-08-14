@@ -120,6 +120,21 @@ def test_new_lease_cursor_starts_at_high_water_unblocks_after_conflict() -> None
     assert decision.disposition is CollaborationDisposition.CONTINUE
 
 
+def test_retry_without_replan_keeps_original_cursor_and_keeps_conflict() -> None:
+    """Regression for review P2 #1: an explicit replan advances the cursor, but a
+    plain retry (re-installing the SAME lease, not a high-water lease) must not
+    silently acknowledge the conflict."""
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    producer = WorkspaceEventProducer(fence)
+    producer.record_external_write(workspace_id="workspace:local", path="a.txt", actor_id="u1", actor_kind=WorkspaceActorKind.HUMAN)
+    preflight = WorkspaceCollaborationPreflight(fence)
+
+    # Simulate retry: re-install the same lease (cursor unchanged at 0).
+    fence.install_lease(_lease(event_cursor=0))
+    assert preflight.preflight(_action(), _claim()).disposition is CollaborationDisposition.CONFLICT
+
+
 def test_conflict_projection_suggested_action_for_replan() -> None:
     from agent_os_contracts.surface import SurfaceConflictProjection
 
