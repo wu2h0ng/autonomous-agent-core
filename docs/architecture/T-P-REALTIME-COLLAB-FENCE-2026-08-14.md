@@ -59,12 +59,16 @@ CapabilityBroker.invoke(action, permit, attempt=1, *, execution_claim)
 - `CollaborationPreflightPort`：`preflight(action, claim) -> WorkspaceWriteDecision`。
   **不接收 caller 传入的 lease/event_batch**；port 从权威 coordination store 依据
   `action` + `claim` 读取当前 lease/event/cursor 后判定。
-- `CapabilityBroker` 构造时接受可选的 `collaboration_preflight`。其 no-op 语义受
+- `CapabilityBroker` 构造时接受可选的 `collaboration_preflight`。其行为受
   **collaboration-required 标记**约束：
-  - 对**非协作型** capability，`collaboration_preflight is None` 时走 no-op（100% 向后兼容）。
+  - broker 对**每一次** dispatch 都通过 `connector.specs(include_internal=True)` 解析可信
+    registry 里的 capability spec（这是 contract 收紧，不是 no-op 快路径）：registry 读取
+    异常或 capability 缺失于 registry 时 fail-closed。
+  - 对**非协作型** capability（spec 存在且 `collaboration_required=False`），
+    `collaboration_preflight is None` 时不调用 preflight，dispatch 继续（行为与注入前一致）。
   - 对声明为 **collaboration-required** 的写 capability，`collaboration_preflight is None`
     必须 **fail-closed**（拒绝 dispatch，不产生 reservation），不能 no-op。
-  - collaboration-required 标记来自 capability spec（如 `CapabilitySpec.collaboration_required:
+  - collaboration-required 标记来自 capability spec（`CapabilitySpec.collaboration_required:
     bool = False`），是 typed、可审计的选择机制，避免「默认 None」成为 workspace write 的
     绕过路径。该 spec 必须由 connector/registry 的可信注册表解析；不得从 action arguments、
     模型输出或调用者可覆盖字段推导。

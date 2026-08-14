@@ -191,7 +191,10 @@ class WorkspaceCollaborationPreflight:
                 disposition = CollaborationDisposition.CONFLICT
             elif event.impact is WorkspaceEventImpact.WORK_CANCELLED:
                 disposition = CollaborationDisposition.CANCEL
-            elif disposition is not CollaborationDisposition.CONFLICT:
+            elif disposition not in {
+                CollaborationDisposition.CONFLICT,
+                CollaborationDisposition.CANCEL,
+            }:
                 disposition = CollaborationDisposition.REPLAN
 
         return self._decision(

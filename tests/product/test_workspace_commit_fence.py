@@ -221,3 +221,43 @@ def test_unresolvable_write_scope_fails_closed() -> None:
     )
     decision = preflight.preflight(no_path, _claim())
     assert decision.disposition is CollaborationDisposition.CANCEL
+
+
+def test_conflict_not_downgraded_by_later_lower_severity_event() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(
+        _event(sequence=1, scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),))
+    )
+    fence.append_event(
+        _event(
+            sequence=2,
+            scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),),
+            impact=WorkspaceEventImpact.CONTEXT_CHANGED,
+        )
+    )
+    preflight = WorkspaceCollaborationPreflight(fence)
+    decision = preflight.preflight(_action(), _claim())
+    assert decision.disposition is CollaborationDisposition.CONFLICT
+
+
+def test_cancel_not_downgraded_by_later_context_change_event() -> None:
+    fence = WorkspaceCommitFence()
+    fence.install_lease(_lease(event_cursor=0))
+    fence.append_event(
+        _event(
+            sequence=1,
+            scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),),
+            impact=WorkspaceEventImpact.WORK_CANCELLED,
+        )
+    )
+    fence.append_event(
+        _event(
+            sequence=2,
+            scopes=(ResourceScope(resource_uri="file:///ws/a.txt"),),
+            impact=WorkspaceEventImpact.CONTEXT_CHANGED,
+        )
+    )
+    preflight = WorkspaceCollaborationPreflight(fence)
+    decision = preflight.preflight(_action(), _claim())
+    assert decision.disposition is CollaborationDisposition.CANCEL
