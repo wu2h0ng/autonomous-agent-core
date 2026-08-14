@@ -253,7 +253,7 @@ def _verified_responsibility(
     return database, owner, admin, task.task_id, attached
 
 
-def _controller(database, owner, admin, tmp_path: Path):
+def _controller(database, owner, admin, tmp_path: Path, *, record_hcw_provenance=None):
     binding = ResponsibilityLoopBinding(
         mandate_id="mandate:build-agent-os",
         principal_id=owner.principal.principal_id,
@@ -328,6 +328,7 @@ def _controller(database, owner, admin, tmp_path: Path):
         ),
         hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
         clock=lambda: NOW,
+        record_hcw_provenance=record_hcw_provenance,
     )
     return binding, loop_store, controller
 
@@ -2534,6 +2535,88 @@ def test_missing_outcome_emits_typed_help_without_unauthorized_work(
     outcome = owner.tasks.current_outcome(task_id)
     assert outcome is not None
     assert outcome.status is OutcomeStatus.VERIFIED
+
+
+def test_settled_cycle_invokes_hcw_provenance_recording(
+    tmp_path: Path,
+) -> None:
+    database, owner, admin, task_id, _ = _verified_responsibility(tmp_path)
+    binding = ResponsibilityLoopBinding(
+        mandate_id="mandate:build-agent-os",
+        principal_id=owner.principal.principal_id,
+        tenant_id=admin.principal.tenant_id,
+        workspace_id=admin.principal.workspace_id,
+        repository_root=str(tmp_path.resolve()),
+        repository_head="a" * 40,
+        correction_epoch=0,
+        configuration_digest="b" * 64,
+        lease_ttl_seconds=30,
+    )
+    loop_store = SQLiteResponsibilityLoopStore(database, clock=lambda: NOW)
+    loop_store.ensure_hcw_evaluator_root(
+        HcwEvaluatorRoot(
+            evaluator_root_id="hcw-evaluator:agent-work:v1",
+            measurement_policy_digest="c" * 64,
+            capture_surface="agent-cli",
+            idle_cutoff_seconds=60,
+        )
+    )
+
+    def no_outcome(selected_task_id: str, assert_current, _execute_effect) -> None:
+        assert_current("before_no_outcome")
+
+    controller = ResponsibilityLoopController(
+        responsibility_projector=admin.mandate_responsibility,
+        portfolio_store=admin.mandate_outcome_portfolio_store,
+        task_reader=admin.tasks,
+        loop_store=loop_store,
+        actor=admin.principal,
+        execute_task=no_outcome,
+        select_route=lambda _item, _commitment: (
+            ResponsibilityOrganRoute.ORDINARY_TASK
+        ),
+        hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
+        clock=lambda: NOW,
+    )
+
+    result = controller.run_once(
+        binding,
+        process_instance_id="process:hcw-provenance-help",
+    )
+    assert result.state is ResponsibilityControllerState.WAITING_EVENT
+    help_request_id = result.help_request_id
+    assert help_request_id is not None
+
+    admin.mandate_outcome_portfolio_store.respond_help_request(
+        OutcomePortfolioHelpRespondCommand(
+            response_kind=SrlHelpResponseKind.OPERATOR_DECISION,
+            decision="APPROVE",
+            notes="run the already committed verifier",
+        ),
+        binding.mandate_id,
+        help_request_id,
+        admin.principal,
+    )
+    recordings: list[tuple[object, ResponsibilityLoopBinding]] = []
+
+    def spy(store: object, bound: ResponsibilityLoopBinding) -> None:
+        recordings.append((store, bound))
+
+    _, _, resumed_controller = _controller(
+        database,
+        owner,
+        admin,
+        tmp_path,
+        record_hcw_provenance=spy,
+    )
+    resumed = resumed_controller.run_once(
+        binding,
+        process_instance_id="process:hcw-provenance-settled",
+    )
+    assert resumed.state is ResponsibilityControllerState.SETTLED
+    assert len(recordings) == 1
+    assert recordings[0][1] == binding
+    assert recordings[0][1].mandate_id == "mandate:build-agent-os"
 
 
 def test_agent_run_uses_canonical_responsibility_instead_of_chat_task(

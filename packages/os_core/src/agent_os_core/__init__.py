@@ -293,6 +293,13 @@ from .materialization_promotion_policy import (
     PromotionPolicyV1,
     PromotionReduction,
 )
+from .selfdev_hcw_provenance import (
+    CLAIM_CEILING,
+    CountOnlyHcwProvenance,
+    CountOnlyHcwProvenanceError,
+    record_count_only_hcw_provenance,
+    verify_count_only_hcw_provenance,
+)
 
 __all__ = [
     "AgentOSCoreError",
@@ -531,6 +538,11 @@ __all__ = [
     "candidate_promotion_idempotency_key",
     "candidate_promotion_payload_digest",
     "candidate_receipt_chain_digest",
+    "CLAIM_CEILING",
+    "CountOnlyHcwProvenance",
+    "CountOnlyHcwProvenanceError",
+    "record_count_only_hcw_provenance",
+    "verify_count_only_hcw_provenance",
     "SessionProjectionError",
     "SessionProjector",
     "ProjectedSession",

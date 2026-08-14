@@ -108,6 +108,10 @@ ResponsibilityRouteSelectorPort = Callable[
     [Any, PersistentCommitment],
     ResponsibilityOrganRoute,
 ]
+HcwProvenanceRecordingPort = Callable[
+    [SQLiteResponsibilityLoopStore, ResponsibilityLoopBinding],
+    None,
+]
 
 
 @dataclass(frozen=True)
@@ -144,6 +148,7 @@ class ResponsibilityLoopController:
         hcw_evaluator_root_id: str,
         clock: Callable[[], datetime],
         execute_selfdev: SelfDevelopmentExecutionPort | None = None,
+        record_hcw_provenance: HcwProvenanceRecordingPort | None = None,
     ) -> None:
         self._responsibility_projector = responsibility_projector
         self._portfolio_store = portfolio_store
@@ -155,6 +160,7 @@ class ResponsibilityLoopController:
         self._select_route = select_route
         self._hcw_evaluator_root_id = hcw_evaluator_root_id
         self._clock = clock
+        self._record_hcw_provenance = record_hcw_provenance
 
     def _project_responsibility(
         self,
@@ -761,6 +767,8 @@ class ResponsibilityLoopController:
                 evaluator_root_id=self._hcw_evaluator_root_id,
                 measured_at=self._clock(),
             )
+            if self._record_hcw_provenance is not None:
+                self._record_hcw_provenance(self._loop, binding)
             return ResponsibilityControllerResult(
                 state=ResponsibilityControllerState.SETTLED,
                 mandate_id=binding.mandate_id,

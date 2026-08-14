@@ -38,6 +38,7 @@ from .agent_loop import (
 from .capability import CapabilityResult
 from .mandate_terminal import load_attach_session, mandate_status
 from .responsibility_controller import (
+    HcwProvenanceRecordingPort,
     ResponsibilityControllerState,
     ResponsibilityLoopController,
     ResponsibilityOrganRoute,
@@ -56,6 +57,7 @@ from .self_development_organ import (
     SelfDevelopmentOrgan,
     SelfDevelopmentOrganBlocked,
 )
+from .selfdev_hcw_provenance import record_count_only_hcw_provenance
 from .task_configuration import TASK_CONFIGURATION_CAPABILITY, TaskConfigurationRuntime
 
 AGENT_WORK_HCW_ROOT = HcwEvaluatorRoot(
@@ -441,9 +443,15 @@ def run_responsibility_work(
     inputs: dict[str, Any],
     resume: bool,
     max_cycles: int = 16,
+    hcw_provenance_slice_id: str | None = None,
+    hcw_provenance_task_dir: Path | None = None,
 ) -> dict[str, Any]:
     if max_cycles < 1:
         raise ResponsibilitySurfaceError("max_cycles must be positive")
+    if (hcw_provenance_slice_id is None) != (hcw_provenance_task_dir is None):
+        raise ResponsibilitySurfaceError(
+            "hcw_provenance_slice_id and hcw_provenance_task_dir must be set together"
+        )
     context = build_responsibility_surface_context(
         app=app,
         execution_app=execution_app,
@@ -705,6 +713,24 @@ def run_responsibility_work(
         fail_agent_loop=fail_agent_loop,
     )
 
+    record_provenance: HcwProvenanceRecordingPort | None = None
+    if hcw_provenance_slice_id is not None and hcw_provenance_task_dir is not None:
+        slice_id = hcw_provenance_slice_id
+        task_dir = hcw_provenance_task_dir
+
+        def record_provenance_impl(
+            store: SQLiteResponsibilityLoopStore,
+            binding: ResponsibilityLoopBinding,
+        ) -> None:
+            record_count_only_hcw_provenance(
+                store=store,
+                binding=binding,
+                slice_id=slice_id,
+                task_dir=task_dir,
+            )
+
+        record_provenance = record_provenance_impl
+
     controller = ResponsibilityLoopController(
         responsibility_projector=app.mandate_responsibility,
         portfolio_store=app.mandate_outcome_portfolio_store,
@@ -718,6 +744,7 @@ def run_responsibility_work(
         ),
         hcw_evaluator_root_id=AGENT_WORK_HCW_ROOT.evaluator_root_id,
         clock=lambda: datetime.now(timezone.utc),
+        record_hcw_provenance=record_provenance,
     )
     results: list[dict[str, Any]] = []
     process_prefix = f"agent-work:{os.getpid()}:{uuid4().hex}"

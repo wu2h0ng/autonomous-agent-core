@@ -2374,3 +2374,85 @@ class SQLiteResponsibilityLoopStore:
             per_outcome,
             measured_at,
         )
+
+    def list_hcw_measurement_receipts(
+        self,
+        binding_digest: str | None = None,
+    ) -> tuple[HcwMeasurementReceipt, ...]:
+        """Read-only projection of persisted count-only HCW measurement receipts.
+
+        Reconstructs each receipt from its immutable payload and re-checks the
+        content digest so a provenance consumer can trust that the counts it
+        derives are exactly the counts the store recorded (no silent drift).
+        """
+        query = "SELECT * FROM hcw_measurement_receipts"
+        parameters: tuple[object, ...] = ()
+        if binding_digest is not None:
+            query += " WHERE binding_digest=?"
+            parameters = (binding_digest,)
+        query += " ORDER BY rowid"
+        with self._connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        receipts: list[HcwMeasurementReceipt] = []
+        required = (
+            "binding_digest",
+            "cycle_id",
+            "evaluator_root_id",
+            "measurement_policy_digest",
+            "status",
+            "operator_intervention_count",
+            "help_response_count",
+            "active_operator_seconds",
+            "accepted_outcome_count",
+            "operator_minutes_per_accepted_outcome",
+            "measured_at",
+        )
+        for row in rows:
+            payload = json.loads(str(row["payload"]))
+            if not isinstance(payload, dict) or any(
+                key not in payload for key in required
+            ):
+                raise ResponsibilityLoopBindingDrift(
+                    "HCW measurement receipt payload is malformed"
+                )
+            receipt_digest = str(row["receipt_digest"])
+            expected_digest = content_digest(
+                {
+                    key: (
+                        _parse(str(payload[key]))
+                        if key == "measured_at"
+                        else payload[key]
+                    )
+                    for key in required
+                }
+            )
+            if expected_digest != receipt_digest:
+                raise ResponsibilityLoopBindingDrift(
+                    "HCW measurement receipt content digest drift"
+                )
+            receipts.append(
+                HcwMeasurementReceipt(
+                    receipt_digest,
+                    str(payload["binding_digest"]),
+                    str(payload["cycle_id"]),
+                    str(payload["evaluator_root_id"]),
+                    str(payload["measurement_policy_digest"]),
+                    HcwMeasurementStatus(str(payload["status"])),
+                    int(payload["operator_intervention_count"]),
+                    int(payload["help_response_count"]),
+                    (
+                        float(payload["active_operator_seconds"])
+                        if payload.get("active_operator_seconds") is not None
+                        else None
+                    ),
+                    int(payload["accepted_outcome_count"]),
+                    (
+                        float(payload["operator_minutes_per_accepted_outcome"])
+                        if payload.get("operator_minutes_per_accepted_outcome")
+                        is not None
+                        else None
+                    ),
+                    _parse(str(payload["measured_at"])),
+                )
+            )
+        return tuple(receipts)
