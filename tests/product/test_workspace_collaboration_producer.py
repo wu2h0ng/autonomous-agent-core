@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 
 from agent_os_contracts import (
     CollaborationDisposition,
     ResourceScope,
     WorkspaceActorKind,
+    WorkspaceEvent,
     WorkspaceEventImpact,
     WorkspaceEventKind,
     WorkspaceWriteDecision,
@@ -133,6 +135,51 @@ def test_retry_without_replan_keeps_original_cursor_and_keeps_conflict() -> None
     # Simulate retry: re-install the same lease (cursor unchanged at 0).
     fence.install_lease(_lease(event_cursor=0))
     assert preflight.preflight(_action(), _claim()).disposition is CollaborationDisposition.CONFLICT
+
+
+def test_producer_retries_on_sequence_conflict() -> None:
+    """Review P2 #2: a concurrent append claiming the same sequence is retried
+    against a fresh high-water instead of dropping the legitimate write."""
+    from domain_packs.developer_agent.workspace_collaboration import (
+        WorkspaceEventSequenceConflict,
+    )
+
+    class ConflictOnceFence(WorkspaceCommitFence):
+        def __init__(self) -> None:
+            super().__init__()
+            self._conflict_once = True
+
+        def append_event(self, event: WorkspaceEvent) -> None:
+            if self._conflict_once:
+                self._conflict_once = False
+                raise WorkspaceEventSequenceConflict("concurrent claim")
+            super().append_event(event)
+
+    fence = ConflictOnceFence()
+    fence.install_lease(_lease(event_cursor=0))
+    producer = WorkspaceEventProducer(fence)
+    producer.record_external_write(workspace_id="workspace:local", path="a.txt", actor_id="u1", actor_kind=WorkspaceActorKind.HUMAN)
+    snapshot = fence.read_coordination("workspace:local")
+    assert len(snapshot.batch.events) == 1
+
+
+def test_conflict_projection_rejects_continue_decision() -> None:
+    from agent_os_contracts.surface import SurfaceConflictProjection
+
+    decision = WorkspaceWriteDecision(
+        lease_id="lease:1",
+        action_id="action:edit",
+        plan_version=1,
+        disposition=CollaborationDisposition.CONTINUE,
+        checked_event_cursor=0,
+        relevant_event_ids=(),
+        event_batch_provenance_ref="coordination-store",
+        write_scopes=(_producer_scope("a.txt"),),
+        reason="no relevant events",
+        decided_at=_now(),
+    )
+    with pytest.raises(ValueError, match="denial-only"):
+        SurfaceConflictProjection.from_decision(decision)
 
 
 def test_conflict_projection_suggested_action_for_replan() -> None:

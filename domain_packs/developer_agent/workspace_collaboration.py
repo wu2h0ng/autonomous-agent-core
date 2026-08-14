@@ -432,10 +432,30 @@ class WorkspaceEventProducer:
         actor_kind: WorkspaceActorKind,
         impact: WorkspaceEventImpact = WorkspaceEventImpact.WRITE_CONFLICT,
     ) -> WorkspaceEvent:
+        event = self._build_event(workspace_id, path, actor_id, actor_kind, impact)
+        # Read-then-append is not atomic across processes: a concurrent producer
+        # may have claimed the same sequence. Retry once against a fresh
+        # high-water so a legitimate external write is not silently dropped.
+        try:
+            self._fence.append_event(event)
+            return event
+        except WorkspaceEventSequenceConflict:
+            retry = self._build_event(workspace_id, path, actor_id, actor_kind, impact)
+            self._fence.append_event(retry)
+            return retry
+
+    def _build_event(
+        self,
+        workspace_id: str,
+        path: str,
+        actor_id: str,
+        actor_kind: WorkspaceActorKind,
+        impact: WorkspaceEventImpact,
+    ) -> WorkspaceEvent:
         snapshot = self._fence.read_coordination(workspace_id)
         high_water = snapshot.batch.through_cursor
         sequence = high_water + 1
-        event = WorkspaceEvent(
+        return WorkspaceEvent(
             event_id=f"ev:{workspace_id}:{sequence}",
             workspace_id=workspace_id,
             sequence=sequence,
@@ -449,8 +469,6 @@ class WorkspaceEventProducer:
             provenance_refs=(f"external:{actor_id}",),
             occurred_at=datetime.now(timezone.utc),
         )
-        self._fence.append_event(event)
-        return event
 
 
 __all__ = [

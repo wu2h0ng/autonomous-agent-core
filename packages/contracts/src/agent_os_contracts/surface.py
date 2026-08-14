@@ -148,6 +148,11 @@ class SurfaceConflictProjection(ContractModel):
     @classmethod
     def from_decision(cls, decision) -> SurfaceConflictProjection:
         disposition = decision.disposition.value
+        if disposition not in {"REPLAN", "CONFLICT", "CANCEL"}:
+            raise ValueError(
+                "SurfaceConflictProjection is denial-only; "
+                f"cannot project disposition {disposition!r}"
+            )
         if disposition == "REPLAN":
             suggested_action: Literal["REPLAN", "REVIEW_DIFF", "NONE"] = "REPLAN"
         elif disposition == "CONFLICT":
