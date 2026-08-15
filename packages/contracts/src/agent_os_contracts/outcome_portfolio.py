@@ -161,6 +161,7 @@ class OutcomePortfolioHelpGap(str, Enum):
     CORRECTION_EPOCH_DRIFT = "CORRECTION_EPOCH_DRIFT"
     MISSING_COMMITMENT_OR_EXPECTED = "MISSING_COMMITMENT_OR_EXPECTED"
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
+    UNDECIDABLE_OUTCOME = "UNDECIDABLE_OUTCOME"
 
 
 _GAP_TO_HELP_CLASS: dict[OutcomePortfolioHelpGap, HelpClass] = {
@@ -172,6 +173,7 @@ _GAP_TO_HELP_CLASS: dict[OutcomePortfolioHelpGap, HelpClass] = {
     OutcomePortfolioHelpGap.DIGEST_DRIFT: HelpClass.AUTHORITY_CONFLICT,
     OutcomePortfolioHelpGap.CORRECTION_EPOCH_DRIFT: HelpClass.AUTHORITY_CONFLICT,
     OutcomePortfolioHelpGap.SCOPE_MISMATCH: HelpClass.AUTHORITY_CONFLICT,
+    OutcomePortfolioHelpGap.UNDECIDABLE_OUTCOME: HelpClass.INFORMATION,
 }
 
 

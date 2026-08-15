@@ -347,7 +347,12 @@ class SQLiteMandateOutcomePortfolioStore:
                 payload["authority_credential_digest"] = (
                     command.authority_credential_digest
                 )
-            record_digest = content_digest({"schema_version": "1.0", **payload})
+            unsigned = OutcomePortfolio.model_validate(
+                {**payload, "record_digest": "0" * 64}
+            )
+            record_digest = content_digest(
+                unsigned.model_dump(mode="json", exclude={"record_digest"})
+            )
             portfolio = OutcomePortfolio.model_validate(
                 {**payload, "record_digest": record_digest}
             )
@@ -1076,6 +1081,104 @@ class SQLiteMandateOutcomePortfolioStore:
                     if pending_action is not None
                     else None
                 ),
+                connection=connection,
+            )
+            connection.commit()
+            return help_request
+        except Exception:
+            connection.rollback()
+            self._flush_help_deferred(help_deferred)
+            raise
+        finally:
+            connection.close()
+
+    def request_undecidable_outcome_help(
+        self,
+        commitment_record_id: str,
+        mandate_id: str,
+        actor: PrincipalIdentity,
+    ) -> OutcomePortfolioHelpRequest:
+        """Emit a typed undecidable-outcome Help for an UNRESOLVED ObservedOutcome.
+
+        Reuses the same ``_emit_help_request`` generator as the other two A3
+        triggers (external approval, information gap). Fails closed unless the
+        canonical open commitment has a current UNRESOLVED outcome.
+        """
+        if self._task_reader is None:
+            raise MandateOutcomePortfolioDenied("task reader is required")
+        now = self._clock()
+        connection = self._connect()
+        help_deferred: list[dict[str, object]] = []
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            workspace, workspace_digest, operational, operational_digest = (
+                self._read_authority(
+                    connection,
+                    mandate_id,
+                    actor,
+                    require_admin=True,
+                    require_active=True,
+                    now=now,
+                )
+            )
+            portfolio = self._require_portfolio(
+                connection,
+                mandate_id,
+                actor,
+                workspace_digest,
+                operational_digest,
+                help_deferred=help_deferred,
+            )
+            row = connection.execute(
+                f"SELECT * FROM {self._COMMITMENT_TABLE} "
+                "WHERE commitment_record_id = ?",
+                (commitment_record_id,),
+            ).fetchone()
+            if row is None:
+                raise MandateOutcomePortfolioNotFound(
+                    f"Persistent commitment not found: {commitment_record_id}"
+                )
+            commitment = PersistentCommitment.model_validate_json(
+                str(row["payload"])
+            )
+            if (
+                commitment.portfolio_id != portfolio.portfolio_id
+                or commitment.mandate_id != mandate_id
+                or commitment.state is not PersistentCommitmentState.OPEN
+            ):
+                raise MandateOutcomePortfolioDenied(
+                    "undecidable-outcome Help requires an open Mandate commitment"
+                )
+            self._require_active_task_link(
+                connection,
+                mandate_id=mandate_id,
+                task_id=commitment.task_id,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=actor.tenant_id,
+                workspace_id=actor.workspace_id,
+                workspace_digest=workspace_digest,
+                operational_digest=operational_digest,
+                correction_epoch=operational.correction_epoch,
+                portfolio_id=portfolio.portfolio_id,
+                actor=actor,
+                help_deferred=help_deferred,
+            )
+            outcome = self._task_reader.current_outcome(commitment.task_id)
+            if outcome is None or outcome.status is not OutcomeStatus.UNRESOLVED:
+                raise MandateOutcomePortfolioConflict(
+                    "undecidable-outcome Help requires a current UNRESOLVED outcome"
+                )
+            details = (
+                "Task ObservedOutcome is UNRESOLVED and cannot be settled without "
+                "an external decision"
+            )
+            help_request = self._emit_help_request(
+                mandate_id=mandate_id,
+                portfolio_id=portfolio.portfolio_id,
+                task_id=commitment.task_id,
+                actor=actor,
+                gap_kind=OutcomePortfolioHelpGap.UNDECIDABLE_OUTCOME,
+                details=details,
                 connection=connection,
             )
             connection.commit()

@@ -77,6 +77,13 @@ class OutcomePortfolioPort(Protocol):
         actor: PrincipalIdentity,
     ) -> Any: ...
 
+    def request_undecidable_outcome_help(
+        self,
+        commitment_record_id: str,
+        mandate_id: str,
+        actor: PrincipalIdentity,
+    ) -> Any: ...
+
     def list_help_requests(
         self,
         mandate_id: str,
@@ -646,6 +653,51 @@ class ResponsibilityLoopController:
                     checkpoint_digest=checkpoint_digest,
                     organ_route=organ_route,
                 )
+            if outcome is not None and outcome.status is OutcomeStatus.UNRESOLVED:
+                help_request = (
+                    self._portfolio_store.request_undecidable_outcome_help(
+                        commitment.commitment_record_id,
+                        binding.mandate_id,
+                        self._actor,
+                    )
+                )
+                aggregate = self._tasks.get_task(commitment.task_id)
+                waiting_checkpoint = self._loop.write_checkpoint(
+                    binding,
+                    lease,
+                    state=ResponsibilityCycleState.WAITING_EVENT,
+                    active_cycle_id=cycle_id,
+                    active_link_id=item.link.link_id,
+                    active_commitment_record_id=commitment.commitment_record_id,
+                    responsibility_projection_digest=responsibility.view_digest,
+                    active_help_request_id=help_request.help_request_id,
+                    active_task_id=commitment.task_id,
+                    active_run_id=active_run_id,
+                    last_event_sequence=max(
+                        aggregate.sequence,
+                        checkpoint.last_event_sequence,
+                    ),
+                    next_transition="HELP_RESPONSE",
+                    recorded_at=self._clock(),
+                    expected_prior_digest=checkpoint_digest,
+                )
+                checkpoint_digest = waiting_checkpoint.checkpoint_digest
+                return ResponsibilityControllerResult(
+                    state=ResponsibilityControllerState.WAITING_EVENT,
+                    mandate_id=binding.mandate_id,
+                    cycle_id=cycle_id,
+                    link_id=item.link.link_id,
+                    commitment_record_id=commitment.commitment_record_id,
+                    task_id=commitment.task_id,
+                    run_id=active_run_id,
+                    settlement_id=None,
+                    help_request_id=help_request.help_request_id,
+                    cycle_receipt_digest=None,
+                    hcw_receipt_digest=None,
+                    checkpoint_digest=checkpoint_digest,
+                    organ_route=organ_route,
+                )
+            assert outcome is not None
             settlement = recovered_settlement
             if settlement is None:
                 settlement = self._portfolio_store.settle(
