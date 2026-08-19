@@ -46,6 +46,66 @@ from .sql_safety import DataSQLSafetyChecker
 
 DATA_QUERY_CAPABILITY_ID = "data.query.safe"
 DATA_ACTION_PROPOSAL_CAPABILITY_ID = "data.action.propose"
+SQLITE_PROVIDER_CONTRACT_ID = "provider:sqlite"
+MYSQL_PROVIDER_CONTRACT_ID = "provider:mysql"
+
+
+class _QueryExecutionError(Exception):
+    """Driver-level failure raised by a provider fetch hook."""
+
+
+class MySqlDataQueryConfig:
+    """Composition-time MySQL connection config; secrets never rendered.
+
+    ``from_env`` is the sanctioned loader: the password itself must live in
+    an environment variable, and a missing reference fails closed.
+    """
+
+    __slots__ = ("host", "port", "database", "username", "password")
+
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        database: str,
+        username: str,
+        password: str,
+    ) -> None:
+        self.host = host
+        self.port = port
+        self.database = database
+        self.username = username
+        self.password = password
+
+    def __repr__(self) -> str:  # pragma: no cover - trivial redaction guard
+        return (
+            "MySqlDataQueryConfig(host={!r}, port={!r}, database={!r}, "
+            "username={!r}, password='***')"
+        ).format(self.host, self.port, self.database, self.username)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        host: str,
+        port: int,
+        database: str,
+        username: str,
+        password_env: str,
+    ) -> MySqlDataQueryConfig:
+        import os
+
+        password = os.environ.get(password_env)
+        if password is None:
+            raise ValueError(
+                f"MySqlDataQueryConfig references environment variable "
+                f"{password_env!r} which is not set; refusing to connect "
+                f"without its secret."
+            )
+        return cls(
+            host=host, port=port, database=database, username=username, password=password
+        )
 
 
 class SQLiteDataQueryCapability:
@@ -150,6 +210,24 @@ class SQLiteDataQueryCapability:
             )
         }
 
+    _provider_contract_id = SQLITE_PROVIDER_CONTRACT_ID
+
+    def _fetch_rows(self, sql: str, parameters: dict[str, object]) -> list[dict]:
+        connection = sqlite3.connect(
+            f"file:{self._database}?mode=ro",
+            uri=True,
+            timeout=30,
+        )
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA query_only = ON")
+            cursor = connection.execute(sql, parameters)
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as exc:
+            raise _QueryExecutionError(exc) from exc
+        finally:
+            connection.close()
+
     def execute(self, action: ActionContract) -> CapabilityEffect:
         if action.capability_id != DATA_QUERY_CAPABILITY_ID:
             return CapabilityEffect(
@@ -169,7 +247,7 @@ class SQLiteDataQueryCapability:
                 error_code="INVALID_QUERY_ARGUMENTS",
                 detail_ref="detail:data-query:invalid-arguments",
             )
-        if provider_contract_id != "provider:sqlite":
+        if provider_contract_id != self._provider_contract_id:
             return CapabilityEffect(
                 status=ReceiptStatus.FAILED,
                 output={},
@@ -177,25 +255,15 @@ class SQLiteDataQueryCapability:
                 detail_ref="detail:data-query:unsupported-provider",
             )
         self._checker.assert_safe(sql, parameters)
-        connection = sqlite3.connect(
-            f"file:{self._database}?mode=ro",
-            uri=True,
-            timeout=30,
-        )
-        connection.row_factory = sqlite3.Row
         try:
-            connection.execute("PRAGMA query_only = ON")
-            cursor = connection.execute(sql, parameters)
-            rows = [dict(row) for row in cursor.fetchall()]
-        except sqlite3.Error as exc:
+            rows = self._fetch_rows(sql, parameters)
+        except _QueryExecutionError as exc:
             return CapabilityEffect(
                 status=ReceiptStatus.FAILED,
                 output={},
                 error_code="QUERY_EXECUTION_FAILED",
-                detail_ref=f"detail:data-query:{type(exc).__name__}",
+                detail_ref=f"detail:data-query:{type(exc.__cause__ or exc).__name__}",
             )
-        finally:
-            connection.close()
         with self._execution_count_lock:
             self.execution_count += 1
         rows_json = canonical_json(rows)
@@ -211,6 +279,90 @@ class SQLiteDataQueryCapability:
                 "rows_json": rows_json,
             },
         )
+
+
+class MySqlDataQueryCapability(SQLiteDataQueryCapability):
+    """Read-only MySQL query adapter (Customer-0 cloud warehouses).
+
+    Shares the broker-facing receipt/lease/idempotency contract with the
+    SQLite capability; only the provider id, dialect and the fetch hook
+    differ.  The driver (``pymysql``) is a soft dependency: importing it
+    fails loudly at construction, never mid-execution.  ``:name`` bound
+    parameters are translated to pymysql ``%(name)s`` style before dispatch;
+    the AST gate has already validated the placeholder set.
+    """
+
+    _provider_contract_id = MYSQL_PROVIDER_CONTRACT_ID
+
+    def __init__(
+        self,
+        config: MySqlDataQueryConfig,
+        *,
+        allowed_schemas: tuple[str, ...] = ("main",),
+        checker: DataSQLSafetyChecker | None = None,
+        idempotency_store: Any | None = None,
+        _connect: Any | None = None,
+    ) -> None:
+        # Deliberately NOT calling SQLite's __init__ (no database path).
+        self._config = config
+        self._checker = checker or DataSQLSafetyChecker(
+            allowed_schemas, dialect="mysql"
+        )
+        self._execution_count_lock = Lock()
+        self.execution_count = 0
+        self._idempotency_store = idempotency_store
+        self._outcomes = None
+        self._connect = _connect or self._default_connect
+
+    def _default_connect(self) -> Any:
+        try:
+            import pymysql
+            import pymysql.cursors
+        except ImportError as exc:  # pragma: no cover - environment-dependent
+            raise ImportError(
+                "MySqlDataQueryCapability requires the 'pymysql' driver "
+                "(pure-python); install it separately."
+            ) from exc
+        return pymysql.connect(
+            host=self._config.host,
+            port=self._config.port,
+            database=self._config.database,
+            user=self._config.username,
+            password=self._config.password,
+            connect_timeout=10,
+            read_timeout=30,
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+
+    def _fetch_rows(self, sql: str, parameters: dict[str, object]) -> list[dict]:
+        translated = _translate_named_parameters(sql)
+        connection = self._connect()
+        try:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(translated, dict(parameters))
+                rows = list(cursor.fetchall())
+            finally:
+                cursor.close()
+        except Exception as exc:  # pymysql.err.Error and transport errors
+            raise _QueryExecutionError(exc) from exc
+        finally:
+            connection.close()
+        return [dict(row) for row in rows]
+
+
+_PARAMETER_PATTERN = None
+
+
+def _translate_named_parameters(sql: str) -> str:
+    """Translate ``:name`` placeholders to pymysql ``%(name)s`` style."""
+    import re
+
+    global _PARAMETER_PATTERN
+    if _PARAMETER_PATTERN is None:
+        _PARAMETER_PATTERN = re.compile(r"(?<![:\w']):([a-zA-Z_][a-zA-Z0-9_]*)")
+    return _PARAMETER_PATTERN.sub(r"%(\1)s", sql)
 
 
 class DataAgentRuntime:

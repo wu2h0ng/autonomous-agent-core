@@ -17,6 +17,14 @@ class DataSQLSafetyPolicy:
     require_schema_qualified_tables: bool = True
     require_limit: bool = True
     allow_select_star: bool = False
+    dialect: str = "postgres"
+
+
+# sqlglot parse dialects the gate is validated for.  The dialect is owned by
+# the composed provider (SQLite keeps the historical postgres parsing; MySQL
+# warehouses need mysql parsing for backtick/non-ASCII identifiers).  Unknown
+# dialects fail closed at construction.
+SUPPORTED_SQL_DIALECTS: frozenset[str] = frozenset({"postgres", "mysql"})
 
 
 _FORBIDDEN_STATEMENT_TYPES: tuple[type[sqlglot.Expr], ...] = (
@@ -104,10 +112,17 @@ class DataSQLSafetyChecker:
         allowed_schemas: tuple[str, ...] = ("main",),
         *,
         max_limit: int = 1_000,
+        dialect: str = "postgres",
     ) -> None:
+        if dialect not in SUPPORTED_SQL_DIALECTS:
+            raise ValueError(
+                f"Unsupported SQL safety dialect: {dialect!r}. "
+                f"Supported: {sorted(SUPPORTED_SQL_DIALECTS)}"
+            )
         self.policy = DataSQLSafetyPolicy(
             allowed_schemas=allowed_schemas,
             max_limit=max_limit,
+            dialect=dialect,
         )
 
     def check(
@@ -129,7 +144,7 @@ class DataSQLSafetyChecker:
             else self.policy.allow_select_star
         )
         try:
-            tree = sqlglot.parse_one(normalized, read="postgres")
+            tree = sqlglot.parse_one(normalized, read=self.policy.dialect)
         except sqlglot.ParseError as exc:
             return self._build_result(
                 [_issue("PARSE_ERROR", f"SQL parse error: {exc}")],
