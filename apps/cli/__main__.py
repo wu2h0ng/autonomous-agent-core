@@ -113,6 +113,8 @@ _KNOWN_SUBCOMMANDS = frozenset(
         "daemon-start",
         "daemon-status",
         "daemon-stop",
+        "synthesize-pack",
+        "materialize-pack",
     }
 )
 
@@ -336,6 +338,93 @@ def _chat(args: argparse.Namespace) -> int:
             print(f"[stopped: {response.stop_reason}]")
     return 0
 
+
+
+def _synthesize_pack(args: argparse.Namespace) -> int:
+    from apps.api_server.introspection import introspect_mysql
+    from apps.api_server.pack_synthesis import write_proposal
+    from agent_os_core.domain_pack_synthesis import synthesize_pack_candidates
+    from domain_packs.data_agent.runtime import (
+        MySqlDataQueryCapability,
+        MySqlDataQueryConfig,
+    )
+
+    schemas = tuple(s.strip() for s in args.schemas.split(",") if s.strip())
+    try:
+        config = MySqlDataQueryConfig.from_env(
+            host=args.mysql_host,
+            port=args.mysql_port,
+            database=args.mysql_database,
+            username=args.mysql_username,
+            password_env=args.mysql_password_env,
+        )
+        capability = MySqlDataQueryCapability(
+            config,
+            allowed_schemas=schemas,
+        )
+        inventory = introspect_mysql(capability, schemas)
+        candidates = synthesize_pack_candidates(inventory, dialect=args.dialect)
+        if not candidates:
+            print(
+                json.dumps(
+                    {
+                        "status": "NO_CANDIDATES",
+                        "tables": len(inventory.tables),
+                        "detail": "no table with a date column and a non-excluded numeric column",
+                    },
+                    indent=2,
+                )
+            )
+            return 1
+        proposal = write_proposal(
+            args.out,
+            inventory=inventory,
+            candidates=candidates,
+            provider_id=args.provider_id,
+            provider_name=args.provider_name or args.provider_id,
+            owner=args.owner,
+            dialect=args.dialect,
+        )
+    except (ValueError, FileExistsError, ImportError) as exc:
+        print(json.dumps({"error": str(exc)}, indent=2))
+        return 1
+    print(
+        json.dumps(
+            {
+                "status": proposal.status,
+                "proposal_id": proposal.proposal_id,
+                "out": str(args.out),
+                "candidates": len(proposal.candidates),
+                "allowed_schemas": list(proposal.allowed_schemas),
+                "next": "review the proposal, then run materialize-pack with approved metric names",
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def _materialize_pack(args: argparse.Namespace) -> int:
+    from apps.api_server.pack_synthesis import materialize_pack
+
+    try:
+        connection = json.loads(args.connection)
+        written = materialize_pack(
+            args.proposals,
+            approved_metrics=tuple(args.approve_metric),
+            pack_dir=args.pack_dir,
+            connection=connection,
+        )
+    except (ValueError, FileExistsError, ImportError, OSError) as exc:
+        print(json.dumps({"error": str(exc)}, indent=2))
+        return 1
+    print(
+        json.dumps(
+            {"status": "MATERIALIZED", "pack_dir": str(args.pack_dir), "metrics": list(written)},
+            indent=2,
+        )
+    )
+    return 0
 
 
 def _mandate_bootstrap(args: argparse.Namespace) -> int:
@@ -788,6 +877,37 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("mandate-status")
 
+    synth = sub.add_parser(
+        "synthesize-pack",
+        help=(
+            "Read-only introspection of a MySQL warehouse into a PROPOSED "
+            "domain pack (candidates only; nothing is activated)."
+        ),
+    )
+    synth.add_argument("--mysql-host", required=True)
+    synth.add_argument("--mysql-port", type=int, default=3306)
+    synth.add_argument("--mysql-database", required=True)
+    synth.add_argument("--mysql-username", required=True)
+    synth.add_argument("--mysql-password-env", required=True, help="env var name holding the password")
+    synth.add_argument("--schemas", required=True, help="comma-separated schema names")
+    synth.add_argument("--out", type=Path, required=True, help="proposal JSON path (must not exist)")
+    synth.add_argument("--provider-id", required=True)
+    synth.add_argument("--provider-name", default=None)
+    synth.add_argument("--owner", default="data_platform")
+    synth.add_argument("--dialect", choices=("mysql", "postgres"), default="mysql")
+
+    mat = sub.add_parser(
+        "materialize-pack",
+        help=(
+            "Write a domain pack from operator-approved proposal metrics. "
+            "Naming metrics here IS the approval act; secrets only via *_env."
+        ),
+    )
+    mat.add_argument("--proposals", type=Path, required=True)
+    mat.add_argument("--approve-metric", action="append", required=True, help="metric name; repeatable")
+    mat.add_argument("--pack-dir", type=Path, required=True)
+    mat.add_argument("--connection", required=True, help="JSON object: connection_type/host/port/database/username/password_env")
+
     create = sub.add_parser("task-create")
     create.add_argument("statement")
     show = sub.add_parser("task-show")
@@ -868,6 +988,10 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(_mandate_attach(args))
         if args.command == "mandate-status":
             raise SystemExit(_mandate_status(args))
+        if args.command == "synthesize-pack":
+            raise SystemExit(_synthesize_pack(args))
+        if args.command == "materialize-pack":
+            raise SystemExit(_materialize_pack(args))
     except (MandateTerminalError, ResponsibilitySurfaceError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
