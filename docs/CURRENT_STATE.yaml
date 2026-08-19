@@ -24,12 +24,12 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-13T12:00:00+08:00"
+updated: "2026-08-20T07:55:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main (SPINE-1 integrated through receipt 807a0590; state receipt follows on main)"
-status: "ADR-0059 capability execution authority merged onto the canonical main line (reconciliation merge ca775d39 + SPINE-1 seam adaptation 1b6b036a). SPINE-1 Data Agent migration remains integrated (807a05902da6b95844c1693ed198de5618b117ff): domain_packs/data_agent uses the shared Task/Run, policy, approval, effect-custody and evidence spine. Merged gates: tests/product 2166 passed / 0 failed / 1 skipped (origin baseline 1942/24/1); product_eval 0 new failures; ruff clean; pyright 110 (baseline 111); wheels build. Independent exact-head review of the reconciled head: APPROVE (3 informational notes). PUSHED: false (push requires separate founder authorization). Data Agent query, immutable report observation and proposal-only business action capabilities use the shared Task/Run, policy, approval, effect-custody and evidence spine while data semantics remain under domain_packs/data_agent. The approved donor ancestry is retained and the temporary _migration staging tree is removed. Fresh Product verification returned 1947 passed, 1 skipped and the exact frozen 19 inherited failures with no new failure names; repair-head review returned APPROVE after 9/9 invariant revalidation. The integration is PUSHED / MAIN_INTEGRATED / UNRELEASED and has no production, commercial, autonomy, self-improvement or general-intelligence claim."
+status: "ADR-0059 capability execution authority merged onto the canonical main line (reconciliation merge ca775d39 + SPINE-1 seam adaptation 1b6b036a). SPINE-1 Data Agent migration remains integrated (807a05902da6b95844c1693ed198de5618b117ff): domain_packs/data_agent uses the shared Task/Run, policy, approval, effect-custody and evidence spine. Merged gates: tests/product 2166 passed / 0 failed / 1 skipped (origin baseline 1942/24/1); product_eval 0 new failures; ruff clean; pyright 110 (baseline 111); wheels build. Independent exact-head review of the reconciled head: APPROVE (3 informational notes). PUSHED: false (push requires separate founder authorization). Data Agent query, immutable report observation and proposal-only business action capabilities use the shared Task/Run, policy, approval, effect-custody and evidence spine while data semantics remain under domain_packs/data_agent. The approved donor ancestry is retained and the temporary _migration staging tree is removed. Fresh Product verification returned 1947 passed, 1 skipped and the exact frozen 19 inherited failures with no new failure names; repair-head review returned APPROVE after 9/9 invariant revalidation. The integration is MAIN_INTEGRATED_LOCAL / UNPUSHED / UNRELEASED and has no production, commercial, autonomy, self-improvement or general-intelligence claim."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -45,7 +45,7 @@ identity:
   topology: "dual-track monorepo"
   product_track: "Agent Surface, Task Workspace, Agent Core runtime, providers, capabilities, evidence/outcomes, governance, SDK, adaptive materialization and optional domain priors"
   research_track: "falsifiable mechanisms, CWM/world-model candidates, belief/action research, formal models, preregistration, results and negative maps"
-  first_vertical: "Data Agent, locally extracted into domain_packs/data_agent under ADR-0054/SPINE-1; unpushed, unmerged and unreleased"
+  first_vertical: "Data Agent, locally extracted into domain_packs/data_agent under ADR-0054/SPINE-1; merged into local main, unpushed and unreleased"
   evidence_boundary: "Research and Product Track share a repo but not claim authority."
 
 current_phase:
@@ -57,9 +57,27 @@ current_phase:
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
-    status: "G0-G7_PASS / INDEPENDENT_APPROVE / PUSHED / MAIN_INTEGRATED / UNRELEASED"
+    status: "G0-G7_PASS / INDEPENDENT_APPROVE / MAIN_INTEGRATED_LOCAL / UNPUSHED / UNRELEASED"
 
 verified_capabilities:
+  data_agent_pack_run:
+    status: "IMPLEMENTED_TESTED_BRANCH_CONTAINED / PUSHED_BRANCH / NOT_MERGED / NOT_RELEASED / NO_INDEPENDENT_REVIEW"
+    requirement_class: "P"
+    secondary_classes: ["A", "E"]
+    user_result: "An operator can run one explicitly approved pack metric against a real MySQL warehouse through the canonical governed spine and receive a receipt-bound evidence ref plus observed outcome, without any per-metric re-approval."
+    real_entry_points:
+      - "agent-os run-pack-metric --pack-dir ... --metric ... --start-date ... --end-date ... (apps/cli)"
+      - "apps.api_server.pack_run.run_pack_metric"
+      - "domain_packs.data_agent.pack_loader.load_pack_query"
+    verified_properties:
+      - "fail-closed pack validation with stable codes: unapproved metric, template SQL drift, inline secret, missing connection field, parameter/date/limit violations and safety-gate re-check all stop before any connection"
+      - "execution passes ActionPipeline/PolicyKernel/CapabilityBroker with fenced lease; read-only tier-0 capability; evidence lineage carries the pack-level provider identity"
+      - "driver-native date/Decimal/bytes values are normalized deterministically before canonical digesting"
+    dated_verification:
+      date: "2026-08-20"
+      head: "ee10f9df on codex/spine1-data-agent-mysql-20260819 (pushed to origin same day)"
+      tests: "9 new pack-run tests passed incl. bypass detection; 37 adjacent mysql/safety/synthesis/spine tests passed; ruff clean; pyright 0/0 in gate scope"
+    boundary: "Branch-contained. Tests use a fake connect seam; a real Aliyun RDS run requires the operator's env-referenced secret. Read-only query closure only: business actions remain proposal-only, Mandate TaskActivation is not wired, and no autonomy, production, release or merged-capability claim follows."
   data_agent_spine_1:
     status: "IMPLEMENTED_TESTED_INDEPENDENTLY_APPROVED_MAIN_INTEGRATED / UNRELEASED"
     requirement_class: "P"
