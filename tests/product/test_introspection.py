@@ -7,22 +7,11 @@ rows.
 
 from __future__ import annotations
 
-import json
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from apps.api_server.introspection import introspect_mysql
-
-
-class _FakeEffect:
-    def __init__(self, status: str, output: dict[str, Any] | None = None, error_code: str | None = None, detail_ref: str | None = None) -> None:
-        self.status = MagicMock()
-        self.status.value = status
-        self.output = output or {}
-        self.error_code = error_code
-        self.detail_ref = detail_ref
 
 
 class _FakeCapability:
@@ -30,21 +19,10 @@ class _FakeCapability:
         self._rows_by_schema = rows_by_schema
         self.calls: list[str] = []
 
-    def execute(self, action: Any) -> _FakeEffect:
-        payload = json.loads(action.arguments_json)
-        schema = payload["parameters"]["schema_name"]
+    def _fetch_rows(self, sql: str, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+        schema = parameters["schema_name"]
         self.calls.append(schema)
-        rows = self._rows_by_schema.get(schema, [])
-        if not rows:
-            return _FakeEffect(
-                "FAILED",
-                error_code="QUERY_EXECUTION_FAILED",
-                detail_ref="detail:data-query:empty",
-            )
-        return _FakeEffect(
-            "SUCCEEDED",
-            output={"rows_json": json.dumps(rows)},
-        )
+        return self._rows_by_schema.get(schema, [])
 
 
 class TestIntrospectMysql:
@@ -80,7 +58,7 @@ class TestIntrospectMysql:
 
     def test_empty_schema_fails_loudly(self) -> None:
         capability = _FakeCapability({"adstable": []})
-        with pytest.raises(ValueError, match="introspection failed for schema"):
+        with pytest.raises(ValueError, match="introspection returned no columns"):
             introspect_mysql(capability, ("adstable",))
 
     def test_no_schemas_fails_closed(self) -> None:
@@ -90,5 +68,5 @@ class TestIntrospectMysql:
 
     def test_capability_failure_propagates(self) -> None:
         capability = _FakeCapability({"adstable": []})
-        with pytest.raises(ValueError, match="introspection failed"):
+        with pytest.raises(ValueError, match="introspection returned no columns"):
             introspect_mysql(capability, ("adstable",))

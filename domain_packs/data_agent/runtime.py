@@ -669,5 +669,7 @@ __all__ = [
     "DataAgentDenied",
     "DataAgentRuntime",
     "DataSQLSafetyChecker",
+    "MySqlDataQueryCapability",
+    "MySqlDataQueryConfig",
     "SQLiteDataQueryCapability",
 ]

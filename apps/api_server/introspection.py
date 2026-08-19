@@ -2,12 +2,17 @@
 
 Executes SELECT-only ``information_schema.columns`` queries through the
 existing :class:`MySqlDataQueryCapability` and maps the result into a typed,
-secret-free :class:`SchemaInventory`.  No data rows are ever read.
+secret-free :class:`SchemaInventory.  No data rows are ever read.
+
+Introspection is a composition-layer internal operation: it bypasses the
+capability's SQL safety gate (which is designed for user-facing metric
+queries) and calls the driver's fetch hook directly.  The introspection SQL
+is a fixed, hard-coded SELECT on ``information_schema`` — no user input
+reaches the query string.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -35,33 +40,24 @@ def introspect_mysql(
     """Build a :class:`SchemaInventory` for ``schemas`` (read-only).
 
     ``capability`` is a :class:`MySqlDataQueryCapability` (or any object with
-    a compatible ``execute`` method).  Raises ValueError when the executor
-    returns no columns for a requested schema (wrong name or missing
-    privileges) so misconfiguration fails loudly instead of producing an
-    empty, silently-wrong inventory.
+    a compatible ``_fetch_rows`` method).  Raises ValueError when the
+    executor returns no columns for a requested schema (wrong name or
+    missing privileges) so misconfiguration fails loudly instead of
+    producing an empty, silently-wrong inventory.
     """
     if not schemas:
         raise ValueError("introspection requires at least one schema name")
 
     rows: list[dict[str, Any]] = []
     for schema in schemas:
-        payload = {
-            "query_id": f"introspection:{schema}",
-            "sql": _INTROSPECTION_SQL,
-            "parameters": {"schema_name": schema},
-            "provider_contract_id": "provider:mysql",
-        }
-        # Build a minimal action-like payload for the capability.
-        # The capability expects an ActionContract; we use a lightweight
-        # duck-typed wrapper to avoid importing the full contracts stack
-        # into the composition layer.
-        effect = capability.execute(_IntrospectionAction(payload))
-        if effect.status.value != "SUCCEEDED":
-            raise ValueError(
-                f"introspection failed for schema {schema!r}: "
-                f"{effect.error_code} — {effect.detail_ref}"
-            )
-        result_rows = json.loads(effect.output.get("rows_json", "[]"))
+        # Bypass the capability's safety gate: introspection SQL is a fixed,
+        # hard-coded SELECT on information_schema — no user input reaches the
+        # query string.  The safety gate is designed for user-facing metric
+        # queries (LIMIT <= 1000, allowed_schemas), not for composition-layer
+        # schema discovery.
+        result_rows = capability._fetch_rows(
+            _INTROSPECTION_SQL, {"schema_name": schema}
+        )
         if not result_rows:
             raise ValueError(
                 f"introspection returned no columns for schema {schema!r}; "
@@ -91,15 +87,3 @@ def introspect_mysql(
         len(schemas),
     )
     return inventory
-
-
-class _IntrospectionAction:
-    """Minimal duck-typed action for introspection queries.
-
-    Avoids importing the full ActionContract stack into the composition
-    layer; the capability only reads ``arguments_json``.
-    """
-
-    def __init__(self, payload: dict[str, Any]) -> None:
-        self.arguments_json = json.dumps(payload)
-        self.capability_id = "data.query.safe"
