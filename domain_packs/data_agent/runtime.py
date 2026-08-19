@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from threading import Lock
@@ -301,6 +301,7 @@ class MySqlDataQueryCapability(SQLiteDataQueryCapability):
         allowed_schemas: tuple[str, ...] = ("main",),
         checker: DataSQLSafetyChecker | None = None,
         idempotency_store: Any | None = None,
+        provider_contract_id: str | None = None,
         _connect: Any | None = None,
     ) -> None:
         # Deliberately NOT calling SQLite's __init__ (no database path).
@@ -313,6 +314,10 @@ class MySqlDataQueryCapability(SQLiteDataQueryCapability):
         self._idempotency_store = idempotency_store
         self._outcomes = None
         self._connect = _connect or self._default_connect
+        if provider_contract_id is not None:
+            # Instance-level override so pack runs carry the real provider
+            # identity (e.g. provider:mysql:minhe) into receipts/lineage.
+            self._provider_contract_id = provider_contract_id
 
     def _default_connect(self) -> Any:
         try:
@@ -349,7 +354,26 @@ class MySqlDataQueryCapability(SQLiteDataQueryCapability):
             raise _QueryExecutionError(exc) from exc
         finally:
             connection.close()
-        return [dict(row) for row in rows]
+        # MySQL drivers return date/datetime objects and Decimal values that
+        # canonical_json cannot serialize; normalize them deterministically
+        # so receipts and digests stay stable (Decimal -> str, no float
+        # rounding; date/datetime -> ISO 8601).
+        return [
+            {key: _normalize_driver_value(value) for key, value in dict(row).items()}
+            for row in rows
+        ]
+
+
+def _normalize_driver_value(value: object) -> object:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):  # datetime is a date subclass; checked above
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 _PARAMETER_PATTERN = None

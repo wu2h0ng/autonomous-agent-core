@@ -115,6 +115,7 @@ _KNOWN_SUBCOMMANDS = frozenset(
         "daemon-stop",
         "synthesize-pack",
         "materialize-pack",
+        "run-pack-metric",
     }
 )
 
@@ -425,6 +426,53 @@ def _materialize_pack(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def _run_pack_metric(args: argparse.Namespace) -> int:
+    from apps.api_server.pack_run import run_pack_metric
+    from domain_packs.data_agent.contracts import DataAgentStatus
+
+    try:
+        result = run_pack_metric(
+            pack_dir=args.pack_dir,
+            metric_name=args.metric,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            limit=args.limit,
+            database=args.database,
+            workspace=Path(args.workspace),
+        )
+    except (ValueError, FileNotFoundError, ImportError, OSError) as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2))
+        return 1
+    payload: dict[str, object] = {
+        "status": result.status.value,
+        "task_id": result.task_id,
+        "run_id": result.run_id,
+        "trace_id": result.trace_id,
+        "observed_outcome_id": result.observed_outcome_id,
+    }
+    if result.query_result is not None:
+        payload["query_result"] = {
+            "query_id": result.query_result.query_id,
+            "row_count": result.query_result.row_count,
+            "sql_fingerprint": result.query_result.sql_fingerprint,
+            "query_result_digest": result.query_result.query_result_digest,
+        }
+        if args.show_rows:
+            payload["query_result"]["rows_json"] = result.query_result.rows_json
+    if result.evidence is not None:
+        payload["evidence"] = {
+            "evidence_id": result.evidence.evidence_id,
+            "provider_contract_id": result.evidence.provider_contract_id,
+            "metric_contract_digest": result.evidence.metric_contract_digest,
+            "confidence_score": result.evidence.confidence_score,
+            "confidence_flags": list(result.evidence.confidence_flags),
+        }
+    if result.failure_code is not None:
+        payload["failure_code"] = result.failure_code
+    print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    return 0 if result.status is DataAgentStatus.COMPLETED else 1
 
 
 def _mandate_bootstrap(args: argparse.Namespace) -> int:
@@ -908,6 +956,20 @@ def main(argv: list[str] | None = None) -> None:
     mat.add_argument("--pack-dir", type=Path, required=True)
     mat.add_argument("--connection", required=True, help="JSON object: connection_type/host/port/database/username/password_env")
 
+    run_pack = sub.add_parser(
+        "run-pack-metric",
+        help=(
+            "Run one operator-approved pack metric through the governed "
+            "spine (read-only query, evidence + observed outcome)."
+        ),
+    )
+    run_pack.add_argument("--pack-dir", type=Path, required=True)
+    run_pack.add_argument("--metric", required=True, help="approved metric name")
+    run_pack.add_argument("--start-date", required=True, help="YYYY-MM-DD")
+    run_pack.add_argument("--end-date", required=True, help="YYYY-MM-DD")
+    run_pack.add_argument("--limit", type=int, default=None)
+    run_pack.add_argument("--show-rows", action="store_true", help="include rows_json in output")
+
     create = sub.add_parser("task-create")
     create.add_argument("statement")
     show = sub.add_parser("task-show")
@@ -992,6 +1054,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(_synthesize_pack(args))
         if args.command == "materialize-pack":
             raise SystemExit(_materialize_pack(args))
+        if args.command == "run-pack-metric":
+            raise SystemExit(_run_pack_metric(args))
     except (MandateTerminalError, ResponsibilitySurfaceError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
