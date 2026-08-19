@@ -25,7 +25,8 @@ from agent_os_contracts.domain_pack_synthesis import (
 logger = logging.getLogger(__name__)
 
 _INTROSPECTION_SQL = (
-    "select table_schema, table_name, column_name, data_type "
+    "select table_schema as table_schema, table_name as table_name, "
+    "column_name as column_name, data_type as data_type "
     "from information_schema.columns "
     "where table_schema = :schema_name "
     "order by table_schema, table_name, ordinal_position "
