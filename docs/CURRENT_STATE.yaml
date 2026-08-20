@@ -77,7 +77,8 @@ verified_capabilities:
       date: "2026-08-20"
       head: "ee10f9df on codex/spine1-data-agent-mysql-20260819 (pushed to origin same day)"
       tests: "9 new pack-run tests passed incl. bypass detection; 37 adjacent mysql/safety/synthesis/spine tests passed; ruff clean; pyright 0/0 in gate scope"
-    boundary: "Branch-contained. Tests use a fake connect seam; a real Aliyun RDS run requires the operator's env-referenced secret. Read-only query closure only: business actions remain proposal-only, Mandate TaskActivation is not wired, and no autonomy, production, release or merged-capability claim follows."
+      real_rds_run: "2026-08-20 against Aliyun RDS MySQL 8.0.36 (customer0 warehouse, schemas adstable+dwdtable): synthesize-pack produced 183 candidates; operator-in-loop approved 3 ads_profit_order metrics (GMV / 营业收入 / 推广费用) into packs/customer0; run-pack-metric COMPLETED twice on real data — GMV daily 2026-08-01..18 (18 rows, query_result_digest cb6ba8ba..., evidence confidence 0.342 with freshness_unknown+unverified_template caps) and 营业收入 2026-08-15..18 (4 rows). Secret lived only in gitignored 600-permission .env referenced by env name; pack artifacts verified secret-free."
+    boundary: "Branch-contained. Real RDS evidence is an E3-class local controlled run by the operator's own account, not a customer pilot, release or autonomy claim. Read-only query closure only: business actions remain proposal-only, Mandate TaskActivation is not wired, and no production or merged-capability claim follows. The RDS account used was privileged (Administrator), with the AST safety gate as the SELECT-only enforcement; a read-only account and password rotation are recommended follow-ups."
   data_agent_spine_1:
     status: "IMPLEMENTED_TESTED_INDEPENDENTLY_APPROVED_MAIN_INTEGRATED / UNRELEASED"
     requirement_class: "P"
