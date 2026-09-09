@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/microsoft/vscode.git",
+  "tag": "1.136.2",
+  "commit": "88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f",
+  "sessionsBaseline": {
+    "tag": "1.136.2",
+    "commit": "88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f",
+    "status": "ACTIVE"
+  },
+  "license": "MIT",
+  "productName": "Agent OS"
+}

@@ -1,0 +1,581 @@
+diff --git a/build/buildfile.js b/build/buildfile.js
+index 83f8456..d83c7e4 100644
+--- a/build/buildfile.js
++++ b/build/buildfile.js
+@@ -28,7 +28,8 @@ exports.workbenchDesktop = [
+ 	createModuleDescription('vs/platform/files/node/watcher/watcherMain'),
+ 	createModuleDescription('vs/platform/terminal/node/ptyHostMain'),
+ 	createModuleDescription('vs/workbench/api/node/extensionHostProcess'),
+-	createModuleDescription('vs/workbench/workbench.desktop.main')
++	createModuleDescription('vs/workbench/workbench.desktop.main'),
++	createModuleDescription('vs/workbench/workbench.agentOS.main')
+ ];
+ 
+ exports.workbenchWeb = createModuleDescription('vs/workbench/workbench.web.main');
+diff --git a/src/vs/code/electron-browser/workbench/workbench.ts b/src/vs/code/electron-browser/workbench/workbench.ts
+index 7d6c8fa..8a64087 100644
+--- a/src/vs/code/electron-browser/workbench/workbench.ts
++++ b/src/vs/code/electron-browser/workbench/workbench.ts
+@@ -273,7 +273,7 @@
+ 
+ 	//#region Window Helpers
+ 
+-	async function load<M, T extends ISandboxConfiguration>(esModule: string, options: ILoadOptions<T>): Promise<ILoadResult<M, T>> {
++	async function load<M, T extends ISandboxConfiguration>(esModule: string | ((configuration: T) => string), options: ILoadOptions<T>): Promise<ILoadResult<M, T>> {
+ 
+ 		// Window Configuration from Preload Script
+ 		const configuration = await resolveWindowConfiguration<T>();
+@@ -296,7 +296,8 @@
+ 
+ 		// ESM Import
+ 		try {
+-			const result = await import(new URL(`${esModule}.js`, baseUrl).href);
++			const moduleId = typeof esModule === 'function' ? esModule(configuration) : esModule;
++			const result = await import(new URL(`${moduleId}.js`, baseUrl).href);
+ 
+ 			if (developerDeveloperKeybindingsDisposable && removeDeveloperKeybindingsAfterLoad) {
+ 				developerDeveloperKeybindingsDisposable();
+@@ -484,7 +485,9 @@
+ 
+ 	//#endregion
+ 
+-	const { result, configuration } = await load<IDesktopMain, INativeWindowConfiguration>('vs/workbench/workbench.desktop.main',
++	const { result, configuration } = await load<IDesktopMain, INativeWindowConfiguration>(windowConfig => windowConfig.agentOSWindow === true
++		? 'vs/workbench/workbench.agentOS.main'
++		: 'vs/workbench/workbench.desktop.main',
+ 		{
+ 			configureDeveloperSettings: function (windowConfig) {
+ 				return {
+diff --git a/src/vs/platform/native/common/native.ts b/src/vs/platform/native/common/native.ts
+index 4372995..1453095 100644
+--- a/src/vs/platform/native/common/native.ts
++++ b/src/vs/platform/native/common/native.ts
+@@ -102,6 +102,8 @@ export interface ICommonNativeHostService {
+ 
+ 	openWindow(options?: IOpenEmptyWindowOptions): Promise<void>;
+ 	openWindow(toOpen: IWindowOpenable[], options?: IOpenWindowOptions): Promise<void>;
++	openAgentOSWindow(): Promise<void>;
++	focusOrOpenIDEWindow(): Promise<void>;
+ 
+ 	isFullScreen(options?: INativeHostOptions): Promise<boolean>;
+ 	toggleFullScreen(options?: INativeHostOptions): Promise<void>;
+diff --git a/src/vs/platform/native/electron-main/nativeHostMainService.ts b/src/vs/platform/native/electron-main/nativeHostMainService.ts
+index 3427252..5c7f8cc 100644
+--- a/src/vs/platform/native/electron-main/nativeHostMainService.ts
++++ b/src/vs/platform/native/electron-main/nativeHostMainService.ts
+@@ -268,6 +268,36 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
+ 		}, options);
+ 	}
+ 
++	async openAgentOSWindow(windowId: number | undefined): Promise<void> {
++		const existing = this.windowsMainService.getWindows().find(window => window.isAgentOSWindow && !window.win?.isDestroyed());
++		if (existing) {
++			existing.win?.isMinimized() && existing.win.restore();
++			existing.focus();
++			return;
++		}
++
++		await this.windowsMainService.open({
++			context: OpenContext.API,
++			contextWindowId: windowId,
++			cli: this.environmentMainService.args,
++			forceNewWindow: true,
++			forceEmpty: true,
++			noRecentEntry: true,
++			agentOSWindow: true
++		});
++	}
++
++	async focusOrOpenIDEWindow(windowId: number | undefined): Promise<void> {
++		const existing = this.windowsMainService.getWindows().find(window => !window.isAgentOSWindow && !window.isExtensionDevelopmentHost && !window.win?.isDestroyed());
++		if (existing) {
++			existing.win?.isMinimized() && existing.win.restore();
++			existing.focus();
++			return;
++		}
++
++		await this.windowsMainService.openEmptyWindow({ context: OpenContext.API, contextWindowId: windowId });
++	}
++
+ 	async isFullScreen(windowId: number | undefined, options?: INativeHostOptions): Promise<boolean> {
+ 		const window = this.windowById(options?.targetWindowId, windowId);
+ 		return window?.isFullScreen ?? false;
+diff --git a/src/vs/platform/window/common/window.ts b/src/vs/platform/window/common/window.ts
+index 3525798..6a8e064 100644
+--- a/src/vs/platform/window/common/window.ts
++++ b/src/vs/platform/window/common/window.ts
+@@ -422,6 +422,7 @@ export interface IOSConfiguration {
+ }
+ 
+ export interface INativeWindowConfiguration extends IWindowConfiguration, NativeParsedArgs, ISandboxConfiguration {
++	agentOSWindow?: boolean;
+ 	mainPid: number;
+ 	handle?: VSBuffer;
+ 
+diff --git a/src/vs/platform/window/electron-main/window.ts b/src/vs/platform/window/electron-main/window.ts
+index 13268e7..9cb4f01 100644
+--- a/src/vs/platform/window/electron-main/window.ts
++++ b/src/vs/platform/window/electron-main/window.ts
+@@ -63,6 +63,7 @@ export interface ICodeWindow extends IBaseWindow {
+ 
+ 	readonly isExtensionDevelopmentHost: boolean;
+ 	readonly isExtensionTestHost: boolean;
++	readonly isAgentOSWindow?: boolean;
+ 
+ 	readonly isReady: boolean;
+ 	ready(): Promise<ICodeWindow>;
+diff --git a/src/vs/platform/windows/electron-main/windowImpl.ts b/src/vs/platform/windows/electron-main/windowImpl.ts
+index 20c8102..0573e02 100644
+--- a/src/vs/platform/windows/electron-main/windowImpl.ts
++++ b/src/vs/platform/windows/electron-main/windowImpl.ts
+@@ -600,6 +600,8 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 
+ 	get isExtensionTestHost(): boolean { return !!(this._config?.extensionTestsPath); }
+ 
++	get isAgentOSWindow(): boolean { return this._config?.agentOSWindow === true; }
++
+ 	get isExtensionDevelopmentTestFromCli(): boolean { return this.isExtensionDevelopmentHost && this.isExtensionTestHost && !this._config?.debugId; }
+ 
+ 	//#endregion
+diff --git a/src/vs/platform/windows/electron-main/windows.ts b/src/vs/platform/windows/electron-main/windows.ts
+index 429bd96..1343260 100644
+--- a/src/vs/platform/windows/electron-main/windows.ts
++++ b/src/vs/platform/windows/electron-main/windows.ts
+@@ -91,6 +91,7 @@ export interface IBaseOpenConfiguration {
+ }
+ 
+ export interface IOpenConfiguration extends IBaseOpenConfiguration {
++	readonly agentOSWindow?: boolean;
+ 	readonly cli: NativeParsedArgs;
+ 	readonly userEnv?: IProcessEnvironment;
+ 	readonly urisToOpen?: IWindowOpenable[];
+diff --git a/src/vs/platform/windows/electron-main/windowsMainService.ts b/src/vs/platform/windows/electron-main/windowsMainService.ts
+index 117dfd2..488213f 100644
+--- a/src/vs/platform/windows/electron-main/windowsMainService.ts
++++ b/src/vs/platform/windows/electron-main/windowsMainService.ts
+@@ -64,6 +64,7 @@ import { ResourceSet } from '../../../base/common/map.js';
+ type RestoreWindowsSetting = 'preserve' | 'all' | 'folders' | 'one' | 'none';
+ 
+ interface IOpenBrowserWindowOptions {
++	readonly agentOSWindow?: boolean;
+ 	readonly userEnv?: IProcessEnvironment;
+ 	readonly cli?: NativeParsedArgs;
+ 
+@@ -734,6 +735,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
+ 		}
+ 
+ 		return this.openInBrowserWindow({
++			agentOSWindow: openConfig.agentOSWindow,
+ 			userEnv: openConfig.userEnv,
+ 			cli: openConfig.cli,
+ 			initialStartup: openConfig.initialStartup,
+@@ -1474,6 +1476,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
+ 
+ 		// Build up the window configuration from provided options, config and environment
+ 		const configuration: INativeWindowConfiguration = {
++			agentOSWindow: options.agentOSWindow,
+ 
+ 			// Inherit CLI arguments from environment and/or
+ 			// the specific properties from this launch if provided
+diff --git a/src/vs/workbench/agentOSWindow/browser/agentOSWindow.contribution.ts b/src/vs/workbench/agentOSWindow/browser/agentOSWindow.contribution.ts
+new file mode 100644
+index 0000000..6df8362
+--- /dev/null
++++ b/src/vs/workbench/agentOSWindow/browser/agentOSWindow.contribution.ts
+@@ -0,0 +1,19 @@
++import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
++import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
++import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
++import { mainWindow } from '../../../base/browser/window.js';
++import { AgentOSMasterPart, AgentOSTaskListPart, AgentOSWorkbenchParts } from './agentOSWindowEditor.js';
++
++// Named exports keep the Agent Window's stable native Part contract explicit.
++export { AgentOSMasterPart, AgentOSTaskListPart };
++class AgentOSWindowLayoutContribution implements IWorkbenchContribution {
++	static readonly ID = 'workbench.contrib.agentOSWindowLayout';
++	constructor(@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService, @IInstantiationService instantiationService: IInstantiationService) {
++		const editorContainer = layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
++		const host = editorContainer?.parentElement;
++		if (!host) { throw new Error('Agent OS Workbench host is unavailable'); }
++		for (const part of [Parts.ACTIVITYBAR_PART, Parts.SIDEBAR_PART, Parts.EDITOR_PART, Parts.AUXILIARYBAR_PART, Parts.PANEL_PART, Parts.STATUSBAR_PART]) { layoutService.setPartHidden(true, part); }
++		instantiationService.createInstance(AgentOSWorkbenchParts).create(host);
++	}
++}
++registerWorkbenchContribution2(AgentOSWindowLayoutContribution.ID, AgentOSWindowLayoutContribution, WorkbenchPhase.AfterRestored);
+diff --git a/src/vs/workbench/agentOSWindow/browser/agentOSWindowEditor.ts b/src/vs/workbench/agentOSWindow/browser/agentOSWindowEditor.ts
+new file mode 100644
+index 0000000..42cb27f
+--- /dev/null
++++ b/src/vs/workbench/agentOSWindow/browser/agentOSWindowEditor.ts
+@@ -0,0 +1,78 @@
++import './media/agentOSWindow.css';
++import * as DOM from '../../../base/browser/dom.js';
++import { Disposable } from '../../../base/common/lifecycle.js';
++import { localize } from '../../../nls.js';
++
++const $ = DOM.$;
++
++export class AgentOSTaskListPart extends Disposable {
++	create(parent: HTMLElement, focusComposer: () => void): void {
++		const rail = DOM.append(parent, $('aside.agent-os-task-rail'));
++		DOM.append(rail, $('div.agent-os-brand', undefined, 'Agent OS'));
++		const create = DOM.append(rail, $('button.agent-os-new-task', { type: 'button' }, localize('newTask', "+ 新建任务")));
++		this._register(DOM.addDisposableListener(create, DOM.EventType.CLICK, focusComposer));
++		const nav = DOM.append(rail, $('nav.agent-os-nav'));
++		for (const [label, active] of [[localize('tasks', "任务"), true], [localize('automations', "自动任务"), false], [localize('knowledge', "知识"), false]] as const) {
++			DOM.append(nav, $(`button.agent-os-nav-item${active ? '.active' : ''}`, { type: 'button' }, label));
++		}
++		DOM.append(rail, $('div.agent-os-section-label', undefined, localize('recentWork', "最近工作")));
++		const list = DOM.append(rail, $('div.agent-os-task-list'));
++		DOM.append(list, $('button.agent-os-task.active', { type: 'button' }, localize('currentTask', "构建 Agent Workbench")));
++		DOM.append(list, $('button.agent-os-task', { type: 'button' }, localize('previousTask', "整理产品需求")));
++	}
++}
++
++export class AgentOSMasterPart extends Disposable {
++	private input: HTMLTextAreaElement | undefined;
++	create(parent: HTMLElement, onSubmit: (goal: string) => void): void {
++		const main = DOM.append(parent, $('main.agent-os-main'));
++		const header = DOM.append(main, $('header.agent-os-main-header'));
++		DOM.append(header, $('div.agent-os-eyebrow', undefined, localize('agentWorkspace', "任务工作台")));
++		DOM.append(header, $('h1', undefined, localize('giveGoal', "把目标交给 Agent OS")));
++		DOM.append(header, $('p', undefined, localize('goalHelp', "描述结果，系统按需使用技能、工具与内部 Agent。")));
++		const composer = DOM.append(main, $('section.agent-os-composer'));
++		this.input = DOM.append(composer, $('textarea.agent-os-prompt', { rows: 5, placeholder: localize('promptPlaceholder', "描述你想完成的结果，@ 引用文件、对话或任务，/ 使用技能") })) as HTMLTextAreaElement;
++		const toolbar = DOM.append(composer, $('div.agent-os-composer-toolbar'));
++		DOM.append(toolbar, $('button.agent-os-icon-button', { type: 'button', title: localize('attach', "添加文件、文件夹或上下文") }, '+'));
++		DOM.append(toolbar, $('span.agent-os-selection', undefined, localize('selection', "按需选择工具与技能")));
++		const send = DOM.append(toolbar, $('button.agent-os-send', { type: 'button' }, '↑'));
++		this._register(DOM.addDisposableListener(send, DOM.EventType.CLICK, () => {
++			const goal = this.input?.value.trim(); if (!goal) { this.input?.focus(); return; }
++			onSubmit(goal); if (this.input) { this.input.value = ''; }
++		}));
++		const starters = DOM.append(main, $('div.agent-os-starters'));
++		for (const label of [localize('organizeIdea', "整理一个想法"), localize('startResearch', "开始研究"), localize('buildSoftware', "构建软件")]) {
++			const button = DOM.append(starters, $('button', { type: 'button' }, label));
++			this._register(DOM.addDisposableListener(button, DOM.EventType.CLICK, () => { if (this.input) { this.input.value = label; this.input.focus(); } }));
++		}
++		DOM.append(main, $('div.agent-os-run-feed'));
++	}
++	focus(): void { this.input?.focus(); }
++}
++
++export class AgentOSWorkDetailPart extends Disposable {
++	private title: HTMLElement | undefined;
++	create(parent: HTMLElement): void {
++		const detail = DOM.append(parent, $('aside.agent-os-work-detail'));
++		DOM.append(detail, $('div.agent-os-detail-title', undefined, localize('currentWork', "当前工作")));
++		this.title = DOM.append(detail, $('div.agent-os-empty-title', undefined, localize('noTask', "尚未开始任务")));
++		DOM.append(detail, $('p', undefined, localize('noTaskHelp', "发送目标后，这里会显示计划、执行进度、产物和需要你决定的事项。")));
++	}
++	setPlanning(): void { if (this.title) { this.title.textContent = localize('planning', "正在形成执行计划"); } }
++}
++
++export class AgentOSWorkbenchParts extends Disposable {
++	private readonly taskList = this._register(new AgentOSTaskListPart());
++	private readonly master = this._register(new AgentOSMasterPart());
++	private readonly detail = this._register(new AgentOSWorkDetailPart());
++	create(parent: HTMLElement): void {
++		const root = DOM.append(parent, $('.agent-os-window'));
++		this.taskList.create(root, () => this.master.focus());
++		this.master.create(root, goal => {
++			const feed = root.querySelector<HTMLElement>('.agent-os-run-feed');
++			if (feed) { DOM.clearNode(feed); DOM.append(feed, $('div.agent-os-run-card', undefined, goal)); DOM.append(feed, $('div.agent-os-run-state', undefined, localize('queued', "已创建任务 · 正在准备执行"))); }
++			this.detail.setPlanning();
++		});
++		this.detail.create(root);
++	}
++}
+diff --git a/src/vs/workbench/agentOSWindow/browser/media/agentOSWindow.css b/src/vs/workbench/agentOSWindow/browser/media/agentOSWindow.css
+new file mode 100644
+index 0000000..3d32e7b
+--- /dev/null
++++ b/src/vs/workbench/agentOSWindow/browser/media/agentOSWindow.css
+@@ -0,0 +1 @@
++.agent-os-native-workbench .editor-group-container>.title{display:none}.agent-os-native-workbench .editor-group-container>.editor-container{height:100%}.agent-os-window{height:100%;display:grid;grid-template-columns:248px minmax(520px,1fr) 300px;color:var(--vscode-foreground);background:var(--vscode-editor-background);overflow:hidden}.agent-os-task-rail,.agent-os-work-detail{padding:24px 18px;background:color-mix(in srgb,var(--vscode-sideBar-background) 92%,transparent)}.agent-os-task-rail{border-right:1px solid var(--vscode-sideBar-border,var(--vscode-widget-border))}.agent-os-work-detail{border-left:1px solid var(--vscode-sideBar-border,var(--vscode-widget-border))}.agent-os-brand{font-size:18px;font-weight:650;margin:4px 8px 24px}.agent-os-new-task,.agent-os-nav-item,.agent-os-task{width:100%;border:0;color:inherit;background:transparent;text-align:left;border-radius:8px;padding:10px 12px;margin-bottom:4px}.agent-os-new-task{border:1px solid var(--vscode-widget-border);margin-bottom:16px}.agent-os-nav-item.active,.agent-os-task.active{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}.agent-os-section-label{margin:28px 10px 10px;color:var(--vscode-descriptionForeground);font-size:12px}.agent-os-main{display:flex;flex-direction:column;align-items:center;padding:12vh 48px 40px;overflow:auto}.agent-os-main-header,.agent-os-composer,.agent-os-starters,.agent-os-run-feed{width:min(760px,100%)}.agent-os-main-header h1{font-size:30px;line-height:1.25;margin:8px 0;font-weight:620}.agent-os-main-header p,.agent-os-work-detail p{color:var(--vscode-descriptionForeground);line-height:1.6}.agent-os-eyebrow{color:var(--vscode-descriptionForeground);font-size:12px}.agent-os-composer{margin-top:34px;border:1px solid var(--vscode-input-border,var(--vscode-widget-border));border-radius:14px;background:var(--vscode-input-background);box-shadow:0 8px 32px color-mix(in srgb,black 12%,transparent)}.agent-os-prompt{box-sizing:border-box;width:100%;resize:none;border:0;outline:0;padding:20px;color:var(--vscode-input-foreground);background:transparent;font:inherit;line-height:1.55}.agent-os-composer-toolbar{display:flex;align-items:center;gap:10px;padding:10px 12px}.agent-os-icon-button,.agent-os-send,.agent-os-starters button{border:1px solid var(--vscode-widget-border);color:inherit;background:transparent;border-radius:999px}.agent-os-icon-button,.agent-os-send{width:34px;height:34px}.agent-os-selection{flex:1;color:var(--vscode-descriptionForeground);font-size:12px}.agent-os-send{color:var(--vscode-button-foreground);background:var(--vscode-button-background);border-color:transparent;font-size:20px}.agent-os-starters{display:flex;gap:10px;justify-content:center;margin-top:18px}.agent-os-starters button{padding:8px 14px}.agent-os-run-feed{margin-top:34px}.agent-os-run-card{padding:14px 16px;border:1px solid var(--vscode-widget-border);border-radius:10px 10px 0 0}.agent-os-run-state{padding:10px 16px;border:1px solid var(--vscode-widget-border);border-top:0;border-radius:0 0 10px 10px;color:var(--vscode-descriptionForeground)}.agent-os-detail-title{font-weight:620;margin-bottom:30px}.agent-os-empty-title{font-weight:600;margin-bottom:8px}@media(max-width:1050px){.agent-os-window{grid-template-columns:220px 1fr}.agent-os-work-detail{display:none}}
+diff --git a/src/vs/workbench/agentOSWindow/electron-browser/agentOSWindow.main.ts b/src/vs/workbench/agentOSWindow/electron-browser/agentOSWindow.main.ts
+new file mode 100644
+index 0000000..67ec550
+--- /dev/null
++++ b/src/vs/workbench/agentOSWindow/electron-browser/agentOSWindow.main.ts
+@@ -0,0 +1,23 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Agent OS contributors. All rights reserved.
++ *  Licensed under the MIT License.
++ *--------------------------------------------------------------------------------------------*/
++
++import { INativeWindowConfiguration } from '../../../platform/window/common/window.js';
++import { ServiceCollection } from '../../../platform/instantiation/common/serviceCollection.js';
++import { ILogService } from '../../../platform/log/common/log.js';
++import { Workbench, IWorkbenchOptions } from '../../browser/workbench.js';
++import { DesktopMain } from '../../electron-browser/desktop.main.js';
++
++/** Starts the real Code-OSS service graph for the first-class Agent OS window. */
++export class AgentOSWorkbench extends Workbench { }
++
++export class AgentOSWindowMain extends DesktopMain {
++	protected override createWorkbench(parent: HTMLElement, options: IWorkbenchOptions, serviceCollection: ServiceCollection, logService: ILogService): Workbench {
++		return new AgentOSWorkbench(parent, { ...options, extraClasses: [...(options.extraClasses ?? []), 'agent-os-native-workbench'] }, serviceCollection, logService);
++	}
++}
++
++export function main(configuration: INativeWindowConfiguration): Promise<void> {
++	return new AgentOSWindowMain(configuration).open();
++}
+diff --git a/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts b/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts
+index 743f9e6..8e3fd8a 100644
+--- a/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts
++++ b/src/vs/workbench/browser/parts/titlebar/titlebarPart.ts
+@@ -25,7 +25,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
+ import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
+ import { Parts, IWorkbenchLayoutService, ActivityBarPosition, LayoutSettings, EditorActionsLocation, EditorTabsMode } from '../../../services/layout/browser/layoutService.js';
+ import { createActionViewItem, fillInActionBarActions } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
+-import { Action2, IMenu, IMenuService, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
++import { Action2, IMenu, IMenuService, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
+ import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+ import { IHostService } from '../../../services/host/browser/host.js';
+ import { WindowTitle } from './windowTitle.js';
+@@ -55,6 +55,9 @@ import { IHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegate.
+ import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { safeIntl } from '../../../../base/common/date.js';
+ import { IsCompactTitleBarContext, TitleBarVisibleContext } from '../../../common/contextkeys.js';
++import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
++import { Codicon } from '../../../../base/common/codicons.js';
++import { INativeHostService } from '../../../../platform/native/common/native.js';
+ 
+ export interface ITitleVariable {
+ 	readonly name: string;
+@@ -111,6 +114,16 @@ export class BrowserTitleService extends MultiWindowParts<BrowserTitlebarPart> i
+ 	}
+ 
+ 	private registerActions(): void {
++		this._register(registerAction2(class AgentOSSurfaceAction extends Action2 {
++			constructor() { super({ id: 'agentOS.openAgentWindow', title: localize2('agentOS.openAgentWindow', 'Agent'), icon: Codicon.sparkle }); }
++			run(accessor: ServicesAccessor) { return accessor.get(INativeHostService).openAgentOSWindow(); }
++		}));
++		this._register(registerAction2(class AgentOSIdeSurfaceAction extends Action2 {
++			constructor() { super({ id: 'agentOS.focusOrOpenIDEWindow', title: localize2('agentOS.focusOrOpenIDEWindow', 'IDE'), icon: Codicon.code }); }
++			run(accessor: ServicesAccessor) { return accessor.get(INativeHostService).focusOrOpenIDEWindow(); }
++		}));
++		MenuRegistry.appendMenuItem(MenuId.TitleBar, { command: { id: 'agentOS.openAgentWindow', title: localize('agentOS.openAgentWindow.menu', 'Agent'), icon: Codicon.sparkle }, when: ContextKeyExpr.not('agentOS.isAgentWindow'), group: 'navigation', order: 900 });
++		MenuRegistry.appendMenuItem(MenuId.TitleBar, { command: { id: 'agentOS.focusOrOpenIDEWindow', title: localize('agentOS.focusOrOpenIDEWindow.menu', 'IDE'), icon: Codicon.code }, when: ContextKeyExpr.has('agentOS.isAgentWindow'), group: 'navigation', order: 900 });
+ 
+ 		// Focus action
+ 		const that = this;
+@@ -626,7 +639,7 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
+ 			orientation: ActionsOrientation.HORIZONTAL,
+ 			ariaLabel: localize('ariaLabelTitleActions', "Title actions"),
+ 			getKeyBinding: action => this.getKeybinding(action),
+-			overflowBehavior: { maxItems: 9, exempted: [ACCOUNTS_ACTIVITY_ID, GLOBAL_ACTIVITY_ID, ...EDITOR_CORE_NAVIGATION_COMMANDS] },
++			overflowBehavior: { maxItems: 50, exempted: [ACCOUNTS_ACTIVITY_ID, GLOBAL_ACTIVITY_ID, 'agentOS.openAgentWindow', 'agentOS.focusOrOpenIDEWindow', ...EDITOR_CORE_NAVIGATION_COMMANDS] },
+ 			anchorAlignmentProvider: () => AnchorAlignment.RIGHT,
+ 			telemetrySource: 'titlePart',
+ 			highlightToggledItems: this.editorActionsEnabled || this.isAuxiliary, // Only show toggled state for editor actions or auxiliary title bars
+diff --git a/src/vs/workbench/contrib/agentCoding/browser/agentCoding.contribution.ts b/src/vs/workbench/contrib/agentCoding/browser/agentCoding.contribution.ts
+new file mode 100644
+index 0000000..176ac28
+--- /dev/null
++++ b/src/vs/workbench/contrib/agentCoding/browser/agentCoding.contribution.ts
+@@ -0,0 +1,98 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Agent OS contributors. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++
++import { Codicon } from '../../../../base/common/codicons.js';
++import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
++import { localize2 } from '../../../../nls.js';
++import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
++import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
++import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
++import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
++import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
++import { Parts, IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
++import { IViewsService } from '../../../services/views/common/viewsService.js';
++import { CHAT_SIDEBAR_PANEL_ID } from '../../chat/browser/chatViewPane.js';
++import { VIEWLET_ID as SCM_VIEWLET_ID } from '../../scm/common/scm.js';
++import { TERMINAL_VIEW_ID } from '../../terminal/common/terminal.js';
++
++const IDE_ONLY = ContextKeyExpr.notEquals('agentOS.isAgentWindow', true);
++
++abstract class AgentCodingLayoutAction extends Action2 {
++	protected showIDE(layoutService: IWorkbenchLayoutService): void {
++		layoutService.setPartHidden(false, Parts.ACTIVITYBAR_PART);
++		layoutService.setPartHidden(false, Parts.SIDEBAR_PART);
++		layoutService.setPartHidden(false, Parts.EDITOR_PART);
++	}
++}
++
++registerAction2(class OpenAgentCodingAction extends AgentCodingLayoutAction {
++	constructor() {
++		super({
++			id: 'agentOS.coding.openAgent',
++			title: localize2('agentOS.coding.openAgent', "Open Coding Agent"),
++			category: Categories.View,
++			icon: Codicon.chatSparkle,
++			precondition: IDE_ONLY,
++			f1: true,
++			keybinding: {
++				primary: KeyMod.CtrlCmd | KeyCode.KeyL,
++				weight: KeybindingWeight.WorkbenchContrib
++			}
++		});
++	}
++
++	override async run(accessor: ServicesAccessor): Promise<void> {
++		const layoutService = accessor.get(IWorkbenchLayoutService);
++		this.showIDE(layoutService);
++		layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART);
++		await accessor.get(IViewsService).openViewContainer(CHAT_SIDEBAR_PANEL_ID, true);
++	}
++});
++
++registerAction2(class OpenAgentReviewAction extends AgentCodingLayoutAction {
++	constructor() {
++		super({
++			id: 'agentOS.coding.openReview',
++			title: localize2('agentOS.coding.openReview', "Open Agent Review Layout"),
++			category: Categories.View,
++			icon: Codicon.diff,
++			precondition: IDE_ONLY,
++			f1: true
++		});
++	}
++
++	override async run(accessor: ServicesAccessor): Promise<void> {
++		const layoutService = accessor.get(IWorkbenchLayoutService);
++		this.showIDE(layoutService);
++		layoutService.setPartHidden(true, Parts.PANEL_PART);
++		layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART);
++		const viewsService = accessor.get(IViewsService);
++		await viewsService.openViewContainer(SCM_VIEWLET_ID, false);
++		await viewsService.openViewContainer(CHAT_SIDEBAR_PANEL_ID, true);
++	}
++});
++
++registerAction2(class OpenAgentRunAction extends AgentCodingLayoutAction {
++	constructor() {
++		super({
++			id: 'agentOS.coding.openRun',
++			title: localize2('agentOS.coding.openRun', "Open Agent Run Layout"),
++			category: Categories.View,
++			icon: Codicon.terminal,
++			precondition: IDE_ONLY,
++			f1: true
++		});
++	}
++
++	override async run(accessor: ServicesAccessor): Promise<void> {
++		const layoutService = accessor.get(IWorkbenchLayoutService);
++		this.showIDE(layoutService);
++		layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART);
++		layoutService.setPartHidden(false, Parts.PANEL_PART);
++		const viewsService = accessor.get(IViewsService);
++		await viewsService.openViewContainer(CHAT_SIDEBAR_PANEL_ID, false);
++		await viewsService.openView(TERMINAL_VIEW_ID, true);
++	}
++});
+diff --git a/src/vs/workbench/contrib/chat/browser/chat.contribution.ts b/src/vs/workbench/contrib/chat/browser/chat.contribution.ts
+index 70c5512..5a70439 100644
+--- a/src/vs/workbench/contrib/chat/browser/chat.contribution.ts
++++ b/src/vs/workbench/contrib/chat/browser/chat.contribution.ts
+@@ -725,7 +725,7 @@ configurationRegistry.registerConfiguration({
+ 		'chat.disableAIFeatures': {
+ 			type: 'boolean',
+ 			description: nls.localize('chat.disableAIFeatures', "Disable and hide built-in AI features provided by GitHub Copilot, including chat and inline suggestions."),
+-			default: false,
++			default: true,
+ 			scope: ConfigurationScope.WINDOW
+ 		},
+ 		[ChatConfiguration.UseCloudButtonV2]: {
+diff --git a/src/vs/workbench/electron-browser/desktop.main.ts b/src/vs/workbench/electron-browser/desktop.main.ts
+index 99d1984..066f0d7 100644
+--- a/src/vs/workbench/electron-browser/desktop.main.ts
++++ b/src/vs/workbench/electron-browser/desktop.main.ts
+@@ -6,7 +6,8 @@
+ import { localize } from '../../nls.js';
+ import product from '../../platform/product/common/product.js';
+ import { INativeWindowConfiguration, IWindowsConfiguration } from '../../platform/window/common/window.js';
+-import { Workbench } from '../browser/workbench.js';
++import { IContextKeyService } from '../../platform/contextkey/common/contextkey.js';
++import { Workbench, IWorkbenchOptions } from '../browser/workbench.js';
+ import { NativeWindow } from './window.js';
+ import { setFullscreen } from '../../base/browser/browser.js';
+ import { domContentLoaded } from '../../base/browser/dom.js';
+@@ -68,7 +69,7 @@ import { MultiplexPolicyService } from '../services/policies/common/multiplexPol
+ export class DesktopMain extends Disposable {
+ 
+ 	constructor(
+-		private readonly configuration: INativeWindowConfiguration
++		protected readonly configuration: INativeWindowConfiguration
+ 	) {
+ 		super();
+ 
+@@ -125,7 +126,7 @@ export class DesktopMain extends Disposable {
+ 		this.applyWindowZoomLevel(services.configurationService);
+ 
+ 		// Create Workbench
+-		const workbench = new Workbench(mainWindow.document.body, {
++		const workbench = this.createWorkbench(mainWindow.document.body, {
+ 			extraClasses: this.getExtraClasses(),
+ 			resetLayout: this.configuration['disable-layout-restore'] === true
+ 		}, services.serviceCollection, services.logService);
+@@ -135,11 +136,16 @@ export class DesktopMain extends Disposable {
+ 
+ 		// Startup
+ 		const instantiationService = workbench.startup();
++		instantiationService.invokeFunction(accessor => accessor.get(IContextKeyService).createKey<boolean>('agentOS.isAgentWindow', false).set(this.configuration.agentOSWindow === true));
+ 
+ 		// Window
+ 		this._register(instantiationService.createInstance(NativeWindow));
+ 	}
+ 
++	protected createWorkbench(parent: HTMLElement, options: IWorkbenchOptions, serviceCollection: ServiceCollection, logService: ILogService): Workbench {
++		return new Workbench(parent, options, serviceCollection, logService);
++	}
++
+ 	private applyWindowZoomLevel(configurationService: IConfigurationService) {
+ 		let zoomLevel: number | undefined = undefined;
+ 		if (this.configuration.isCustomZoomLevel && typeof this.configuration.zoomLevel === 'number') {
+diff --git a/src/vs/workbench/test/electron-browser/workbenchTestServices.ts b/src/vs/workbench/test/electron-browser/workbenchTestServices.ts
+index 773284e..e60d82a 100644
+--- a/src/vs/workbench/test/electron-browser/workbenchTestServices.ts
++++ b/src/vs/workbench/test/electron-browser/workbenchTestServices.ts
+@@ -65,6 +65,8 @@ export class TestNativeHostService implements INativeHostService {
+ 	declare readonly _serviceBrand: undefined;
+ 
+ 	readonly windowId = -1;
++	async openAgentOSWindow(): Promise<void> { }
++	async focusOrOpenIDEWindow(): Promise<void> { }
+ 
+ 	readonly onDidOpenMainWindow: Event<number> = Event.None;
+ 	readonly onDidMaximizeWindow: Event<number> = Event.None;
+diff --git a/src/vs/workbench/workbench.agentOS.main.ts b/src/vs/workbench/workbench.agentOS.main.ts
+new file mode 100644
+index 0000000..6eecfd8
+--- /dev/null
++++ b/src/vs/workbench/workbench.agentOS.main.ts
+@@ -0,0 +1,9 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Agent OS contributors. All rights reserved.
++ *  Licensed under the MIT License.
++ *--------------------------------------------------------------------------------------------*/
++
++import './workbench.desktop.main.js';
++import './agentOSWindow/browser/agentOSWindow.contribution.js';
++
++export { main } from './agentOSWindow/electron-browser/agentOSWindow.main.js';
+diff --git a/src/vs/workbench/workbench.desktop.main.ts b/src/vs/workbench/workbench.desktop.main.ts
+index 7a17b27..71cbc05 100644
+--- a/src/vs/workbench/workbench.desktop.main.ts
++++ b/src/vs/workbench/workbench.desktop.main.ts
+@@ -173,6 +173,9 @@ import './contrib/remoteTunnel/electron-browser/remoteTunnel.contribution.js';
+ // Chat
+ import './contrib/chat/electron-browser/chat.contribution.js';
+ import './contrib/inlineChat/electron-browser/inlineChat.contribution.js';
++
++// Agent OS native coding workbench
++import './contrib/agentCoding/browser/agentCoding.contribution.js';
+ // Encryption
+ import './contrib/encryption/electron-browser/encryption.contribution.js';
+ 
