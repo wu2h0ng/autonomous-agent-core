@@ -11,7 +11,7 @@
 - Runtime 现有只读 GET 路由(`apps/api_server/server.py`,逐条核实):
   - `GET /v1/tasks` —— 任务列表(Slice 1 已消费;载荷含 `task_id/status/statement/run_status/sequence`,**不含 run_id**,见 `app.py` `list_tasks`);
   - `GET /v1/tasks/{task_id}` —— **任务详情已存在**(catch-all → `app.py:2436 task_json`),含 goal/run(**含 run_id**)/approval/全量 decoded events/proposed_action/provider_usage——**载荷过富,字段最小化是本切片的安全决策**;
-  - `GET /v1/tasks/{task_id}/evidence`、`/recovery`、`/workflow`、`/artifacts/{id}` —— 子资源路由(server.py:651/664 等);
+  - `GET /v1/tasks/{task_id}/evidence`、`/recovery`、`/workflow`、`/events`、`/artifacts/{id}` —— 子资源路由(server.py:634/651/664 等);
   - `GET /v1/tasks/{task_id}/runs/{run_id}/trajectory` —— trajectory 投影(server.py:524+,`app.py:1138`),产出 `EpisodeManifest`/`TrajectoryStep`(`packages/contracts/src/agent_os_contracts/trajectory.py`);
   - `GET /v1/tasks/{task_id}/configuration-snapshots` —— 配置快照。
 - **事件序真相(评审纠正后的事实)**:逐 task 事件表 `task_events`(`packages/os_core/src/agent_os_core/persistence.py`,sequence 逐 task 连续,由 append 侧校验保证);但 trajectory 的 step sequence **继承自逐 task 流**、经 `_select_events`(`os_core/trajectory.py:259-274`)按 run 过滤——**同一 trajectory 内 seq 空洞是常态,不是异常**。"seq 空洞即 fail-closed"的验收不成立,已改为单调递增 + `EpisodeManifest.source_stream_last_sequence` 完整性校验 + gap 显式标注。

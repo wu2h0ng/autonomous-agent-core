@@ -43,7 +43,7 @@
 - Modify: `apps/code-oss/overlay-src/src/vs/agentos/common/runtimeTaskCatalog.test.ts`
 - Create: `apps/code-oss/tests/runtime-task-detail-contract.test.mjs`
 
-- [ ] Step 1: 失败测试——详情解码器:白名单字段通过,`approval`/`proposed_action`/`provider_usage`/多余字段拒绝;trajectory 解码器:乱序/非单调 sequence 拒绝、`source_stream_last_sequence` 与事件流不一致拒绝、未知事件类型拒绝、gap 被保留为标注而非拒绝
+- [ ] Step 1: 失败测试——详情解码器:**白名单投影 + 输出封闭校验**(task_json 输入恒含 `approval`/`proposed_action`/`provider_usage` 等键,不拒输入,但投影输出必须只含白名单字段且这些键缺席;多余未知顶层字段按封闭约定拒绝);trajectory 解码器:乱序/非单调 sequence 拒绝、step sequence 超出 `source_stream_last_sequence` 或末端 step 与完整性基准不一致拒绝(精确语义:全部 step sequence 严格递增且 ≤ source_stream_last_sequence)、未知事件类型拒绝、gap 被保留为标注而非拒绝
 - [ ] Step 2: 实现两个封闭 decoder 与类型
 - [ ] Step 3: 对真实 Runtime 响应样本跑合同测试(捕获真实 task_json/trajectory 响应作为 fixture,不含任何 secret)
 - [ ] Step 4: 全量测试 + 编译 0 errors
