@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,6 +89,7 @@ class OperatorEventLog:
                 "v": 1,
                 "ts": now.isoformat(),
                 "type": event_type,
+                "actor": os.environ.get("AGENT_OS_OPERATOR", "user:local"),
                 "prev_hash": self._prev_hash,
             }
             if task_id is not None:
