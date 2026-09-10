@@ -158,16 +158,6 @@ export class RuntimeTaskCatalogMainService {
 		return body;
 	}
 
-	/** Absolute-URL escape hatch for diagnostics; still loopback-pinned. */
-	async fetchFrom(url: string): Promise<unknown> {
-		const descriptor = await this.loadDescriptor();
-		const origin = `http://${descriptor.host}:${descriptor.port}`;
-		if (!url.startsWith(origin + '/')) {
-			throw new RuntimeTaskCatalogError('RUNTIME_NOT_LOOPBACK', `refused non-loopback URL: ${url}`);
-		}
-		return this.fetchJson(url, descriptor.bearer_token);
-	}
-
 	private async fetchJson(url: string, bearerToken: string): Promise<unknown> {
 		let response;
 		try {

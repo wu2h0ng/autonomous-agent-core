@@ -107,7 +107,8 @@ test('bridge is read-only and loopback-only', async () => {
 			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
 			await assert.rejects(() => bridge.request('POST', '/v1/tasks'), /read-only/);
 			await assert.rejects(() => bridge.request('GET', '/v1/admin/shutdown'), /not allowed/);
-			await assert.rejects(() => bridge.fetchFrom('http://example.com/v1/tasks'), /loopback/);
+			// No absolute-URL escape hatch remains on the bridge surface.
+			assert.equal(typeof bridge.fetchFrom, 'undefined');
 		});
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -259,6 +260,57 @@ test('quit termination escalates to SIGKILL past the deadline', async () => {
 		assert.equal(await termination.done, 'terminated');
 		await exited;
 		assert.equal(stubborn.signalCode, 'SIGKILL');
+	} finally {
+		if (stubborn.exitCode === null) {
+			stubborn.kill('SIGKILL');
+		}
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('quit termination never SIGKILLs a reused pid identity', async () => {
+	const { dir, lifecycle } = await loadBridge();
+	const stubborn = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready");']);
+	try {
+		await new Promise(resolve => stubborn.stdout.once('data', resolve));
+		const descriptorPath = await descriptorFileFor(dir, stubborn.pid);
+		// Simulate pid reuse: the process identity fingerprint flips after
+		// SIGTERM lands, i.e. the pid now hosts a different process.
+		let fingerprint = 'identity:original';
+		const termination = lifecycle.beginInteractiveRuntimeTermination(descriptorPath, 300, {
+			fingerprintOf: () => fingerprint,
+		});
+		assert.equal(termination.pending, true);
+		const exited = new Promise(resolve => stubborn.once('exit', () => resolve(true)));
+		fingerprint = 'identity:reused';
+		const result = await termination.done;
+		assert.equal(result, 'terminated');
+		// Fail closed: the foreign process at the reused pid must survive. Wait
+		// past the kill so a (buggy) SIGKILL has time to reap before we assert.
+		const wasKilled = await Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 500))]);
+		assert.equal(wasKilled, false);
+		assert.equal(pidAlive(stubborn.pid), true);
+	} finally {
+		if (stubborn.exitCode === null) {
+			stubborn.kill('SIGKILL');
+		}
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('quit termination skips SIGKILL when the descriptor identity changes mid-flight', async () => {
+	const { dir, lifecycle } = await loadBridge();
+	const stubborn = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready");']);
+	try {
+		await new Promise(resolve => stubborn.stdout.once('data', resolve));
+		const descriptorPath = await descriptorFileFor(dir, stubborn.pid);
+		const termination = lifecycle.beginInteractiveRuntimeTermination(descriptorPath, 300);
+		assert.equal(termination.pending, true);
+		// A different runtime instance now owns the descriptor file.
+		await descriptorFileFor(dir, stubborn.pid, { boot_id: 'boot:other-runtime' });
+		const result = await termination.done;
+		assert.equal(result, 'descriptor-changed');
+		assert.equal(pidAlive(stubborn.pid), true);
 	} finally {
 		if (stubborn.exitCode === null) {
 			stubborn.kill('SIGKILL');

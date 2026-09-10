@@ -64,4 +64,14 @@ builder ≠ reviewer(`builder_id != reviewed_by`)。本记录不构成评审。S
 
 ## 8. 显式非主张(保留边界)
 
-本切片**不包含**:审批/自动化执行、多客户端写、后台常驻服务、Rust 迁移、发布物,以及任何形式的 autonomy 声称。对上游 Code-OSS 内核的改动面仍为 patch 010 的 4 个上游文件小 hunk + 1 个 sessions 入口接缝,零新增上游文件;全部新代码位于 overlay `src/vs/agentos/`。
+本切片**不包含**:审批/自动化执行、多客户端写、后台常驻服务、Rust 迁移、发布物,以及任何形式的 autonomy 声称。对上游 Code-OSS 内核的改动面为 patch 010 的 **5 个上游文件**小 hunk(`app.ts`、`nativeHostMainService.ts`、`window.ts`、`desktop.contribution.ts`、`sessions.desktop.main.ts`,其中 `sessions.desktop.main.ts` 是唯一的 sessions 入口接缝),零新增上游文件;全部新代码位于 overlay `src/vs/agentos/`。(评审更正:此前记录为 4 个,实测 5 个,codex-primary P2-1。)
+
+## 9. 评审修订记录(2026-09-10 复审轮)
+
+codex-primary 独立评审裁决 `REVISE_TO_SPEC`(报告:`review-codex-primary.md`),修复如下:
+
+- **P1-1(已修)**:`interactiveRuntimeLifecycle.ts` 原实现在 SIGTERM 后的 5s 窗口内只用 `kill(pid, 0)` 探活,pid 复用时可能 SIGKILL 无关进程。修复:捕获进程启动时间指纹(`ps -o lstart=`),SIGTERM 前、轮询每次、SIGKILL 前三处复核身份;SIGKILL 前同时重读 descriptor 比对 pid+boot_id;身份无法证明时 fail-closed 不发信号。新增两个失败先行的回归测试(指纹翻转 / descriptor 中途易主)。
+- **P2-1(已修)**:本文 §8 上游文件数 4 → 5(patch 010 实测:`app.ts`、`nativeHostMainService.ts`、`window.ts`、`desktop.contribution.ts`、`sessions.desktop.main.ts`)。
+- **Additional Note(已修)**:删除 `RuntimeTaskCatalogMainService.fetchFrom` 绝对 URL 逃逸口(生产无调用方),桥表面只剩 `listTasks` 一个允许路径。
+- **环境性失败说明**:评审沙箱中 `verify.mjs` 35/42、e2e 0/1、完整 compile 失败,根因为该沙箱禁止 loopback listen / IPC pipe(`listen EPERM`,reviewer 用最小 Node server 复核确认);非代码回归。builder 侧非沙箱环境当场重跑:verify 42/42、e2e 1/1、`npm run compile` 0 errors。
+- TOCTOU(`lstat` 后 `readFile`)本轮未改,记入后续切片候选:以 no-follow open + `fstat` 校验替代。
