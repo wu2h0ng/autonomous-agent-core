@@ -375,7 +375,9 @@ class AgentOSApplication:
             credential_ref_id=credential_ref.credential_ref_id,
             capabilities=("chat",),
             max_context_tokens=16_000,
-            request_timeout_seconds=60,
+            request_timeout_seconds=int(
+                os.environ.get("AGENT_OS_PROVIDER_TIMEOUT_SECONDS", "60")
+            ),
             created_at=built_in_profile_created_at,
         )
         deterministic_binding = ProviderInvocationBinding(
@@ -399,7 +401,9 @@ class AgentOSApplication:
                 model=live_model,
                 credential=credential_ref,
                 credentials=EnvCredentialBroker(),
-                timeout_seconds=60,
+                timeout_seconds=int(
+                    os.environ.get("AGENT_OS_PROVIDER_TIMEOUT_SECONDS", "60")
+                ),
                 provider_profile=self.provider_profile,
             )
             if live_base_url
