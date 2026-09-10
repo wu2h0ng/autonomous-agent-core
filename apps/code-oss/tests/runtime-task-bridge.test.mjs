@@ -189,7 +189,7 @@ test('401 marks the descriptor stale with a typed error', async () => {
 	}
 });
 
-test('channel exposes exactly one read-only command and never the bearer', async () => {
+test('channel exposes only the read-only commands and never the bearer', async () => {
 	const { dir, service, channel } = await loadBridge();
 	try {
 		await withServer((req, res) => res.end(catalogBody()), async port => {
@@ -201,6 +201,170 @@ test('channel exposes exactly one read-only command and never the bearer', async
 			await assert.rejects(() => ipc.call(null, 'deleteAll', []), /Unknown runtime task catalog command/);
 			await assert.rejects(() => ipc.call(null, 'request', ['POST', '/v1/tasks']), /Unknown runtime task catalog command/);
 			assert.equal(JSON.stringify(snapshot).includes('test-bearer-token'), false);
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// --- Slice 2 Task 2: task detail and trajectory reads over the bridge ---
+
+async function readFixture(name) {
+	return readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+}
+
+test('getTaskDetail fetches the task route and decodes the whitelist projection', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		let seen;
+		const detail = JSON.parse(await readFixture('task-detail-run.real.json'));
+		await withServer((req, res) => {
+			seen = { method: req.method, path: req.url, authorization: req.headers.authorization };
+			res.end(JSON.stringify(detail));
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const result = await bridge.getTaskDetail(detail.task_id);
+			assert.equal(result.taskId, detail.task_id);
+			assert.equal(result.runId, detail.run.run_id);
+			assert.equal(result.runStatus, 'FAILED');
+			assert.equal(result.statement, detail.goal.statement);
+			assert.deepEqual(seen, {
+				method: 'GET',
+				path: `/v1/tasks/${detail.task_id}`,
+				authorization: 'Bearer test-bearer-token',
+			});
+			// The over-rich task_json keys must not cross the bridge.
+			const wire = JSON.stringify(result);
+			for (const forbidden of ['approval', 'proposed_action', 'provider', 'events', 'artifacts', 'domain_pack', 'workspace', 'test-bearer-token']) {
+				assert.equal(wire.includes(forbidden), false, `forbidden payload leaked: ${forbidden}`);
+			}
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('getTaskTrajectory fetches the run trajectory route and decodes steps', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		let seen;
+		const trajectory = JSON.parse(await readFixture('task-trajectory.real.json'));
+		await withServer((req, res) => {
+			seen = { method: req.method, path: req.url, authorization: req.headers.authorization };
+			res.end(JSON.stringify(trajectory));
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const result = await bridge.getTaskTrajectory(trajectory.manifest.task_id, trajectory.manifest.run_id);
+			assert.equal(result.steps.length, 20);
+			assert.equal(result.sourceStreamLastSequence, 20);
+			assert.deepEqual(seen, {
+				method: 'GET',
+				path: `/v1/tasks/${trajectory.manifest.task_id}/runs/${encodeURIComponent(trajectory.manifest.run_id)}/trajectory`,
+				authorization: 'Bearer test-bearer-token',
+			});
+			assert.equal(JSON.stringify(result).includes('test-bearer-token'), false);
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('unsafe task and run ids are rejected before any HTTP request', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		let hit = false;
+		await withServer((req, res) => {
+			hit = true;
+			res.end(catalogBody());
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const badIds = ['../admin', 'task/1', 'task 1', 'task\\1', '', 'x'.repeat(300), 42, null, undefined];
+			for (const bad of badIds) {
+				await assert.rejects(() => bridge.getTaskDetail(bad), /not allowed|invalid/i);
+				await assert.rejects(() => bridge.getTaskTrajectory(bad, 'run:9'), /not allowed|invalid/i);
+				await assert.rejects(() => bridge.getTaskTrajectory('task:1', bad), /not allowed|invalid/i);
+			}
+			// Encoded slash inside a raw id must never smuggle a path segment.
+			await assert.rejects(() => bridge.getTaskDetail('task%2Fadmin'), /not allowed|invalid/i);
+		});
+		assert.equal(hit, false, 'server must never receive a request for an unsafe id');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('channel exposes detail and trajectory reads with typed argument validation', async () => {
+	const { dir, service, channel } = await loadBridge();
+	try {
+		const detail = JSON.parse(await readFixture('task-detail-run.real.json'));
+		const trajectory = JSON.parse(await readFixture('task-trajectory.real.json'));
+		await withServer((req, res) => {
+			res.end(JSON.stringify(req.url.endsWith('/trajectory') ? trajectory : detail));
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const ipc = new channel.RuntimeTaskCatalogChannel(bridge);
+			const detailResult = await ipc.call(null, 'getTaskDetail', [detail.task_id]);
+			assert.equal(detailResult.runStatus, 'FAILED');
+			const trajectoryResult = await ipc.call(null, 'getTaskTrajectory', [trajectory.manifest.task_id, trajectory.manifest.run_id]);
+			assert.equal(trajectoryResult.steps.length, 20);
+			await assert.rejects(() => ipc.call(null, 'getTaskDetail', []), /taskId|argument|invalid/i);
+			await assert.rejects(() => ipc.call(null, 'getTaskDetail', [42]), /taskId|argument|invalid/i);
+			await assert.rejects(() => ipc.call(null, 'getTaskTrajectory', ['task:1']), /runId|argument|invalid/i);
+			await assert.rejects(() => ipc.call(null, 'getTaskTrajectory', [42, 'run:9']), /taskId|argument|invalid/i);
+			await assert.rejects(() => ipc.call(null, 'cancelRun', ['run:9']), /Unknown runtime task catalog command/);
+			const wire = JSON.stringify([detailResult, trajectoryResult]);
+			assert.equal(wire.includes('test-bearer-token'), false);
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('detail and trajectory reads inherit the descriptor and response guards', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		const detail = JSON.parse(await readFixture('task-detail-run.real.json'));
+		const trajectory = JSON.parse(await readFixture('task-trajectory.real.json'));
+
+		// 401 marks the descriptor stale.
+		await withServer((req, res) => {
+			res.statusCode = 401;
+			res.end(JSON.stringify({ error: 'local_authentication_failed' }));
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			await assert.rejects(() => bridge.getTaskDetail('task:1'), error => error.code === 'RUNTIME_DESCRIPTOR_STALE');
+			await assert.rejects(() => bridge.getTaskTrajectory('task:1', 'run:9'), error => error.code === 'RUNTIME_DESCRIPTOR_STALE');
+		});
+
+		// Oversized responses are refused on both routes.
+		await withServer((req, res) => {
+			const big = req.url.endsWith('/trajectory')
+				? { ...trajectory, steps: [...trajectory.steps, { ...trajectory.steps[0], event_digest: 'x'.repeat(2 * 1024 * 1024) }] }
+				: { ...detail, oversized: 'x'.repeat(2 * 1024 * 1024) };
+			res.end(JSON.stringify(big));
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			await assert.rejects(() => bridge.getTaskDetail('task:1'), /too large|1 MiB/i);
+			await assert.rejects(() => bridge.getTaskTrajectory('task:1', 'run:9'), /too large|1 MiB/i);
+		});
+
+		// A descriptor swap mid-request invalidates the detail response.
+		await withServer(async (req, res) => {
+			await new Promise(resolve => setTimeout(resolve, 250));
+			res.end(JSON.stringify(detail));
+		}, async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const pending = bridge.getTaskDetail('task:1');
+			await new Promise(resolve => setTimeout(resolve, 50));
+			await writeDescriptor(dir, descriptorFor(port, { boot_id: 'boot:swapped' }));
+			await assert.rejects(pending, /descriptor/i);
 		});
 	} finally {
 		await rm(dir, { recursive: true, force: true });

@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { lstat, readFile } from 'node:fs/promises';
-import { decodeTaskCatalog } from '../common/runtimeTaskCatalog.js';
-import type { AgentOSTaskCatalogSnapshot } from '../common/runtimeTaskCatalog.js';
+import { decodeTaskCatalog, decodeTaskDetail, decodeTaskTrajectory } from '../common/runtimeTaskCatalog.js';
+import type { AgentOSTaskCatalogSnapshot, AgentOSTaskDetail, AgentOSTaskTrajectory } from '../common/runtimeTaskCatalog.js';
 
 /**
  * Runtime task catalog bridge, Electron main side.
@@ -49,7 +49,36 @@ export class RuntimeTaskCatalogError extends Error {
 
 const REQUEST_TIMEOUT_MS = 5_000;
 const RESPONSE_CAP_BYTES = 1_048_576; // 1 MiB
-const ALLOWED_GET_PATHS: readonly string[] = ['/v1/tasks'];
+
+/**
+ * Route templates the read-only bridge may call. Every dynamic segment is
+ * validated by {@link assertSafeRouteSegment} before the path is built, and
+ * validated segments can never contain `/`, so `[^/]+` here cannot match a
+ * smuggled path separator even after percent-encoding.
+ */
+const ALLOWED_GET_PATH_PATTERNS: readonly RegExp[] = [
+	/^\/v1\/tasks$/,
+	/^\/v1\/tasks\/[^/]+$/,
+	/^\/v1\/tasks\/[^/]+\/runs\/[^/]+\/trajectory$/,
+];
+
+function isAllowedGetPath(path: string): boolean {
+	return ALLOWED_GET_PATH_PATTERNS.some(pattern => pattern.test(path));
+}
+
+const SAFE_ROUTE_SEGMENT = /^[A-Za-z0-9:._-]{1,256}$/;
+
+/**
+ * Fail-closed validation of a task/run id before it is placed in a URL path.
+ * Anything that could alter the route shape (slashes, whitespace, dots alone,
+ * control characters, overlong values, non-strings) is rejected.
+ */
+function assertSafeRouteSegment(value: unknown, label: string): string {
+	if (typeof value !== 'string' || !SAFE_ROUTE_SEGMENT.test(value) || value === '.' || value === '..') {
+		throw new RuntimeTaskCatalogError('RUNTIME_PATH_NOT_ALLOWED', `path not allowed: ${label} is not a safe route segment: ${JSON.stringify(value)}`);
+	}
+	return value;
+}
 
 function isProcessAlive(pid: number): boolean {
 	try {
@@ -122,9 +151,10 @@ export class RuntimeTaskCatalogMainService {
 	private servedCatalog = false;
 
 	/**
-	 * Whether this app instance actually served the catalog to a renderer. The
-	 * application-quit lifecycle uses it to terminate only the runtime this
-	 * session interacted with — never a daemon the app merely could see.
+	 * Whether this app instance actually served any runtime read (catalog,
+	 * task detail or trajectory) to a renderer. The application-quit
+	 * lifecycle uses it to terminate only the runtime this session
+	 * interacted with — never a daemon the app merely could see.
 	 */
 	get hasServedCatalog(): boolean {
 		return this.servedCatalog;
@@ -137,12 +167,31 @@ export class RuntimeTaskCatalogMainService {
 		return snapshot;
 	}
 
+	/** Read the whitelist-projected detail of a single task (`GET /v1/tasks/{id}`). */
+	async getTaskDetail(taskId: string): Promise<AgentOSTaskDetail> {
+		const segment = assertSafeRouteSegment(taskId, 'taskId');
+		const payload = await this.request('GET', `/v1/tasks/${encodeURIComponent(segment)}`);
+		const detail = decodeTaskDetail(payload);
+		this.servedCatalog = true;
+		return detail;
+	}
+
+	/** Read the closed trajectory projection of one run (`GET /v1/tasks/{id}/runs/{runId}/trajectory`). */
+	async getTaskTrajectory(taskId: string, runId: string): Promise<AgentOSTaskTrajectory> {
+		const taskSegment = assertSafeRouteSegment(taskId, 'taskId');
+		const runSegment = assertSafeRouteSegment(runId, 'runId');
+		const payload = await this.request('GET', `/v1/tasks/${encodeURIComponent(taskSegment)}/runs/${encodeURIComponent(runSegment)}/trajectory`);
+		const trajectory = decodeTaskTrajectory(payload);
+		this.servedCatalog = true;
+		return trajectory;
+	}
+
 	/** Read-only request guard: the bridge serves data, never commands. */
 	async request(method: string, path: string): Promise<unknown> {
 		if (method !== 'GET') {
 			throw new RuntimeTaskCatalogError('RUNTIME_READ_ONLY', `bridge is read-only; refused ${method} ${path}`);
 		}
-		if (!ALLOWED_GET_PATHS.includes(path)) {
+		if (!isAllowedGetPath(path)) {
 			throw new RuntimeTaskCatalogError('RUNTIME_PATH_NOT_ALLOWED', `path not allowed on the task catalog bridge: ${path}`);
 		}
 		const descriptor = await this.loadDescriptor();
