@@ -1,0 +1,125 @@
+diff --git a/src/vs/agentos/electron-browser/windowNavigation.ts b/src/vs/agentos/electron-browser/windowNavigation.ts
+new file mode 100644
+--- /dev/null
++++ b/src/vs/agentos/electron-browser/windowNavigation.ts
+@@ -0,0 +1,20 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Agent OS contributors. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++
++import type { INativeHostService } from '../../platform/native/common/native.js';
++
++export async function openSessionsWindow(nativeHostService: INativeHostService): Promise<void> {
++	await nativeHostService.openAgentsWindow();
++}
++
++export async function focusOrOpenIDEWindow(nativeHostService: INativeHostService): Promise<void> {
++	const windows = await nativeHostService.getWindows({ includeAuxiliaryWindows: false });
++	const ideWindow = windows.find(window => window.isSessionsWindow === false);
++	if (ideWindow) {
++		await nativeHostService.focusWindow({ targetWindowId: ideWindow.id });
++	} else {
++		await nativeHostService.openWindow();
++	}
++}
+diff --git a/src/vs/agentos/electron-browser/windowActions.ts b/src/vs/agentos/electron-browser/windowActions.ts
+new file mode 100644
+--- /dev/null
++++ b/src/vs/agentos/electron-browser/windowActions.ts
+@@ -0,0 +1,61 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Agent OS contributors. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++
++import { Codicon } from '../../base/common/codicons.js';
++import { localize2 } from '../../nls.js';
++import { Action2, MenuId, registerAction2 } from '../../platform/actions/common/actions.js';
++import { IsWebContext } from '../../platform/contextkey/common/contextkeys.js';
++import { ContextKeyExpr } from '../../platform/contextkey/common/contextkey.js';
++import { ServicesAccessor } from '../../platform/instantiation/common/instantiation.js';
++import { INativeHostService } from '../../platform/native/common/native.js';
++import { Menus } from '../../sessions/browser/menus.js';
++import { IsAuxiliaryWindowContext, IsSessionsWindowContext } from '../../workbench/common/contextkeys.js';
++import { focusOrOpenIDEWindow, openSessionsWindow } from './windowNavigation.js';
++
++const nativeMainWindow = ContextKeyExpr.and(IsWebContext.toNegated(), IsAuxiliaryWindowContext.toNegated());
++
++registerAction2(class OpenSessionsWindowAction extends Action2 {
++	constructor() {
++		super({
++			id: 'agentOS.openSessionsWindow',
++			title: localize2('agentOS.openSessionsWindow', 'Agent OS: Open Agent Window'),
++			f1: true,
++			icon: Codicon.commentDiscussion,
++			precondition: nativeMainWindow,
++			menu: {
++				id: MenuId.TitleBarAdjacentCenter,
++				group: 'navigation',
++				order: 1,
++				when: ContextKeyExpr.and(nativeMainWindow, IsSessionsWindowContext.toNegated()),
++			},
++		});
++	}
++
++	override async run(accessor: ServicesAccessor): Promise<void> {
++		await openSessionsWindow(accessor.get(INativeHostService));
++	}
++});
++
++registerAction2(class FocusOrOpenIDEWindowAction extends Action2 {
++	constructor() {
++		super({
++			id: 'agentOS.focusOrOpenIDEWindow',
++			title: localize2('agentOS.focusOrOpenIDEWindow', 'Agent OS: Open IDE Window'),
++			f1: true,
++			icon: Codicon.code,
++			precondition: nativeMainWindow,
++			menu: {
++				id: Menus.TitleBarCenterRight,
++				group: 'navigation',
++				order: 1,
++				when: ContextKeyExpr.and(nativeMainWindow, IsSessionsWindowContext),
++			},
++		});
++	}
++
++	override async run(accessor: ServicesAccessor): Promise<void> {
++		await focusOrOpenIDEWindow(accessor.get(INativeHostService));
++	}
++});
+diff --git a/src/vs/platform/window/common/window.ts b/src/vs/platform/window/common/window.ts
+--- a/src/vs/platform/window/common/window.ts
++++ b/src/vs/platform/window/common/window.ts
+@@ -91,6 +91,8 @@
+ 
+ export interface IOpenedMainWindow extends IOpenedWindow {
+ 	readonly workspace?: IAnyWorkspaceIdentifier;
++	/** Native window kind, projected from the existing window configuration. */
++	readonly isSessionsWindow?: boolean;
+ 	readonly dirty: boolean;
+ }
+ 
+diff --git a/src/vs/platform/native/electron-main/nativeHostMainService.ts b/src/vs/platform/native/electron-main/nativeHostMainService.ts
+--- a/src/vs/platform/native/electron-main/nativeHostMainService.ts
++++ b/src/vs/platform/native/electron-main/nativeHostMainService.ts
+@@ -218,6 +218,7 @@
+ 			id: window.id,
+ 			workspace: window.openedWorkspace ?? toWorkspaceIdentifier(window.backupPath, window.isExtensionDevelopmentHost),
+ 			title: window.win?.getTitle() ?? '',
++			isSessionsWindow: window.config?.isSessionsWindow === true,
+ 			filename: window.getRepresentedFilename(),
+ 			dirty: window.isDocumentEdited()
+ 		}));
+diff --git a/src/vs/workbench/electron-browser/desktop.contribution.ts b/src/vs/workbench/electron-browser/desktop.contribution.ts
+--- a/src/vs/workbench/electron-browser/desktop.contribution.ts
++++ b/src/vs/workbench/electron-browser/desktop.contribution.ts
+@@ -3,6 +3,7 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ 
++import '../../agentos/electron-browser/windowActions.js';
+ import { Registry } from '../../platform/registry/common/platform.js';
+ import { localize, localize2 } from '../../nls.js';
+ import { MenuRegistry, MenuId, registerAction2 } from '../../platform/actions/common/actions.js';

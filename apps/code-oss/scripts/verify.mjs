@@ -16,3 +16,9 @@ if (!windowContract.includes('isSessionsWindow?: boolean')) throw new Error('ups
 if (!sessionsBootstrap.includes('vs/sessions/sessions.desktop.main.js')) throw new Error('upstream Sessions renderer bootstrap is missing');
 if (!sessionsWorkbench.includes('export class Workbench extends Disposable')) throw new Error('upstream Sessions Workbench is missing');
 console.log(`verified Code-OSS ${lock.tag} upstream Sessions baseline (${lock.commit})`);
+
+const focused = spawnSync(process.execPath, ['--test',
+  path.join(overlayRoot, 'tests/sessions-workbench-structure.test.mjs'),
+  path.join(overlayRoot, 'tests/native-agent-window.test.mjs'),
+], { stdio: 'inherit' });
+if (focused.status !== 0) throw new Error('Agent OS native Sessions structure/navigation verification failed');
