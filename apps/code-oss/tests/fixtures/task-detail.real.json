@@ -1,0 +1,89 @@
+{
+  "task_id": "task-ddbc7acf-9a09-4567-9a80-bd8de0dd231b",
+  "sequence": 1,
+  "status": "DRAFT",
+  "goal": {
+    "schema_version": "1.0",
+    "goal_id": "goal:fixture:1",
+    "tenant_id": "tenant:e2e",
+    "workspace_id": "workspace:e2e",
+    "created_by": "test:fixture",
+    "created_at": "2026-09-10T15:40:38.153000Z",
+    "statement": "Summarize the weekly metrics report",
+    "constraints": []
+  },
+  "commitment": null,
+  "workflow": null,
+  "run": null,
+  "expected_outcome": null,
+  "configuration_snapshot": null,
+  "observed_outcome": null,
+  "historical_observed_outcome": null,
+  "outcome_evidence_valid": null,
+  "approval": null,
+  "proposed_action": null,
+  "provider": {
+    "configured": false,
+    "provider_id": "deterministic",
+    "model_id": "deterministic-v1",
+    "model_revision_digest": null,
+    "endpoint_class": "test",
+    "credential_ref_id": "credential:default",
+    "usage": null
+  },
+  "workspace": {
+    "attached": true,
+    "root": "/private/var/folders/w8/nnfxc0ts0137qnqfgwfh78qm0000gn/T/agent-os-fixture-FSRAAN/workspace",
+    "is_git_repository": false,
+    "entries": []
+  },
+  "artifacts": [],
+  "events": [
+    {
+      "schema_version": "1.0",
+      "event_id": "event-4035fd90-a9fd-4cb6-877c-250438e92574",
+      "task_id": "task-ddbc7acf-9a09-4567-9a80-bd8de0dd231b",
+      "event_type": "TASK_CREATED",
+      "payload_json": "{\"goal\":{\"constraints\":[],\"created_at\":\"2026-09-10T15:40:38.153000Z\",\"created_by\":\"test:fixture\",\"goal_id\":\"goal:fixture:1\",\"schema_version\":\"1.0\",\"statement\":\"Summarize the weekly metrics report\",\"tenant_id\":\"tenant:e2e\",\"workspace_id\":\"workspace:e2e\"}}",
+      "occurred_at": "2026-09-10T15:40:38.175460Z",
+      "correlation_id": "task-ddbc7acf-9a09-4567-9a80-bd8de0dd231b",
+      "causation_id": null,
+      "sequence": 1,
+      "payload": {
+        "goal": {
+          "constraints": [],
+          "created_at": "2026-09-10T15:40:38.153000Z",
+          "created_by": "test:fixture",
+          "goal_id": "goal:fixture:1",
+          "schema_version": "1.0",
+          "statement": "Summarize the weekly metrics report",
+          "tenant_id": "tenant:e2e",
+          "workspace_id": "workspace:e2e"
+        }
+      }
+    }
+  ],
+  "domain_pack": {
+    "schema_version": "1.0",
+    "pack_id": "developer-agent",
+    "version": "1.0",
+    "namespace": "developer_agent",
+    "capabilities": [
+      "workspace.read",
+      "workspace.apply_patch",
+      "workspace.run_tests",
+      "artifact.write"
+    ],
+    "workflow_templates": [
+      "developer_agent.repository_patch.v1"
+    ],
+    "evaluator_types": [
+      "pytest"
+    ],
+    "credential_classes": [
+      "none",
+      "provider-api-key"
+    ],
+    "created_at": "2026-09-10T15:40:38.124456Z"
+  }
+}
