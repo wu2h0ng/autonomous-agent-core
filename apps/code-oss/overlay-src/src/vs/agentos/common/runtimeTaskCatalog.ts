@@ -105,11 +105,29 @@ export interface AgentOSTaskDetail {
 	readonly sequence: number;
 }
 
+/**
+ * Top-level keys the runtime's task_json serves today (frozen by the real
+ * captured fixture). The projection whitelists its OUTPUT, and this set
+ * closes the INPUT surface: any new server field fails closed here, so a
+ * silent contract drift cannot slip richer data past review.
+ */
+const KNOWN_TASK_DETAIL_KEYS: ReadonlySet<string> = new Set([
+	'approval', 'artifacts', 'commitment', 'configuration_snapshot', 'domain_pack',
+	'events', 'expected_outcome', 'goal', 'historical_observed_outcome',
+	'observed_outcome', 'outcome_evidence_valid', 'proposed_action', 'provider',
+	'run', 'sequence', 'status', 'task_id', 'workflow', 'workspace',
+]);
+
 export function decodeTaskDetail(payload: unknown): AgentOSTaskDetail {
 	if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
 		fail('detail payload must be an object');
 	}
 	const record = payload as Record<string, unknown>;
+	for (const key of Object.keys(record)) {
+		if (!KNOWN_TASK_DETAIL_KEYS.has(key)) {
+			fail(`detail payload carries unknown top-level key: ${key}`);
+		}
+	}
 	const { task_id, status, goal, run, sequence } = record;
 	if (typeof task_id !== 'string' || task_id.length === 0) {
 		fail('task_id must be a non-empty string');

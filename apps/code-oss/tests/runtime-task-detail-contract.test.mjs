@@ -82,6 +82,15 @@ test('detail decoder rejects malformed identity fields', async () => {
 	assert.throws(() => decodeTaskDetail({ ...detailPayload(), run: { run_id: '', status: null, created_at: null } }));
 });
 
+test('detail decoder rejects unknown top-level keys (contract drift alarm)', async () => {
+	const { decodeTaskDetail } = await loadDecoder();
+	assert.throws(() => decodeTaskDetail({ ...detailPayload(), brand_new_server_field: {} }), /unknown/i);
+	assert.throws(() => decodeTaskDetail({ ...detailPayload(), admin: { escalate: true } }), /unknown/i);
+	// Every key the real runtime serves today stays accepted.
+	const real = JSON.parse(await readFile(new URL('./fixtures/task-detail-run.real.json', import.meta.url), 'utf8'));
+	assert.ok(decodeTaskDetail(real).runId);
+});
+
 // --- trajectory (exact-keys closed contract) ---
 
 const trajectoryPayload = (steps) => ({

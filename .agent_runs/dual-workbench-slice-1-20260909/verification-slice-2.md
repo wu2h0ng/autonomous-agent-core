@@ -20,7 +20,7 @@ Date: 2026-09-11 · Branch: codex/ide-ui · Builder: kimi-builder
 - e2e：`tests/dual-workbench-slice-2.test.mjs` 绿（真实 daemon + stub provider + 双窗口）：
   - 选中带 run 任务 → 转录按序渲染 20 步（seq #1..#20，首 TASK_CREATED 末 RUN_FAILED）
   - 选中 DRAFT 任务 → 详情 + "No run has been recorded" 笔记，无 trajectory 请求
-  - 页面/载荷无 approval/proposed_action/provider_usage/lease_fence/bearer_token 等键
+  - 页面/载荷无 approval/proposed_action/provider_usage/lease_fence/bearer_token/workflow_digest/tenant_id 键（评审后 approval 已补入 e2e 禁用清单并复跑转绿）
   - bearer 不出现在任何 renderer 的 DOM/storage/console
   - 无写控件（send/delete/archive/fork/approve 全无）
   - reload 后 runtime 存活、标签复现；application quit 有界终止 runtime
@@ -58,3 +58,11 @@ e2e 在 "transcript renders the trajectory in order" 断言超时变红；还原
 
 - 登录欢迎弹窗在上游 flaky 出现；e2e 用 dismiss 循环处理，截图中仍可见。
 - run 以 FAILED 终态（evaluator:none 要求 evidence）——转录内容不受影响。
+
+## 独立评审收口（review-s2-final-subagent.md）
+
+- 结论 APPROVE_SLICE_2，P0=0。
+- P1-1 已关闭：decodeTaskDetail 增加已知顶层键封闭校验（19 键，真实 fixture 钉死），
+  未知顶层字段 fail-closed 作合同漂移报警；新增 red-first 测试，8/8 绿。
+- O-3 已补记：DRAFT→InProgress 映射修正见上文「e2e 发现的两个真实缺陷」，
+  并在计划文档补记。

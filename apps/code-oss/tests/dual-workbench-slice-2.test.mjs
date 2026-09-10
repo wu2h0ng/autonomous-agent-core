@@ -454,7 +454,7 @@ test('dual workbench slice 2: task detail and read-only trajectory transcript', 
 
 			// --- 4. The transcript must not carry over-rich task_json keys -------
 			const transcriptText = await bodyText();
-			for (const forbidden of ['proposed_action', 'provider_usage', 'lease_fence', 'bearer_token', 'workflow_digest', 'tenant_id']) {
+			for (const forbidden of ['approval', 'proposed_action', 'provider_usage', 'lease_fence', 'bearer_token', 'workflow_digest', 'tenant_id']) {
 				assert.equal(transcriptText.includes(forbidden), false, `over-rich key leaked into the transcript: ${forbidden}`);
 			}
 			// A continuous run renders no gap annotation (gap rendering itself is

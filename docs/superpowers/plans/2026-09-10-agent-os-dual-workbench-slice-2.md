@@ -83,3 +83,12 @@
 ### Task 5(条件触发): Python/contracts 变更
 
 仅当 Task 1–4 证明现有端点确实不够时启动:contracts 变更走封闭模型 + tests/product 全量 + 独立评审范围扩大。默认不启动。
+
+## 实施补记（评审收口后追加）
+
+- **DRAFT/null → SessionStatus.InProgress**（原 Slice 1 映射为 Untitled）：
+  e2e 发现上游把 Untitled 视为本地未发送草稿并打开可交互 new-chat 编辑器，
+  对 runtime 拥有的 DRAFT 任务构成写面。修正见 commit 01d4d97e，
+  证据见 verification-slice-2.md。
+- **decodeTaskDetail 输入面封闭**：独立评审 P1-1 后追加已知顶层键校验（19 键），
+  未知顶层字段 fail-closed。
