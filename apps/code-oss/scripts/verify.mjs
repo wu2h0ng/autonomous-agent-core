@@ -18,7 +18,12 @@ if (!sessionsWorkbench.includes('export class Workbench extends Disposable')) th
 console.log(`verified Code-OSS ${lock.tag} upstream Sessions baseline (${lock.commit})`);
 
 const focused = spawnSync(process.execPath, ['--test',
+  path.join(overlayRoot, 'tests/upstream-baseline.test.mjs'),
   path.join(overlayRoot, 'tests/sessions-workbench-structure.test.mjs'),
   path.join(overlayRoot, 'tests/native-agent-window.test.mjs'),
+  path.join(overlayRoot, 'tests/runtime-task-contract.test.mjs'),
+  path.join(overlayRoot, 'tests/runtime-task-bridge.test.mjs'),
+  path.join(overlayRoot, 'tests/agent-os-sessions-provider.test.mjs'),
 ], { stdio: 'inherit' });
-if (focused.status !== 0) throw new Error('Agent OS native Sessions structure/navigation verification failed');
+if (focused.status !== 0) throw new Error('Agent OS dual-workbench focused verification failed');
+console.log('focused verification passed; run the end-to-end slice with: node --test apps/code-oss/tests/dual-workbench-slice-1.test.mjs');

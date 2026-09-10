@@ -1,13 +1,14 @@
 diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
-index c9736ff3..1f0fd97d 100644
+index c9736ff3..f39d1a1b 100644
 --- a/src/vs/code/electron-main/app.ts
 +++ b/src/vs/code/electron-main/app.ts
-@@ -3,10 +3,12 @@
+@@ -3,10 +3,13 @@
   *  Licensed under the MIT License. See License.txt in the project root for license information.
   *--------------------------------------------------------------------------------------------*/
  
 +import { RuntimeTaskCatalogChannel, RUNTIME_TASK_CATALOG_CHANNEL } from '../../agentos/electron-main/runtimeTaskCatalogChannel.js';
 +import { RuntimeTaskCatalogMainService } from '../../agentos/electron-main/runtimeTaskCatalogMainService.js';
++import { beginInteractiveRuntimeTermination } from '../../agentos/electron-main/interactiveRuntimeLifecycle.js';
  import { app, BrowserWindow, desktopCapturer, Details, globalShortcut, GPUFeatureStatus, powerMonitor, protocol, screen as electronScreen, session, Session, systemPreferences, WebFrameMain } from 'electron';
  import { addUNCHostToAllowlist, disableUNCAccessRestrictions } from '../../base/node/unc.js';
  import { validatedIpcMain } from '../../base/parts/ipc/electron-main/ipcMain.js';
@@ -16,7 +17,7 @@ index c9736ff3..1f0fd97d 100644
  import { initWindowsVersionInfo } from '../../base/node/windowsVersion.js';
  import { VSBuffer } from '../../base/common/buffer.js';
  import { toErrorMessage } from '../../base/common/errorMessage.js';
-@@ -1434,6 +1436,13 @@ export class CodeApplication extends Disposable {
+@@ -1434,6 +1437,28 @@ export class CodeApplication extends Disposable {
  		const webviewChannel = ProxyChannel.fromService(accessor.get(IWebviewManagerService), disposables);
  		mainProcessElectronServer.registerChannel('webview', webviewChannel);
  
@@ -24,8 +25,23 @@ index c9736ff3..1f0fd97d 100644
 +		// descriptor bytes or the bearer token to the renderer, only the
 +		// decoded projection. Mutations are rejected inside the channel.
 +		const runtimeDescriptorPath = process.env['AGENTOS_RUNTIME_DESCRIPTOR'] ?? join(homedir(), '.agent-os', 'runtime.json');
-+		const runtimeTaskCatalogChannel = new RuntimeTaskCatalogChannel(new RuntimeTaskCatalogMainService(runtimeDescriptorPath));
++		const runtimeTaskCatalogMainService = new RuntimeTaskCatalogMainService(runtimeDescriptorPath);
++		const runtimeTaskCatalogChannel = new RuntimeTaskCatalogChannel(runtimeTaskCatalogMainService);
 +		mainProcessElectronServer.registerChannel(RUNTIME_TASK_CATALOG_CHANNEL, runtimeTaskCatalogChannel);
++
++		// Agent OS: application quit boundedly terminates the interactive
++		// runtime — but only one this app instance actually served. Window or
++		// renderer reloads never reach this path.
++		app.once('will-quit', event => {
++			if (!runtimeTaskCatalogMainService.hasServedCatalog) {
++				return;
++			}
++			const termination = beginInteractiveRuntimeTermination(runtimeDescriptorPath);
++			if (termination.pending) {
++				event.preventDefault();
++				void termination.done.finally(() => app.exit(0));
++			}
++		});
 +
  		// Storage (main & shared process)
  		const storageChannel = disposables.add((new StorageDatabaseChannel(this.logService, accessor.get(IStorageMainService))));

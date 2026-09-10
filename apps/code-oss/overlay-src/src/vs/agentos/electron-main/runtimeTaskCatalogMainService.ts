@@ -60,6 +60,56 @@ function isProcessAlive(pid: number): boolean {
 	}
 }
 
+export interface RuntimeDescriptorStatLike {
+	isSymbolicLink(): boolean;
+	isFile(): boolean;
+	readonly mode: number;
+	readonly uid: number;
+}
+
+/** Ownership/permission checks shared by the async catalog path and the sync quit path. */
+export function assertRuntimeDescriptorStatSafe(info: RuntimeDescriptorStatLike): void {
+	if (info.isSymbolicLink() || !info.isFile()) {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor must be a regular non-symlink file');
+	}
+	if (process.platform !== 'win32') {
+		if ((info.mode & 0o077) !== 0) {
+			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor must not be group/world readable');
+		}
+		const uid = process.getuid?.();
+		if (uid !== undefined && info.uid !== uid) {
+			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor must be owned by the current user');
+		}
+	}
+}
+
+/** Pure validation of parsed descriptor JSON, shared by both read paths. */
+export function parseRuntimeDescriptor(value: unknown): RuntimeDescriptor {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor must be a JSON object');
+	}
+	const descriptor = value as RuntimeDescriptor;
+	if (descriptor.protocol_version !== '1.0') {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', `unsupported descriptor protocol version: ${descriptor.protocol_version}`);
+	}
+	if (descriptor.host !== '127.0.0.1') {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', `runtime descriptor host must be loopback, got ${descriptor.host}`);
+	}
+	if (!Number.isInteger(descriptor.port) || descriptor.port < 1 || descriptor.port > 65535) {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor port is out of range');
+	}
+	if (typeof descriptor.bearer_token !== 'string' || descriptor.bearer_token.length === 0) {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor bearer token is missing');
+	}
+	if (typeof descriptor.boot_id !== 'string' || descriptor.boot_id.length === 0) {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor boot_id is missing');
+	}
+	if (!Number.isInteger(descriptor.pid) || descriptor.pid <= 0) {
+		throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor pid is invalid');
+	}
+	return descriptor;
+}
+
 export class RuntimeTaskCatalogMainService {
 	private readonly descriptorPath: string;
 	private readonly now: () => number;
@@ -69,9 +119,22 @@ export class RuntimeTaskCatalogMainService {
 		this.now = now;
 	}
 
+	private servedCatalog = false;
+
+	/**
+	 * Whether this app instance actually served the catalog to a renderer. The
+	 * application-quit lifecycle uses it to terminate only the runtime this
+	 * session interacted with — never a daemon the app merely could see.
+	 */
+	get hasServedCatalog(): boolean {
+		return this.servedCatalog;
+	}
+
 	async listTasks(): Promise<AgentOSTaskCatalogSnapshot> {
 		const payload = await this.request('GET', '/v1/tasks');
-		return decodeTaskCatalog(payload, this.now());
+		const snapshot = decodeTaskCatalog(payload, this.now());
+		this.servedCatalog = true;
+		return snapshot;
 	}
 
 	/** Read-only request guard: the bridge serves data, never commands. */
@@ -136,45 +199,16 @@ export class RuntimeTaskCatalogMainService {
 		} catch {
 			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor is missing');
 		}
-		if (info.isSymbolicLink() || !info.isFile()) {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor must be a regular non-symlink file');
-		}
-		if (process.platform !== 'win32') {
-			if ((info.mode & 0o077) !== 0) {
-				throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor must not be group/world readable');
-			}
-			const uid = process.getuid?.();
-			if (uid !== undefined && info.uid !== uid) {
-				throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', 'runtime descriptor must be owned by the current user');
-			}
-		}
-		let value: Record<string, unknown>;
+		assertRuntimeDescriptorStatSafe(info);
+		let value: unknown;
 		try {
 			value = JSON.parse(await readFile(this.descriptorPath, 'utf8'));
 		} catch {
 			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor is not valid JSON');
 		}
-		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor must be a JSON object');
-		}
-		const descriptor = value as unknown as RuntimeDescriptor;
-		if (descriptor.protocol_version !== '1.0') {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', `unsupported descriptor protocol version: ${descriptor.protocol_version}`);
-		}
-		if (descriptor.host !== '127.0.0.1') {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_UNSAFE', `runtime descriptor host must be loopback, got ${descriptor.host}`);
-		}
-		if (!Number.isInteger(descriptor.port) || descriptor.port < 1 || descriptor.port > 65535) {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor port is out of range');
-		}
-		if (!Number.isInteger(descriptor.pid) || descriptor.pid <= 0 || !isProcessAlive(descriptor.pid)) {
+		const descriptor = parseRuntimeDescriptor(value);
+		if (!isProcessAlive(descriptor.pid)) {
 			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_STALE', 'runtime descriptor names a dead process');
-		}
-		if (typeof descriptor.bearer_token !== 'string' || descriptor.bearer_token.length === 0) {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor bearer token is missing');
-		}
-		if (typeof descriptor.boot_id !== 'string' || descriptor.boot_id.length === 0) {
-			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_INVALID', 'runtime descriptor boot_id is missing');
 		}
 		return descriptor;
 	}

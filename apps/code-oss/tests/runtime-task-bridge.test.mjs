@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { readFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +18,7 @@ async function loadBridge() {
 		'common/runtimeTaskCatalog.ts',
 		'electron-main/runtimeTaskCatalogMainService.ts',
 		'electron-main/runtimeTaskCatalogChannel.ts',
+		'electron-main/interactiveRuntimeLifecycle.ts',
 	];
 	for (const relative of files) {
 		const source = await readFile(path.join(upstreamRoot, 'src/vs/agentos', relative), 'utf8');
@@ -29,6 +30,7 @@ async function loadBridge() {
 		dir,
 		service: await import(path.join(dir, 'electron-main/runtimeTaskCatalogMainService.js')),
 		channel: await import(path.join(dir, 'electron-main/runtimeTaskCatalogChannel.js')),
+		lifecycle: await import(path.join(dir, 'electron-main/interactiveRuntimeLifecycle.js')),
 	};
 }
 
@@ -202,4 +204,95 @@ test('channel exposes exactly one read-only command and never the bearer', async
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+});
+
+function descriptorFileFor(dir, pid, overrides = {}) {
+	return writeDescriptor(dir, {
+		protocol_version: '1.0',
+		pid,
+		boot_id: 'boot:lifecycle',
+		host: '127.0.0.1',
+		port: 9,
+		bearer_token: 'lifecycle-token',
+		database_path: '/tmp/agent-os.sqlite3',
+		workspace_path: '/tmp',
+		created_at: new Date().toISOString(),
+		...overrides,
+	});
+}
+
+function pidAlive(pid) {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+test('application quit termination SIGTERMs the live interactive runtime', async () => {
+	const { dir, lifecycle } = await loadBridge();
+	const sleeper = spawn('sleep', ['30']);
+	try {
+		const descriptorPath = await descriptorFileFor(dir, sleeper.pid);
+		const termination = lifecycle.beginInteractiveRuntimeTermination(descriptorPath);
+		assert.equal(termination.pending, true);
+		assert.equal(await termination.done, 'terminated');
+		assert.equal(pidAlive(sleeper.pid), false);
+	} finally {
+		if (sleeper.exitCode === null) {
+			sleeper.kill('SIGKILL');
+		}
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('quit termination escalates to SIGKILL past the deadline', async () => {
+	const { dir, lifecycle } = await loadBridge();
+	const stubborn = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready");']);
+	try {
+		await new Promise(resolve => stubborn.stdout.once('data', resolve));
+		const exited = new Promise(resolve => stubborn.once('exit', resolve));
+		const descriptorPath = await descriptorFileFor(dir, stubborn.pid);
+		const termination = lifecycle.beginInteractiveRuntimeTermination(descriptorPath, 300);
+		assert.equal(termination.pending, true);
+		assert.equal(await termination.done, 'terminated');
+		await exited;
+		assert.equal(stubborn.signalCode, 'SIGKILL');
+	} finally {
+		if (stubborn.exitCode === null) {
+			stubborn.kill('SIGKILL');
+		}
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('quit termination skips missing, unsafe or dead descriptors', async () => {
+	const { dir, lifecycle } = await loadBridge();
+	try {
+		const missing = lifecycle.beginInteractiveRuntimeTermination(path.join(dir, 'nope.json'));
+		assert.equal(missing.pending, false);
+		assert.equal(await missing.done, 'descriptor-unavailable');
+
+		const dead = lifecycle.beginInteractiveRuntimeTermination(await descriptorFileFor(dir, 2 ** 20));
+		assert.equal(dead.pending, false);
+		assert.equal(await dead.done, 'not-running');
+
+		const worldReadable = await descriptorFileFor(dir, process.pid, {});
+		const { chmod } = await import('node:fs/promises');
+		await chmod(worldReadable, 0o644);
+		const unsafe = lifecycle.beginInteractiveRuntimeTermination(worldReadable);
+		assert.equal(unsafe.pending, false);
+		assert.equal(await unsafe.done, 'descriptor-unavailable');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('application quit hook is gated on having served the catalog', async () => {
+	const appSource = await readFile(path.join(upstreamRoot, 'src/vs/code/electron-main/app.ts'), 'utf8');
+	assert.match(appSource, /app\.once\('will-quit'/);
+	assert.match(appSource, /runtimeTaskCatalogMainService\.hasServedCatalog/);
+	assert.match(appSource, /beginInteractiveRuntimeTermination\(runtimeDescriptorPath\)/);
+	assert.match(appSource, /import \{ beginInteractiveRuntimeTermination \} from '\.\.\/\.\.\/agentos\/electron-main\/interactiveRuntimeLifecycle\.js'/);
 });
