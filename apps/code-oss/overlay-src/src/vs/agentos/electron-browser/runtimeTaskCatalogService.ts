@@ -5,7 +5,7 @@
 
 import { ProxyChannel } from '../../base/parts/ipc/common/ipc.js';
 import { IMainProcessService } from '../../platform/ipc/common/mainProcessService.js';
-import type { AgentOSTaskCatalogSnapshot } from '../common/runtimeTaskCatalog.js';
+import type { AgentOSTaskCatalogSnapshot, AgentOSTaskDetail, AgentOSTaskTrajectory } from '../common/runtimeTaskCatalog.js';
 import { IRuntimeTaskCatalogService } from '../common/runtimeTaskCatalogService.js';
 import { RUNTIME_TASK_CATALOG_CHANNEL } from '../electron-main/runtimeTaskCatalogChannel.js';
 
@@ -27,5 +27,13 @@ export class RuntimeTaskCatalogService implements IRuntimeTaskCatalogService {
 
 	listTasks(): Promise<AgentOSTaskCatalogSnapshot> {
 		return this.service.listTasks();
+	}
+
+	getTaskDetail(taskId: string): Promise<AgentOSTaskDetail> {
+		return this.service.getTaskDetail(taskId);
+	}
+
+	getTaskTrajectory(taskId: string, runId: string): Promise<AgentOSTaskTrajectory> {
+		return this.service.getTaskTrajectory(taskId, runId);
 	}
 }

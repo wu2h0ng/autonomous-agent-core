@@ -285,6 +285,15 @@ export class AgentOSSessionsProvider extends Disposable implements ISessionsProv
 		return undefined;
 	}
 
+	/**
+	 * Records a transcript/content projection failure on the shared error
+	 * surface. The chat view itself rejects fail-closed; this makes the same
+	 * failure visible next to the session list the user clicked.
+	 */
+	reportContentError(error: Error): void {
+		this._lastError.set(error, undefined);
+	}
+
 	getSessionTypes(_workspaceUri: URI): ISessionType[] {
 		return [];
 	}

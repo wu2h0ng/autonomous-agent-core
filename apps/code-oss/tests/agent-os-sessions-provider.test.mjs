@@ -241,5 +241,163 @@ test('provider contribution registers through the upstream provider registry sea
 	assert.match(contribution, /registerWorkbenchContribution2\(/);
 	assert.match(contribution, /sessionsProvidersService\.registerProvider\(provider\)/);
 	assert.match(contribution, /ISessionsProvidersService/);
+	assert.match(contribution, /IChatSessionsService/);
+	assert.match(contribution, /registerChatSessionContentProvider\(AGENT_OS_TASK_SCHEME, transcript\)/);
 	assert.match(desktopMain, /agentos\/browser\/agentOSSessionsProvider\.contribution\.js/);
+});
+
+// --- Slice 2 Task 3: task detail + trajectory transcript content provider ---
+
+async function loadContentProviderModule() {
+	const text = await source('src/vs/agentos/browser/agentOSTaskContentProvider.ts');
+	const stripped = stripTypeScriptTypes(text)
+		.replace(/^import .*;\s*$/gm, '')
+		.replace(/^export /gm, '')
+		+ '\nglobalThis.__exports = { AgentOSTaskContentProvider, agentOSTaskTranscript, parseAgentOSTaskResource, AGENT_OS_TRANSCRIPT_EVENT_LABELS };';
+
+	class Disposable {
+		_register(disposable) { return disposable; }
+		dispose() { }
+	}
+	const sandbox = {
+		Disposable,
+		Emitter: class Emitter {
+			constructor() { this.listeners = new Set(); }
+			get event() {
+				return listener => {
+					this.listeners.add(listener);
+					return { dispose: () => this.listeners.delete(listener) };
+				};
+			}
+			fire(event) { for (const listener of [...this.listeners]) listener(event); }
+		},
+		Event: { None: Object.assign(() => ({ dispose() { } }), { none: true }) },
+		constObservable: value => ({ get: () => value }),
+		localize: (_key, value, ...args) => value.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)])),
+		MarkdownString: class MarkdownString { constructor(value) { this.value = value; } },
+		AGENT_OS_TASK_SCHEME: 'agentos-task',
+	};
+	runInNewContext(stripped, sandbox);
+	return sandbox.__exports;
+}
+
+function taskResource(taskId) {
+	return { scheme: 'agentos-task', path: `/${encodeURIComponent(taskId)}`, toString: () => `agentos-task:/${encodeURIComponent(taskId)}` };
+}
+
+function detail(overrides = {}) {
+	return {
+		taskId: 'task:1',
+		status: 'COMPLETED',
+		statement: 'Build the workbench',
+		runId: 'run:9',
+		runStatus: 'FAILED',
+		runCreatedAt: '2026-09-10T12:00:00.000Z',
+		sequence: 3,
+		...overrides,
+	};
+}
+
+function trajectory(steps, overrides = {}) {
+	return {
+		taskId: 'task:1',
+		runId: 'run:9',
+		sourceStreamLastSequence: 20,
+		trajectoryDigest: 'digest:abc',
+		steps,
+		...overrides,
+	};
+}
+
+function step(sequence, eventType, gapBefore = 0) {
+	return { stepId: `step:${sequence}`, sequence, eventType, occurredAt: '2026-09-10T12:00:00.000Z', gapBefore };
+}
+
+function markdownOf(historyItem) {
+	return historyItem.parts.map(part => part.content.value).join('\n');
+}
+
+test('selecting a task opens its read-only detail and trajectory transcript', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const catalogApi = {
+		getTaskDetail: async taskId => (assert.equal(taskId, 'task:1'), detail()),
+		getTaskTrajectory: async (taskId, runId) => {
+			assert.equal(taskId, 'task:1');
+			assert.equal(runId, 'run:9');
+			return trajectory([step(1, 'TASK_CREATED'), step(5, 'RUN_FAILED', 3)]);
+		},
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	assert.equal(session.isReadOnly.get(), true);
+	assert.equal(session.requestHandler, undefined, 'no write path may exist on the transcript session');
+	assert.equal(session.history[0].type, 'request');
+	assert.equal(session.history[0].prompt, 'Build the workbench');
+	const responses = session.history.filter(item => item.type === 'response');
+	// Two steps + one gap annotation.
+	assert.equal(responses.length, 3);
+	const texts = responses.map(markdownOf);
+	assert.match(texts[0], /TASK_CREATED/);
+	assert.match(texts[1], /3/);
+	assert.match(texts[1], /not part of this run|gap/i);
+	assert.match(texts[2], /RUN_FAILED/);
+	// Sequence numbers stay visible so ordering is auditable.
+	assert.match(texts[0], /#1|seq(?:uence)? 1/i);
+	assert.match(texts[2], /#5|seq(?:uence)? 5/i);
+});
+
+test('a task without a run renders the detail and a no-run note only', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	let trajectoryCalled = false;
+	const catalogApi = {
+		getTaskDetail: async () => detail({ runId: null, runStatus: null, runCreatedAt: null, status: 'DRAFT' }),
+		getTaskTrajectory: async () => { trajectoryCalled = true; },
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	assert.equal(trajectoryCalled, false);
+	assert.equal(session.history[0].type, 'request');
+	const responses = session.history.filter(item => item.type === 'response');
+	assert.equal(responses.length, 1);
+	assert.match(markdownOf(responses[0]), /no run/i);
+});
+
+test('transcript failures reject and surface on the sessions provider lastError', async () => {
+	const { AgentOSSessionsProvider } = await loadProviderModule();
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const decodeError = new Error('Invalid Agent OS task catalog: steps[0].event_type is unknown: TOTALLY_UNKNOWN');
+	const catalogApi = {
+		listTasks: async () => ({ tasks: [], fetchedAt: 1 }),
+		getTaskDetail: async () => detail(),
+		getTaskTrajectory: async () => { throw decodeError; },
+	};
+	const sessionsProvider = new AgentOSSessionsProvider(catalogApi);
+	// Wired exactly like the contribution: content errors land on the provider.
+	const content = new AgentOSTaskContentProvider(catalogApi, error => sessionsProvider.reportContentError(error));
+	await assert.rejects(() => content.provideChatSessionContent(taskResource('task:1')), /TOTALLY_UNKNOWN/);
+	assert.match(String(sessionsProvider.lastError.get()), /TOTALLY_UNKNOWN/);
+});
+
+test('task resource parsing is fail-closed', async () => {
+	const { parseAgentOSTaskResource } = await loadContentProviderModule();
+	assert.equal(parseAgentOSTaskResource(taskResource('task:1')), 'task:1');
+	assert.equal(parseAgentOSTaskResource(taskResource('run:abb1cba2-818c')), 'run:abb1cba2-818c');
+	for (const bad of [
+		{ scheme: 'file', path: '/task%3A1' },
+		{ scheme: 'agentos-task', path: '' },
+		{ scheme: 'agentos-task', path: '/' },
+		{ scheme: 'agentos-task', path: '/a%2Fb' },
+		{ scheme: 'agentos-task', path: '/%2E%2E' },
+	]) {
+		assert.throws(() => parseAgentOSTaskResource(bad), /agentos-task|task id/i);
+	}
+});
+
+test('the transcript label whitelist totals the frozen event-type contract', async () => {
+	const { AGENT_OS_TRANSCRIPT_EVENT_LABELS } = await loadContentProviderModule();
+	const keys = Object.keys(AGENT_OS_TRANSCRIPT_EVENT_LABELS);
+	assert.equal(keys.length, 42);
+	for (const key of keys) {
+		assert.match(AGENT_OS_TRANSCRIPT_EVENT_LABELS[key], /\S/);
+	}
 });
