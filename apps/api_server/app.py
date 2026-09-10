@@ -112,6 +112,7 @@ from agent_os_core import (
     TaskConfigurationSnapshotService,
 )
 from agent_os_core.trajectory import TrajectoryProjector
+from agent_os_core.operator_metrics import OperatorEventLog
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
 from .data_agent_report_adapter import (
@@ -272,6 +273,13 @@ class AgentOSApplication:
             else None
         )
         self.tasks = TaskService(self.store, clock=self._clock)
+        # HCW-METRICS-0: shared operator-event instrumentation for every
+        # surface (CLI / Web / desktop). In-memory compositions stay silent.
+        self.operator_log: OperatorEventLog | None = (
+            None
+            if str(database) == ":memory:"
+            else OperatorEventLog(Path(str(database) + ".operator-events.jsonl"))
+        )
         self.mandate_responsibility_store = SQLiteMandateResponsibilityStore(
             canonical_database,
             clock=self._clock,
@@ -741,7 +749,14 @@ class AgentOSApplication:
         return {**self.provider_status(), "connection_test": "PASS"}
 
     def create_task(self, payload: dict[str, Any]):
-        return self.tasks.create_task(Goal.model_validate(payload))
+        task = self.tasks.create_task(Goal.model_validate(payload))
+        if self.operator_log is not None:
+            self.operator_log.append(
+                "prompt_sent",
+                task_id=task.task_id,
+                chars=len(str(payload.get("statement", ""))),
+            )
+        return task
 
     def create_mandate_workspace_record(
         self, payload: dict[str, Any]
@@ -1487,6 +1502,10 @@ class AgentOSApplication:
             },
             correlation_id=task.run.run_id,
         )
+        if self.operator_log is not None:
+            self.operator_log.append(
+                "correction", task_id=task_id, chars=len(normalized_reason)
+            )
         return self.tasks.get_task(task_id)
 
     def signal_task(self, task_id: str, payload: dict[str, Any]):
@@ -1592,7 +1611,15 @@ class AgentOSApplication:
             decided_at=now,
             expires_at=now + timedelta(minutes=10),
         )
-        return self.tasks.record_approval(task_id, approval)
+        recorded = self.tasks.record_approval(task_id, approval)
+        if self.operator_log is not None:
+            self.operator_log.append(
+                "approval_action",
+                task_id=task_id,
+                verdict=disposition.value.lower(),
+                chars=len(reason),
+            )
+        return recorded
 
     def read_artifact(self, artifact_id: str) -> bytes:
         if not artifact_id.startswith("artifact:"):
