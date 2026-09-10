@@ -52,7 +52,10 @@ export function projectSessionStatus(task: AgentOSTaskSummary): SessionStatus {
 	switch (raw) {
 		case null:
 		case 'DRAFT':
-			return SessionStatus.Untitled;
+			// NOT Untitled: upstream treats Untitled as a locally-composed,
+			// unsent chat and opens the interactive new-chat composer for it,
+			// which would hand a write surface to a runtime-owned draft.
+			return SessionStatus.InProgress;
 		case 'COMMITTED':
 		case 'CREATED':
 		case 'QUEUED':

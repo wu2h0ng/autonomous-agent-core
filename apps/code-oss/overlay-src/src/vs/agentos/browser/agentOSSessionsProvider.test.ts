@@ -62,7 +62,7 @@ test('status projection covers the runtime enums and fails closed', async () => 
 	assert.equal(projectSessionStatus(task('COMPLETED', 'SUCCEEDED')), 3);
 	assert.equal(projectSessionStatus(task('FAILED', null)), 4);
 	assert.equal(projectSessionStatus(task('CANCELLED', null)), 4);
-	assert.equal(projectSessionStatus(task('DRAFT', null)), 0);
-	assert.equal(projectSessionStatus(task(null, null)), 0);
+	assert.equal(projectSessionStatus(task('DRAFT', null)), 1); // never Untitled: Untitled opens the write composer
+	assert.equal(projectSessionStatus(task(null, null)), 1);
 	assert.throws(() => projectSessionStatus(task('BOGUS', null)), /Unknown Agent OS task status/);
 });

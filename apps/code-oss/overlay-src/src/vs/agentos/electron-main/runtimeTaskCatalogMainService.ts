@@ -170,7 +170,10 @@ export class RuntimeTaskCatalogMainService {
 	/** Read the whitelist-projected detail of a single task (`GET /v1/tasks/{id}`). */
 	async getTaskDetail(taskId: string): Promise<AgentOSTaskDetail> {
 		const segment = assertSafeRouteSegment(taskId, 'taskId');
-		const payload = await this.request('GET', `/v1/tasks/${encodeURIComponent(segment)}`);
+		// Validated segments contain no character that needs URL encoding, and
+		// the runtime router does not percent-decode — encodeURIComponent would
+		// turn a legal `:` into a 404.
+		const payload = await this.request('GET', `/v1/tasks/${segment}`);
 		const detail = decodeTaskDetail(payload);
 		this.servedCatalog = true;
 		return detail;
@@ -180,7 +183,7 @@ export class RuntimeTaskCatalogMainService {
 	async getTaskTrajectory(taskId: string, runId: string): Promise<AgentOSTaskTrajectory> {
 		const taskSegment = assertSafeRouteSegment(taskId, 'taskId');
 		const runSegment = assertSafeRouteSegment(runId, 'runId');
-		const payload = await this.request('GET', `/v1/tasks/${encodeURIComponent(taskSegment)}/runs/${encodeURIComponent(runSegment)}/trajectory`);
+		const payload = await this.request('GET', `/v1/tasks/${taskSegment}/runs/${runSegment}/trajectory`);
 		const trajectory = decodeTaskTrajectory(payload);
 		this.servedCatalog = true;
 		return trajectory;

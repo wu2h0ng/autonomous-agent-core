@@ -261,7 +261,8 @@ test('getTaskTrajectory fetches the run trajectory route and decodes steps', asy
 			assert.equal(result.sourceStreamLastSequence, 20);
 			assert.deepEqual(seen, {
 				method: 'GET',
-				path: `/v1/tasks/${trajectory.manifest.task_id}/runs/${encodeURIComponent(trajectory.manifest.run_id)}/trajectory`,
+				// The runtime router does not percent-decode: safe segments go raw.
+				path: `/v1/tasks/${trajectory.manifest.task_id}/runs/${trajectory.manifest.run_id}/trajectory`,
 				authorization: 'Bearer test-bearer-token',
 			});
 			assert.equal(JSON.stringify(result).includes('test-bearer-token'), false);
