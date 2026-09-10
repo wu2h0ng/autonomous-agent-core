@@ -7,11 +7,20 @@ from pathlib import Path
 
 from agent_os_contracts import ActionContract
 from agent_os_core import NonInteractiveDenyGateway
+from agent_os_core.operator_metrics import OperatorEventLog
 from apps.api_server.app import AgentOSApplication
+
+
+def _operator_log(args: argparse.Namespace) -> OperatorEventLog:
+    """HCW-METRICS-0: operator event log lives beside the database file."""
+    return OperatorEventLog(Path(str(args.database) + ".operator-events.jsonl"))
 
 
 class TerminalConfirmationGateway:
     """Human-in-the-loop approval bridge for interactive chat sessions."""
+
+    def __init__(self, operator_log: OperatorEventLog | None = None) -> None:
+        self._operator_log = operator_log
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
         print(f"\n[approval required] {action.capability_id}")
@@ -19,12 +28,20 @@ class TerminalConfirmationGateway:
         try:
             reply = input("Approve this action? [y/N] ")
         except EOFError:
-            return False
-        return reply.strip().lower() in {"y", "yes"}
+            reply = ""
+        approved = reply.strip().lower() in {"y", "yes"}
+        if self._operator_log is not None:
+            self._operator_log.append(
+                "approval_action",
+                verdict="approve" if approved else "reject",
+                n=len(preview.splitlines()),
+            )
+        return approved
 
 
 def _chat(args: argparse.Namespace) -> int:
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
+    olog = _operator_log(args)
     if not app.provider_configured:
         print(
             "provider is not configured: set AGENT_OS_PROVIDER_BASE_URL, "
@@ -37,9 +54,11 @@ def _chat(args: argparse.Namespace) -> int:
         session, loop = app.open_chat_session(
             args.prompt, NonInteractiveDenyGateway()
         )
+        olog.append("prompt_sent", task_id=session.task_id, chars=len(args.prompt))
         try:
             result = loop.run_turn(session, args.prompt)
         except KeyboardInterrupt:
+            olog.append("intervention", task_id=session.task_id)
             app.correct_task(
                 session.task_id,
                 "user interrupt from terminal",
@@ -52,7 +71,7 @@ def _chat(args: argparse.Namespace) -> int:
             return 1
         return 0
     session, loop = app.open_chat_session(
-        "interactive terminal chat session", TerminalConfirmationGateway()
+        "interactive terminal chat session", TerminalConfirmationGateway(olog)
     )
     print(f"chat session started (task {session.task_id})")
     print("type /exit to quit, /status for session state")
@@ -63,6 +82,7 @@ def _chat(args: argparse.Namespace) -> int:
             print()
             break
         except KeyboardInterrupt:
+            olog.append("intervention", task_id=session.task_id)
             app.correct_task(
                 session.task_id,
                 "user interrupt at terminal prompt",
@@ -86,9 +106,11 @@ def _chat(args: argparse.Namespace) -> int:
                 )
             )
             continue
+        olog.append("prompt_sent", task_id=session.task_id, chars=len(text))
         try:
             result = loop.run_turn(session, text)
         except KeyboardInterrupt:
+            olog.append("intervention", task_id=session.task_id)
             app.correct_task(
                 session.task_id,
                 "user interrupt from terminal",
