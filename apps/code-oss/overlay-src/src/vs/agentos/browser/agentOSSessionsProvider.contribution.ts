@@ -10,6 +10,7 @@ import { ISessionsProvidersService } from '../../sessions/services/sessions/brow
 import { IRuntimeTaskCatalogService } from '../common/runtimeTaskCatalogService.js';
 import { AGENT_OS_TASK_SCHEME, AgentOSSessionsProvider } from './agentOSSessionsProvider.js';
 import { AgentOSTaskContentProvider } from './agentOSTaskContentProvider.js';
+import { registerAgentOSApprovalActions } from './agentOSApprovalActions.js';
 
 /**
  * Registers the read-only Agent OS Runtime sessions provider and the matching
@@ -34,6 +35,15 @@ class AgentOSSessionsProviderContribution extends Disposable implements IWorkben
 		// land on the provider's lastError surface.
 		const transcript = this._register(new AgentOSTaskContentProvider(runtimeTaskCatalogService, error => provider.reportContentError(error)));
 		this._register(chatSessionsService.registerChatSessionContentProvider(AGENT_OS_TASK_SCHEME, transcript));
+		// Slice 3: the approval card's decide command — the only renderer write
+		// path. After a recorded decision the cached session is invalidated (so
+		// the card converges on server truth) and the list projection refreshes.
+		this._register(registerAgentOSApprovalActions({
+			onAfterDecision: taskId => {
+				transcript.invalidateTask(taskId);
+				void provider.refresh();
+			},
+		}));
 		// Runtime offline is a normal Slice 1 state: refresh records the error
 		// and the projection simply stays empty until the next refresh.
 		void provider.refresh();

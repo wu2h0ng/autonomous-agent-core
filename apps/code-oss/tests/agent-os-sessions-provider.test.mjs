@@ -294,6 +294,25 @@ function detail(overrides = {}) {
 		runStatus: 'FAILED',
 		runCreatedAt: '2026-09-10T12:00:00.000Z',
 		sequence: 3,
+		configurationSnapshotId: null,
+		approvalCard: null,
+		approvalDecision: null,
+		...overrides,
+	};
+}
+
+function approvalCard(overrides = {}) {
+	return {
+		capabilityId: 'workspace.apply_patch',
+		capabilityVersion: '1',
+		riskTier: 2,
+		actionDigest: 'a1b2c3d4' + '0'.repeat(56),
+		policyVersion: 'policy-1',
+		principalId: 'user:local',
+		runId: 'run:9',
+		nodeId: 'apply',
+		argumentsPreview: '{\n  "content": "after\\n",\n  "path": "fixture.txt"\n}',
+		argumentsTruncated: false,
 		...overrides,
 	};
 }
@@ -400,4 +419,143 @@ test('the transcript label whitelist totals the frozen event-type contract', asy
 	for (const key of keys) {
 		assert.match(AGENT_OS_TRANSCRIPT_EVENT_LABELS[key], /\S/);
 	}
+});
+
+// --- Slice 3 Task 4: approval card rendering and decision convergence ---
+
+test('a waiting task renders the approval card with all spec 7.3 fields and TOCTOU-bound links', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const card = approvalCard();
+	const catalogApi = {
+		getTaskDetail: async () => detail({
+			runStatus: 'WAITING_APPROVAL',
+			configurationSnapshotId: 'snap:1',
+			approvalCard: card,
+		}),
+		getTaskTrajectory: async () => trajectory([step(1, 'TASK_CREATED'), step(2, 'APPROVAL_REQUESTED')]),
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	const cardEntry = session.history.find(item => item.type === 'response' && markdownOf(item).includes('workspace.apply_patch'));
+	assert.ok(cardEntry, 'approval card entry must render while WAITING_APPROVAL');
+	const text = markdownOf(cardEntry);
+	// spec 7.3 field-by-field.
+	assert.match(text, /workspace\.apply_patch/);
+	assert.match(text, /v1|version.{0,4}1/i);
+	assert.match(text, /risk.{0,12}2/i);
+	assert.match(text, new RegExp(card.actionDigest.slice(0, 12)));
+	assert.match(text, /policy-1/);
+	assert.match(text, /user:local/);
+	assert.match(text, /run:9/);
+	assert.match(text, /fixture\.txt/);
+	// Expiry has no pre-decision data source: an explanatory note, never a fake timestamp.
+	assert.match(text, /10\s*min|10 分钟|valid for/i);
+	// Action links carry the projection values verbatim (TOCTOU same-source).
+	const links = [...text.matchAll(/command:agentos\.approval\.decide\?([^\)]+)/g)];
+	assert.equal(links.length, 2, 'approve and reject links must both render');
+	const parsed = links.map(link => JSON.parse(decodeURIComponent(link[1]))[0]);
+	const approve = parsed.find(args => args.disposition === 'APPROVE');
+	const reject = parsed.find(args => args.disposition === 'REJECT');
+	assert.ok(approve && reject);
+	for (const args of parsed) {
+		assert.equal(args.taskId, 'task:1');
+		assert.equal(args.actionDigest, card.actionDigest, 'link digest must be byte-identical to the card projection');
+		assert.equal(args.configurationSnapshotId, 'snap:1');
+	}
+	assert.equal(cardEntry.parts[0].content.isTrusted, true, 'command links require trusted markdown');
+});
+
+test('a recorded decision converges the card to a read-only outcome entry', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const decision = {
+		disposition: 'APPROVE',
+		reason: 'reviewed',
+		actionDigest: 'a1b2c3d4' + '0'.repeat(56),
+		actorId: 'user:local',
+		decidedAt: '2026-09-11T00:05:00Z',
+		expiresAt: '2026-09-11T00:15:00Z',
+	};
+	const catalogApi = {
+		getTaskDetail: async () => detail({
+			runStatus: 'RUNNING',
+			configurationSnapshotId: 'snap:1',
+			approvalDecision: decision,
+		}),
+		getTaskTrajectory: async () => trajectory([step(1, 'TASK_CREATED')]),
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	const decisionEntry = session.history.find(item => item.type === 'response' && /approv/i.test(markdownOf(item)));
+	assert.ok(decisionEntry, 'the recorded decision must render as an outcome entry');
+	const text = markdownOf(decisionEntry);
+	assert.match(text, /reviewed/);
+	assert.match(text, /user:local/);
+	assert.match(text, /2026-09-11T00:15:00Z/);
+	assert.equal(text.includes('command:agentos.approval.decide'), false, 'a decided card must not offer actions again');
+});
+
+test('a rejected decision renders without re-offering actions', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const catalogApi = {
+		getTaskDetail: async () => detail({
+			runStatus: 'WAITING_APPROVAL',
+			configurationSnapshotId: 'snap:1',
+			approvalCard: approvalCard(),
+			approvalDecision: {
+				disposition: 'REJECT',
+				reason: 'not safe',
+				actionDigest: 'a1b2c3d4' + '0'.repeat(56),
+				actorId: 'user:local',
+				decidedAt: '2026-09-11T00:05:00Z',
+				expiresAt: '2026-09-11T00:15:00Z',
+			},
+		}),
+		getTaskTrajectory: async () => trajectory([step(1, 'TASK_CREATED')]),
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	const decisionEntry = session.history.find(item => item.type === 'response' && /reject/i.test(markdownOf(item)));
+	assert.ok(decisionEntry);
+	assert.match(markdownOf(decisionEntry), /not safe/);
+	// Decision digest matches the card: the card must lose its action links.
+	const cardEntry = session.history.find(item => item.type === 'response' && markdownOf(item).includes('workspace.apply_patch'));
+	assert.ok(cardEntry, 'the card context stays visible');
+	assert.equal(markdownOf(cardEntry).includes('command:agentos.approval.decide'), false, 'a decided card must not offer actions again');
+});
+
+test('a stale decision for a different digest leaves the card actionable', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const catalogApi = {
+		getTaskDetail: async () => detail({
+			runStatus: 'WAITING_APPROVAL',
+			configurationSnapshotId: 'snap:1',
+			approvalCard: approvalCard(),
+			approvalDecision: {
+				disposition: 'APPROVE',
+				reason: 'older action',
+				actionDigest: 'f'.repeat(64),
+				actorId: 'user:local',
+				decidedAt: '2026-09-11T00:05:00Z',
+				expiresAt: '2026-09-11T00:15:00Z',
+			},
+		}),
+		getTaskTrajectory: async () => trajectory([step(1, 'TASK_CREATED')]),
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	const cardEntry = session.history.find(item => item.type === 'response' && markdownOf(item).includes('workspace.apply_patch'));
+	assert.ok(cardEntry);
+	assert.match(markdownOf(cardEntry), /command:agentos\.approval\.decide/, 'a decision for a different action must not close the current card');
+});
+
+test('no card and no decision entries render for non-waiting tasks', async () => {
+	const { AgentOSTaskContentProvider } = await loadContentProviderModule();
+	const catalogApi = {
+		getTaskDetail: async () => detail(),
+		getTaskTrajectory: async () => trajectory([step(1, 'TASK_CREATED')]),
+	};
+	const content = new AgentOSTaskContentProvider(catalogApi, () => { });
+	const session = await content.provideChatSessionContent(taskResource('task:1'));
+	const all = session.history.map(item => item.type === 'response' ? markdownOf(item) : item.prompt).join('\n');
+	assert.equal(all.includes('command:agentos.approval.decide'), false);
 });
