@@ -1,8 +1,8 @@
-import { cp, mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { overlayRoot, generatedRoot, upstreamRoot, extensionSource, extensionTarget } from './paths.mjs';
+import { overlayRoot, generatedRoot, upstreamRoot } from './paths.mjs';
 
 const lock = JSON.parse(await readFile(path.join(overlayRoot, 'upstream.lock.json'), 'utf8'));
 
@@ -21,24 +21,24 @@ function run(command, args, cwd = undefined) {
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
 }
 
-export async function bootstrap() {
-  await mkdir(generatedRoot, { recursive: true, mode: 0o700 });
+export async function bootstrap({
+  generatedRoot: configuredGeneratedRoot = generatedRoot,
+  upstreamRoot: configuredUpstreamRoot = upstreamRoot,
+  lock: configuredLock = lock,
+  applyOverlay = () => import('./apply-workbench-overlay.mjs'),
+} = {}) {
+  await mkdir(configuredGeneratedRoot, { recursive: true, mode: 0o700 });
   let checkoutExists = false;
-  try { checkoutExists = (await stat(path.join(upstreamRoot, '.git'))).isDirectory(); } catch {}
+  try { checkoutExists = (await stat(path.join(configuredUpstreamRoot, '.git'))).isDirectory(); } catch {}
   if (!checkoutExists) {
-    run('git', cloneArguments(lock, upstreamRoot));
+    run('git', cloneArguments(configuredLock, configuredUpstreamRoot));
   }
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: upstreamRoot, encoding: 'utf8' });
-  if (head.status !== 0 || head.stdout.trim() !== lock.commit) {
-    throw new Error(`Code-OSS checkout mismatch: expected ${lock.commit}; remove only ${upstreamRoot} and rerun bootstrap`);
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: configuredUpstreamRoot, encoding: 'utf8' });
+  if (head.status !== 0 || head.stdout.trim() !== configuredLock.commit) {
+    throw new Error(`Code-OSS checkout mismatch: expected ${configuredLock.commit}; remove only ${configuredUpstreamRoot} and rerun bootstrap`);
   }
-  await cp(extensionSource, extensionTarget, {
-    recursive: true,
-    force: true,
-    filter: source => !source.includes('node_modules')
-  });
-  await import('./apply-workbench-overlay.mjs');
-  console.log(`Agent OS Code-OSS workspace ready at ${upstreamRoot}`);
+  await applyOverlay();
+  console.log(`Agent OS Code-OSS workspace ready at ${configuredUpstreamRoot}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

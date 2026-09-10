@@ -1,12 +1,11 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { overlayRoot, upstreamRoot, extensionTarget } from './paths.mjs';
+import { overlayRoot, upstreamRoot } from './paths.mjs';
 
 const lock = JSON.parse(await readFile(path.join(overlayRoot, 'upstream.lock.json'), 'utf8'));
 const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: upstreamRoot, encoding: 'utf8' });
 if (head.status !== 0 || head.stdout.trim() !== lock.commit) throw new Error('Code-OSS checkout does not match upstream.lock.json');
-await stat(path.join(extensionTarget, 'package.json'));
 const read = relative => readFile(path.join(upstreamRoot, relative), 'utf8');
 const [windowContract, sessionsBootstrap, sessionsWorkbench] = await Promise.all([
   read('src/vs/platform/window/common/window.ts'),
