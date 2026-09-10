@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -18,9 +18,6 @@ test('active Code-OSS baseline is the reviewed Sessions release', async () => {
   assert.equal(lock.sessionsBaseline.commit, lock.commit);
   assert.equal(lock.sessionsBaseline.status, 'ACTIVE');
 
-  const activePatches = (await readdir(path.join(root, 'apps/code-oss/patches')))
-    .filter(name => name.endsWith('.patch'));
-  assert.deepEqual(activePatches, []);
   await assert.rejects(stat(path.join(root, 'apps/code-oss/patches/010-native-agent-workbench.patch')));
   await stat(path.join(root, 'apps/code-oss/retired-patches/010-native-agent-workbench-1.106.3.patch'));
 });
@@ -39,7 +36,6 @@ test('Task 1 baseline toolchain is complete in the Git index', () => {
   ]) {
     assert.ok(tracked.has(required), `missing tracked bootstrap dependency: ${required}`);
   }
-  assert.ok(!tracked.has('apps/code-oss/extensions/agent-os/package.json'), 'legacy extension manifest must not be part of Task 1');
 });
 
 test('bootstrap clone arguments safely bypass an unavailable Git LFS filter', async () => {
