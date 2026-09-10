@@ -22,3 +22,6 @@ experiments/*.stdout.log
 # Local runtime SQLite databases (dev artifacts, never repo content)
 agent-os.sqlite3
 *.sqlite3
+*.sqlite3-*
+*.sqlite3.collaboration
+.code-oss/
