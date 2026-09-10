@@ -550,3 +550,213 @@ test('application quit hook is gated on having served the catalog', async () => 
 	assert.match(appSource, /beginInteractiveRuntimeTermination\(runtimeDescriptorPath\)/);
 	assert.match(appSource, /import \{ beginInteractiveRuntimeTermination \} from '\.\.\/\.\.\/agentos\/electron-main\/interactiveRuntimeLifecycle\.js'/);
 });
+
+// --- Slice 3 Task 3: typed approval write commands (first writes over the bridge) ---
+
+const approvedDetailBody = async () => JSON.stringify(JSON.parse(await readFixture('task-detail-approved.real.json')));
+
+function collectRequests() {
+	const seen = [];
+	return {
+		seen,
+		handler: (statusOrJson) => (req, res) => {
+			const chunks = [];
+			req.on('data', chunk => chunks.push(chunk));
+			req.on('end', () => {
+				seen.push({ method: req.method, path: req.url, body: Buffer.concat(chunks).toString('utf8') });
+				if (typeof statusOrJson === 'number') {
+					res.writeHead(statusOrJson, { 'Content-Type': 'application/json' });
+					res.end(JSON.stringify({ error: 'ValueError', message: `server says no (${statusOrJson})` }));
+				} else {
+					res.writeHead(200, { 'Content-Type': 'application/json' });
+					res.end(statusOrJson);
+				}
+			});
+		},
+	};
+}
+
+test('decideTaskApproval posts the exact typed body and returns the converged detail', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		const collector = collectRequests();
+		await withServer(collector.handler(await approvedDetailBody()), async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const digest = 'a'.repeat(64);
+			const result = await bridge.decideTaskApproval('task:1', { actionDigest: digest, disposition: 'APPROVE', reason: 'reviewed' });
+			assert.equal(collector.seen.length, 1);
+			assert.equal(collector.seen[0].method, 'POST');
+			assert.equal(collector.seen[0].path, '/v1/tasks/task:1/approval');
+			assert.deepEqual(JSON.parse(collector.seen[0].body), {
+				action_digest: digest,
+				disposition: 'APPROVE',
+				reason: 'reviewed',
+			});
+			assert.equal(result.approvalDecision?.disposition, 'APPROVE');
+			assert.equal(JSON.stringify(result).includes('test-bearer-token'), false);
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('decideTaskApproval validates its payload before any network traffic', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		const collector = collectRequests();
+		await withServer(collector.handler(await approvedDetailBody()), async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const digest = 'a'.repeat(64);
+			// REVISE exists server-side but is not exposed over the bridge.
+			await assert.rejects(() => bridge.decideTaskApproval('task:1', { actionDigest: digest, disposition: 'REVISE', reason: 'x' }), /disposition/);
+			await assert.rejects(() => bridge.decideTaskApproval('task:1', { actionDigest: digest, disposition: 'MAYBE', reason: 'x' }), /disposition/);
+			await assert.rejects(() => bridge.decideTaskApproval('task:1', { actionDigest: digest, disposition: 'APPROVE', reason: '   ' }), /reason/);
+			await assert.rejects(() => bridge.decideTaskApproval('task:1', { actionDigest: 'not-a-digest', disposition: 'APPROVE', reason: 'x' }), /digest/);
+			await assert.rejects(() => bridge.decideTaskApproval('task/1', { actionDigest: digest, disposition: 'APPROVE', reason: 'x' }), /not allowed|safe route segment/);
+			await assert.rejects(() => bridge.decideTaskApproval('task:1', { actionDigest: digest, disposition: 'APPROVE', reason: 'x', extra: true }), /unknown|exactly/i);
+			assert.equal(collector.seen.length, 0, 'invalid payloads must never reach the network');
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('resumeTaskRun sends exactly the snapshot id — never inputs or lease recovery', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		const collector = collectRequests();
+		await withServer(collector.handler(await approvedDetailBody()), async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			await bridge.resumeTaskRun('task:1', 'snap:1');
+			assert.equal(collector.seen.length, 1);
+			assert.equal(collector.seen[0].method, 'POST');
+			assert.equal(collector.seen[0].path, '/v1/tasks/task:1/run');
+			// The /run endpoint accepts far more powerful keys; the bridge must
+			// never emit them (gate review P2 N-2).
+			assert.deepEqual(JSON.parse(collector.seen[0].body), { configuration_snapshot_id: 'snap:1' });
+			await assert.rejects(() => bridge.resumeTaskRun('task:1', ''), /snapshot/i);
+			await assert.rejects(() => bridge.resumeTaskRun('task:1', { configuration_snapshot_id: 'snap:1', inputs: {} }), /string/i);
+			assert.equal(collector.seen.length, 1, 'invalid resume payloads must never reach the network');
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('write whitelist is method+path closed: only the two approval shapes pass', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		const collector = collectRequests();
+		await withServer(collector.handler(await approvedDetailBody()), async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			// Every other mutation shape stays refused.
+			await assert.rejects(() => bridge.request('POST', '/v1/tasks'), /read-only/);
+			await assert.rejects(() => bridge.request('POST', '/v1/tasks/task:1/cancel'), /read-only/);
+			await assert.rejects(() => bridge.request('POST', '/v1/tasks/task:1:commit'), /read-only/);
+			await assert.rejects(() => bridge.request('PUT', '/v1/tasks/task:1/approval'), /read-only/);
+			await assert.rejects(() => bridge.request('DELETE', '/v1/tasks/task:1'), /read-only/);
+			// GET behavior unchanged.
+			await assert.rejects(() => bridge.request('GET', '/v1/admin/shutdown'), /not allowed/);
+			assert.equal(collector.seen.length, 0, 'refused shapes must never reach the network');
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('write path maps server errors to typed errors', async () => {
+	const { dir, service } = await loadBridge();
+	const digest = 'a'.repeat(64);
+	const decide = (bridge) => bridge.decideTaskApproval('task:1', { actionDigest: digest, disposition: 'APPROVE', reason: 'reviewed' });
+	try {
+		for (const [status, code, pattern] of [
+			[400, 'RUNTIME_COMMAND_REJECTED', /server says no/],
+			[403, 'RUNTIME_COMMAND_REJECTED', /server says no/],
+			[409, 'RUNTIME_COMMAND_REJECTED', /server says no/],
+			[500, 'RUNTIME_COMMAND_FAILED', /HTTP 500/],
+		]) {
+			const collector = collectRequests();
+			await withServer(collector.handler(status), async port => {
+				const descriptorPath = await writeDescriptor(dir, descriptorFor(port), { mode: 0o600 });
+				const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+				await assert.rejects(() => decide(bridge), (error) => {
+					assert.equal(error.code, code, `HTTP ${status} must map to ${code}`);
+					assert.match(error.message, pattern);
+					return true;
+				});
+			});
+			await rm(path.join(dir, 'runtime.json'), { force: true });
+		}
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('channel routes the approval write commands and still refuses everything else', async () => {
+	const { dir, service, channel } = await loadBridge();
+	try {
+		const collector = collectRequests();
+		await withServer(collector.handler(await approvedDetailBody()), async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			const ipc = new channel.RuntimeTaskCatalogChannel(bridge);
+			const digest = 'a'.repeat(64);
+			const decided = await ipc.call(null, 'decideTaskApproval', ['task:1', { actionDigest: digest, disposition: 'REJECT', reason: 'no' }]);
+			assert.equal(decided.approvalDecision?.disposition, 'APPROVE'); // fixture convergence shape
+			await ipc.call(null, 'resumeTaskRun', ['task:1', 'snap:1']);
+			assert.equal(collector.seen.length, 2);
+			// Argument shape validation happens before the network.
+			await assert.rejects(() => ipc.call(null, 'decideTaskApproval', ['task:1']), /decision|argument/i);
+			await assert.rejects(() => ipc.call(null, 'resumeTaskRun', ['task:1']), /snapshot|argument/i);
+			// The mutation-shaped escape hatches stay closed.
+			await assert.rejects(() => ipc.call(null, 'deleteAll', []), /Unknown runtime task catalog command/);
+			await assert.rejects(() => ipc.call(null, 'request', ['POST', '/v1/tasks']), /Unknown runtime task catalog command/);
+			assert.equal(collector.seen.length, 2, 'invalid IPC calls must never reach the network');
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('descriptor change mid-write is refused', async () => {
+	const { dir, service } = await loadBridge();
+	try {
+		const collector = collectRequests();
+		await withServer(collector.handler(await approvedDetailBody()), async port => {
+			const descriptorPath = await writeDescriptor(dir, descriptorFor(port));
+			const bridge = new service.RuntimeTaskCatalogMainService(descriptorPath);
+			// Swap the descriptor between the pre-write and post-write reads.
+			const original = await readFile(descriptorPath, 'utf8');
+			let swapped = false;
+			const interceptor = createServer((req, res) => {
+				const chunks = [];
+				req.on('data', chunk => chunks.push(chunk));
+				req.on('end', async () => {
+					if (!swapped) {
+						swapped = true;
+						await writeFile(descriptorPath, JSON.stringify(descriptorFor(port, { boot_id: 'boot:other' })), { mode: 0o600 });
+					}
+					res.writeHead(200, { 'Content-Type': 'application/json' });
+					res.end('{}');
+				});
+			});
+			await new Promise(resolve => interceptor.listen(0, '127.0.0.1', resolve));
+			try {
+				await writeFile(descriptorPath, JSON.stringify(descriptorFor(interceptor.address().port)), { mode: 0o600 });
+				await assert.rejects(
+					() => bridge.decideTaskApproval('task:1', { actionDigest: 'a'.repeat(64), disposition: 'APPROVE', reason: 'x' }),
+					(error) => error.code === 'RUNTIME_DESCRIPTOR_CHANGED',
+				);
+			} finally {
+				await new Promise(resolve => interceptor.close(resolve));
+				await writeFile(descriptorPath, original, { mode: 0o600 });
+			}
+		});
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

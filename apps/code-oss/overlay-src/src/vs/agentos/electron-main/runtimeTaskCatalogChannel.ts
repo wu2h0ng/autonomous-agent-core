@@ -9,11 +9,12 @@ import type { RuntimeTaskCatalogMainService } from './runtimeTaskCatalogMainServ
 export const RUNTIME_TASK_CATALOG_CHANNEL = 'agentOSRuntimeTaskCatalog';
 
 /**
- * IPC channel for the read-only Runtime task catalog. Exactly three read
- * commands are exposed (list, detail, trajectory); everything else —
- * including any mutation-shaped command — throws. The channel only ever
- * returns the decoded projection, so descriptor bytes and the bearer token
- * cannot cross into a renderer.
+ * IPC channel for the Runtime task catalog. Read commands: list, detail,
+ * trajectory. Slice 3 write commands: decideTaskApproval, resumeTaskRun —
+ * the bridge's entire mutation surface. Everything else — including any
+ * generic request-shaped command — throws. The channel only ever returns
+ * the decoded projection, so descriptor bytes and the bearer token cannot
+ * cross into a renderer.
  */
 export class RuntimeTaskCatalogChannel implements IServerChannel<string> {
 	private readonly service: RuntimeTaskCatalogMainService;
@@ -44,6 +45,20 @@ export class RuntimeTaskCatalogChannel implements IServerChannel<string> {
 					throw new Error(`getTaskTrajectory requires string taskId and runId arguments`);
 				}
 				return this.service.getTaskTrajectory(taskId, runId) as Promise<T>;
+			}
+			case 'decideTaskApproval': {
+				const [taskId, decision] = argv;
+				if (typeof taskId !== 'string' || typeof decision !== 'object' || decision === null) {
+					throw new Error(`decideTaskApproval requires a string taskId and a decision object argument`);
+				}
+				return this.service.decideTaskApproval(taskId, decision) as Promise<T>;
+			}
+			case 'resumeTaskRun': {
+				const [taskId, configurationSnapshotId] = argv;
+				if (typeof taskId !== 'string' || typeof configurationSnapshotId !== 'string') {
+					throw new Error(`resumeTaskRun requires string taskId and configurationSnapshotId arguments`);
+				}
+				return this.service.resumeTaskRun(taskId, configurationSnapshotId) as Promise<T>;
 			}
 			default:
 				throw new Error(`Unknown runtime task catalog command: ${command}`);

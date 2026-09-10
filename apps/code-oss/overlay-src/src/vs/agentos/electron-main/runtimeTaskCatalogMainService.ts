@@ -35,6 +35,8 @@ export type RuntimeTaskCatalogErrorCode =
 	| 'RUNTIME_NOT_LOOPBACK'
 	| 'RUNTIME_PATH_NOT_ALLOWED'
 	| 'RUNTIME_RESPONSE_TOO_LARGE'
+	| 'RUNTIME_COMMAND_REJECTED'
+	| 'RUNTIME_COMMAND_FAILED'
 	| 'RUNTIME_UNREACHABLE';
 
 export class RuntimeTaskCatalogError extends Error {
@@ -64,6 +66,20 @@ const ALLOWED_GET_PATH_PATTERNS: readonly RegExp[] = [
 
 function isAllowedGetPath(path: string): boolean {
 	return ALLOWED_GET_PATH_PATTERNS.some(pattern => pattern.test(path));
+}
+
+/**
+ * Slice 3: the bridge's entire mutation surface — exactly the two-step
+ * approval recipe (spec §7.2/§12③). Method+path are checked together;
+ * every other non-GET shape stays refused.
+ */
+const ALLOWED_POST_PATH_PATTERNS: readonly RegExp[] = [
+	/^\/v1\/tasks\/[^/]+\/approval$/,
+	/^\/v1\/tasks\/[^/]+\/run$/,
+];
+
+function isAllowedPostPath(path: string): boolean {
+	return ALLOWED_POST_PATH_PATTERNS.some(pattern => pattern.test(path));
 }
 
 const SAFE_ROUTE_SEGMENT = /^[A-Za-z0-9:._-]{1,256}$/;
@@ -189,17 +205,85 @@ export class RuntimeTaskCatalogMainService {
 		return trajectory;
 	}
 
-	/** Read-only request guard: the bridge serves data, never commands. */
-	async request(method: string, path: string): Promise<unknown> {
-		if (method !== 'GET') {
-			throw new RuntimeTaskCatalogError('RUNTIME_READ_ONLY', `bridge is read-only; refused ${method} ${path}`);
+	/**
+	 * Slice 3 write path (1/2): record the principal's approval decision
+	 * (`POST /v1/tasks/{id}/approval`). The digest is echoed verbatim from the
+	 * rendered approval card projection — the bridge never computes one.
+	 * Returns the freshly decoded detail so the card converges on the
+	 * server-recorded decision, never on local optimistic state.
+	 */
+	async decideTaskApproval(taskId: string, decision: unknown): Promise<AgentOSTaskDetail> {
+		const segment = assertSafeRouteSegment(taskId, 'taskId');
+		if (typeof decision !== 'object' || decision === null || Array.isArray(decision)) {
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', 'decideTaskApproval requires a decision object');
 		}
-		if (!isAllowedGetPath(path)) {
-			throw new RuntimeTaskCatalogError('RUNTIME_PATH_NOT_ALLOWED', `path not allowed on the task catalog bridge: ${path}`);
+		const record = decision as Record<string, unknown>;
+		const keys = Object.keys(record).sort();
+		const expected = ['actionDigest', 'disposition', 'reason'];
+		if (keys.length !== expected.length || !keys.every((key, i) => key === expected[i])) {
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', `decision must carry exactly ${expected.join(', ')}; unknown or missing keys: ${keys.join(', ')}`);
+		}
+		const { actionDigest, disposition, reason } = record;
+		if (typeof actionDigest !== 'string' || !/^[0-9a-f]{64}$/.test(actionDigest)) {
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', 'decision actionDigest must be the exact 64-char hex digest shown on the approval card');
+		}
+		if (disposition !== 'APPROVE' && disposition !== 'REJECT') {
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', `decision disposition must be APPROVE or REJECT over this bridge; got ${JSON.stringify(disposition)}`);
+		}
+		if (typeof reason !== 'string' || reason.trim().length === 0) {
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', 'decision reason must be a non-empty string');
+		}
+		const payload = await this.request('POST', `/v1/tasks/${segment}/approval`, {
+			action_digest: actionDigest,
+			disposition,
+			reason: reason.trim(),
+		});
+		const detail = decodeTaskDetail(payload);
+		this.servedCatalog = true;
+		return detail;
+	}
+
+	/**
+	 * Slice 3 write path (2/2): resume a parked run after approval
+	 * (`POST /v1/tasks/{id}/run`). The body is ALWAYS exactly
+	 * `{ configuration_snapshot_id }` — the endpoint also accepts `inputs`
+	 * and `recover_stale_lease`, and this bridge must never emit them
+	 * (gate review P2 N-2).
+	 */
+	async resumeTaskRun(taskId: string, configurationSnapshotId: unknown): Promise<AgentOSTaskDetail> {
+		const segment = assertSafeRouteSegment(taskId, 'taskId');
+		if (typeof configurationSnapshotId !== 'string' || configurationSnapshotId.length === 0) {
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', 'resumeTaskRun requires a non-empty configuration snapshot id string');
+		}
+		const snapshotSegment = assertSafeRouteSegment(configurationSnapshotId, 'configurationSnapshotId');
+		const payload = await this.request('POST', `/v1/tasks/${segment}/run`, {
+			configuration_snapshot_id: snapshotSegment,
+		});
+		const detail = decodeTaskDetail(payload);
+		this.servedCatalog = true;
+		return detail;
+	}
+
+	/**
+	 * Method+path closed request guard: GET serves the read allowlist; POST
+	 * serves exactly the two approval-recipe routes; every other shape is
+	 * refused before any network traffic.
+	 */
+	async request(method: string, path: string, body?: unknown): Promise<unknown> {
+		if (method === 'GET') {
+			if (!isAllowedGetPath(path)) {
+				throw new RuntimeTaskCatalogError('RUNTIME_PATH_NOT_ALLOWED', `path not allowed on the task catalog bridge: ${path}`);
+			}
+		} else if (method === 'POST') {
+			if (!isAllowedPostPath(path)) {
+				throw new RuntimeTaskCatalogError('RUNTIME_READ_ONLY', `bridge is read-only except the typed approval commands; refused ${method} ${path}`);
+			}
+		} else {
+			throw new RuntimeTaskCatalogError('RUNTIME_READ_ONLY', `bridge is read-only except the typed approval commands; refused ${method} ${path}`);
 		}
 		const descriptor = await this.loadDescriptor();
 		const url = `http://${descriptor.host}:${descriptor.port}${path}`;
-		const body = await this.fetchJson(url, descriptor.bearer_token);
+		const responseBody = await this.fetchJson(url, descriptor.bearer_token, method, body);
 		// The daemon may have restarted mid-request; the response is only
 		// trustworthy if the descriptor still names the same process/boot.
 		const after = await this.loadDescriptor();
@@ -207,15 +291,20 @@ export class RuntimeTaskCatalogMainService {
 			|| after.port !== descriptor.port || after.bearer_token !== descriptor.bearer_token) {
 			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_CHANGED', 'runtime descriptor changed during the request');
 		}
-		return body;
+		return responseBody;
 	}
 
-	private async fetchJson(url: string, bearerToken: string): Promise<unknown> {
+	private async fetchJson(url: string, bearerToken: string, method: string, body?: unknown): Promise<unknown> {
 		let response;
 		try {
 			response = await fetch(url, {
-				method: 'GET',
-				headers: { 'Authorization': `Bearer ${bearerToken}`, 'Accept': 'application/json' },
+				method,
+				headers: {
+					'Authorization': `Bearer ${bearerToken}`,
+					'Accept': 'application/json',
+					...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+				},
+				...(body !== undefined ? { body: JSON.stringify(body) } : {}),
 				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 			});
 		} catch (error) {
@@ -225,13 +314,38 @@ export class RuntimeTaskCatalogMainService {
 			throw new RuntimeTaskCatalogError('RUNTIME_DESCRIPTOR_STALE', 'runtime rejected the descriptor bearer token');
 		}
 		if (!response.ok) {
-			throw new RuntimeTaskCatalogError('RUNTIME_UNREACHABLE', `runtime answered HTTP ${response.status}`);
+			// The daemon answers {error, message}; surface both verbatim so the
+			// UI can show the server's own words instead of guessing semantics.
+			const detail = await this.readErrorDetail(response);
+			if (response.status >= 400 && response.status < 500) {
+				throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_REJECTED', `runtime refused the command (HTTP ${response.status})${detail}`);
+			}
+			throw new RuntimeTaskCatalogError('RUNTIME_COMMAND_FAILED', `runtime command failed (HTTP ${response.status})${detail}`);
 		}
 		const text = await response.text();
 		if (Buffer.byteLength(text, 'utf8') > RESPONSE_CAP_BYTES) {
 			throw new RuntimeTaskCatalogError('RUNTIME_RESPONSE_TOO_LARGE', 'runtime response exceeds the 1 MiB cap');
 		}
 		return JSON.parse(text);
+	}
+
+	private async readErrorDetail(response: Response): Promise<string> {
+		try {
+			const text = await response.text();
+			if (Buffer.byteLength(text, 'utf8') > RESPONSE_CAP_BYTES) {
+				return '';
+			}
+			const parsed = JSON.parse(text);
+			if (parsed && typeof parsed.message === 'string') {
+				return `: ${parsed.message}`;
+			}
+			if (parsed && typeof parsed.error === 'string') {
+				return `: ${parsed.error}`;
+			}
+		} catch {
+			// Fall through: an unreadable error body must not mask the status.
+		}
+		return '';
 	}
 
 	private async loadDescriptor(): Promise<RuntimeDescriptor> {
