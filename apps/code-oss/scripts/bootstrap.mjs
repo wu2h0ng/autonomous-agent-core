@@ -25,7 +25,7 @@ export async function bootstrap({
   generatedRoot: configuredGeneratedRoot = generatedRoot,
   upstreamRoot: configuredUpstreamRoot = upstreamRoot,
   lock: configuredLock = lock,
-  applyOverlay = () => import('./apply-workbench-overlay.mjs'),
+  applyOverlay = async () => (await import('./apply-workbench-overlay.mjs')).applyWorkbenchOverlay(),
 } = {}) {
   await mkdir(configuredGeneratedRoot, { recursive: true, mode: 0o700 });
   let checkoutExists = false;
