@@ -27,8 +27,8 @@ const detailPayload = () => ({
 	observed_outcome: null,
 	historical_observed_outcome: null,
 	outcome_evidence_valid: null,
-	approval: { approval_id: 'appr:1', status: 'PENDING' },
-	proposed_action: { action_digest: 'abc' },
+	approval: null,
+	proposed_action: null,
 	provider: { provider: 'x', usage: { tokens: 1 } },
 	workspace: { root: '/tmp' },
 	artifacts: [],
@@ -47,12 +47,15 @@ test('detail decoder projects only the whitelist from task_json', async () => {
 		runStatus: 'RUNNING',
 		runCreatedAt: '2026-09-10T00:01:00Z',
 		sequence: 7,
+		configurationSnapshotId: null,
+		approvalCard: null,
+		approvalDecision: null,
 	});
 	// Output-closed: rich fields present in the input never cross the decoder.
 	const keys = Object.keys(detail).sort();
-	assert.deepEqual(keys, ['runCreatedAt', 'runId', 'runStatus', 'sequence', 'statement', 'status', 'taskId']);
+	assert.deepEqual(keys, ['approvalCard', 'approvalDecision', 'configurationSnapshotId', 'runCreatedAt', 'runId', 'runStatus', 'sequence', 'statement', 'status', 'taskId']);
 	const wire = JSON.stringify(detail);
-	for (const forbidden of ['approval', 'proposed_action', 'provider', 'events', 'artifacts', 'workspace', 'domain_pack', 'payload']) {
+	for (const forbidden of ['proposed_action', 'provider', 'events', 'artifacts', 'workspace', 'domain_pack', 'payload', 'tenant_id', 'lease_fence']) {
 		assert.equal(wire.includes(forbidden), false, `forbidden key leaked: ${forbidden}`);
 	}
 });
@@ -68,6 +71,9 @@ test('detail decoder tolerates null goal and null run', async () => {
 		runStatus: null,
 		runCreatedAt: null,
 		sequence: 7,
+		configurationSnapshotId: null,
+		approvalCard: null,
+		approvalDecision: null,
 	});
 });
 
@@ -89,6 +95,136 @@ test('detail decoder rejects unknown top-level keys (contract drift alarm)', asy
 	// Every key the real runtime serves today stays accepted.
 	const real = JSON.parse(await readFile(new URL('./fixtures/task-detail-run.real.json', import.meta.url), 'utf8'));
 	assert.ok(decodeTaskDetail(real).runId);
+});
+
+// --- slice 3: approval card projection (whitelist over proposed_action/approval) ---
+
+const proposedActionPayload = () => ({
+	schema_version: '1.0',
+	action_id: 'action:1',
+	task_id: 'task:1',
+	run_id: 'run:9',
+	node_id: 'apply',
+	principal_id: 'user:local',
+	tenant_id: 'tenant:local',
+	workspace_id: 'workspace:local',
+	capability_id: 'workspace.apply_patch',
+	capability_version: '1',
+	arguments_json: '{"content":"after\\n","path":"fixture.txt"}',
+	arguments: { content: 'after\n', path: 'fixture.txt' },
+	risk_tier: 2,
+	idempotency_key: 'idem:1',
+	estimated_budget: { max_cost_usd: '1' },
+	policy_version: 'policy-1',
+	observed_correction_epochs: { task_epoch: 0 },
+	expected_outcome_id: 'expected:1',
+	candidate_envelope_id: 'env:1',
+	created_at: '2026-09-11T00:00:00Z',
+	action_digest: 'a'.repeat(64),
+});
+
+const waitingDetailPayload = () => ({
+	...detailPayload(),
+	run: { run_id: 'run:9', status: 'WAITING_APPROVAL', created_at: '2026-09-10T00:01:00Z', policy_version: 'policy-1' },
+	configuration_snapshot: { snapshot_id: 'snap:1', state: 'SEALED' },
+	proposed_action: proposedActionPayload(),
+});
+
+test('approval card projects only while WAITING_APPROVAL, from the whitelist', async () => {
+	const { decodeTaskDetail } = await loadDecoder();
+	const detail = decodeTaskDetail(waitingDetailPayload());
+	assert.equal(detail.runStatus, 'WAITING_APPROVAL');
+	assert.equal(detail.configurationSnapshotId, 'snap:1');
+	assert.equal(detail.approvalDecision, null);
+	assert.deepEqual(detail.approvalCard, {
+		capabilityId: 'workspace.apply_patch',
+		capabilityVersion: '1',
+		riskTier: 2,
+		actionDigest: 'a'.repeat(64),
+		policyVersion: 'policy-1',
+		principalId: 'user:local',
+		runId: 'run:9',
+		nodeId: 'apply',
+		argumentsPreview: JSON.stringify({ content: 'after\n', path: 'fixture.txt' }, null, 2),
+		argumentsTruncated: false,
+	});
+	// Forbidden authority/budget fields never cross into the card.
+	const wire = JSON.stringify(detail.approvalCard);
+	for (const forbidden of ['tenant_id', 'workspace_id', 'idempotency_key', 'estimated_budget', 'observed_correction_epochs', 'expected_outcome_id', 'candidate_envelope_id', 'arguments_json', 'schema_version', 'approval_requirement', 'lease_fence']) {
+		assert.equal(wire.includes(forbidden), false, `forbidden card key leaked: ${forbidden}`);
+	}
+	// Not waiting → no card, even if the server still serves proposed_action.
+	const running = decodeTaskDetail({ ...waitingDetailPayload(), run: { run_id: 'run:9', status: 'RUNNING', created_at: '2026-09-10T00:01:00Z' } });
+	assert.equal(running.approvalCard, null);
+	assert.equal(running.configurationSnapshotId, 'snap:1');
+});
+
+test('approval card decoding fails closed on malformed proposed_action', async () => {
+	const { decodeTaskDetail } = await loadDecoder();
+	const bad = (mutate) => {
+		const payload = waitingDetailPayload();
+		payload.proposed_action = mutate(proposedActionPayload());
+		return payload;
+	};
+	// Contract drift: unknown key inside proposed_action.
+	assert.throws(() => decodeTaskDetail(bad(p => ({ ...p, brand_new: true }))), /unknown/i);
+	// Missing required card fields.
+	assert.throws(() => decodeTaskDetail(bad(({ action_digest, ...rest }) => rest)), /action_digest/);
+	assert.throws(() => decodeTaskDetail(bad(({ arguments: _, ...rest }) => rest)), /arguments/);
+	// Malformed digest / risk tier / arguments.
+	assert.throws(() => decodeTaskDetail(bad(p => ({ ...p, action_digest: 'abc' }))), /digest/);
+	assert.throws(() => decodeTaskDetail(bad(p => ({ ...p, risk_tier: 'high' }))), /risk_tier/);
+	assert.throws(() => decodeTaskDetail(bad(p => ({ ...p, arguments: 'not-an-object' }))), /arguments/);
+	// Waiting run without any proposed action: no card, not a crash.
+	const noAction = waitingDetailPayload();
+	noAction.proposed_action = null;
+	assert.equal(decodeTaskDetail(noAction).approvalCard, null);
+});
+
+test('approval decision projection converges the card after a decision', async () => {
+	const { decodeTaskDetail } = await loadDecoder();
+	const approval = {
+		schema_version: '1.0',
+		approval_id: 'approval:1',
+		tenant_id: 'tenant:local',
+		workspace_id: 'workspace:local',
+		action_digest: 'a'.repeat(64),
+		actor_id: 'user:local',
+		actor_role: 'PRINCIPAL',
+		disposition: 'APPROVE',
+		reason: 'reviewed',
+		decided_at: '2026-09-11T00:05:00Z',
+		expires_at: '2026-09-11T00:15:00Z',
+	};
+	const detail = decodeTaskDetail({ ...waitingDetailPayload(), approval });
+	assert.deepEqual(detail.approvalDecision, {
+		disposition: 'APPROVE',
+		reason: 'reviewed',
+		actionDigest: 'a'.repeat(64),
+		actorId: 'user:local',
+		decidedAt: '2026-09-11T00:05:00Z',
+		expiresAt: '2026-09-11T00:15:00Z',
+	});
+	// Decision wire never carries authority internals.
+	const wire = JSON.stringify(detail.approvalDecision);
+	for (const forbidden of ['tenant_id', 'workspace_id', 'actor_role', 'approval_id', 'schema_version']) {
+		assert.equal(wire.includes(forbidden), false, `forbidden decision key leaked: ${forbidden}`);
+	}
+	// Malformed decisions fail closed.
+	assert.throws(() => decodeTaskDetail({ ...waitingDetailPayload(), approval: { ...approval, disposition: 'MAYBE' } }), /disposition/);
+	assert.throws(() => decodeTaskDetail({ ...waitingDetailPayload(), approval: { ...approval, extra: 1 } }), /unknown/i);
+});
+
+test('approval card arguments preview is bounded', async () => {
+	const { decodeTaskDetail } = await loadDecoder();
+	const huge = waitingDetailPayload();
+	huge.proposed_action = {
+		...proposedActionPayload(),
+		arguments: { content: 'x'.repeat(8192), path: 'fixture.txt' },
+	};
+	const detail = decodeTaskDetail(huge);
+	assert.equal(detail.approvalCard.argumentsTruncated, true);
+	assert.ok(detail.approvalCard.argumentsPreview.length <= 4200, 'preview must be bounded');
 });
 
 // --- trajectory (exact-keys closed contract) ---
@@ -182,7 +318,21 @@ test('decoders accept real runtime responses', async () => {
 	const runDetail = decodeTaskDetail(runDetailRaw);
 	assert.ok(runDetail.runId, 'run-bearing detail must expose run_id');
 	assert.equal(runDetail.statement, 'inspect fixture');
-	assert.equal(JSON.stringify(runDetail).includes('approval'), false);
+	assert.equal(JSON.stringify(runDetail).includes('proposed_action'), false);
+
+	// Slice 3 real fixtures: parked approval and recorded decision.
+	const waitingRaw = JSON.parse(await readFile(path.join(fixturesDir, 'task-detail-waiting-approval.real.json'), 'utf8'));
+	const waiting = decodeTaskDetail(waitingRaw);
+	assert.equal(waiting.runStatus, 'WAITING_APPROVAL');
+	assert.ok(waiting.approvalCard, 'parked run must project an approval card');
+	assert.equal(waiting.approvalCard.capabilityId, 'workspace.apply_patch');
+	assert.match(waiting.approvalCard.actionDigest, /^[0-9a-f]{64}$/);
+	assert.ok(waiting.configurationSnapshotId, 'parked run must expose the sealed snapshot id');
+
+	const approvedRaw = JSON.parse(await readFile(path.join(fixturesDir, 'task-detail-approved.real.json'), 'utf8'));
+	const approved = decodeTaskDetail(approvedRaw);
+	assert.equal(approved.approvalDecision?.disposition, 'APPROVE');
+	assert.equal(approved.approvalDecision?.actionDigest, approved.approvalCard?.actionDigest, 'decision digest must equal the card digest');
 
 	const trajectoryRaw = JSON.parse(await readFile(path.join(fixturesDir, 'task-trajectory.real.json'), 'utf8'));
 	const trajectory = decodeTaskTrajectory(trajectoryRaw);

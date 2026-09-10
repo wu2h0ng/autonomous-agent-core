@@ -234,9 +234,12 @@ test('getTaskDetail fetches the task route and decodes the whitelist projection'
 				path: `/v1/tasks/${detail.task_id}`,
 				authorization: 'Bearer test-bearer-token',
 			});
-			// The over-rich task_json keys must not cross the bridge.
+			// The over-rich task_json keys must not cross the bridge. Match the
+			// exact server key shapes: the Slice 3 projection legitimately adds
+			// approvalCard/approvalDecision, so bare substring checks would
+			// false-positive on the new whitelist fields.
 			const wire = JSON.stringify(result);
-			for (const forbidden of ['approval', 'proposed_action', 'provider', 'events', 'artifacts', 'domain_pack', 'workspace', 'test-bearer-token']) {
+			for (const forbidden of ['"approval":', '"proposed_action":', '"provider":', '"events":', '"artifacts":', '"domain_pack":', '"workspace":', 'test-bearer-token']) {
 				assert.equal(wire.includes(forbidden), false, `forbidden payload leaked: ${forbidden}`);
 			}
 		});

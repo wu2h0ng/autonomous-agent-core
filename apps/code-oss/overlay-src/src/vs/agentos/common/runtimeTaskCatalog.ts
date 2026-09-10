@@ -103,6 +103,132 @@ export interface AgentOSTaskDetail {
 	readonly runStatus: string | null;
 	readonly runCreatedAt: string | null;
 	readonly sequence: number;
+	readonly configurationSnapshotId: string | null;
+	readonly approvalCard: AgentOSApprovalCard | null;
+	readonly approvalDecision: AgentOSApprovalDecision | null;
+}
+
+// --- Slice 3: approval card (whitelist projection over proposed_action/approval) ---
+
+/**
+ * Minimal projection of the pending ActionContract for the approval card
+ * (spec §7.3). Projected ONLY while the run is parked at WAITING_APPROVAL.
+ * The card is the source of truth for the digest the user approves: the UI
+ * echoes `actionDigest` back verbatim and never computes a digest itself.
+ */
+export interface AgentOSApprovalCard {
+	readonly capabilityId: string;
+	readonly capabilityVersion: string;
+	readonly riskTier: number;
+	readonly actionDigest: string;
+	readonly policyVersion: string;
+	readonly principalId: string;
+	readonly runId: string;
+	readonly nodeId: string;
+	/** Bounded pretty-printed arguments (the resource scope under review). */
+	readonly argumentsPreview: string;
+	readonly argumentsTruncated: boolean;
+}
+
+/** Minimal projection of the recorded ApprovalDecision for card convergence. */
+export interface AgentOSApprovalDecision {
+	readonly disposition: string;
+	readonly reason: string;
+	readonly actionDigest: string;
+	readonly actorId: string;
+	readonly decidedAt: string;
+	readonly expiresAt: string;
+}
+
+/** ActionContract dump keys the runtime may serve (frozen by real fixture). */
+const KNOWN_PROPOSED_ACTION_KEYS: ReadonlySet<string> = new Set([
+	'action_digest', 'action_id', 'arguments', 'arguments_json',
+	'approval_requirement', 'candidate_envelope_id', 'capability_id',
+	'capability_version', 'created_at', 'estimated_budget', 'expected_outcome_id',
+	'idempotency_key', 'node_id', 'observed_correction_epochs', 'policy_version',
+	'principal_id', 'risk_tier', 'run_id', 'schema_version', 'task_id',
+	'tenant_id', 'workspace_id',
+]);
+
+/** ApprovalDecision dump keys the runtime may serve (frozen by real fixture). */
+const KNOWN_APPROVAL_KEYS: ReadonlySet<string> = new Set([
+	'action_digest', 'actor_id', 'actor_role', 'approval_id', 'decided_at',
+	'disposition', 'expires_at', 'reason', 'schema_version', 'tenant_id',
+	'workspace_id',
+]);
+
+const ARGUMENTS_PREVIEW_LIMIT = 4096;
+
+function requireSha256(value: unknown, where: string): string {
+	if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) {
+		fail(`${where} must be a 64-char lowercase hex digest`);
+	}
+	return value;
+}
+
+function decodeApprovalCard(value: unknown): AgentOSApprovalCard {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		fail('proposed_action must be an object');
+	}
+	const record = value as Record<string, unknown>;
+	for (const key of Object.keys(record)) {
+		if (!KNOWN_PROPOSED_ACTION_KEYS.has(key)) {
+			fail(`proposed_action carries unknown key: ${key}`);
+		}
+	}
+	const capabilityId = requireNonEmptyString(record['capability_id'], 'proposed_action.capability_id');
+	const capabilityVersion = requireNonEmptyString(record['capability_version'], 'proposed_action.capability_version');
+	const riskTier = record['risk_tier'];
+	if (typeof riskTier !== 'number' || !Number.isInteger(riskTier) || riskTier < 0) {
+		fail('proposed_action.risk_tier must be an integer >= 0');
+	}
+	const actionDigest = requireSha256(record['action_digest'], 'proposed_action.action_digest');
+	const policyVersion = requireNonEmptyString(record['policy_version'], 'proposed_action.policy_version');
+	const principalId = requireNonEmptyString(record['principal_id'], 'proposed_action.principal_id');
+	const runId = requireNonEmptyString(record['run_id'], 'proposed_action.run_id');
+	const nodeId = requireNonEmptyString(record['node_id'], 'proposed_action.node_id');
+	const args = record['arguments'];
+	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+		fail('proposed_action.arguments must be an object');
+	}
+	const fullPreview = JSON.stringify(args, null, 2);
+	const truncated = fullPreview.length > ARGUMENTS_PREVIEW_LIMIT;
+	return {
+		capabilityId,
+		capabilityVersion,
+		riskTier,
+		actionDigest,
+		policyVersion,
+		principalId,
+		runId,
+		nodeId,
+		argumentsPreview: truncated ? `${fullPreview.slice(0, ARGUMENTS_PREVIEW_LIMIT)}\n… [truncated]` : fullPreview,
+		argumentsTruncated: truncated,
+	};
+}
+
+function decodeApprovalDecision(value: unknown): AgentOSApprovalDecision {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		fail('approval must be an object');
+	}
+	const record = value as Record<string, unknown>;
+	for (const key of Object.keys(record)) {
+		if (!KNOWN_APPROVAL_KEYS.has(key)) {
+			fail(`approval carries unknown key: ${key}`);
+		}
+	}
+	const disposition = requireNonEmptyString(record['disposition'], 'approval.disposition');
+	if (disposition !== 'APPROVE' && disposition !== 'REJECT' && disposition !== 'REVISE') {
+		fail(`approval.disposition must be APPROVE/REJECT/REVISE; got ${disposition}`);
+	}
+	return {
+		disposition,
+		reason: requireNonEmptyString(record['reason'], 'approval.reason'),
+		actionDigest: requireSha256(record['action_digest'], 'approval.action_digest'),
+		actorId: requireNonEmptyString(record['actor_id'], 'approval.actor_id'),
+		decidedAt: requireNonEmptyString(record['decided_at'], 'approval.decided_at'),
+		expiresAt: requireNonEmptyString(record['expires_at'], 'approval.expires_at'),
+	};
 }
 
 /**
@@ -173,7 +299,27 @@ export function decodeTaskDetail(payload: unknown): AgentOSTaskDetail {
 		runStatus = run_status as string | null;
 		runCreatedAt = created_at as string | null;
 	}
-	return { taskId: task_id, status: status as string | null, statement, runId, runStatus, runCreatedAt, sequence };
+	let configurationSnapshotId: string | null = null;
+	const configurationSnapshot = record['configuration_snapshot'];
+	if (configurationSnapshot !== null && configurationSnapshot !== undefined) {
+		if (typeof configurationSnapshot !== 'object' || Array.isArray(configurationSnapshot)) {
+			fail('configuration_snapshot must be an object or null');
+		}
+		const snapshotId = (configurationSnapshot as Record<string, unknown>)['snapshot_id'];
+		if (typeof snapshotId !== 'string' || snapshotId.length === 0) {
+			fail('configuration_snapshot.snapshot_id must be a non-empty string');
+		}
+		configurationSnapshotId = snapshotId;
+	}
+	const proposedAction = record['proposed_action'];
+	const approvalCard = runStatus === 'WAITING_APPROVAL' && proposedAction !== null && proposedAction !== undefined
+		? decodeApprovalCard(proposedAction)
+		: null;
+	const approval = record['approval'];
+	const approvalDecision = approval !== null && approval !== undefined
+		? decodeApprovalDecision(approval)
+		: null;
+	return { taskId: task_id, status: status as string | null, statement, runId, runStatus, runCreatedAt, sequence, configurationSnapshotId, approvalCard, approvalDecision };
 }
 
 // --- Slice 2: trajectory (exact-keys closed contract) ---

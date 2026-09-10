@@ -268,6 +268,12 @@ test('dual workbench slice 3: two-step approval recipe probe', { timeout: 240_00
 		assert.ok(typeof cardDigest === 'string' && cardDigest.length === 64, 'approval card digest must be present on proposed_action');
 		assert.equal(parked.body.proposed_action?.capability_id, 'workspace.apply_patch');
 
+		// Capture real fixtures for the decoder contract tests (provider_status
+		// carries no api_key — app.py:802-810; same capture policy as slice 2).
+		const fixturesDir = path.join(repoRoot, 'apps', 'code-oss', 'tests', 'fixtures');
+		await mkdir(fixturesDir, { recursive: true });
+		await writeFile(path.join(fixturesDir, 'task-detail-waiting-approval.real.json'), JSON.stringify(parked.body, null, 2));
+
 		// record_approval does NOT resume the run.
 		const decided = await call('POST', `/v1/tasks/${approved.taskId}/approval`, {
 			action_digest: cardDigest,
@@ -278,6 +284,7 @@ test('dual workbench slice 3: two-step approval recipe probe', { timeout: 240_00
 		assert.equal(decided.body.run?.status, 'WAITING_APPROVAL', 'recording the approval must not resume the run');
 		const approvalDigest = decided.body.approval?.action_digest;
 		assert.equal(approvalDigest, cardDigest, 'recorded approval digest must equal the card digest');
+		await writeFile(path.join(fixturesDir, 'task-detail-approved.real.json'), JSON.stringify(decided.body, null, 2));
 
 		// Resume with configuration_snapshot_id ONLY — the exact payload shape the
 		// bridge's resumeTaskRun is allowed to send (no inputs, no lease recovery).
