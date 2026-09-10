@@ -250,16 +250,50 @@ test('application quit termination SIGTERMs the live interactive runtime', async
 
 test('quit termination escalates to SIGKILL past the deadline', async () => {
 	const { dir, lifecycle } = await loadBridge();
-	const stubborn = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready");']);
+	// A wedged runtime: ignores SIGTERM but still serves bearer-authenticated HTTP.
+	const stubborn = spawn(process.execPath, ['-e', `
+		process.on("SIGTERM", () => {});
+		require("node:http").createServer((req, res) => {
+			if (req.headers.authorization === "Bearer lifecycle-token") { res.writeHead(200); res.end("{}"); }
+			else { res.writeHead(401); res.end(); }
+		}).listen(0, "127.0.0.1", function () { process.stdout.write(String(this.address().port)); });
+		setInterval(() => {}, 1000);
+	`]);
 	try {
-		await new Promise(resolve => stubborn.stdout.once('data', resolve));
+		const port = await new Promise(resolve => stubborn.stdout.once('data', data => resolve(Number(data.toString()))));
 		const exited = new Promise(resolve => stubborn.once('exit', resolve));
-		const descriptorPath = await descriptorFileFor(dir, stubborn.pid);
+		const descriptorPath = await descriptorFileFor(dir, stubborn.pid, { port });
 		const termination = lifecycle.beginInteractiveRuntimeTermination(descriptorPath, 300);
 		assert.equal(termination.pending, true);
 		assert.equal(await termination.done, 'terminated');
 		await exited;
 		assert.equal(stubborn.signalCode, 'SIGKILL');
+	} finally {
+		if (stubborn.exitCode === null) {
+			stubborn.kill('SIGKILL');
+		}
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('quit termination skips SIGKILL when the runtime identity probe fails', async () => {
+	const { dir, lifecycle } = await loadBridge();
+	const stubborn = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready");']);
+	try {
+		await new Promise(resolve => stubborn.stdout.once('data', resolve));
+		const descriptorPath = await descriptorFileFor(dir, stubborn.pid);
+		// Same pid, same start time, unchanged descriptor — but no process answers
+		// with the bearer on the descriptor socket, so identity is NOT proven.
+		const termination = lifecycle.beginInteractiveRuntimeTermination(descriptorPath, 300, {
+			probeIdentity: async () => false,
+		});
+		assert.equal(termination.pending, true);
+		const exited = new Promise(resolve => stubborn.once('exit', () => resolve(true)));
+		const result = await termination.done;
+		assert.equal(result, 'terminated');
+		const wasKilled = await Promise.race([exited, new Promise(resolve => setTimeout(() => resolve(false), 500))]);
+		assert.equal(wasKilled, false);
+		assert.equal(pidAlive(stubborn.pid), true);
 	} finally {
 		if (stubborn.exitCode === null) {
 			stubborn.kill('SIGKILL');

@@ -14,11 +14,14 @@ import { assertRuntimeDescriptorStatSafe, parseRuntimeDescriptor } from './runti
  * does. The descriptor is re-read immediately before signalling so a stale
  * file (or a recycled pid) cannot redirect the signal to an unrelated process.
  *
- * Pid-reuse defence: a start-time fingerprint is captured before SIGTERM and
- * re-checked on every poll and again before SIGKILL. A reused pid never shares
- * the original fingerprint, so escalation can never hit a foreign process; if
- * identity can no longer be proven, the routine fails closed and does not
- * signal at all.
+ * Pid-reuse defence is layered, weakest signal first: a start-time
+ * fingerprint (second resolution, cheap early exit) is captured before
+ * SIGTERM and re-checked on every poll; before destructive SIGKILL the
+ * descriptor pid+boot_id is re-read AND a bearer-authenticated HTTP probe
+ * must answer on the descriptor socket. A foreign process at a reused pid
+ * cannot satisfy the probe without the bearer secret, so escalation cannot
+ * hit it; if identity cannot be proven on every channel, the routine fails
+ * closed and does not signal at all.
  */
 
 export type InteractiveRuntimeTerminationResult = 'terminated' | 'not-running' | 'descriptor-unavailable' | 'descriptor-changed';
@@ -32,6 +35,8 @@ export interface InteractiveRuntimeTermination {
 export interface InteractiveRuntimeTerminationDeps {
 	/** Process start-time fingerprint; injected by tests to simulate pid reuse. */
 	readonly fingerprintOf?: (pid: number) => string | null;
+	/** Bearer-authenticated runtime probe; injected by tests to simulate identity loss. */
+	readonly probeIdentity?: (descriptor: { readonly host: string; readonly port: number; readonly bearer_token: string }) => Promise<boolean>;
 }
 
 export const INTERACTIVE_RUNTIME_TERMINATION_DEADLINE_MS = 5_000;
@@ -39,9 +44,10 @@ export const INTERACTIVE_RUNTIME_TERMINATION_DEADLINE_MS = 5_000;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Start-time fingerprint of the process at `pid`. Two different processes
- * never share a start time, so a changed fingerprint proves the pid was
- * reused. Returns null when the pid is dead or cannot be inspected.
+ * Start-time fingerprint of the process at `pid`. Resolution is one second,
+ * so this is a cheap early signal only — destructive escalation must also
+ * pass the bearer-authenticated runtime probe below. Returns null when the
+ * pid is dead or cannot be inspected.
  */
 export function processStartFingerprint(pid: number): string | null {
 	try {
@@ -52,12 +58,32 @@ export function processStartFingerprint(pid: number): string | null {
 	}
 }
 
+/**
+ * Strong runtime identity proof: something listening on the descriptor's exact
+ * host:port must answer bearer-authenticated HTTP. A foreign process at a
+ * reused pid cannot satisfy this without also holding the bearer secret.
+ * Any failure (refused, timeout, 401, non-OK) means identity is NOT proven.
+ */
+export async function probeRuntimeIdentity(descriptor: { readonly host: string; readonly port: number; readonly bearer_token: string }): Promise<boolean> {
+	try {
+		const response = await fetch(`http://${descriptor.host}:${descriptor.port}/v1/tasks`, {
+			method: 'GET',
+			headers: { 'Authorization': `Bearer ${descriptor.bearer_token}`, 'Accept': 'application/json' },
+			signal: AbortSignal.timeout(1_000),
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
+
 export function beginInteractiveRuntimeTermination(
 	descriptorPath: string,
 	deadlineMs: number = INTERACTIVE_RUNTIME_TERMINATION_DEADLINE_MS,
 	deps: InteractiveRuntimeTerminationDeps = {},
 ): InteractiveRuntimeTermination {
 	const fingerprintOf = deps.fingerprintOf ?? processStartFingerprint;
+	const probeIdentity = deps.probeIdentity ?? probeRuntimeIdentity;
 	let descriptor;
 	try {
 		assertRuntimeDescriptorStatSafe(lstatSync(descriptorPath));
@@ -99,7 +125,12 @@ export function beginInteractiveRuntimeTermination(
 			}
 			await sleep(50);
 		}
-		// Escalation is destructive; re-prove both identities before SIGKILL.
+		// Escalation is destructive; re-prove identity on three independent
+		// channels before SIGKILL, and fail closed when any cannot be proven:
+		// start-time fingerprint (cheap, second-resolution), descriptor
+		// pid+boot_id (catches a replacement runtime), and the bearer-
+		// authenticated HTTP probe (strong: a foreign process at a reused pid
+		// cannot answer with the bearer on the descriptor socket).
 		const current = fingerprintOf(pid);
 		if (current === null || current !== fingerprint) {
 			return 'terminated';
@@ -111,6 +142,9 @@ export function beginInteractiveRuntimeTermination(
 			}
 		} catch {
 			return 'descriptor-unavailable';
+		}
+		if (!await probeIdentity(descriptor)) {
+			return 'terminated';
 		}
 		try {
 			process.kill(pid, 'SIGKILL');

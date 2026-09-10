@@ -75,3 +75,13 @@ codex-primary 独立评审裁决 `REVISE_TO_SPEC`(报告:`review-codex-primary.m
 - **Additional Note(已修)**:删除 `RuntimeTaskCatalogMainService.fetchFrom` 绝对 URL 逃逸口(生产无调用方),桥表面只剩 `listTasks` 一个允许路径。
 - **环境性失败说明**:评审沙箱中 `verify.mjs` 35/42、e2e 0/1、完整 compile 失败,根因为该沙箱禁止 loopback listen / IPC pipe(`listen EPERM`,reviewer 用最小 Node server 复核确认);非代码回归。builder 侧非沙箱环境当场重跑:verify 42/42、e2e 1/1、`npm run compile` 0 errors。
 - TOCTOU(`lstat` 后 `readFile`)本轮未改,记入后续切片候选:以 no-follow open + `fstat` 校验替代。
+
+### 第二轮复审修订(2026-09-10)
+
+第二轮复审仍判 `REVISE_TO_SPEC`:`ps -o lstart=` 指纹只有秒级精度,同秒 pid 复用可穿透。修复为**三层身份证据**,SIGKILL 前必须全部通过,任一无法证明即 fail-closed 不发信号:
+
+1. 启动时间指纹(`ps lstart`,SIGTERM 前捕获、轮询每次复核)——便宜的早退信号;
+2. descriptor 重读比对 pid+boot_id——拦截替换 runtime;
+3. **bearer 认证的 HTTP 探活**(`GET /v1/tasks`,1s 超时)——强证据:复用 pid 上的外来进程不持有 bearer 秘密,无法在 descriptor socket 上应答。
+
+失败先行的回归测试:`probeIdentity 返回 false 时拒绝 SIGKILL`(注入)、`escalates to SIGKILL` 改为对真实 bearer 认证 HTTP server 的全链路验证。结果:verify 45/45、e2e 1/1、`npm run compile` 0 errors。
