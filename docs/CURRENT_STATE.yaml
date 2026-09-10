@@ -5,6 +5,7 @@ live_pins:
   spine_1_g7_evidence_head: "e1cf9c4cf7b001a9e37bf20494cc21a6a6177c6d"
   spine_1_main_integration_receipt: "807a05902da6b95844c1693ed198de5618b117ff"
   spine_1_donor_ref: "94e2b5918d12d6592f34f3b14c44c29038a74029"
+  dual_workbench_slice_1_head: "e13684a2 (codex/ide-ui worktree; APPROVE_SLICE_1 round-3; NOT pushed/merged)"
   realtime_collab_fence_merge_receipt: "1ea99cab (no-ff merge of feature/realtime-collab-fence-20260814 @ 4b5c2a50; APPROVE round-3; NOT pushed)"
   realtime_collab_fence_status: "REAL_PRODUCT_RUNTIME_FENCE_IMPLEMENTED / SURFACE_NOT_IMPLEMENTED"
   realtime_collab_m1b_merge_receipt: "25408138 (no-ff merge of feature/realtime-collab-surface-m1b-20260814 @ e2944253; APPROVE round-2; NOT pushed)"
@@ -24,7 +25,7 @@ live_pins:
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-08-13T12:00:00+08:00"
+updated: "2026-09-10T22:35:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -460,6 +461,20 @@ research_ledger:
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
 active_work:
+  - id: "P-DUAL-WORKBENCH-SLICE-1-20260909"
+    track: "product"
+    status: "IMPLEMENTED / TESTED / LOCALLY_VERIFIED / INDEPENDENTLY_APPROVED (APPROVE_SLICE_1 round-3, P0=0/P1=0, 3 P2 non-blocking) / NOT_MERGED / PUSHED: false / RELEASED: false / DAILY_USABLE: false / BRANCH_CONTAINED codex/ide-ui @ e13684a2 (worktree .worktrees/ide-ui)"
+    purpose: "Dual Workbench Slice 1 on the Code-OSS 1.136.2 Sessions baseline: one app, two native windows (IDE workbench-dev.html + Sessions sessions-dev.html), and a read-only projection of real Product Runtime tasks (GET /v1/tasks) into the Sessions window through a main-process-only catalog bridge."
+    boundary: "Bearer token never leaves the Electron main process (e2e CDP-oracle verified: absent from DOM/storage/globals/console). Sessions provider is strictly read-only: all 16 mutation entry points typed-reject with AgentOSReadOnlyError; no send/delete/archive/approve controls render. Application quit terminates the interacted runtime within a bounded 5s window using three-channel identity proof (ps start-time fingerprint + descriptor pid/boot_id re-read + bearer-authenticated HTTP probe), failing closed without signalling when identity is unproven. Upstream surface is patch 010 only: 5 upstream files, zero added upstream files; all new code in overlay src/vs/agentos/. No approval/automation execution, multi-client write, background service, Rust migration, release, or autonomy claim. Spec V2 remains untracked DESIGN_ONLY per its own git discipline."
+    source:
+      - "docs/superpowers/plans/2026-09-09-agent-os-dual-workbench-slice-1.md"
+      - "apps/code-oss/overlay-src/src/vs/agentos/"
+      - "apps/code-oss/patches/010-agent-os-sessions-window.patch"
+      - ".agent_runs/dual-workbench-slice-1-20260909/verification.md"
+      - ".agent_runs/dual-workbench-slice-1-20260909/review-codex-primary.md"
+      - ".agent_runs/dual-workbench-slice-1-20260909/review-codex-primary-round2.md"
+      - ".agent_runs/dual-workbench-slice-1-20260909/review-subagent-round3.md"
+    verification: "node scripts/verify.mjs 45/45 pass; e2e oracle tests/dual-workbench-slice-1.test.mjs 1/1 (real Python runtime + two native windows via CDP: dual-window, upstream Parts retained, two real tasks rendered, bearer non-leak, read-only controls absent, reload survival, bounded runtime termination on quit); npm run compile 0 errors. Independent reviews: codex-primary round-1/round-2 REVISE_TO_SPEC (P1 pid-reuse, P2 file count; both fixed with fail-first regression tests and closed), subagent kimi-reviewer-round3 APPROVE_SLICE_1 with mutation-testing evidence that the lifecycle identity checks are load-bearing. Reviewer substitution (codex-primary quota-exhausted → fresh subagent) founder-authorized and recorded in messages.jsonl. Carry-overs (P2, non-blocking): probe-failure result label conflates 'terminated', probe-to-SIGKILL residual race window, descriptor lstat/readFile TOCTOU."
   - id: "P-NATIVE-SURFACE-WAVE2B-20260812"
     track: "product"
     status: "IMPLEMENTED / TESTED / INTEGRATED / REVIEWED: pending / PUSHED: false / RELEASED: false / DAILY_USABLE: false / NOT_MERGED / BRANCH_CONTAINED codex/native-surface-wave2a-macos-shell-20260812"
