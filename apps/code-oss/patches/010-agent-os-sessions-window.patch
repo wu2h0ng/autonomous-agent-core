@@ -55,6 +55,20 @@ index d073d011..ceb4cf1b 100644
  	readonly dirty: boolean;
  }
  
+diff --git a/src/vs/sessions/sessions.desktop.main.ts b/src/vs/sessions/sessions.desktop.main.ts
+index 16be5da3..551e1a0d 100644
+--- a/src/vs/sessions/sessions.desktop.main.ts
++++ b/src/vs/sessions/sessions.desktop.main.ts
+@@ -225,6 +225,9 @@ import '../workbench/contrib/keybindingsExport/electron-browser/keybindingsExpor
+ 
+ import './electron-browser/sessions.desktop.contribution.js';
+ 
++// Agent OS: read-only Runtime task catalog provider (the only agentos seam in sessions)
++import '../agentos/browser/agentOSSessionsProvider.contribution.js';
++
+ // Remote Agent Host
+ import '../workbench/services/agentHost/electron-browser/agentHostService.js';
+ import '../platform/agentHost/electron-browser/sshRemoteAgentHostService.js';
 diff --git a/src/vs/workbench/electron-browser/desktop.contribution.ts b/src/vs/workbench/electron-browser/desktop.contribution.ts
 index 41250d7b..822c4c31 100644
 --- a/src/vs/workbench/electron-browser/desktop.contribution.ts

@@ -24,10 +24,11 @@ test('Agent Window retains upstream native Parts and layout, not a fake EditorPa
   assert.doesNotMatch(workbench, /agentOSWindowEditor|createWebviewPanel|extends EditorPane/);
 });
 
-test('Task 2 leaves every Sessions byte and path identical to the pinned upstream', async () => {
+test('Sessions tree matches pinned upstream except the reviewed desktop entry seam', async () => {
   const lock = JSON.parse(await readFile(path.join(overlayRoot, 'upstream.lock.json'), 'utf8'));
   assert.equal(git(['rev-parse', 'HEAD']).trim(), lock.commit);
-  assert.equal(git(['diff', lock.commit, '--', 'src/vs/sessions']), '');
+  // The reviewed desktop registration seam is the only allowed sessions diff.
+  assert.equal(git(['diff', lock.commit, '--name-only', '--', 'src/vs/sessions']).trim(), 'src/vs/sessions/sessions.desktop.main.ts');
   assert.equal(git(['ls-files', '--others', '--exclude-standard', '--', 'src/vs/sessions']), '');
 });
 
@@ -43,7 +44,9 @@ test('active patch cannot restore the retired fake Agent surface', async () => {
     if (!name.endsWith('.patch')) continue;
     const patch = await readFile(path.join(overlayRoot, 'patches', name), 'utf8');
     assert.doesNotMatch(patch, /AgentOSTaskListPart extends Disposable|agentOSWindowEditor|createWebviewPanel|agentOSWindow\?: boolean/);
-    assert.doesNotMatch(patch, /^diff --git a\/src\/vs\/sessions\//m);
+    // The only allowed sessions-tree seam is the reviewed desktop entry import.
+    const sessionsDiffs = patch.match(/^diff --git a\/(src\/vs\/sessions\/\S+)/gm) ?? [];
+    assert.deepEqual(sessionsDiffs, ['diff --git a/src/vs/sessions/sessions.desktop.main.ts']);
   }
 });
 
@@ -61,7 +64,8 @@ test('Task 2 patch replays from an exact clean upstream HEAD without Sessions ch
     run(['apply', patch]);
     run(['apply', '--reverse', '--check', patch]);
     run(['diff', '--check']);
-    assert.equal(run(['diff', lock.commit, '--', 'src/vs/sessions']), '');
+    // The sessions tree stays untouched except the reviewed desktop entry seam.
+    assert.equal(run(['diff', lock.commit, '--name-only', '--', 'src/vs/sessions']).trim(), 'src/vs/sessions/sessions.desktop.main.ts');
     assert.equal(run(['ls-files', '--others', '--', 'src/vs/sessions']), '');
     const modified = run(['diff', '--name-only']).trim().split('\n').filter(Boolean);
     const added = run(['ls-files', '--others', '--exclude-standard']).trim().split('\n').filter(Boolean);
@@ -69,6 +73,7 @@ test('Task 2 patch replays from an exact clean upstream HEAD without Sessions ch
       'src/vs/code/electron-main/app.ts',
       'src/vs/platform/native/electron-main/nativeHostMainService.ts',
       'src/vs/platform/window/common/window.ts',
+      'src/vs/sessions/sessions.desktop.main.ts',
       'src/vs/workbench/electron-browser/desktop.contribution.ts',
     ]);
     for (const file of [...modified, ...added]) {

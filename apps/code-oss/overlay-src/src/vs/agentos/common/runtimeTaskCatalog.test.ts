@@ -4,8 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { stripTypeScriptTypes } from 'node:module';
 import { test } from 'node:test';
-import { decodeTaskCatalog } from './runtimeTaskCatalog.js';
+import type { decodeTaskCatalog as decodeTaskCatalogType } from './runtimeTaskCatalog.js';
+
+// The sibling module is TypeScript; load its real bytes with types stripped so
+// the test exercises the exact shipped decoder rather than a copy.
+const source = await readFile(new URL('./runtimeTaskCatalog.ts', import.meta.url), 'utf8');
+const { decodeTaskCatalog } = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString('base64')}`) as { decodeTaskCatalog: typeof decodeTaskCatalogType };
 
 test('decodes the exact GET /v1/tasks projection', () => {
 	const snapshot = decodeTaskCatalog({
