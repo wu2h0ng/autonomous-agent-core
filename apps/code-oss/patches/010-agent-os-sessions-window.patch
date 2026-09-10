@@ -1,98 +1,52 @@
-diff --git a/src/vs/agentos/electron-browser/windowNavigation.ts b/src/vs/agentos/electron-browser/windowNavigation.ts
-new file mode 100644
---- /dev/null
-+++ b/src/vs/agentos/electron-browser/windowNavigation.ts
-@@ -0,0 +1,20 @@
-+/*---------------------------------------------------------------------------------------------
-+ *  Copyright (c) Agent OS contributors. All rights reserved.
-+ *  Licensed under the MIT License. See License.txt in the project root for license information.
-+ *--------------------------------------------------------------------------------------------*/
+diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
+index c9736ff3..1f0fd97d 100644
+--- a/src/vs/code/electron-main/app.ts
++++ b/src/vs/code/electron-main/app.ts
+@@ -3,10 +3,12 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ 
++import { RuntimeTaskCatalogChannel, RUNTIME_TASK_CATALOG_CHANNEL } from '../../agentos/electron-main/runtimeTaskCatalogChannel.js';
++import { RuntimeTaskCatalogMainService } from '../../agentos/electron-main/runtimeTaskCatalogMainService.js';
+ import { app, BrowserWindow, desktopCapturer, Details, globalShortcut, GPUFeatureStatus, powerMonitor, protocol, screen as electronScreen, session, Session, systemPreferences, WebFrameMain } from 'electron';
+ import { addUNCHostToAllowlist, disableUNCAccessRestrictions } from '../../base/node/unc.js';
+ import { validatedIpcMain } from '../../base/parts/ipc/electron-main/ipcMain.js';
+-import { hostname, release } from 'os';
++import { hostname, homedir, release } from 'os';
+ import { initWindowsVersionInfo } from '../../base/node/windowsVersion.js';
+ import { VSBuffer } from '../../base/common/buffer.js';
+ import { toErrorMessage } from '../../base/common/errorMessage.js';
+@@ -1434,6 +1436,13 @@ export class CodeApplication extends Disposable {
+ 		const webviewChannel = ProxyChannel.fromService(accessor.get(IWebviewManagerService), disposables);
+ 		mainProcessElectronServer.registerChannel('webview', webviewChannel);
+ 
++		// Agent OS: read-only Runtime task catalog. The channel never exposes
++		// descriptor bytes or the bearer token to the renderer, only the
++		// decoded projection. Mutations are rejected inside the channel.
++		const runtimeDescriptorPath = process.env['AGENTOS_RUNTIME_DESCRIPTOR'] ?? join(homedir(), '.agent-os', 'runtime.json');
++		const runtimeTaskCatalogChannel = new RuntimeTaskCatalogChannel(new RuntimeTaskCatalogMainService(runtimeDescriptorPath));
++		mainProcessElectronServer.registerChannel(RUNTIME_TASK_CATALOG_CHANNEL, runtimeTaskCatalogChannel);
 +
-+import type { INativeHostService } from '../../platform/native/common/native.js';
-+
-+export async function openSessionsWindow(nativeHostService: INativeHostService): Promise<void> {
-+	await nativeHostService.openAgentsWindow();
-+}
-+
-+export async function focusOrOpenIDEWindow(nativeHostService: INativeHostService): Promise<void> {
-+	const windows = await nativeHostService.getWindows({ includeAuxiliaryWindows: false });
-+	const ideWindow = windows.find(window => window.isSessionsWindow === false);
-+	if (ideWindow) {
-+		await nativeHostService.focusWindow({ targetWindowId: ideWindow.id });
-+	} else {
-+		await nativeHostService.openWindow();
-+	}
-+}
-diff --git a/src/vs/agentos/electron-browser/windowActions.ts b/src/vs/agentos/electron-browser/windowActions.ts
-new file mode 100644
---- /dev/null
-+++ b/src/vs/agentos/electron-browser/windowActions.ts
-@@ -0,0 +1,61 @@
-+/*---------------------------------------------------------------------------------------------
-+ *  Copyright (c) Agent OS contributors. All rights reserved.
-+ *  Licensed under the MIT License. See License.txt in the project root for license information.
-+ *--------------------------------------------------------------------------------------------*/
-+
-+import { Codicon } from '../../base/common/codicons.js';
-+import { localize2 } from '../../nls.js';
-+import { Action2, MenuId, registerAction2 } from '../../platform/actions/common/actions.js';
-+import { IsWebContext } from '../../platform/contextkey/common/contextkeys.js';
-+import { ContextKeyExpr } from '../../platform/contextkey/common/contextkey.js';
-+import { ServicesAccessor } from '../../platform/instantiation/common/instantiation.js';
-+import { INativeHostService } from '../../platform/native/common/native.js';
-+import { Menus } from '../../sessions/browser/menus.js';
-+import { IsAuxiliaryWindowContext, IsSessionsWindowContext } from '../../workbench/common/contextkeys.js';
-+import { focusOrOpenIDEWindow, openSessionsWindow } from './windowNavigation.js';
-+
-+const nativeMainWindow = ContextKeyExpr.and(IsWebContext.toNegated(), IsAuxiliaryWindowContext.toNegated());
-+
-+registerAction2(class OpenSessionsWindowAction extends Action2 {
-+	constructor() {
-+		super({
-+			id: 'agentOS.openSessionsWindow',
-+			title: localize2('agentOS.openSessionsWindow', 'Agent OS: Open Agent Window'),
-+			f1: true,
-+			icon: Codicon.commentDiscussion,
-+			precondition: nativeMainWindow,
-+			menu: {
-+				id: MenuId.TitleBarAdjacentCenter,
-+				group: 'navigation',
-+				order: 1,
-+				when: ContextKeyExpr.and(nativeMainWindow, IsSessionsWindowContext.toNegated()),
-+			},
-+		});
-+	}
-+
-+	override async run(accessor: ServicesAccessor): Promise<void> {
-+		await openSessionsWindow(accessor.get(INativeHostService));
-+	}
-+});
-+
-+registerAction2(class FocusOrOpenIDEWindowAction extends Action2 {
-+	constructor() {
-+		super({
-+			id: 'agentOS.focusOrOpenIDEWindow',
-+			title: localize2('agentOS.focusOrOpenIDEWindow', 'Agent OS: Open IDE Window'),
-+			f1: true,
-+			icon: Codicon.code,
-+			precondition: nativeMainWindow,
-+			menu: {
-+				id: Menus.TitleBarCenterRight,
-+				group: 'navigation',
-+				order: 1,
-+				when: ContextKeyExpr.and(nativeMainWindow, IsSessionsWindowContext),
-+			},
-+		});
-+	}
-+
-+	override async run(accessor: ServicesAccessor): Promise<void> {
-+		await focusOrOpenIDEWindow(accessor.get(INativeHostService));
-+	}
-+});
+ 		// Storage (main & shared process)
+ 		const storageChannel = disposables.add((new StorageDatabaseChannel(this.logService, accessor.get(IStorageMainService))));
+ 		mainProcessElectronServer.registerChannel('storage', storageChannel);
+diff --git a/src/vs/platform/native/electron-main/nativeHostMainService.ts b/src/vs/platform/native/electron-main/nativeHostMainService.ts
+index b1fb89e2..31f2ac52 100644
+--- a/src/vs/platform/native/electron-main/nativeHostMainService.ts
++++ b/src/vs/platform/native/electron-main/nativeHostMainService.ts
+@@ -218,6 +218,7 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
+ 			id: window.id,
+ 			workspace: window.openedWorkspace ?? toWorkspaceIdentifier(window.backupPath, window.isExtensionDevelopmentHost),
+ 			title: window.win?.getTitle() ?? '',
++			isSessionsWindow: window.config?.isSessionsWindow === true,
+ 			filename: window.getRepresentedFilename(),
+ 			dirty: window.isDocumentEdited()
+ 		}));
 diff --git a/src/vs/platform/window/common/window.ts b/src/vs/platform/window/common/window.ts
+index d073d011..ceb4cf1b 100644
 --- a/src/vs/platform/window/common/window.ts
 +++ b/src/vs/platform/window/common/window.ts
-@@ -91,6 +91,8 @@
+@@ -91,6 +91,8 @@ interface IOpenedWindow {
  
  export interface IOpenedMainWindow extends IOpenedWindow {
  	readonly workspace?: IAnyWorkspaceIdentifier;
@@ -101,25 +55,16 @@ diff --git a/src/vs/platform/window/common/window.ts b/src/vs/platform/window/co
  	readonly dirty: boolean;
  }
  
-diff --git a/src/vs/platform/native/electron-main/nativeHostMainService.ts b/src/vs/platform/native/electron-main/nativeHostMainService.ts
---- a/src/vs/platform/native/electron-main/nativeHostMainService.ts
-+++ b/src/vs/platform/native/electron-main/nativeHostMainService.ts
-@@ -218,6 +218,7 @@
- 			id: window.id,
- 			workspace: window.openedWorkspace ?? toWorkspaceIdentifier(window.backupPath, window.isExtensionDevelopmentHost),
- 			title: window.win?.getTitle() ?? '',
-+			isSessionsWindow: window.config?.isSessionsWindow === true,
- 			filename: window.getRepresentedFilename(),
- 			dirty: window.isDocumentEdited()
- 		}));
 diff --git a/src/vs/workbench/electron-browser/desktop.contribution.ts b/src/vs/workbench/electron-browser/desktop.contribution.ts
+index 41250d7b..822c4c31 100644
 --- a/src/vs/workbench/electron-browser/desktop.contribution.ts
 +++ b/src/vs/workbench/electron-browser/desktop.contribution.ts
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,8 @@
   *  Licensed under the MIT License. See License.txt in the project root for license information.
   *--------------------------------------------------------------------------------------------*/
  
 +import '../../agentos/electron-browser/windowActions.js';
++import '../../agentos/electron-browser/runtimeTaskCatalog.contribution.js';
  import { Registry } from '../../platform/registry/common/platform.js';
  import { localize, localize2 } from '../../nls.js';
  import { MenuRegistry, MenuId, registerAction2 } from '../../platform/actions/common/actions.js';

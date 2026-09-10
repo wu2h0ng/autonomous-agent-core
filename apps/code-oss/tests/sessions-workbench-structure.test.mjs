@@ -63,11 +63,10 @@ test('Task 2 patch replays from an exact clean upstream HEAD without Sessions ch
     run(['diff', '--check']);
     assert.equal(run(['diff', lock.commit, '--', 'src/vs/sessions']), '');
     assert.equal(run(['ls-files', '--others', '--', 'src/vs/sessions']), '');
-    const modified = run(['diff', '--name-only']).trim().split('\n');
-    const added = run(['ls-files', '--others', '--exclude-standard']).trim().split('\n');
+    const modified = run(['diff', '--name-only']).trim().split('\n').filter(Boolean);
+    const added = run(['ls-files', '--others', '--exclude-standard']).trim().split('\n').filter(Boolean);
     assert.deepEqual([...modified, ...added].sort(), [
-      'src/vs/agentos/electron-browser/windowActions.ts',
-      'src/vs/agentos/electron-browser/windowNavigation.ts',
+      'src/vs/code/electron-main/app.ts',
       'src/vs/platform/native/electron-main/nativeHostMainService.ts',
       'src/vs/platform/window/common/window.ts',
       'src/vs/workbench/electron-browser/desktop.contribution.ts',
