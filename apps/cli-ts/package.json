@@ -10,8 +10,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.tsx",
+    "dev:daemon": "uv run python scripts/dev_daemon.py",
+    "doctor": "tsx src/cli.tsx doctor",
     "smoke": "tsx scripts/smoke.ts",
-    "dev:daemon": "python3 scripts/dev_daemon.py",
+    "smoke:pty": "uv run python scripts/pty_smoke.py",
+    "e2e": "bash scripts/e2e.sh",
+    "live": "uv run python scripts/live_evidence.py --out /tmp/cli-ts-live.json",
+    "live:pty": "uv run python scripts/live_multiturn_pty.py --out /tmp/cli-ts-live-pty.json",
     "test": "node --import tsx --test test/client.test.ts test/controller.test.ts test/render.test.ts test/headless.test.ts test/doctor.test.ts test/keys.test.ts test/diff.test.ts"
   },
   "dependencies": {

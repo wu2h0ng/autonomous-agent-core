@@ -20,6 +20,10 @@ FAILED=0
 cleanup() {
   [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
   rm -f "$PIDFILE"
+  # The pidfile holds the `uv run` wrapper; the python daemon child can
+  # outlive it (orphan found in iteration-21 onboarding audit). Match the
+  # exact descriptor path so only this run's daemon is swept.
+  pkill -f "dev_daemon.py --descriptor $DESC" 2>/dev/null
 }
 trap cleanup EXIT
 

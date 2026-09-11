@@ -106,6 +106,12 @@ class Daemon:
     def stop(self) -> None:
         self.proc.terminate()
         self.proc.wait(timeout=10)
+        # The Popen handle is the `uv run` wrapper; sweep the python child
+        # by its exact descriptor path (orphan found in iteration-21).
+        subprocess.run(
+            ["pkill", "-f", f"dev_daemon.py --descriptor {self.desc}"],
+            check=False, capture_output=True,
+        )
 
 
 def run_tui(desc: Path, rows: int, cols: int, body) -> None:
