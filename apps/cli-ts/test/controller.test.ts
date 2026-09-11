@@ -50,6 +50,8 @@ class FakeClient {
   approvals: string[] = [];
   modes: PermissionMode[] = [];
   completedTokens = 0;
+  completedStopReason: string | null = null;
+  completedSteps = 0;
   approvalPending = false;
   streamScript: SurfaceStreamFrame[] = [];
 
@@ -100,10 +102,17 @@ class FakeClient {
         event_id: "e:tc",
         task_id: "task:1",
         event_type: "SESSION_TURN_COMPLETED",
-        payload_json: JSON.stringify({ turn_id: "turn:1", total_tokens: tokens }),
+        payload_json: JSON.stringify({
+          turn_id: "turn:1",
+          total_tokens: tokens,
+          ...(this.completedStopReason !== null
+            ? { stop_reason: this.completedStopReason, steps: this.completedSteps }
+            : {}),
+        }),
         occurred_at: new Date().toISOString(),
         sequence: after + 1,
       });
+      this.completedStopReason = null;
     }
     return {
       task_id: "task:1",
@@ -166,6 +175,38 @@ test("streaming turn: chunks assemble; durable completion adds exact tokens", as
   assert.equal(controller.tokensTotal, 42);
   assert.equal(controller.turns, 1);
   assert.equal(controller.status, "idle");
+});
+
+test("non-completed stop_reason surfaces verbatim (max_steps is not success)", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 7;
+  client.completedStopReason = "max_steps";
+  client.completedSteps = 25;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("loop forever");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "idle");
+  assert.equal(controller.tokensTotal, 7); // tokens still counted exactly
+  assert.equal(controller.lastStopReason, "max_steps");
+  const system = controller.messages.filter((m) => m.role === "system").map((m) => m.content);
+  assert.ok(
+    system.some((c) => c.includes("turn ended: max_steps (25 steps")),
+    `expected a typed stop notice, got: ${system.join(" | ")}`,
+  );
+});
+
+test("completed stop_reason stays quiet (no false alarm on success)", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 5;
+  client.completedStopReason = "completed";
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("fine");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.lastStopReason, "completed");
+  const system = controller.messages.filter((m) => m.role === "system").map((m) => m.content);
+  assert.ok(!system.some((c) => c.includes("turn ended:")), "no notice on success");
 });
 
 test("completion event for another turn is ignored", async () => {

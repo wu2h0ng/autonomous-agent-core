@@ -115,6 +115,9 @@ export function App({ controller }: { controller: TuiController }) {
         {snapshot
           ? `mode ${controller.mode} · tokens ${controller.tokensTotal} · cost UNKNOWN · events ${snapshot.event_sequence}`
           : "no session"}
+        {controller.lastStopReason && controller.lastStopReason !== "completed"
+          ? ` · last turn: ${controller.lastStopReason}`
+          : ""}
         {" · /help · ctrl-c correct/exit"}
       </Text>
     </Box>

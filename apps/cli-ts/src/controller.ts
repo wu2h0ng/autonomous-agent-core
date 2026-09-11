@@ -138,6 +138,9 @@ export class TuiController {
   tokensTotal = 0;
   turns = 0;
   pendingPreview: string | null = null;
+  /** stop_reason of the most recent completed turn, verbatim from the
+   * durable SESSION_TURN_COMPLETED payload ("completed" on success). */
+  lastStopReason: string | null = null;
   lastError: string | null = null;
 
   private sessionId: string | null = null;
@@ -319,6 +322,7 @@ export class TuiController {
     }
     this.busy = true;
     this.lastError = null;
+    this.lastStopReason = null;
     try {
       if (!this.sessionId) {
         const opened = await this.client.openSession("cli-ts session");
@@ -431,6 +435,17 @@ export class TuiController {
         if (payload["turn_id"] !== this.turnId) continue;
         this.tokensTotal += Number(payload["total_tokens"] ?? 0);
         this.turns += 1;
+        this.lastStopReason = String(payload["stop_reason"] ?? "completed");
+        if (this.lastStopReason !== "completed") {
+          // Honest surfacing of frozen kernel stop reasons (max_steps /
+          // budget_exceeded / loop_detected / provider_failure:* / …): the
+          // turn is over, but not successfully — say so, verbatim.
+          const steps = Number(payload["steps"] ?? 0);
+          this.push({
+            role: "system",
+            content: `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
+          });
+        }
         this.status = "idle";
         this.turnId = null;
         this.finalizeAll();
