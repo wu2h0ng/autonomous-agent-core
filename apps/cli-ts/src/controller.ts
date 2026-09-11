@@ -35,7 +35,48 @@ export interface ToolCall {
   actionId: string;
   capabilityId: string;
   argsSummary: string;
+  /** Full arguments as received — projections (todo panel) parse from this,
+   * never from the truncated summary. */
+  argsJson: string;
   status: "pending" | "done" | "failed";
+}
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "done";
+}
+
+/** Capability whose latest successful call defines the visible task list
+ * (GC-SESSION-TODO-WRITE-2026-09-11; tier-1 internal scratchpad, pending
+ * gate — the projection is inert until the capability exists). */
+export const TODO_CAPABILITY = "session.todo_write";
+
+/** Defensive parse of a todo_write arguments payload. Returns null on any
+ * shape violation — a malformed list renders as no panel, never guessed. */
+export function parseTodoItems(argsJson: string): TodoItem[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(argsJson);
+  } catch {
+    return null;
+  }
+  const todos = (parsed as { todos?: unknown } | null)?.todos;
+  if (!Array.isArray(todos)) return null;
+  const items: TodoItem[] = [];
+  for (const raw of todos) {
+    const todo = raw as { id?: unknown; content?: unknown; status?: unknown };
+    if (typeof todo?.content !== "string" || !todo.content) return null;
+    if (todo.status !== "pending" && todo.status !== "in_progress" && todo.status !== "done") {
+      return null;
+    }
+    items.push({
+      id: typeof todo.id === "string" && todo.id ? todo.id : `todo-${items.length + 1}`,
+      content: todo.content,
+      status: todo.status,
+    });
+  }
+  return items;
 }
 
 export interface ChatMessage {
@@ -137,6 +178,18 @@ export class TuiController {
 
   get currentSessionId(): string | null {
     return this.sessionId;
+  }
+
+  /** Latest non-failed todo_write list (full-replace semantics), newest card
+   * wins; a failed call never overwrites the visible list. Null = no panel. */
+  get todoPanel(): TodoItem[] | null {
+    for (let i = this.messages.length - 1; i >= 0; i -= 1) {
+      const tool = this.messages[i]?.tool;
+      if (!tool || tool.capabilityId !== TODO_CAPABILITY || tool.status === "failed") continue;
+      const items = parseTodoItems(tool.argsJson);
+      if (items) return items;
+    }
+    return null;
   }
 
   private push(message: ChatMessage): void {
@@ -400,10 +453,12 @@ export class TuiController {
     if (!action) return;
     const actionId = String(action["action_id"] ?? "");
     if (!actionId || this.toolIndex.has(actionId)) return;
+    const argsJson = String(action["arguments_json"] ?? "{}");
     const tool: ToolCall = {
       actionId,
       capabilityId: String(action["capability_id"] ?? "unknown"),
-      argsSummary: summarizeArgs(String(action["arguments_json"] ?? "{}")),
+      argsSummary: summarizeArgs(argsJson),
+      argsJson,
       status: "pending",
     };
     this.toolIndex.set(actionId, this.messages.length);

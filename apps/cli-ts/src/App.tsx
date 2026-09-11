@@ -67,6 +67,7 @@ export function App({ controller }: { controller: TuiController }) {
   const pending = snapshot?.pending_approval;
   const finalized = controller.messages.slice(0, controller.finalizedIndex);
   const active = controller.messages.slice(controller.finalizedIndex);
+  const todoPanel = controller.todoPanel;
 
   return (
     <Box flexDirection="column">
@@ -76,6 +77,15 @@ export function App({ controller }: { controller: TuiController }) {
       {active.map((message, index) => (
         <MessageView key={`active-${index}`} message={message} finalized={false} />
       ))}
+      {todoPanel && (
+        <Box flexDirection="column" borderStyle="round" borderColor="cyan">
+          {todoPanel.map((item) => (
+            <Text key={item.id} dimColor={item.status === "done"}>
+              {item.status === "done" ? "☑" : item.status === "in_progress" ? "◐" : "☐"} {item.content}
+            </Text>
+          ))}
+        </Box>
+      )}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}
       {controller.status === "stalled" && (
         <Text color="yellow">STALLED_PENDING_DURABLE_STATE — waiting for the durable record…</Text>

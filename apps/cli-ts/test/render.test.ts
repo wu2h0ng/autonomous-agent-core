@@ -5,7 +5,12 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeArgs, TuiController } from "../src/controller.js";
+import {
+  parseTodoItems,
+  summarizeArgs,
+  TODO_CAPABILITY,
+  TuiController,
+} from "../src/controller.js";
 
 test("markdown: headers, bold and code fences render ANSI, unclosed fence does not throw", async () => {
   // marked-terminal uses chalk, which samples TTY/env at import time; force
@@ -98,4 +103,99 @@ test("tool cards: proposed → pending card; receipt → done/failed by action_i
     },
   ]);
   assert.equal(controller.messages[0]?.tool?.status, "done");
+});
+
+function todoProposedEvent(
+  seq: number,
+  actionId: string,
+  todos: unknown,
+): Record<string, unknown> {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_PROPOSED",
+    payload_json: JSON.stringify({
+      action: {
+        action_id: actionId,
+        capability_id: TODO_CAPABILITY,
+        arguments_json: JSON.stringify({ todos }),
+      },
+    }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function todoReceiptEvent(
+  seq: number,
+  actionId: string,
+  status: "SUCCEEDED" | "FAILED",
+): Record<string, unknown> {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_RECEIPT_RECORDED",
+    payload_json: JSON.stringify({
+      receipt: { action_id: actionId, status },
+      decision: { action_id: actionId },
+    }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+test("todo panel: parseTodoItems defensive + full-replace + failed never overwrites", () => {
+  // parseTodoItems: shape violations return null, never guessed
+  assert.equal(parseTodoItems("not json"), null);
+  assert.equal(parseTodoItems("{}"), null);
+  assert.equal(parseTodoItems('{"todos":[{"content":"x","status":"bogus"}]}'), null);
+  assert.equal(parseTodoItems('{"todos":[{"content":"x","status":"pending"}]}')?.length, 1);
+  // missing id gets a positional fallback
+  assert.equal(
+    parseTodoItems('{"todos":[{"content":"x","status":"done"}]}')?.[0]?.id,
+    "todo-1",
+  );
+
+  const controller = new TuiController({} as never);
+  const apply = controller as never as {
+    applyDurable: (n: number, e: unknown[]) => void;
+  };
+  // NB: read the getter via an unknown-typed local — asserting directly on
+  // the getter narrows it to null and later accesses collapse to never.
+  const panel0: unknown = controller.todoPanel;
+  assert.equal(panel0, null); // inert without the capability
+
+  apply.applyDurable(1, [
+    todoProposedEvent(1, "t:1", [
+      { id: "1", content: "read code", status: "done" },
+      { id: "2", content: "write tests", status: "in_progress" },
+      { id: "3", content: "ship", status: "pending" },
+    ]),
+    todoReceiptEvent(2, "t:1", "SUCCEEDED"),
+  ]);
+  const panel1 = controller.todoPanel;
+  assert.equal(panel1?.length, 3);
+  assert.equal(panel1?.[1]?.status, "in_progress");
+
+  // full-replace: the newest successful call IS the list
+  apply.applyDurable(3, [
+    todoProposedEvent(3, "t:2", [{ id: "9", content: "only task now", status: "pending" }]),
+    todoReceiptEvent(4, "t:2", "SUCCEEDED"),
+  ]);
+  const panel2 = controller.todoPanel;
+  assert.deepEqual(
+    panel2?.map((t) => t.content),
+    ["only task now"],
+  );
+
+  // a failed write never overwrites the visible list
+  apply.applyDurable(5, [
+    todoProposedEvent(5, "t:3", [{ id: "x", content: "bad write", status: "pending" }]),
+    todoReceiptEvent(6, "t:3", "FAILED"),
+  ]);
+  const panel3 = controller.todoPanel;
+  assert.deepEqual(
+    panel3?.map((t) => t.content),
+    ["only task now"],
+  );
 });
