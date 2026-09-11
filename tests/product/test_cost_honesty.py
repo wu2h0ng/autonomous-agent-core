@@ -182,6 +182,10 @@ def test_openai_sse_usage_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     lines = [
         b'data: {"id":"resp-cost","choices":[{"delta":{"content":"hi"}}]}\n',
         b'data: {"id":"resp-cost","choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+        (
+            b'data: {"id":"resp-cost","choices":[],"usage":'
+            b'{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}\n'
+        ),
         b"data: [DONE]\n",
     ]
 
@@ -214,6 +218,11 @@ def test_openai_sse_usage_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     response = provider.complete_streaming(_request(), on_text_delta=None)
     assert isinstance(response, ProviderResponse)
+    # E3: exact tokens come from the provider usage chunk even on the SSE
+    # path; cost stays honestly UNKNOWN.
+    assert response.usage.input_tokens == 11
+    assert response.usage.output_tokens == 7
+    assert response.usage.total_tokens == 18
     assert response.usage.cost_status == "UNKNOWN"
     assert response.usage.estimated_cost_usd is None
 

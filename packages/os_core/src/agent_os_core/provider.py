@@ -7,7 +7,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Callable
+from typing import Any, Callable
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -428,6 +428,9 @@ class OpenAICompatibleProvider(ProviderPort):
                 body["tool_choice"] = "auto"
             if stream:
                 body["stream"] = True
+                # Ask the provider to emit a final usage chunk so the SSE
+                # path reports exact token counts like the JSON path (E3).
+                body["stream_options"] = {"include_usage": True}
             encoded = json.dumps(body).encode("utf-8")
             http_request = urllib.request.Request(
                 f"{base_url}{endpoint_path}",
@@ -529,6 +532,7 @@ class OpenAICompatibleProvider(ProviderPort):
     ) -> ProviderResponse | ProviderFailure:
         text_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
+        usage_payload: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
         readline = getattr(response, "readline", None)
@@ -559,6 +563,11 @@ class OpenAICompatibleProvider(ProviderPort):
                     False,
                 )
             response_id = str(payload.get("id") or response_id)
+            # The final usage block arrives in a frame whose choices list is
+            # empty, so it must be captured before the choices guard below.
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                usage_payload.update(usage)
             choices = payload.get("choices") or []
             if not choices:
                 continue
@@ -593,17 +602,23 @@ class OpenAICompatibleProvider(ProviderPort):
             if item["name"]
         )
         text_out = "".join(text_parts)
+        input_tokens = int(usage_payload.get("prompt_tokens") or 0)
+        output_tokens = int(usage_payload.get("completion_tokens") or 0)
+        total_tokens = int(usage_payload.get("total_tokens") or 0)
+        if total_tokens <= 0:
+            total_tokens = input_tokens + output_tokens
         return ProviderResponse(
             response_id=response_id,
             request_id=request.request_id,
             text=text_out,
             tool_proposals=proposals,
             usage=ProviderUsage(
-                input_tokens=0,
-                output_tokens=len(text_out.split()),
-                total_tokens=len(text_out.split()),
-                # E3: SSE frames here carry no usage counters and no pricing
-                # source — cost is UNKNOWN, never a pseudo-zero.
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                # E3: streamed frames carry usage counters (stream_options.
+                # include_usage) but still no pricing source — cost is
+                # UNKNOWN, never a pseudo-zero.
                 cost_status="UNKNOWN",
             ),
             finish_reason=finish_reason or "stop",
