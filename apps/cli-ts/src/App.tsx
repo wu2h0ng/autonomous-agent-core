@@ -1,11 +1,40 @@
 /**
- * Ink view layer — renders TuiController state, forwards input. All logic
- * lives in controller.ts (Ink-free, unit-tested); this file only renders.
+ * Ink view layer — renders TuiController state, forwards input.
+ *
+ * Wrap safety (M2 lesson): messages below `controller.finalizedIndex` render
+ * through <Static> (appended to scrollback exactly once, never re-measured);
+ * only the still-mutable tail renders in the dynamic area. Finalized
+ * assistant messages render as markdown; the in-flight one renders raw.
  */
 import React, { useEffect, useReducer, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
-import type { TuiController } from "./controller.js";
+import type { ChatMessage, TuiController } from "./controller.js";
+import { renderMarkdown } from "./markdown.js";
+
+function MessageView({ message, finalized }: { message: ChatMessage; finalized: boolean }) {
+  if (message.tool) {
+    const tool = message.tool;
+    const icon = tool.status === "pending" ? "⏵" : tool.status === "done" ? "✓" : "✗";
+    const color = tool.status === "pending" ? "yellow" : tool.status === "done" ? "green" : "red";
+    return (
+      <Text color={color}>
+        {icon} {tool.capabilityId}({tool.argsSummary})
+      </Text>
+    );
+  }
+  const prefix = message.role === "user" ? "> " : message.role === "system" ? "⏵ " : "";
+  const color = message.role === "user" ? "cyan" : message.role === "system" ? "yellow" : "white";
+  const body =
+    message.role === "assistant" && finalized ? renderMarkdown(message.content) : message.content;
+  return (
+    <Text color={color} wrap="wrap">
+      {prefix}
+      {body}
+      {message.interrupted ? " [interrupted]" : ""}
+    </Text>
+  );
+}
 
 export function App({ controller }: { controller: TuiController }) {
   const { exit } = useApp();
@@ -36,19 +65,16 @@ export function App({ controller }: { controller: TuiController }) {
 
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
+  const finalized = controller.messages.slice(0, controller.finalizedIndex);
+  const active = controller.messages.slice(controller.finalizedIndex);
 
   return (
     <Box flexDirection="column">
-      {controller.messages.map((message, index) => (
-        <Text
-          key={index}
-          color={message.role === "user" ? "cyan" : message.role === "system" ? "yellow" : "white"}
-          wrap="wrap"
-        >
-          {message.role === "user" ? "> " : message.role === "system" ? "⏵ " : ""}
-          {message.content}
-          {message.interrupted ? " [interrupted]" : ""}
-        </Text>
+      <Static items={finalized}>
+        {(message, index) => <MessageView key={index} message={message} finalized />}
+      </Static>
+      {active.map((message, index) => (
+        <MessageView key={`active-${index}`} message={message} finalized={false} />
       ))}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}
       {controller.status === "stalled" && (

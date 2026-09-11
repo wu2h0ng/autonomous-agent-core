@@ -31,10 +31,39 @@ export type ControllerStatus =
   | "stalled"
   | "closed";
 
+export interface ToolCall {
+  actionId: string;
+  capabilityId: string;
+  argsSummary: string;
+  status: "pending" | "done" | "failed";
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   interrupted?: boolean;
+  tool?: ToolCall;
+}
+
+/** One-line argument preview for a tool card (path/command first). */
+export function summarizeArgs(argumentsJson: string): string {
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(argumentsJson) as Record<string, unknown>;
+  } catch {
+    return "(unparseable arguments)";
+  }
+  for (const key of ["path", "command", "pattern", "query", "url"]) {
+    const value = args[key];
+    if (typeof value === "string" && value) {
+      return value.length > 72 ? `${value.slice(0, 72)}…` : value;
+    }
+  }
+  const first = Object.values(args).find((value) => typeof value === "string");
+  if (typeof first === "string") {
+    return first.length > 72 ? `${first.slice(0, 72)}…` : first;
+  }
+  return JSON.stringify(args).slice(0, 72);
 }
 
 export const MODE_ORDER: PermissionMode[] = [
@@ -61,6 +90,9 @@ export interface ControllerDeps {
 export class TuiController {
   status: ControllerStatus = "idle";
   readonly messages: ChatMessage[] = [];
+  /** Leading messages that will never change again — safe for Ink <Static>.
+   * The cursor counts MESSAGES, never physical wrapped rows (M2 lesson). */
+  finalizedIndex = 0;
   mode: PermissionMode = "ASK";
   tokensTotal = 0;
   turns = 0;
@@ -74,6 +106,7 @@ export class TuiController {
   private turnId: string | null = null;
   private durableCursor = 0;
   private lastActivity: number | null = null;
+  private readonly toolIndex = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
   private readonly clock: () => number;
   private readonly stallMs: number;
@@ -107,7 +140,15 @@ export class TuiController {
   }
 
   private push(message: ChatMessage): void {
+    // A new message finalizes every earlier message (they can never change).
+    this.finalizedIndex = this.messages.length;
     this.messages.push(message);
+    this.emit();
+  }
+
+  /** Everything on screen is final (turn resolved one way or another). */
+  private finalizeAll(): void {
+    this.finalizedIndex = this.messages.length;
     this.emit();
   }
 
@@ -293,7 +334,7 @@ export class TuiController {
       if (this.status === "idle" || this.status === "awaiting_approval") return;
       if (this.clock() > deadline) {
         this.status = "stalled"; // transient; only durable state may overrule
-        this.emit();
+        this.finalizeAll();
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, this.pollMs));
@@ -339,13 +380,50 @@ export class TuiController {
         this.turns += 1;
         this.status = "idle";
         this.turnId = null;
-        this.emit();
+        this.finalizeAll();
       } else if (event.event_type === "SESSION_APPROVAL_PENDING") {
         this.pendingPreview = String(payload["preview"] ?? "");
         this.status = "awaiting_approval";
-        this.emit();
+        this.finalizeAll();
+      } else if (event.event_type === "ACTION_PROPOSED") {
+        this.applyToolProposed(payload);
+      } else if (event.event_type === "ACTION_RECEIPT_RECORDED") {
+        this.applyToolReceipt(payload);
       }
     }
+  }
+
+  /** Tool card projection from the durable event stream (read-only view of
+   * ACTION_PROPOSED / ACTION_RECEIPT_RECORDED; no governance state here). */
+  private applyToolProposed(payload: Record<string, unknown>): void {
+    const action = payload["action"] as Record<string, unknown> | undefined;
+    if (!action) return;
+    const actionId = String(action["action_id"] ?? "");
+    if (!actionId || this.toolIndex.has(actionId)) return;
+    const tool: ToolCall = {
+      actionId,
+      capabilityId: String(action["capability_id"] ?? "unknown"),
+      argsSummary: summarizeArgs(String(action["arguments_json"] ?? "{}")),
+      status: "pending",
+    };
+    this.toolIndex.set(actionId, this.messages.length);
+    this.push({ role: "system", content: "", tool });
+  }
+
+  private applyToolReceipt(payload: Record<string, unknown>): void {
+    const receipt = payload["receipt"] as Record<string, unknown> | undefined;
+    const decision = payload["decision"] as Record<string, unknown> | undefined;
+    const actionId = String(receipt?.["action_id"] ?? decision?.["action_id"] ?? "");
+    const index = this.toolIndex.get(actionId);
+    if (index === undefined) return;
+    const message = this.messages[index];
+    if (!message?.tool) return;
+    const status = String(receipt?.["status"] ?? "");
+    message.tool = {
+      ...message.tool,
+      status: status === "FAILED" || status === "CANCELLED" ? "failed" : "done",
+    };
+    this.emit();
   }
 
   /** Stall detection while streaming: quiet stream beyond the threshold. */
@@ -383,7 +461,7 @@ export class TuiController {
     if (turn.total_tokens > 0) this.tokensTotal += turn.total_tokens;
     this.status = "idle";
     this.pendingPreview = null;
-    this.emit();
+    this.finalizeAll();
   }
 
   /** Ctrl-C semantics: correction during activity, close when idle. */
@@ -392,7 +470,7 @@ export class TuiController {
       await this.client.correct(this.sessionId, "operator interrupt (ctrl-c)");
       this.push({ role: "system", content: "correction issued (operator interrupt)" });
       this.status = "idle";
-      this.emit();
+      this.finalizeAll();
       return "corrected";
     }
     this.status = "closed";
