@@ -140,6 +140,26 @@ export const SurfaceStreamBatchSchema = z.object({
 });
 export type SurfaceStreamBatch = z.infer<typeof SurfaceStreamBatchSchema>;
 
+export const TaskEventSchema = z.object({
+  event_id: NonEmptyStr,
+  task_id: NonEmptyStr,
+  event_type: NonEmptyStr,
+  payload_json: NonEmptyStr,
+  occurred_at: NonEmptyStr,
+  correlation_id: NonEmptyStr.nullable().optional(),
+  causation_id: NonEmptyStr.nullable().optional(),
+  sequence: z.number().int().positive(),
+});
+export type TaskEvent = z.infer<typeof TaskEventSchema>;
+
+export const SurfaceEventBatchSchema = z.object({
+  task_id: NonEmptyStr,
+  after_sequence: z.number().int().nonnegative(),
+  next_sequence: z.number().int().nonnegative(),
+  events: z.array(TaskEventSchema).default([]),
+});
+export type SurfaceEventBatch = z.infer<typeof SurfaceEventBatchSchema>;
+
 /** Command payloads (client → server). */
 export interface SurfaceOpenSessionCommand {
   protocol_version: typeof SURFACE_PROTOCOL_VERSION;

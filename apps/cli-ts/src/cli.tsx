@@ -4,6 +4,7 @@ import React from "react";
 import { render } from "ink";
 import { SurfaceClient } from "./client.js";
 import { loadRuntimeDescriptor } from "./descriptor.js";
+import { TuiController } from "./controller.js";
 import { App } from "./App.js";
 
 async function main(): Promise<void> {
@@ -15,7 +16,11 @@ async function main(): Promise<void> {
 
   const descriptor = await loadRuntimeDescriptor(descriptorPath);
   const client = new SurfaceClient(descriptor);
-  render(React.createElement(App, { client, ...(resumeSessionId ? { resumeSessionId } : {}) }));
+  const controller = new TuiController(client);
+  if (resumeSessionId) {
+    await controller.submit(`/resume ${resumeSessionId}`);
+  }
+  render(React.createElement(App, { controller }));
 }
 
 main().catch((cause: unknown) => {

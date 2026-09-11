@@ -12,7 +12,7 @@
     "dev": "tsx src/cli.tsx",
     "smoke": "tsx scripts/smoke.ts",
     "dev:daemon": "python3 scripts/dev_daemon.py",
-    "test": "node --import tsx --test test/client.test.ts"
+    "test": "node --import tsx --test test/client.test.ts test/controller.test.ts"
   },
   "dependencies": {
     "ink": "^6.0.0",

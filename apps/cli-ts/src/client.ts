@@ -15,20 +15,24 @@ import { randomUUID } from "node:crypto";
 import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
+  SurfaceEventBatchSchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
   SurfaceStreamFrameSchema,
   SurfaceStreamSubscriptionSchema,
   SurfaceTurnResponseSchema,
+  TaskEventSchema,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
   type SurfaceClientRef,
+  type SurfaceEventBatch,
   type SurfaceSessionSnapshot,
   type SurfaceStreamBatch,
   type SurfaceStreamBinding,
   type SurfaceStreamFrame,
   type SurfaceStreamSubscription,
   type SurfaceTurnResponse,
+  type TaskEvent,
 } from "./contracts.js";
 import { localHostname, type RuntimeDescriptor } from "./descriptor.js";
 import { parseSse } from "./sse.js";
@@ -341,6 +345,53 @@ export class SurfaceClient {
       after_sequence: afterSequence,
       next_sequence: nextSequence,
       frames,
+    });
+  }
+
+  /** Durable task events (append-only truth): bounded read over the
+   * authenticated SSE events endpoint. Used for authoritative turn
+   * completion, approval-pending detection and exact token totals. */
+  async events(taskId: string, afterSequence = 0, waitMs = 0): Promise<SurfaceEventBatch> {
+    if (!taskId.trim()) throw new Error("task_id must be non-empty");
+    let response: Response;
+    try {
+      response = await fetch(
+        this.baseUrl + `/v1/surface/tasks/${taskId}/events?after=${afterSequence}&wait_ms=${waitMs}`,
+        { method: "GET", headers: this.headers(false) },
+      );
+    } catch (cause) {
+      throw new SurfaceClientConnectionError(
+        `cannot reach the local runtime: ${(cause as Error).message}`,
+      );
+    }
+    const raw = await response.text();
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      try {
+        const body = JSON.parse(raw) as { message?: string; error?: string };
+        message = body.message ?? body.error ?? message;
+      } catch {
+        /* non-JSON error body */
+      }
+      if (response.status === 401) throw new SurfaceClientAuthenticationError(message);
+      if (response.status === 410) throw new SurfaceStreamStaleError(message);
+      throw new SurfaceHttpError(response.status, message);
+    }
+    let nextSequence = afterSequence;
+    const events: TaskEvent[] = [];
+    for (const message of parseSse(raw)) {
+      if (message.event === "cursor") {
+        const payload = JSON.parse(message.data) as { next_sequence: number };
+        nextSequence = payload.next_sequence;
+      } else if (message.data) {
+        events.push(TaskEventSchema.parse(JSON.parse(message.data)));
+      }
+    }
+    return SurfaceEventBatchSchema.parse({
+      task_id: taskId,
+      after_sequence: afterSequence,
+      next_sequence: nextSequence,
+      events,
     });
   }
 }
