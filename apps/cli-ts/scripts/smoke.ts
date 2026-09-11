@@ -10,8 +10,10 @@
  *   3. begin-turn → workspace.edit proposal → WAITING_APPROVAL with
  *      digest-bound pending approval → APPROVE → turn text + ACTIVE,
  *      fixture file actually edited on disk
- *   4. begin-turn → second edit auto-allowed under ACCEPT_IN_WORKSPACE
- *      (no WAITING_APPROVAL) — positive path; constant-deny would fail this
+ *   4. begin-turn via the real TuiController → second edit auto-allowed under
+ *      ACCEPT_IN_WORKSPACE (no WAITING_APPROVAL) AND a workspace.edit tool
+ *      card projects pending→done from the durable event stream (A#3);
+ *      constant-deny or a missing card projection both fail this
  *
  * Phase 2 (`--phase resume`, after daemon restart on the same database):
  *   reloaded descriptor + getSession(same id) returns the durable session
@@ -25,6 +27,7 @@ import {
   SurfaceClient,
   SurfaceStreamStaleError,
 } from "../src/client.js";
+import { TuiController } from "../src/controller.js";
 import { loadRuntimeDescriptor } from "../src/descriptor.js";
 
 function fail(message: string): never {
@@ -105,24 +108,59 @@ async function full(client: SurfaceClient, descriptorPath: string): Promise<void
   if (!fixture.includes("(edited)")) fail("fixture.txt was not actually edited");
   console.log("[smoke] turn 2 PASS: digest-bound approval, edit applied on disk");
 
-  // 4. auto-allow under ACCEPT_IN_WORKSPACE (positive path — a constant-deny
-  //    implementation fails this: the turn completes with the edit applied
-  //    and no WAITING_APPROVAL state)
+  // 4. auto-allow under ACCEPT_IN_WORKSPACE driven through the real
+  //    TuiController — positive path (constant-deny fails) AND proof that
+  //    tool cards project from the durable ACTION_PROPOSED /
+  //    ACTION_RECEIPT_RECORDED events against the live daemon (A#3 closure).
   await client.setPermissionMode(sessionId, "ACCEPT_IN_WORKSPACE");
-  const text3 = await runTurn(client, sessionId, "smoke turn 3 (edit)", binding);
+  const controller = new TuiController(client, { pollMs: 50 });
+  await controller.submit(`/resume ${sessionId}`);
+  await controller.runTurn("smoke turn 3 (edit)");
+  if (controller.status !== "idle") {
+    fail(`turn 3 controller ended in status=${controller.status}`);
+  }
   const snap3 = await client.getSession(sessionId);
   if (snap3.status === "WAITING_APPROVAL") {
     fail("turn 3 edit was NOT auto-allowed under ACCEPT_IN_WORKSPACE");
   }
-  if (!text3.includes("second edit applied")) {
-    fail(`turn 3 text mismatch: "${text3}"`);
+  const assistantText = controller.messages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content)
+    .join("");
+  if (!assistantText.includes("second edit applied")) {
+    fail(`turn 3 text mismatch: "${assistantText}"`);
   }
+  // The durable drain is fire-and-forget; allow a short settle window for the
+  // receipt event to land before asserting the card's final state.
+  const settleDeadline = Date.now() + 3000;
+  let card = controller.messages.find(
+    (m) => m.tool?.capabilityId === "workspace.edit" && m.tool.status === "done",
+  );
+  while (!card && Date.now() < settleDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    card = controller.messages.find(
+      (m) => m.tool?.capabilityId === "workspace.edit" && m.tool.status === "done",
+    );
+  }
+  if (!card?.tool) {
+    const seen = controller.messages
+      .filter((m) => m.tool)
+      .map((m) => `${m.tool!.capabilityId}:${m.tool!.status}`)
+      .join(", ");
+    fail(`no done workspace.edit tool card projected (seen: ${seen || "none"})`);
+  }
+  if (!card.tool.argsSummary.includes("fixture.txt")) {
+    fail(`tool card args summary mismatch: "${card.tool.argsSummary}"`);
+  }
+  console.log(
+    `[smoke]   tool card PASS: ${card.tool.capabilityId} → done (args: ${card.tool.argsSummary})`,
+  );
   const fixture2 = readFileSync(
     `${(await loadRuntimeDescriptor(descriptorPath)).workspace_path}/fixture.txt`,
     "utf8",
   );
   if (!fixture2.includes("(edited twice)")) fail("second edit was not auto-applied");
-  console.log("[smoke] turn 3 PASS: tier-2 in-sandbox auto-allow with no approval prompt");
+  console.log("[smoke] turn 3 PASS: tier-2 in-sandbox auto-allow + tool card projected");
 
   writeFileSync(
     `${descriptorPath}.state.json`,
