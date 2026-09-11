@@ -14,6 +14,7 @@ from textual.widgets import Footer, Header, Input, Label, RichLog
 
 from apps.cli.tui_controller import (
     STATUS_AWAITING_APPROVAL,
+    STATUS_IDLE,
     STATUS_STALLED,
     TuiController,
 )
@@ -63,7 +64,18 @@ class AgentTuiApp(App[None]):
     def _refresh_chat(self) -> None:
         chat = self.query_one("#chat", RichLog)
         messages = self._controller.messages
-        for message in messages[self._rendered_messages :]:
+        # The trailing assistant message is still being appended to in place
+        # while a turn is in flight; rendering it now would freeze a prefix
+        # on screen. Hold it back until the turn reaches an idle state, then
+        # render the full text once.
+        pending = len(messages)
+        if (
+            pending > self._rendered_messages
+            and messages[-1].role == "assistant"
+            and self._controller.status != STATUS_IDLE
+        ):
+            pending -= 1
+        for message in messages[self._rendered_messages : pending]:
             style = "bold cyan" if message.role == "user" else "default"
             text = message.content + (
                 "  [dim]…stream interrupted[/dim]" if message.interrupted else ""

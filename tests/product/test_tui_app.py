@@ -128,3 +128,50 @@ def test_tui_app_renders_new_messages_after_a_wrapping_message() -> None:
             assert "user> second" in text
 
     asyncio.run(_drive())
+
+
+def test_tui_app_shows_full_reply_when_chunks_arrive_across_polls() -> None:
+    # Regression: a message was rendered whole on the first poll that saw
+    # it; chunks appended afterwards mutated the message in place without
+    # re-rendering, so the on-screen reply was frozen at the first prefix.
+    # The in-flight assistant message must be held back until the turn
+    # completes, then rendered in full.
+    client = _FakeStreamClient(
+        frames=[
+            _frame(1, SurfaceStreamFrameKind.CHUNK, {"delta": "CHUNK-ONE "}),
+        ]
+    )
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "stream please"
+            await pilot.click("#prompt")
+            await pilot.press("enter")
+            for _ in range(4):
+                await pilot.pause(0.15)
+            # First poll captured only the prefix; it must not be on screen.
+            chat = app.query_one("#chat", RichLog)
+            early = "\n".join(str(line.text) for line in chat.lines)
+            assert "user> stream please" in early
+            assert "CHUNK-ONE" not in early
+
+            # Remaining chunks land in a later poll.
+            client.frames.extend(
+                [
+                    _frame(2, SurfaceStreamFrameKind.CHUNK, {"delta": "CHUNK-TWO"}),
+                    _frame(3, SurfaceStreamFrameKind.STREAM_END, {}),
+                ]
+            )
+            client.queue_turn_completed(total_tokens=21)
+            for _ in range(4):
+                await pilot.pause(0.15)
+            text = "\n".join(str(line.text) for line in chat.lines)
+            assert "CHUNK-ONE CHUNK-TWO" in text
+
+    asyncio.run(_drive())
