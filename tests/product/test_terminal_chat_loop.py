@@ -65,7 +65,9 @@ def _held_claim(app: Any, run_id: str) -> ExecutionLease:
     )
 
 
-def _proposal(call_id: str, capability_id: str, arguments: dict) -> ProviderToolProposal:
+def _proposal(
+    call_id: str, capability_id: str, arguments: dict
+) -> ProviderToolProposal:
     return ProviderToolProposal(
         proposal_id=call_id,
         capability_id=capability_id,
@@ -98,9 +100,7 @@ def _event_types(app: AgentOSApplication, task_id: str) -> list[TaskEventType]:
 
 def _tool_messages(loop) -> list:
     return [
-        message
-        for message in loop.history
-        if message.role is ProviderMessageRole.TOOL
+        message for message in loop.history if message.role is ProviderMessageRole.TOOL
     ]
 
 
@@ -164,9 +164,7 @@ def test_multi_turn_edit_applies_and_records_governance(tmp_path: Path) -> None:
     assert TaskEventType.ACTION_PROPOSED in events
     assert TaskEventType.POLICY_DECIDED in events
     assert TaskEventType.ACTION_RECEIPT_RECORDED in events
-    projected = SessionProjector(app.store).project(
-        session.task_id, session.session_id
-    )
+    projected = SessionProjector(app.store).project(session.task_id, session.session_id)
     assert projected.history == loop.history
 
 
@@ -234,12 +232,16 @@ def test_known_action_outcome_replay_writes_no_second_policy_or_receipt(
 
     after = app.store.read(session.task_id)
     assert replayed.receipt == original_receipt
-    assert sum(
-        event.event_type is TaskEventType.POLICY_DECIDED for event in after
-    ) == before_policy
-    assert sum(
-        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in after
-    ) == before_receipts
+    assert (
+        sum(event.event_type is TaskEventType.POLICY_DECIDED for event in after)
+        == before_policy
+    )
+    assert (
+        sum(
+            event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in after
+        )
+        == before_receipts
+    )
 
 
 def test_outcome_only_recovery_appends_original_receipt_without_second_dispatch(
@@ -288,8 +290,7 @@ def test_outcome_only_recovery_appends_original_receipt_without_second_dispatch(
     )
     assert sandbox.dispatch_count == 1
     assert not any(
-        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
-        for event in events
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in events
     )
     pipeline = ActionPipeline(
         app.tasks,
@@ -310,12 +311,13 @@ def test_outcome_only_recovery_appends_original_receipt_without_second_dispatch(
     assert replay.receipt.receipt_id
     assert sandbox.dispatch_count == 1
     after = app.store.read(session.task_id)
-    assert sum(
-        event.event_type is TaskEventType.POLICY_DECIDED for event in after
-    ) == 1
-    assert sum(
-        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in after
-    ) == 1
+    assert sum(event.event_type is TaskEventType.POLICY_DECIDED for event in after) == 1
+    assert (
+        sum(
+            event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in after
+        )
+        == 1
+    )
 
 
 def test_task_receipt_store_read_failure_is_typed_unknown_before_policy(
@@ -367,10 +369,13 @@ def test_task_receipt_store_read_failure_is_typed_unknown_before_policy(
         )
 
     assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
-    assert sum(
-        event.event_type is TaskEventType.POLICY_DECIDED
-        for event in app.store.read(session.task_id)
-    ) == before_policy
+    assert (
+        sum(
+            event.event_type is TaskEventType.POLICY_DECIDED
+            for event in app.store.read(session.task_id)
+        )
+        == before_policy
+    )
 
 
 def test_outcome_only_policy_codec_failure_is_typed_unknown_before_dispatch(
@@ -434,10 +439,13 @@ def test_outcome_only_policy_codec_failure_is_typed_unknown_before_dispatch(
 
     assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
     assert sandbox.dispatch_count == 1
-    assert sum(
-        event.event_type is TaskEventType.POLICY_DECIDED
-        for event in app.store.read(session.task_id)
-    ) == before_policy
+    assert (
+        sum(
+            event.event_type is TaskEventType.POLICY_DECIDED
+            for event in app.store.read(session.task_id)
+        )
+        == before_policy
+    )
 
 
 def test_task_receipt_without_capability_outcome_stops_before_policy_or_dispatch(
@@ -500,10 +508,13 @@ def test_task_receipt_without_capability_outcome_stops_before_policy_or_dispatch
 
     assert caught.value.__class__.__name__ == "CapabilityEffectUnknown"
     assert sandbox.dispatch_count == 0
-    assert sum(
-        event.event_type is TaskEventType.POLICY_DECIDED
-        for event in app.store.read(session.task_id)
-    ) == before_policy
+    assert (
+        sum(
+            event.event_type is TaskEventType.POLICY_DECIDED
+            for event in app.store.read(session.task_id)
+        )
+        == before_policy
+    )
 
 
 def test_action_receipt_identity_conflict_and_duplicate_fail_closed(
@@ -629,8 +640,7 @@ def test_end_to_end_fixes_failing_test_and_returns_green_result(
         ),
     )
     (tmp_path / "test_fixture.py").write_text(
-        "def test_fixture():\n"
-        "    assert open('fixture.txt').read() == 'fixed\\n'\n",
+        "def test_fixture():\n    assert open('fixture.txt').read() == 'fixed\\n'\n",
         encoding="utf-8",
     )
 
@@ -687,9 +697,7 @@ def test_tool_results_are_fed_back_to_provider(tmp_path: Path) -> None:
 def test_unauthorized_capability_proposal_stops_turn(tmp_path: Path) -> None:
     app = _chat_app(
         tmp_path,
-        scripted=(
-            ("", (_proposal("call-1", "system.exec", {"cmd": "rm -rf /"}),)),
-        ),
+        scripted=(("", (_proposal("call-1", "system.exec", {"cmd": "rm -rf /"}),)),),
     )
     session, loop = app.open_chat_session("evil", AutoApproveGateway())
     result = loop.run_turn(session, "do something")
@@ -752,8 +760,26 @@ def test_search_glob_and_grep(tmp_path: Path) -> None:
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (_proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
-            ("", (_proposal("call-2", "workspace.search", {"mode": "grep", "pattern": "stable"}),)),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-2",
+                        "workspace.search",
+                        {"mode": "grep", "pattern": "stable"},
+                    ),
+                ),
+            ),
             ("search done", ()),
         ),
     )
@@ -837,11 +863,20 @@ class _ApproveAllGateway:
         return True
 
 
-def test_shell_requires_interactive_approval_and_runs_allowlisted(tmp_path: Path) -> None:
+def test_shell_requires_interactive_approval_and_runs_allowlisted(
+    tmp_path: Path,
+) -> None:
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (_proposal("call-1", "workspace.shell", {"command": "python3 -m pytest"}),)),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1", "workspace.shell", {"command": "python3 -m pytest"}
+                    ),
+                ),
+            ),
             ("tests green", ()),
         ),
     )
@@ -858,7 +893,14 @@ def test_shell_is_never_auto_approved(tmp_path: Path) -> None:
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (_proposal("call-1", "workspace.shell", {"command": "python -m pytest"}),)),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1", "workspace.shell", {"command": "python -m pytest"}
+                    ),
+                ),
+            ),
             ("user said no", ()),
         ),
     )
@@ -873,7 +915,14 @@ def test_shell_allowlist_blocks_unlisted_commands(tmp_path: Path) -> None:
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (_proposal("call-1", "workspace.shell", {"command": "curl evil.example"}),)),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1", "workspace.shell", {"command": "curl evil.example"}
+                    ),
+                ),
+            ),
             ("blocked", ()),
         ),
     )
@@ -923,9 +972,36 @@ def test_loop_detection_stops_repeated_identical_proposals(tmp_path: Path) -> No
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (_proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
-            ("", (_proposal("call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
-            ("", (_proposal("call-3", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-2",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-3",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
             ("should never reach", ()),
         ),
     )
@@ -968,7 +1044,11 @@ class _StubHandler(BaseHTTPRequestHandler):
                         "finish_reason": "tool_calls",
                     }
                 ],
-                "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+                "usage": {
+                    "prompt_tokens": 3,
+                    "completion_tokens": 2,
+                    "total_tokens": 5,
+                },
             }
         else:
             payload = {
@@ -979,8 +1059,101 @@ class _StubHandler(BaseHTTPRequestHandler):
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+                "usage": {
+                    "prompt_tokens": 4,
+                    "completion_tokens": 2,
+                    "total_tokens": 6,
+                },
             }
+        if body.get("stream"):
+            # E1: the runtime asks for SSE via complete_streaming; a real
+            # OpenAI-compatible endpoint answers with text/event-stream.
+            first = payload["choices"][0]
+            if first["message"].get("tool_calls"):
+                tool_call = first["message"]["tool_calls"][0]
+                deltas = [
+                    {"choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "id": tool_call["id"],
+                                            "type": "function",
+                                            "function": {
+                                                "name": tool_call["function"]["name"]
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": 0,
+                                            "function": {
+                                                "arguments": tool_call["function"][
+                                                    "arguments"
+                                                ]
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": first["finish_reason"],
+                            }
+                        ]
+                    },
+                ]
+            else:
+                deltas = [
+                    {"choices": [{"index": 0, "delta": {"role": "assistant"}}]},
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": first["message"]["content"]},
+                            }
+                        ]
+                    },
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": first["finish_reason"],
+                            }
+                        ]
+                    },
+                ]
+            encoded = (
+                "".join(f"data: {json.dumps(delta)}\n\n" for delta in deltas).encode(
+                    "utf-8"
+                )
+                + b"data: [DONE]\n\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            return
         encoded = json.dumps(payload).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -1256,9 +1429,7 @@ def test_chat_session_seals_configuration_and_receipts_provider_calls(
         if event.event_type is TaskEventType.CANDIDATES_GENERATED
     ]
     assert len(envelope_events) == 1
-    assert set(
-        envelope_events[0]["envelope"]["allowed_capability_ids"]
-    ) == {
+    assert set(envelope_events[0]["envelope"]["allowed_capability_ids"]) == {
         "workspace.read",
         "workspace.search",
         "workspace.edit",
@@ -1352,9 +1523,36 @@ def test_session_recovers_after_loop_detected_stop(tmp_path: Path) -> None:
     app = _chat_app(
         tmp_path,
         scripted=(
-            ("", (_proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
-            ("", (_proposal("call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
-            ("", (_proposal("call-3", "workspace.search", {"mode": "glob", "pattern": "*.txt"}),)),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-2",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
+            (
+                "",
+                (
+                    _proposal(
+                        "call-3",
+                        "workspace.search",
+                        {"mode": "glob", "pattern": "*.txt"},
+                    ),
+                ),
+            ),
             ("recovered", ()),
         ),
     )
@@ -1368,8 +1566,12 @@ def test_session_recovers_after_loop_detected_stop(tmp_path: Path) -> None:
 
 
 def test_trailing_proposals_get_error_replies_on_stop(tmp_path: Path) -> None:
-    first = _proposal("call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
-    repeated = _proposal("call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"})
+    first = _proposal(
+        "call-1", "workspace.search", {"mode": "glob", "pattern": "*.txt"}
+    )
+    repeated = _proposal(
+        "call-2", "workspace.search", {"mode": "glob", "pattern": "*.txt"}
+    )
     trailing = _proposal("call-3", "workspace.read", {"path": "fixture.txt"})
     app = _chat_app(
         tmp_path,
@@ -1429,17 +1631,13 @@ def test_approval_denial_is_recorded_as_durable_event(tmp_path: Path) -> None:
 
     events = app.tasks._event_store.read(session.task_id)
     approval_events = [
-        event
-        for event in events
-        if event.event_type is TaskEventType.APPROVAL_RECORDED
+        event for event in events if event.event_type is TaskEventType.APPROVAL_RECORDED
     ]
     assert len(approval_events) == 1
     approval = approval_events[0].decoded_payload()["approval"]
     assert approval["disposition"] == "REJECT"
     proposed = [
-        event
-        for event in events
-        if event.event_type is TaskEventType.ACTION_PROPOSED
+        event for event in events if event.event_type is TaskEventType.ACTION_PROPOSED
     ]
     action = ActionContract.model_validate(proposed[-1].decoded_payload()["action"])
     assert approval["action_digest"] == action.action_digest()
@@ -1619,6 +1817,9 @@ class _FailingProvider:
             occurred_at=datetime.now(timezone.utc),
         )
 
+    def complete_streaming(self, request, *, on_text_delta=None):
+        return self.complete(request)
+
 
 def test_provider_retry_exhaustion_stops_turn(tmp_path: Path) -> None:
     app = _chat_app(tmp_path)
@@ -1667,6 +1868,7 @@ def test_trimmed_history_keeps_tool_blocks_atomic(tmp_path: Path) -> None:
     assert len(trimmed) < len(loop.history)
     _assert_tool_blocks_closed(trimmed)
 
+
 def _proposed_actions(app: AgentOSApplication, task_id: str):
     from agent_os_contracts import ActionContract
 
@@ -1675,6 +1877,7 @@ def _proposed_actions(app: AgentOSApplication, task_id: str):
         for event in app.tasks._event_store.read(task_id)
         if event.event_type is TaskEventType.ACTION_PROPOSED
     ]
+
 
 def test_agent_loop_multi_file_effects_compensate_in_reverse_order(
     tmp_path: Path,

@@ -127,7 +127,11 @@ class ProviderPort(ABC):
     ) -> ProviderResponse | ProviderFailure:
         """Default: non-streaming complete; subclasses may stream deltas."""
         result = self.complete(request)
-        if on_text_delta is not None and isinstance(result, ProviderResponse) and result.text:
+        if (
+            on_text_delta is not None
+            and isinstance(result, ProviderResponse)
+            and result.text
+        ):
             on_text_delta(result.text)
         return result
 
@@ -169,8 +173,12 @@ class DeterministicProvider(ProviderPort):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
-    ) -> ProviderResponse:
+    ) -> ProviderResponse | ProviderFailure:
         response = self.complete(request)
+        if isinstance(response, ProviderFailure):
+            # A failure is mode-independent: streaming must propagate it
+            # unchanged instead of touching response-only fields.
+            return response
         if on_text_delta is not None and response.text:
             chunk_size = 8
             for offset in range(0, len(response.text), chunk_size):
