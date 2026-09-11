@@ -54,4 +54,8 @@ fi
 start_daemon
 run npx --prefix apps/cli-ts tsx apps/cli-ts/scripts/smoke.ts --descriptor "$DESC" --phase resume
 
+# pty smoke boots its own isolated daemon (ephemeral port) and drives the real
+# TUI in a real pty: render / per-key typing / Enter submit / Ctrl-C exit.
+run uv run python apps/cli-ts/scripts/pty_smoke.py
+
 if [ "$FAILED" -eq 0 ]; then echo "[e2e] ALL PASS"; else echo "[e2e] FAILURES"; exit 1; fi

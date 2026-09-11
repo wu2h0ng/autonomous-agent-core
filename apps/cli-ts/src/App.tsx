@@ -93,15 +93,15 @@ export function App({ controller }: { controller: TuiController }) {
         <Box flexDirection="column" borderStyle="round" borderColor="yellow">
           <Text bold>approval required — {pending?.capability_id ?? "unknown capability"}</Text>
           {pending?.preview
-            ? segmentPreview(pending.preview).map((segment, index) => (
-                <Text
-                  key={index}
-                  wrap="wrap"
-                  color={segment.tone === "old" ? "red" : segment.tone === "new" ? "green" : undefined}
-                >
-                  {segment.text}
-                </Text>
-              ))
+            ? segmentPreview(pending.preview).map((segment, index) => {
+                const color =
+                  segment.tone === "old" ? "red" : segment.tone === "new" ? "green" : undefined;
+                return (
+                  <Text key={index} wrap="wrap" {...(color ? { color } : {})}>
+                    {segment.text}
+                  </Text>
+                );
+              })
             : null}
           <Text dimColor>
             digest {pending?.action_digest.slice(0, 16) ?? ""}… [y] approve [n] reject
