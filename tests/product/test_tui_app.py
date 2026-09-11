@@ -153,9 +153,10 @@ def test_tui_app_shows_full_reply_when_chunks_arrive_across_polls() -> None:
             app.query_one("#prompt", Input).value = "stream please"
             await pilot.click("#prompt")
             await pilot.press("enter")
-            for _ in range(4):
-                await pilot.pause(0.15)
-            # First poll captured only the prefix; it must not be on screen.
+            await pilot.pause(0.1)
+            # Drive polls deterministically instead of relying on wall-clock
+            # intervals: the first poll captures only the prefix chunk.
+            app._poll()
             chat = app.query_one("#chat", RichLog)
             early = "\n".join(str(line.text) for line in chat.lines)
             assert "user> stream please" in early
@@ -169,8 +170,7 @@ def test_tui_app_shows_full_reply_when_chunks_arrive_across_polls() -> None:
                 ]
             )
             client.queue_turn_completed(total_tokens=21)
-            for _ in range(4):
-                await pilot.pause(0.15)
+            app._poll()
             text = "\n".join(str(line.text) for line in chat.lines)
             assert "CHUNK-ONE CHUNK-TWO" in text
 
