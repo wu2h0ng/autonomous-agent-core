@@ -33,6 +33,9 @@ class ScriptedProviderHandler(BaseHTTPRequestHandler):
         type(self).requests_seen.append(body)
         step = min(len(type(self).requests_seen) - 1, len(type(self).script) - 1)
         entry = type(self).script[max(step, 0)]
+        if body.get("stream"):
+            self._send_sse(entry)
+            return
         message: dict = {"role": "assistant", "content": entry.get("text", "")}
         tool_calls = entry.get("tool_calls")
         if tool_calls:
@@ -68,6 +71,99 @@ class ScriptedProviderHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _send_sse(self, entry: dict) -> None:
+        text = entry.get("text", "")
+        tool_calls = entry.get("tool_calls")
+        chunks: list[dict] = [
+            {
+                "id": "cmpl-stub",
+                "choices": [
+                    {"index": 0, "delta": {"role": "assistant", "content": ""}}
+                ],
+            }
+        ]
+        for index in range(0, len(text), 4):
+            chunks.append(
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": text[index : index + 4]},
+                        }
+                    ]
+                }
+            )
+        for position, tool in enumerate(tool_calls or []):
+            chunks.append(
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": position,
+                                        "id": tool["id"],
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool["name"],
+                                            "arguments": "",
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            )
+            arguments = json.dumps(tool["arguments"])
+            for index in range(0, len(arguments), 8):
+                chunks.append(
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": position,
+                                            "function": {
+                                                "arguments": arguments[
+                                                    index : index + 8
+                                                ]
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    }
+                )
+        chunks.append(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "tool_calls" if tool_calls else "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 2,
+                    "total_tokens": 4,
+                },
+            }
+        )
+        lines = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+        lines += "data: [DONE]\n\n"
+        encoded = lines.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def log_message(self, format: str, *args: object) -> None:
         return
 
@@ -76,9 +172,7 @@ class ProviderStub:
     def __init__(self) -> None:
         ScriptedProviderHandler.requests_seen = []
         self.server = HTTPServer(("127.0.0.1", 0), ScriptedProviderHandler)
-        self.thread = threading.Thread(
-            target=self.server.serve_forever, daemon=True
-        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
     @property
@@ -257,14 +351,10 @@ def test_cli_and_protocol_client_share_one_restartable_coding_session(
         daemon = start_runtime_process(
             tmp_path, workspace, provider, repair_script(), index=1
         )
-        client = SurfaceClient(
-            load_runtime_descriptor(daemon.descriptor_path)
-        )
+        client = SurfaceClient(load_runtime_descriptor(daemon.descriptor_path))
 
         opened = client.open_session("repair the failing fixture")
-        first = client.run_turn(
-            opened.session.session_id, "inspect and repair"
-        )
+        first = client.run_turn(opened.session.session_id, "inspect and repair")
         assert first.snapshot.status is SurfaceSessionStatus.WAITING_APPROVAL
         assert first.snapshot.pending_approval is not None
 
@@ -272,9 +362,7 @@ def test_cli_and_protocol_client_share_one_restartable_coding_session(
         daemon = start_runtime_process(
             tmp_path, workspace, provider, finish_script(), index=2
         )
-        restored_client = SurfaceClient(
-            load_runtime_descriptor(daemon.descriptor_path)
-        )
+        restored_client = SurfaceClient(load_runtime_descriptor(daemon.descriptor_path))
         restored = restored_client.get_session(opened.session.session_id)
         assert restored.pending_approval is not None
         assert restored.status is SurfaceSessionStatus.WAITING_APPROVAL
@@ -287,14 +375,11 @@ def test_cli_and_protocol_client_share_one_restartable_coding_session(
         )
 
         assert completed.stop_reason == "completed"
-        assert (workspace / "fixture.txt").read_text(encoding="utf-8") == (
-            "fixed\n"
+        assert (workspace / "fixture.txt").read_text(encoding="utf-8") == ("fixed\n")
+        assert exactly_one_effect_receipt(restored_client, opened.session.task_id)
+        assert (
+            cli_session_show(daemon, opened.session.session_id)["event_sequence"]
+            == completed.snapshot.event_sequence
         )
-        assert exactly_one_effect_receipt(
-            restored_client, opened.session.task_id
-        )
-        assert cli_session_show(
-            daemon, opened.session.session_id
-        )["event_sequence"] == completed.snapshot.event_sequence
     finally:
         provider.close()

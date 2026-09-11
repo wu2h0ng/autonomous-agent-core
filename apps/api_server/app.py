@@ -76,6 +76,7 @@ from agent_os_contracts import (
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
     SurfaceConflictProjection,
+    SurfaceStreamFrameKind,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
     content_digest,
@@ -84,6 +85,7 @@ from agent_os_core import (
     SurfaceRuntime,
     SurfaceSessionNotFound,
     SessionStreamRegistry,
+    SurfaceStreamGone,
     AgentLoop,
     AgentLoopConfig,
     CHAT_CAPABILITY_IDS,
@@ -521,12 +523,10 @@ class AgentOSApplication:
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
         self._runtime_boot_id = uuid4().hex
-        self.surface = SurfaceRuntime(
-            self,
-            stream_registry=SessionStreamRegistry(
-                runtime_boot_id=self._runtime_boot_id
-            ),
+        self._stream_registry = SessionStreamRegistry(
+            runtime_boot_id=self._runtime_boot_id
         )
+        self.surface = SurfaceRuntime(self, stream_registry=self._stream_registry)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or self._clock()
@@ -1313,9 +1313,7 @@ class AgentOSApplication:
         # that replanning after a conflict does not re-block on already-seen
         # events (M1b, closes P2 #3: cursor advances instead of hard-coding 0).
         try:
-            snapshot = self.workspace_fence.read_coordination(
-                principal.workspace_id
-            )
+            snapshot = self.workspace_fence.read_coordination(principal.workspace_id)
             event_cursor = snapshot.batch.through_cursor
         except Exception:
             event_cursor = 0
@@ -1750,6 +1748,7 @@ class AgentOSApplication:
         self,
         session_id: str,
         gateway: ConfirmationGateway,
+        text_delta_sink: Callable[[str], None] | None = None,
     ) -> tuple[ChatSession, AgentLoop]:
         """Restore one exact durable chat session without replaying prior turns."""
         if not self.provider_configured:
@@ -1845,6 +1844,7 @@ class AgentOSApplication:
             message_sink=self._record_chat_message,
             resumable_turn_ids=resumable_turn_ids,
             collaboration_preflight=self.collaboration_preflight,
+            text_delta_sink=text_delta_sink,
         )
         return session, loop
 
@@ -1922,9 +1922,7 @@ class AgentOSApplication:
         )
         return self.surface_session_snapshot(session.session_id)
 
-    def surface_run_turn(
-        self, command: SurfaceTurnCommand
-    ) -> SurfaceTurnResponse:
+    def surface_run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         session, loop = self.restore_chat_session(
             command.session_id, DeferredApprovalGateway()
         )
@@ -1949,6 +1947,12 @@ class AgentOSApplication:
         """Daemon process generation id; changes on every restart so a dead
         generation's transient cursors fail typed STREAM_GONE."""
         return self._runtime_boot_id
+
+    @property
+    def stream_registry(self) -> SessionStreamRegistry:
+        """Transient frame registry; dies with the process (a new generation
+        carries a new runtime_boot_id)."""
+        return self._stream_registry
 
     def subscribe_stream(self, session_id: str) -> str:
         """Mint a new transient stream for the session (subscription-first,
@@ -1989,10 +1993,34 @@ class AgentOSApplication:
         raised before turn-start propagate to the caller synchronously; the
         transient stream binding is recorded in the session-stream registry.
         """
-        session, loop = self.restore_chat_session(
-            command.session_id, DeferredApprovalGateway()
-        )
         failures: list[BaseException] = []
+        turn_holder: list[str] = []
+        turn_ready = threading.Event()
+
+        def _publish(kind: SurfaceStreamFrameKind, payload: dict[str, object]) -> None:
+            try:
+                self._stream_registry.publish(
+                    command.session_id,
+                    command.stream.stream_id,
+                    kind,
+                    turn_holder[0] if turn_holder else None,
+                    payload,
+                )
+            except SurfaceStreamGone:
+                return  # stream terminated mid-turn; display path only
+
+        def _sink(delta: str) -> None:
+            # Chunks only exist after the durable turn-start record; block
+            # briefly until the authoritative turn_id is observed.
+            if not turn_ready.wait(timeout=5.0) or not turn_holder:
+                return
+            _publish(SurfaceStreamFrameKind.CHUNK, {"delta": delta})
+
+        session, loop = self.restore_chat_session(
+            command.session_id,
+            DeferredApprovalGateway(),
+            text_delta_sink=_sink,
+        )
 
         def _execute() -> None:
             try:
@@ -2006,6 +2034,14 @@ class AgentOSApplication:
                 failures.append(exc)
             except BaseException as exc:  # surfaced to the caller below
                 failures.append(exc)
+            finally:
+                # stream_end (transient): the provider stream closed; the
+                # durable turn commit remains authoritative. Wait briefly for
+                # the authoritative turn_id — a fast provider can finish the
+                # whole turn before the caller observes turn-start.
+                turn_ready.wait(timeout=5.0)
+                if turn_holder:
+                    _publish(SurfaceStreamFrameKind.STREAM_END, {})
 
         worker = threading.Thread(
             target=_execute,
@@ -2015,11 +2051,16 @@ class AgentOSApplication:
         worker.start()
         turn_id = self._await_turn_start(command.session_id, worker)
         if turn_id is None:
+            # Release the worker's display-path wait; no turn was started so
+            # no stream_end may be published.
+            turn_ready.set()
             if failures:
                 raise failures[0]
             raise RuntimeError(
                 "turn execution finished without a durable turn-start event"
             )
+        turn_holder.append(turn_id)
+        turn_ready.set()
         return SurfaceBeginTurnResponse(
             turn_id=turn_id, stream_id=command.stream.stream_id
         )
@@ -2204,9 +2245,7 @@ class AgentOSApplication:
         if not matches:
             raise SurfaceSessionNotFound(f"session {session_id} not found")
         if len(matches) != 1:
-            raise SurfaceSessionNotFound(
-                "duplicate durable session identity"
-            )
+            raise SurfaceSessionNotFound("duplicate durable session identity")
         return matches[0]
 
     def surface_task_overview(self, task_id: str) -> dict[str, object]:
@@ -2236,7 +2275,9 @@ class AgentOSApplication:
             run_id = run.run_id
         return {
             "task_id": task_id,
-            "task_status": (aggregate.status.value if aggregate.status is not None else "NONE"),
+            "task_status": (
+                aggregate.status.value if aggregate.status is not None else "NONE"
+            ),
             "run_status": run_status,
             "run_id": run_id,
             "expected_outcome_id": (
@@ -2297,9 +2338,7 @@ class AgentOSApplication:
             raise ValueError("task_id must be non-empty")
         return self.tasks.get_task(task_id).sequence
 
-    def surface_idempotency_record(
-        self, scope: str, key: str
-    ) -> dict[str, Any] | None:
+    def surface_idempotency_record(self, scope: str, key: str) -> dict[str, Any] | None:
         if not scope.strip() or not key.strip():
             raise ValueError("idempotency scope and key must be non-empty")
         return self.store.get_idempotency(scope, key)

@@ -207,15 +207,14 @@ class AgentLoop:
         session: ChatSession,
         config: AgentLoopConfig | None = None,
         initial_history: tuple[ProviderMessage, ...] | None = None,
-        message_sink: Callable[
-            [ChatSession, int, ProviderMessage, str | None], None
-        ],
+        message_sink: Callable[[ChatSession, int, ProviderMessage, str | None], None],
         resumable_turn_ids: tuple[str, ...] = (),
         execution_fence: Callable[[str], None] | None = None,
         effect_custody: EffectCustodyPort | None = None,
         independent_approval: bool = False,
         external_exact_approval: bool = False,
         collaboration_preflight: CollaborationPreflightPort | None = None,
+        text_delta_sink: Callable[[str], None] | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -230,9 +229,7 @@ class AgentLoop:
         self._broker = CapabilityBroker(
             connector, correction, collaboration_preflight=collaboration_preflight
         )
-        self._actions = ActionPipeline(
-            tasks, self._broker, policy, correction, grants
-        )
+        self._actions = ActionPipeline(tasks, self._broker, policy, correction, grants)
         history = (
             initial_history
             if initial_history is not None
@@ -248,10 +245,7 @@ class AgentLoop:
             for index, message in enumerate(history)
             if message.role is ProviderMessageRole.SYSTEM
         )
-        if (
-            system_indexes != (0,)
-            or history[0].content != self._config.system_prompt
-        ):
+        if system_indexes != (0,) or history[0].content != self._config.system_prompt:
             raise ValueError(
                 "agent loop history requires exactly one leading frozen system prompt"
             )
@@ -263,6 +257,7 @@ class AgentLoop:
         self._effect_custody = effect_custody
         self._independent_approval = independent_approval
         self._external_exact_approval = external_exact_approval
+        self._text_delta_sink = text_delta_sink
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -565,9 +560,7 @@ class AgentLoop:
         self._validate_pending_runtime(
             session,
             pending,
-            require_current_c7=(
-                approval.disposition is ApprovalDisposition.APPROVE
-            ),
+            require_current_c7=(approval.disposition is ApprovalDisposition.APPROVE),
         )
         current_run = self._tasks.get_task(session.task_id).run
         if current_run is None:
@@ -644,6 +637,7 @@ class AgentLoop:
                 raise InvalidTransitionError(
                     "APPROVE execution requires current execution ownership"
                 )
+
             def resume_dispatch() -> CapabilityResult:
                 return self._actions.execute(
                     pending.action,
@@ -729,10 +723,7 @@ class AgentLoop:
             turn_id=pending.turn_id,
             session_id=session.session_id,
         )
-        if (
-            run_was_paused
-            and bound_approval.disposition is ApprovalDisposition.REJECT
-        ):
+        if run_was_paused and bound_approval.disposition is ApprovalDisposition.REJECT:
             return TurnResult(
                 turn_id=turn_id,
                 text="action rejected; Run remains paused",
@@ -755,17 +746,13 @@ class AgentLoop:
         if (
             run is None
             or snapshot is None
-            or (
-                require_current_c7
-                and run.status.value != "WAITING_APPROVAL"
-            )
+            or (require_current_c7 and run.status.value != "WAITING_APPROVAL")
             or (
                 not require_current_c7
                 and run.status.value not in {"WAITING_APPROVAL", "PAUSED"}
             )
             or run.run_id != session.run_id
-            or run.configuration_snapshot_id
-            != pending.configuration_snapshot_id
+            or run.configuration_snapshot_id != pending.configuration_snapshot_id
             or run.configuration_snapshot_digest
             != pending.configuration_snapshot_digest
             or snapshot.snapshot_id != pending.configuration_snapshot_id
@@ -822,9 +809,7 @@ class AgentLoop:
         stop_reason = "max_steps"
         while steps < self._config.max_steps_per_turn:
             if continuation is None:
-                if self._correction.halted(
-                    session.task_id, session.run_id, "provider"
-                ):
+                if self._correction.halted(session.task_id, session.run_id, "provider"):
                     stop_reason = "correction_halted"
                     break
                 run = self._tasks.get_task(session.task_id).run
@@ -1098,6 +1083,19 @@ class AgentLoop:
             seen_action_digests=seen_action_digests,
         )
 
+    def _emit_text_delta(self, delta: str) -> None:
+        """Forward one transient provider chunk to the display sink.
+
+        Frozen (E1): chunks are transient display events, never durable
+        truth; a display-path failure must never fail the durable turn."""
+        sink = self._text_delta_sink
+        if sink is None or not delta:
+            return
+        try:
+            sink(delta)
+        except Exception:  # noqa: BLE001 - transient display path only
+            return
+
     def _call_provider(
         self, session: ChatSession, turn_id: TurnId, step: int
     ) -> ProviderResponse | ProviderFailure:
@@ -1131,9 +1129,7 @@ class AgentLoop:
             pre_correction_epochs = self._correction.snapshot(
                 session.task_id, session.run_id, "provider"
             )
-            if self._correction.halted(
-                session.task_id, session.run_id, "provider"
-            ):
+            if self._correction.halted(session.task_id, session.run_id, "provider"):
                 raise RunExecutionError("chat provider invocation is correction halted")
             request = ProviderRequest(
                 request_id=f"request-{uuid4()}",
@@ -1145,7 +1141,10 @@ class AgentLoop:
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
-            response = self._provider.complete(request)
+            response = self._provider.complete_streaming(
+                request,
+                on_text_delta=self._emit_text_delta,
+            )
             if isinstance(response, ProviderFailure):
                 last_failure = response
                 if response.request_id != request.request_id:
@@ -1157,8 +1156,7 @@ class AgentLoop:
                 break
             if (
                 response.request_id != request.request_id
-                or response.invocation_binding_digest
-                != invocation_binding_digest
+                or response.invocation_binding_digest != invocation_binding_digest
             ):
                 raise RunExecutionError(
                     "chat provider response invocation binding mismatch"
@@ -1192,9 +1190,7 @@ class AgentLoop:
                     invocation_binding_digest=invocation_binding_digest,
                     working_set_ref=WorkingSetRef(
                         status=BindingStatus.MISSING,
-                        gap_reason=(
-                            "terminal chat has no TrustedWorkingSet binding"
-                        ),
+                        gap_reason=("terminal chat has no TrustedWorkingSet binding"),
                     ),
                     pre_correction_epochs=pre_correction_epochs,
                     post_correction_epochs=post_correction_epochs,
@@ -1263,9 +1259,7 @@ class AgentLoop:
             envelope_id=session.envelope_id,
             risk_tier=risk_tier,
             approval_requirement=(
-                "external_exact"
-                if self._external_exact_approval
-                else "policy"
+                "external_exact" if self._external_exact_approval else "policy"
             ),
         )
         approval = None
@@ -1306,6 +1300,7 @@ class AgentLoop:
         execution_lease = self._sandbox.acquire_execution_lease(
             action, self._execution_owner
         )
+
         def dispatch() -> CapabilityResult:
             return self._actions.execute(
                 action,
@@ -1381,9 +1376,7 @@ class AgentLoop:
             expires_at=now + timedelta(minutes=5),
         )
 
-    def _tool_message(
-        self, proposal: Any, payload: dict[str, Any]
-    ) -> ProviderMessage:
+    def _tool_message(self, proposal: Any, payload: dict[str, Any]) -> ProviderMessage:
         return ProviderMessage(
             role=ProviderMessageRole.TOOL,
             content=json.dumps(payload, default=str)[:_MAX_TOOL_RESULT_CHARS],
@@ -1405,8 +1398,7 @@ class AgentLoop:
             total -= len(history[cut].content)
             cut += 1
             while (
-                cut < len(history)
-                and history[cut].role is not ProviderMessageRole.USER
+                cut < len(history) and history[cut].role is not ProviderMessageRole.USER
             ):
                 total -= len(history[cut].content)
                 cut += 1
@@ -1419,9 +1411,7 @@ def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:
         if action.capability_id == "workspace.edit":
             old = str(arguments.get("old_string", ""))
             new = str(arguments.get("new_string", ""))
-            return (
-                f"edit {path}\n--- old ---\n{old[:2000]}\n--- new ---\n{new[:2000]}"
-            )
+            return f"edit {path}\n--- old ---\n{old[:2000]}\n--- new ---\n{new[:2000]}"
         content = str(arguments.get("content", ""))
         return f"replace {path} ({len(content)} chars)\n{content[:2000]}"
     if action.capability_id in {"workspace.shell", "workspace.run_tests"}:
@@ -1443,8 +1433,7 @@ def _provider_output(response: ProviderResponse) -> dict[str, object]:
     return {
         "text": response.text,
         "tool_proposals": [
-            proposal.model_dump(mode="json")
-            for proposal in response.tool_proposals
+            proposal.model_dump(mode="json") for proposal in response.tool_proposals
         ],
         "usage": response.usage.model_dump(mode="json"),
         "finish_reason": response.finish_reason,
