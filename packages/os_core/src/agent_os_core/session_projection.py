@@ -14,6 +14,7 @@ from agent_os_contracts import (
     ApprovalDisposition,
     CorrectionEpochVector,
     PendingSurfaceApproval,
+    PermissionMode,
     ProviderMessage,
     ProviderMessageRole,
     ProviderToolProposal,
@@ -51,10 +52,7 @@ class SessionLoopConfig:
         )
         if any(type(value) is not int or value <= 0 for value in positive_limits):
             raise ValueError("session loop configuration limits must be positive")
-        if (
-            type(self.max_provider_retries) is not int
-            or self.max_provider_retries < 0
-        ):
+        if type(self.max_provider_retries) is not int or self.max_provider_retries < 0:
             raise ValueError(
                 "session loop provider retries must be a non-negative integer"
             )
@@ -190,6 +188,7 @@ class ProjectedSession:
     approval_execution_claim: ProjectedApprovalExecutionClaim | None
     resolved_continuation: ProjectedResolvedContinuation | None
     resumable_turn_id: str | None
+    permission_mode: PermissionMode = "ASK"
 
 
 class SessionProjector:
@@ -262,6 +261,7 @@ def _strict_project(
     last_sequence = 0
     closed = False
     run_cancelled = False
+    permission_mode: PermissionMode = "ASK"
     history: list[ProviderMessage] = []
     pending_continuation: ProjectedApprovalContinuation | None = None
     approval_execution_claim: ProjectedApprovalExecutionClaim | None = None
@@ -348,7 +348,9 @@ def _strict_project(
                 try:
                     message = ProviderMessage.model_validate(payload["message"])
                 except (KeyError, ValidationError) as exc:
-                    raise SessionProjectionError(f"invalid message payload: {exc}") from exc
+                    raise SessionProjectionError(
+                        f"invalid message payload: {exc}"
+                    ) from exc
                 _apply_tool_binding(
                     message,
                     outstanding_tool_calls=outstanding_tool_calls,
@@ -519,6 +521,26 @@ def _strict_project(
                 resolved_continuation = None
                 continue
 
+            if event.event_type is TaskEventType.SESSION_PERMISSION_MODE_SET:
+                if closed:
+                    raise SessionProjectionError("session event recorded after close")
+                if set(payload) != {
+                    "session_id",
+                    "mode",
+                    "set_by",
+                    "prior_digest",
+                }:
+                    raise SessionProjectionError(
+                        "session permission mode fields are invalid"
+                    )
+                mode = payload["mode"]
+                if mode not in ("ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE"):
+                    raise SessionProjectionError(
+                        "session permission mode is not a frozen mode value"
+                    )
+                permission_mode = mode
+                continue
+
             raise SessionProjectionError(
                 f"unsupported session event: {event.event_type.value}"
             )
@@ -539,9 +561,7 @@ def _strict_project(
         raise SessionProjectionError("session open event is missing")
     orphaned_user_turns = set(user_turns) - started_turns
     if orphaned_user_turns:
-        raise SessionProjectionError(
-            "durable user message has no matching turn start"
-        )
+        raise SessionProjectionError("durable user message has no matching turn start")
     if (
         pending_continuation is not None
         and pending_continuation.proposal.proposal_id not in outstanding_tool_calls
@@ -560,14 +580,13 @@ def _strict_project(
         last_sequence=last_sequence,
         closed=closed,
         pending_approval=(
-            pending_continuation.surface
-            if pending_continuation is not None
-            else None
+            pending_continuation.surface if pending_continuation is not None else None
         ),
         pending_continuation=pending_continuation,
         approval_execution_claim=approval_execution_claim,
         resolved_continuation=resolved_continuation,
         resumable_turn_id=open_turn_id,
+        permission_mode=permission_mode,
     )
 
 
@@ -749,9 +768,7 @@ def _project_pending_approval(
         steps=steps,
         total_tokens=total_tokens,
         seen_action_digests=seen,
-        configuration_snapshot_id=_required_str(
-            payload, "configuration_snapshot_id"
-        ),
+        configuration_snapshot_id=_required_str(payload, "configuration_snapshot_id"),
         configuration_snapshot_digest=_required_str(
             payload, "configuration_snapshot_digest"
         ),
@@ -807,7 +824,9 @@ def _project_approval_execution_claim(
         or approval.tenant_id != pending.action.tenant_id
         or approval.workspace_id != pending.action.workspace_id
     ):
-        raise SessionProjectionError("approval execution claim decision binding mismatch")
+        raise SessionProjectionError(
+            "approval execution claim decision binding mismatch"
+        )
     bindings = {
         "task_id": pending.action.task_id,
         "run_id": pending.action.run_id,
@@ -828,7 +847,9 @@ def _project_approval_execution_claim(
     try:
         c7_epochs = CorrectionEpochVector.model_validate(payload["c7_epochs"])
     except ValidationError as exc:
-        raise SessionProjectionError("approval execution claim C7 epochs are invalid") from exc
+        raise SessionProjectionError(
+            "approval execution claim C7 epochs are invalid"
+        ) from exc
     if c7_epochs != pending.action.observed_correction_epochs:
         raise SessionProjectionError("approval execution claim C7 binding mismatch")
     claimed_at = _required_datetime(payload, "claimed_at")
@@ -899,9 +920,7 @@ def _project_approval_resolution(
         ApprovalDisposition.REJECT,
     }:
         raise SessionProjectionError("approval resolution disposition is invalid")
-    approval_sequence = _required_positive_int(
-        payload, "source_approval_sequence"
-    )
+    approval_sequence = _required_positive_int(payload, "source_approval_sequence")
     approval_event, approval = _unique_bound_approval(
         approvals,
         approval_sequence=approval_sequence,
@@ -936,8 +955,7 @@ def _project_approval_resolution(
     if (
         _required_str(payload, "turn_id") != pending.turn_id
         or open_turn_id != pending.turn_id
-        or _required_str(payload, "action_digest")
-        != pending.action.action_digest()
+        or _required_str(payload, "action_digest") != pending.action.action_digest()
         or _required_str(payload, "proposal_id") != pending.proposal.proposal_id
     ):
         raise SessionProjectionError("approval resolution binding mismatch")
@@ -955,23 +973,17 @@ def _project_approval_resolution(
         payload, "assistant_message_index"
     )
     if assistant_message_index != pending.assistant_message_index:
-        raise SessionProjectionError(
-            "approval resolution assistant binding mismatch"
-        )
+        raise SessionProjectionError("approval resolution assistant binding mismatch")
     assistant = history[assistant_message_index]
     assistant_message_digest = _required_str(payload, "assistant_message_digest")
     if (
         assistant.role is not ProviderMessageRole.ASSISTANT
-        or content_digest(assistant.model_dump(mode="json"))
-        != assistant_message_digest
+        or content_digest(assistant.model_dump(mode="json")) != assistant_message_digest
     ):
         raise SessionProjectionError("approval resolution assistant digest mismatch")
-    next_proposal_index = _required_non_negative_int(
-        payload, "next_proposal_index"
-    )
-    if (
-        next_proposal_index != pending.proposal_index + 1
-        or next_proposal_index > len(assistant.tool_calls)
+    next_proposal_index = _required_non_negative_int(payload, "next_proposal_index")
+    if next_proposal_index != pending.proposal_index + 1 or next_proposal_index > len(
+        assistant.tool_calls
     ):
         raise SessionProjectionError("approval resolution continuation cursor mismatch")
     steps = _required_non_negative_int(payload, "steps")
@@ -1081,21 +1093,21 @@ def _project_continuation_checkpoint(
     if checkpoint_resolved_at != current.resolved_at:
         raise SessionProjectionError("continuation checkpoint resolution time mismatch")
 
-    assistant_index = _required_non_negative_int(
-        payload, "assistant_message_index"
-    )
+    assistant_index = _required_non_negative_int(payload, "assistant_message_index")
     if assistant_index >= len(history):
-        raise SessionProjectionError("continuation checkpoint assistant index is invalid")
+        raise SessionProjectionError(
+            "continuation checkpoint assistant index is invalid"
+        )
     assistant = history[assistant_index]
     assistant_digest = _required_str(payload, "assistant_message_digest")
     if (
         assistant.role is not ProviderMessageRole.ASSISTANT
         or content_digest(assistant.model_dump(mode="json")) != assistant_digest
     ):
-        raise SessionProjectionError("continuation checkpoint assistant binding mismatch")
-    checkpoint_index = _required_non_negative_int(
-        payload, "checkpoint_message_index"
-    )
+        raise SessionProjectionError(
+            "continuation checkpoint assistant binding mismatch"
+        )
+    checkpoint_index = _required_non_negative_int(payload, "checkpoint_message_index")
     if checkpoint_index != len(history) - 1:
         raise SessionProjectionError("continuation checkpoint message index mismatch")
     checkpoint_message = history[checkpoint_index]
@@ -1223,9 +1235,7 @@ def _unique_bound_approval(
 ) -> tuple[TaskEvent, ApprovalDecision]:
     record = approvals.get(approval_sequence)
     if record is None or approval_sequence >= before_sequence:
-        raise SessionProjectionError(
-            f"{context} lacks one earlier exact approval"
-        )
+        raise SessionProjectionError(f"{context} lacks one earlier exact approval")
     event, approval = record
     matching = tuple(
         candidate
@@ -1233,9 +1243,7 @@ def _unique_bound_approval(
         if candidate[1].action_digest == approval.action_digest
     )
     if len(matching) != 1:
-        raise SessionProjectionError(
-            f"{context} lacks one unique approval authority"
-        )
+        raise SessionProjectionError(f"{context} lacks one unique approval authority")
     return event, approval
 
 

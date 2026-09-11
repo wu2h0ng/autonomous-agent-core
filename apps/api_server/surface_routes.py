@@ -24,6 +24,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceCorrectionCommand,
     SurfaceOpenSessionCommand,
+    SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
     canonical_json,
@@ -203,6 +204,10 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._post_begin_turn(handler, session_id)
                     return
+                session_id = _match_surface_session_leaf(handler.path, "mode")
+                if session_id is not None:
+                    self._post_mode(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "turns")
                 if session_id is not None:
                     self._post_turn(handler, session_id)
@@ -292,6 +297,23 @@ class SurfaceRoutes:
         handler._json(
             200,
             {"begin_turn": self._runtime.begin_turn(command).model_dump(mode="json")},
+        )
+
+    def _post_mode(self, handler: Any, session_id: str) -> None:
+        body = handler._body()
+        command = SurfaceSetPermissionModeCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {
+                "snapshot": self._runtime.set_permission_mode(command).model_dump(
+                    mode="json"
+                )
+            },
         )
 
     def _post_approval(self, handler: Any, session_id: str) -> None:

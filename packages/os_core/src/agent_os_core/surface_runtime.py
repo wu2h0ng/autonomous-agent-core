@@ -26,6 +26,7 @@ from agent_os_contracts import (
     SurfaceOpenSessionCommand,
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
+    SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
@@ -102,6 +103,10 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_correct_session(
         self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot: ...
+
+    def surface_set_permission_mode(
+        self, command: SurfaceSetPermissionModeCommand
     ) -> SurfaceSessionSnapshot: ...
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot: ...
@@ -277,6 +282,30 @@ class SurfaceRuntime:
             f"surface:correct:{command.session_id}",
             self._application.surface_correct_session,
         )
+
+    def set_permission_mode(
+        self, command: SurfaceSetPermissionModeCommand
+    ) -> SurfaceSessionSnapshot:
+        """E2 operator-issued mode change: idempotent, sequence-exact,
+        principal-scoped (operator-only; the model can never set a mode)."""
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:mode:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceSessionSnapshot,
+                operation=lambda: self._set_permission_mode_once(command),
+            )
+
+    def _set_permission_mode_once(
+        self, command: SurfaceSetPermissionModeCommand
+    ) -> SurfaceSessionSnapshot:
+        self._require_protocol(command.protocol_version)
+        task_id = self._application.surface_task_for_session(command.session_id)
+        self._require_principal_scope(command.client)
+        self._require_sequence(task_id, command.expected_event_sequence)
+        self._require_open_session(command.session_id)
+        return self._application.surface_set_permission_mode(command)
 
     def event_batch(self, task_id: str, after_sequence: int) -> SurfaceEventBatch:
         if not task_id.strip():

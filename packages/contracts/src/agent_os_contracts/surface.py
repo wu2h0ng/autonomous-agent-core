@@ -14,6 +14,17 @@ from .runtime import TaskEvent
 SURFACE_PROTOCOL_VERSION = "1.0"
 
 
+PermissionMode = Literal["ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE"]
+"""E2 operator-issued session permission mode (frozen matrix, GC §E2).
+
+ASK is the default interactive mode; ACCEPT_READ_ONLY auto-passes only the
+pre-existing tier-default read surface; ACCEPT_IN_WORKSPACE additionally
+policy auto-allows tier-2 in-sandbox edits with the durable provenance chain.
+Tier-3+ always requires a real human ApprovalDecision; out-of-allowlist
+actions are never executable in any mode.
+"""
+
+
 class SurfaceClientRef(ContractModel):
     client_id: NonEmptyStr
     client_type: Literal["DESKTOP", "CLI", "TEST"]
@@ -71,6 +82,24 @@ class SurfaceCorrectionCommand(ContractModel):
     requested_at: UtcDateTime
 
 
+class SurfaceSetPermissionModeCommand(ContractModel):
+    """E2 operator-issued permission mode change (frozen).
+
+    Runtime enforces operator-only issuance (principal scope + principal role);
+    the model can never set a mode. Each change is recorded once as a durable
+    `SESSION_PERMISSION_MODE_SET` event carrying who set it and the prior
+    event's digest (provenance chain).
+    """
+
+    protocol_version: Literal["1.0"]
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    mode: PermissionMode
+    expected_event_sequence: int = Field(ge=0)
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
 class PendingSurfaceApproval(ContractModel):
     action_digest: NonEmptyStr
     capability_id: NonEmptyStr
@@ -88,6 +117,7 @@ class SurfaceSessionSnapshot(ContractModel):
     event_sequence: int = Field(ge=0)
     message_count: int = Field(ge=0)
     pending_approval: PendingSurfaceApproval | None = None
+    permission_mode: PermissionMode = "ASK"
     updated_at: UtcDateTime
 
 

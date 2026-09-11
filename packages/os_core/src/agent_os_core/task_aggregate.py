@@ -446,6 +446,7 @@ class TaskAggregate:
             TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
             TaskEventType.SESSION_APPROVAL_RESOLVED,
             TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
+            TaskEventType.SESSION_PERMISSION_MODE_SET,
             TaskEventType.SESSION_CLOSED,
         }:
             # Chat-turn audit markers carry no aggregate state transition.

@@ -74,6 +74,7 @@ from agent_os_contracts import (
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
     SurfaceSessionSnapshot,
+    SurfaceSetPermissionModeCommand,
     SurfaceSessionStatus,
     SurfaceConflictProjection,
     SurfaceStreamFrameKind,
@@ -2146,6 +2147,33 @@ class AgentOSApplication:
         self.correct_task(task_id, command.reason)
         return self.surface_session_snapshot(command.session_id)
 
+    def surface_set_permission_mode(
+        self, command: SurfaceSetPermissionModeCommand
+    ) -> SurfaceSessionSnapshot:
+        """E2 operator-only mode change, recorded once per change as a durable
+        SESSION_PERMISSION_MODE_SET event with a provenance chain (who set it,
+        prior event digest)."""
+        task_id = self.surface_task_for_session(command.session_id)
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("permission mode requires principal authority")
+        prior_digest: str | None = None
+        for event in self.store.read(task_id):
+            if event.event_type is not TaskEventType.SESSION_PERMISSION_MODE_SET:
+                continue
+            prior_digest = content_digest(event.decoded_payload())
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.SESSION_PERMISSION_MODE_SET,
+            {
+                "session_id": command.session_id,
+                "mode": command.mode,
+                "set_by": actor.principal_id,
+                "prior_digest": prior_digest,
+            },
+        )
+        return self.surface_session_snapshot(command.session_id)
+
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
         if not session_id.strip():
             raise ValueError("session_id must be non-empty")
@@ -2164,6 +2192,7 @@ class AgentOSApplication:
             event_sequence=aggregate.sequence,
             message_count=projected.next_message_index,
             pending_approval=projected.pending_approval,
+            permission_mode=projected.permission_mode,
             updated_at=self._clock(),
         )
 

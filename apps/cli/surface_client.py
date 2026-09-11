@@ -20,6 +20,7 @@ from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
     ApprovalDisposition,
     ContractModel,
+    PermissionMode,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
@@ -28,6 +29,7 @@ from agent_os_contracts import (
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
     SurfaceSessionSnapshot,
+    SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceStreamFrame,
     SurfaceStreamSubscription,
@@ -291,6 +293,39 @@ class SurfaceClient:
             expected_event_sequence=expected_event_sequence,
             idempotency_key=idempotency_key,
         )
+
+    def set_permission_mode(
+        self,
+        session_id: str,
+        mode: PermissionMode,
+        *,
+        expected_event_sequence: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> SurfaceSessionSnapshot:
+        """E2 operator-issued mode change (the model can never set a mode)."""
+        command = SurfaceSetPermissionModeCommand(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            client=self._client_ref(),
+            session_id=session_id,
+            mode=mode,
+            expected_event_sequence=(
+                self._sequence(session_id)
+                if expected_event_sequence is None
+                else expected_event_sequence
+            ),
+            idempotency_key=idempotency_key or f"cli-mode:{uuid4().hex}",
+            requested_at=self._now(),
+        )
+        response = self._request(
+            "POST", f"/v1/surface/sessions/{session_id}/mode", command
+        )
+        snapshot_value = response.get("snapshot")
+        if not isinstance(snapshot_value, dict):
+            raise SurfaceProtocolMismatch("local runtime returned no session snapshot")
+        self._check_protocol(snapshot_value)
+        snapshot = SurfaceSessionSnapshot.model_validate(snapshot_value)
+        self._track(session_id, snapshot)
+        return snapshot
 
     def _control(
         self,
