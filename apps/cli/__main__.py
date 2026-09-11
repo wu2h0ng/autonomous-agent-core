@@ -93,6 +93,7 @@ _KNOWN_SUBCOMMANDS = frozenset(
         "agent-resume",
         "agent-admit-selfdev",
         "chat",
+        "tui",
         "task-create",
         "task-show",
         "task-run",
@@ -246,6 +247,24 @@ def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
         getattr(args, "descriptor", None) or DEFAULT_RUNTIME_DESCRIPTOR
     )
     return SurfaceClient(load_runtime_descriptor(path))
+
+
+def _tui(args: argparse.Namespace) -> int:
+    from apps.cli.tui_app import run_tui
+    from apps.cli.tui_controller import TuiController
+
+    client = load_surface_client(args)
+    if args.session:
+        snapshot = client.get_session(args.session)
+    else:
+        snapshot = client.open_session("textual TUI session")
+    controller = TuiController(
+        client=client,
+        session_id=snapshot.session.session_id,
+        task_id=snapshot.session.task_id,
+    )
+    run_tui(controller)
+    return 0
 
 
 def _chat(args: argparse.Namespace) -> int:
@@ -688,7 +707,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{agent,chat}",
+        metavar="{agent,chat,tui}",
     )
 
     agent = sub.add_parser(
@@ -725,6 +744,16 @@ def main(argv: list[str] | None = None) -> None:
         help="resume an existing session instead of opening a new one",
     )
     chat.set_defaults(_uses_prompt_flag=True)
+
+    tui = sub.add_parser(
+        "tui",
+        help="rich terminal UI chat client (textual; M2)",
+    )
+    tui.add_argument(
+        "--session",
+        default=None,
+        help="resume an existing session instead of opening a new one",
+    )
 
     session_show = sub.add_parser("session-show", help=argparse.SUPPRESS)
     session_show.add_argument("session_id")
@@ -818,7 +847,7 @@ def main(argv: list[str] | None = None) -> None:
     sub._choices_actions = [  # type: ignore[attr-defined]
         action
         for action in sub._choices_actions  # type: ignore[attr-defined]
-        if action.dest in {"agent", "chat"}
+        if action.dest in {"agent", "chat", "tui"}
     ]
     args = parser.parse_args(argv[1:])
 
@@ -830,6 +859,8 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(_agent(args))
         if args.command == "chat":
             raise SystemExit(_chat(args))
+        if args.command == "tui":
+            raise SystemExit(_tui(args))
         if args.command == "daemon-start":
             raise SystemExit(_daemon_start(args))
         if args.command == "daemon-status":

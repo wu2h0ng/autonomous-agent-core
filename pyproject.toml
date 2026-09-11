@@ -22,6 +22,9 @@ product-test = [
     "pyyaml>=6,<7",
     "ruff>=0.14,<1",
 ]
+tui = [
+    "textual==6.9.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

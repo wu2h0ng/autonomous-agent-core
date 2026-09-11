@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ from agent_os_contracts import (
     SurfaceSessionSnapshot,
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
+    SurfaceStreamBinding,
     SurfaceStreamFrame,
     SurfaceStreamSubscription,
     SurfaceTurnCommand,
@@ -433,6 +435,27 @@ class SurfaceClient:
             )
         self._check_protocol(subscription)
         return SurfaceStreamSubscription.model_validate(subscription)
+
+    def submit_turn(
+        self,
+        session_id: str,
+        text: str,
+        stream: SurfaceStreamBinding,
+    ) -> SurfaceBeginTurnResponse:
+        """TUI-facing begin-turn: builds the typed command with this client's
+        identity (the controller stays identity-free)."""
+        return self.begin_turn(
+            SurfaceBeginTurnCommand(
+                protocol_version=SURFACE_PROTOCOL_VERSION,
+                client=self._client_ref(),
+                session_id=session_id,
+                text=text,
+                stream=stream,
+                expected_event_sequence=self._sequence(session_id),
+                idempotency_key=f"tui-turn:{session_id}:{time.monotonic_ns()}",
+                requested_at=self._now(),
+            )
+        )
 
     def begin_turn(self, command: SurfaceBeginTurnCommand) -> SurfaceBeginTurnResponse:
         """E1 reserve/begin-turn: bind the pre-subscribed stream and return
