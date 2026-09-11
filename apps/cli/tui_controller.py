@@ -229,6 +229,11 @@ class TuiController:
         return self.set_mode(MODE_ORDER[(index + 1) % len(MODE_ORDER)])
 
     def set_mode(self, mode: PermissionMode) -> PermissionMode:
+        # Refresh the tracked event sequence first: the controller learns
+        # durable progress through events(), which does not advance the
+        # client's per-session sequence cursor used by typed commands.
+        fresh = self._client.get_session(self.session_id)
+        self.mode = fresh.permission_mode
         snapshot = self._client.set_permission_mode(
             self.session_id,
             mode,
