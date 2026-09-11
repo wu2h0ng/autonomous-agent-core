@@ -154,6 +154,7 @@ export function App({ client, resumeSessionId }: { client: SurfaceClient; resume
         const turn = await client.decideApproval(sid, pending.action_digest, disposition, `${disposition.toLowerCase()} via cli-ts`);
         setSnapshot(turn.snapshot);
         push({ role: "system", text: `${disposition}: ${pending.capability_id}` });
+        if (turn.text.trim()) push({ role: "assistant", text: turn.text });
         setPhase("idle");
       } catch (cause) {
         setError((cause as Error).message);

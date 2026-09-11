@@ -217,3 +217,31 @@ test("gap frame contract: turn-bound gap is rejected client-side", async () => {
     },
   );
 });
+
+test("followStream persists the cursor per binding: a second turn never replays turn-1 frames", async () => {
+  const requests: string[] = [];
+  const frame = (seq: number, turn: string, kind: string) =>
+    `event: frame\ndata: ${JSON.stringify({ kind, runtime_boot_id: "boot:1", stream_id: "stream:1", turn_id: turn, frame_sequence: seq, payload: kind === "CHUNK" ? { delta: `t1-${seq}` } : {} })}\n\n`;
+  await withServer(
+    (req) => {
+      requests.push(req.url ?? "");
+      if (req.url?.includes("after=0")) {
+        return { status: 200, sse: frame(1, "turn:1", "CHUNK") + frame(2, "turn:1", "STREAM_END") + `event: cursor\ndata: {"next_sequence": 2}\n\n` };
+      }
+      if (req.url?.includes("after=2")) {
+        return { status: 200, sse: frame(3, "turn:2", "CHUNK") + frame(4, "turn:2", "STREAM_END") + `event: cursor\ndata: {"next_sequence": 4}\n\n` };
+      }
+      throw new Error(`unexpected ${req.url}`);
+    },
+    async (client) => {
+      const binding = { runtime_boot_id: "boot:1", stream_id: "stream:1" };
+      const turn1: string[] = [];
+      for await (const f of client.followStream("s:1", binding, { pollMs: 1 })) turn1.push(f.turn_id ?? "");
+      assert.deepEqual(turn1, ["turn:1", "turn:1"]);
+      const turn2: string[] = [];
+      for await (const f of client.followStream("s:1", binding, { pollMs: 1 })) turn2.push(f.turn_id ?? "");
+      assert.deepEqual(turn2, ["turn:2", "turn:2"]);
+      assert.ok(requests[1]?.includes("after=2"), "second followStream must resume at the persisted cursor");
+    },
+  );
+});

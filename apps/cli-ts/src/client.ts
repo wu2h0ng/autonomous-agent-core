@@ -264,9 +264,13 @@ export class SurfaceClient {
     return snapshot;
   }
 
+  private readonly streamCursors = new Map<string, number>();
+
   /** Poll transient frames until STREAM_END or abort. Yields frames in order;
    * GAP frames are surfaced as-is (explicit loss honesty, never fabricated
-   * content). Throws SurfaceStreamStaleError on dead generations. */
+   * content). The cursor persists per stream binding across calls, so a
+   * later turn on the same stream never replays a prior turn's frames.
+   * Throws SurfaceStreamStaleError on dead generations. */
   async *followStream(
     sessionId: string,
     stream: SurfaceStreamBinding,
@@ -274,11 +278,13 @@ export class SurfaceClient {
   ): AsyncGenerator<SurfaceStreamFrame> {
     const pollMs = opts.pollMs ?? 100;
     const waitMs = opts.waitMs ?? 0;
-    let cursor = 0;
+    const cursorKey = `${stream.runtime_boot_id}:${stream.stream_id}`;
+    let cursor = this.streamCursors.get(cursorKey) ?? 0;
     for (;;) {
       if (opts.signal?.aborted) return;
       const batch = await this.streamFramesRaw(sessionId, stream, cursor, waitMs);
       cursor = batch.next_sequence;
+      this.streamCursors.set(cursorKey, cursor);
       for (const frame of batch.frames) {
         yield frame;
         if (frame.kind === "STREAM_END") return;
