@@ -10,6 +10,7 @@ import React, { useEffect, useReducer, useState } from "react";
 import { Box, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { ChatMessage, TuiController } from "./controller.js";
+import { handleGlobalKey } from "./keys.js";
 import { renderMarkdown } from "./markdown.js";
 
 function MessageView({ message, finalized }: { message: ChatMessage; finalized: boolean }) {
@@ -53,10 +54,7 @@ export function App({ controller }: { controller: TuiController }) {
   }, [controller]);
 
   useInput((keyInput, key) => {
-    if (key.ctrl && keyInput === "c") {
-      void controller.interrupt();
-      return;
-    }
+    if (handleGlobalKey(controller, keyInput, key)) return;
     if (controller.status === "awaiting_approval") {
       if (keyInput === "y") void controller.approve().catch(() => undefined);
       if (keyInput === "n") void controller.reject().catch(() => undefined);
@@ -118,7 +116,7 @@ export function App({ controller }: { controller: TuiController }) {
         {controller.lastStopReason && controller.lastStopReason !== "completed"
           ? ` · last turn: ${controller.lastStopReason}`
           : ""}
-        {" · /help · ctrl-c correct/exit"}
+        {" · /help · esc/ctrl-c correct · ctrl-l clear"}
       </Text>
     </Box>
   );

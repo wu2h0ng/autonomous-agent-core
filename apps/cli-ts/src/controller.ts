@@ -121,6 +121,7 @@ const SLASH_HELP: readonly string[] = [
   "/resume <session-id> attach to an existing durable session",
   "/files [PREFIX]      workspace files (bounded read-only listing; optional path filter)",
   "/task                task overview: run status, receipts, outcome binding",
+  "/clear               clear the LOCAL view (session context unchanged; Ctrl-L)",
   "/help                this list",
 ];
 
@@ -258,6 +259,9 @@ export class TuiController {
       case "/task":
         await this.taskCommand();
         return true;
+      case "/clear":
+        this.clearView();
+        return true;
       default:
         this.push({ role: "system", content: `unknown command: ${command} (see /help)` });
         return true;
@@ -345,6 +349,26 @@ export class TuiController {
       content:
         `task ${overview.task_id} · status ${overview.task_status} · run ${overview.run_status}` +
         ` · receipts ${overview.receipt_count} · outcome ${overview.expected_outcome_id || "none"}`,
+    });
+  }
+
+  /** Clear the LOCAL view only: messages, finalized cursor, tool index.
+   * Durable session state (history, tokens, mode) is server-side and
+   * untouched — the notice says so, because unlike mainstream /clear this
+   * does NOT reset the model's context (no /compact yet). Refused while a
+   * turn is in flight (clearing mid-stream would split the live message). */
+  clearView(): void {
+    if (this.busy) {
+      this.push({ role: "system", content: "turn in progress; /clear refused (view would split the live message)" });
+      return;
+    }
+    this.messages.length = 0;
+    this.toolIndex.clear();
+    this.finalizedIndex = 0;
+    this.pendingPreview = null;
+    this.push({
+      role: "system",
+      content: "view cleared (local view only — durable session context unchanged)",
     });
   }
 
