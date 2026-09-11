@@ -6,15 +6,21 @@ terminal-handling regressions (raw mode, per-key input parsing, Ink redraw).
 This script boots the hermetic dev_daemon, runs the real CLI under a pty,
 types keystrokes ONE BYTE AT A TIME (like a human), and asserts:
 
-  1. initial render shows the status line ("/help")
-  2. echo of typed input renders
-  3. submitting with Enter streams the deterministic reply end to end
-  4. Ctrl-C exits the process
+  phase 1 (24x80): initial render shows the status line, typed input echoes,
+                   Enter submits and the deterministic reply streams in,
+                   Ctrl-C exits the process.
+  phase 2 (12x40): same flow under a tiny terminal (wrapping/scroll stress,
+                   CJK intact), then a mid-session resize to 30x100 must
+                   relayout and keep the TUI responsive (iteration-17).
 
-Lesson encoded: never write multi-byte input in a single pty write — the
-kernel coalesces it into one read, Ink's input-parser emits it as one event,
-and a trailing \\r is then parsed as paste text, not Return (false alarm in
-iteration-16). Per-key writes are required for a faithful probe.
+Lessons encoded:
+  - Never write multi-byte input in a single pty write — the kernel coalesces
+    it into one read, Ink's input-parser emits it as one event, and a trailing
+    \\r is then parsed as paste text, not Return (false alarm in iteration-16).
+    Per-key writes are required for a faithful probe.
+  - Each phase needs its OWN daemon: dev_daemon's scripted provider advances
+    one turn per submit (turn 1 = streaming text, turn 2 = edit proposal), so
+    reusing a daemon across phases silently changes the expected reply.
 
 Usage: uv run python apps/cli-ts/scripts/pty_smoke.py
 """
@@ -67,70 +73,113 @@ def type_keys(master: int, text: str) -> bytes:
     return buf
 
 
-def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="cli-ts-pty-") as tmp:
-        desc = Path(tmp) / "runtime.json"
-        db = Path(tmp) / "agent-os.sqlite3"
-        ws = Path(tmp) / "ws"
-        ws.mkdir()
+def strip(data: bytes) -> str:
+    return ANSI_RE.sub("", data.decode(errors="replace"))
 
-        daemon = subprocess.Popen(
+
+class Daemon:
+    """Isolated dev_daemon on an ephemeral port; killed on exit."""
+
+    def __init__(self, tmp: Path, name: str) -> None:
+        self.desc = tmp / f"{name}-runtime.json"
+        self.proc = subprocess.Popen(
             [
                 "uv", "run", "python",
                 str(REPO_ROOT / "apps" / "cli-ts" / "scripts" / "dev_daemon.py"),
-                "--descriptor", str(desc),
-                "--database", str(db),
-                "--workspace", str(ws),
+                "--descriptor", str(self.desc),
+                "--database", str(tmp / f"{name}.sqlite3"),
+                "--workspace", str(tmp / f"{name}-ws"),
             ],
             cwd=REPO_ROOT,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        for _ in range(60):
+            if self.desc.exists():
+                break
+            time.sleep(0.5)
+        if not self.desc.exists():
+            self.proc.terminate()
+            raise AssertionError(f"daemon {name} never wrote descriptor")
+        time.sleep(2)
+
+    def stop(self) -> None:
+        self.proc.terminate()
+        self.proc.wait(timeout=10)
+
+
+def run_tui(desc: Path, rows: int, cols: int, body) -> None:
+    """Spawn the real CLI in a pty of the given size; `body(master)` drives it."""
+    master, slave = pty.openpty()
+    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    proc = subprocess.Popen(
+        [str(TSX), str(CLI_ENTRY), "--descriptor", str(desc)],
+        stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+    )
+    os.close(slave)
+    try:
+        body(master)
+        os.write(master, b"\x03")  # Ctrl-C
+        drain(master, 3)
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=5)
+
+
+def phase1(master: int) -> None:
+    out = drain(master, 10, until="/help")
+    assert "/help" in strip(out), "initial render missing status line"
+
+    out = type_keys(master, "hello pty")
+    assert "hello pty" in strip(out), "typed input did not echo"
+
+    os.write(master, b"\r")
+    out = drain(master, 20, until="deterministic")
+    assert "deterministic" in strip(out), (
+        "Enter did not submit / no streamed reply within 20s"
+    )
+
+
+def phase2(master: int) -> None:
+    out = drain(master, 10, until="/help")
+    assert "/help" in strip(out), "narrow boot: missing status line"
+
+    type_keys(master, "hi")
+    os.write(master, b"\r")
+    out = drain(master, 20, until="deterministic")
+    text = strip(out)
+    assert "deterministic" in text, "narrow terminal: no streamed reply"
+    assert "流式" in text, "narrow terminal: CJK reply corrupted"
+
+    # resize 12x40 -> 30x100: TUI must relayout and stay responsive
+    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+    drain(master, 1)
+    type_keys(master, "/help")
+    os.write(master, b"\r")
+    out = drain(master, 8)
+    assert "files" in strip(out), "post-resize: /help did not render"
+
+
+def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="cli-ts-pty-") as tmp_str:
+        tmp = Path(tmp_str)
+
+        daemon1 = Daemon(tmp, "p1")
         try:
-            for _ in range(60):
-                if desc.exists():
-                    break
-                time.sleep(0.5)
-            if not desc.exists():
-                print("[pty-smoke] FAIL: daemon never wrote descriptor")
-                return 1
-            time.sleep(2)
-
-            master, slave = pty.openpty()
-            fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-            proc = subprocess.Popen(
-                [str(TSX), str(CLI_ENTRY), "--descriptor", str(desc)],
-                stdin=slave, stdout=slave, stderr=slave, close_fds=True,
-            )
-            os.close(slave)
-            try:
-                out = drain(master, 10, until="/help")
-                text = ANSI_RE.sub("", out.decode(errors="replace"))
-                assert "/help" in text, "initial render missing status line"
-
-                out = type_keys(master, "hello pty")
-                text = ANSI_RE.sub("", out.decode(errors="replace"))
-                assert "hello pty" in text, "typed input did not echo"
-
-                os.write(master, b"\r")
-                out = drain(master, 20, until="deterministic")
-                text = ANSI_RE.sub("", out.decode(errors="replace"))
-                assert "deterministic" in text, (
-                    "Enter did not submit / no streamed reply within 20s"
-                )
-
-                os.write(master, b"\x03")  # Ctrl-C
-                out = drain(master, 3)
-                proc.wait(timeout=5)
-            finally:
-                if proc.poll() is None:
-                    proc.terminate()
-                    proc.wait(timeout=5)
+            run_tui(daemon1.desc, 24, 80, phase1)
         finally:
-            daemon.terminate()
-            daemon.wait(timeout=10)
+            daemon1.stop()
 
-    print("[pty-smoke] PASS: render / typing echo / Enter submit+stream / Ctrl-C exit")
+        daemon2 = Daemon(tmp, "p2")
+        try:
+            run_tui(daemon2.desc, 12, 40, phase2)
+        finally:
+            daemon2.stop()
+
+    print("[pty-smoke] PASS: render / typing echo / Enter submit+stream / "
+          "Ctrl-C exit / narrow+resize relayout")
     return 0
 
 
