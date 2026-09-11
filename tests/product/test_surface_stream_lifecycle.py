@@ -32,6 +32,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceClientRef,
     SurfaceEventBatch,
+    SurfaceStreamBinding,
     SurfaceStreamFrameKind,
     TaskEvent,
     TaskEventType,
@@ -109,7 +110,9 @@ def _begin_turn_command(
         client=_client_ref(),
         session_id=session_id,
         text=text,
-        stream={"runtime_boot_id": app.runtime_boot_id, "stream_id": stream_id},
+        stream=SurfaceStreamBinding(
+            runtime_boot_id=app.runtime_boot_id, stream_id=stream_id
+        ),
         expected_event_sequence=app.surface_current_sequence(
             app.surface_task_for_session(session_id)
         ),
@@ -190,9 +193,11 @@ def test_stream_end_never_finalizes_turn_pending_approval(tmp_path: Path) -> Non
     assert app.surface_has_uncommitted_turn(session.session_id) is True
 
     projected = app.tasks.project_session(session.task_id, session.session_id)
+    pending = projected.pending_continuation
+    assert pending is not None
     app.decide_session_approval(
         session.session_id,
-        action_digest=projected.pending_continuation.action.action_digest(),
+        action_digest=pending.action.action_digest(),
         disposition=ApprovalDisposition.APPROVE,
         reason="reviewed exact edit",
     )
@@ -496,10 +501,10 @@ def _begin_turn_via_client(
             ),
             session_id=session_id,
             text="slow reply",
-            stream={
-                "runtime_boot_id": subscription.runtime_boot_id,
-                "stream_id": subscription.stream_id,
-            },
+            stream=SurfaceStreamBinding(
+                runtime_boot_id=subscription.runtime_boot_id,
+                stream_id=subscription.stream_id,
+            ),
             expected_event_sequence=sequence,
             idempotency_key=key,
             requested_at=datetime.now(timezone.utc),
