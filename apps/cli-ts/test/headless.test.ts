@@ -150,6 +150,26 @@ test("headless success: exit 0, assembled text on stdout, json shape", async () 
   assert.equal(payload["session_id"], "s:1");
 });
 
+test("headless stream-json: NDJSON init + per-delta lines + result", async () => {
+  const client = new StubClient();
+  client.chunks = ["hel", "lo"];
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "stream-json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const lines = io.out.join("").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+  assert.equal(lines[0]?.["type"], "system");
+  assert.equal(lines[0]?.["subtype"], "init");
+  assert.equal(lines[0]?.["session_id"], "s:1");
+  const deltas = lines.filter((l) => l["type"] === "assistant").map((l) => l["delta"]);
+  assert.deepEqual(deltas, ["hel", "lo"]);
+  const resultLine = lines.at(-1);
+  assert.equal(resultLine?.["type"], "result");
+  assert.equal(resultLine?.["subtype"], "success");
+  assert.equal(resultLine?.["text"], "hello");
+  // session lifecycle is carried by the init line; stderr stays empty
+  assert.equal(io.err.join(""), "");
+});
+
 test("headless text mode: text on stdout only, notices on stderr", async () => {
   const client = new StubClient();
   client.chunks = ["answer"];

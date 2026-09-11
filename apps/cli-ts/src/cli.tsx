@@ -10,6 +10,15 @@ import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
 import { renderDoctorText, runDoctor } from "./doctor.js";
 import { App } from "./App.js";
 
+// Writing to a closed pipe (e.g. `agent-os-ts -p ... | head -3`) raises
+// EPIPE; mainstream CLI behavior is a quiet exit, not an unhandled throw.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EPIPE") process.exit(0);
+    throw error;
+  });
+}
+
 function flagValue(args: string[], ...names: string[]): string | undefined {
   for (const name of names) {
     const index = args.indexOf(name);
@@ -36,8 +45,8 @@ async function main(): Promise<void> {
   const client = new SurfaceClient(descriptor);
 
   if (printPrompt !== undefined) {
-    if (outputFormat && outputFormat !== "text" && outputFormat !== "json") {
-      console.error(`agent-os-ts: unknown --output-format ${outputFormat} (text | json)`);
+    if (outputFormat && outputFormat !== "text" && outputFormat !== "json" && outputFormat !== "stream-json") {
+      console.error(`agent-os-ts: unknown --output-format ${outputFormat} (text | json | stream-json)`);
       process.exitCode = 1;
       return;
     }

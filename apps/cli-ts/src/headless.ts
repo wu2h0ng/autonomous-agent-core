@@ -10,8 +10,10 @@
  *   3  turn ended without stop_reason "completed" (max_steps, budget_exceeded,
  *      loop_detected, provider_failure:*, stalled, …) — tokens still counted
  *
- * Output formats: text (assistant text on stdout, notices on stderr) and
- * json (single result object on stdout).
+ * Output formats: text (assistant text on stdout, notices on stderr),
+ * json (single result object on stdout) and stream-json (NDJSON: an init
+ * line, one assistant-delta line per streamed chunk, system notices, then
+ * the final result line — the claude -p --output-format stream-json shape).
  */
 
 import type { SurfaceClient } from "./client.js";
@@ -24,7 +26,7 @@ export const HEADLESS_EXIT = {
   NOT_COMPLETED: 3,
 } as const;
 
-export type HeadlessOutputFormat = "text" | "json";
+export type HeadlessOutputFormat = "text" | "json" | "stream-json";
 
 export interface HeadlessOptions {
   prompt: string;
@@ -53,13 +55,28 @@ export async function runHeadless(
     stderr: (s) => process.stderr.write(s),
   },
 ): Promise<number> {
+  const streamJson = options.outputFormat === "stream-json";
+  const ndjson = (payload: Record<string, unknown>) =>
+    out.stdout(`${JSON.stringify(payload)}\n`);
   const controller = new TuiController(client, {
     stallMs: options.stallMs ?? 60_000,
     pollMs: 100,
+    ...(streamJson
+      ? { onDelta: (delta: string) => ndjson({ type: "assistant", delta }) }
+      : {}),
   });
 
   if (options.sessionId) {
     await controller.submit(`/resume ${options.sessionId}`);
+  } else if (streamJson) {
+    await controller.ensureSession();
+  }
+  if (streamJson) {
+    ndjson({
+      type: "system",
+      subtype: "init",
+      session_id: controller.currentSessionId,
+    });
   }
 
   const baseline = controller.messages.length;
@@ -74,9 +91,14 @@ export async function runHeadless(
     .filter((m) => m.role === "assistant")
     .map((m) => m.content)
     .join("");
-  // Turn-scoped system notices (stop reason, gaps) go to stderr in text mode.
-  for (const message of fresh.filter((m) => m.role === "system")) {
-    if (options.outputFormat !== "json") out.stderr(`⏵ ${message.content}\n`);
+  // Turn-scoped system notices (stop reason, gaps): stderr in text mode,
+  // NDJSON notice lines in stream-json mode, omitted in json mode.
+  for (const message of fresh.filter((m) => m.role === "system" && m.content.trim())) {
+    if (streamJson) {
+      ndjson({ type: "system", subtype: "notice", content: message.content });
+    } else if (options.outputFormat !== "json") {
+      out.stderr(`⏵ ${message.content}\n`);
+    }
   }
 
   if (controller.status === "awaiting_approval") {
@@ -141,7 +163,7 @@ function emit(
   options: HeadlessOptions,
   out: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): number {
-  if (options.outputFormat === "json") {
+  if (options.outputFormat === "json" || options.outputFormat === "stream-json") {
     out.stdout(`${JSON.stringify(payload)}\n`);
   } else {
     if (payload.text) out.stdout(payload.text.endsWith("\n") ? payload.text : `${payload.text}\n`);

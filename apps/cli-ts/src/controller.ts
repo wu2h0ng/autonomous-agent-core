@@ -129,6 +129,9 @@ export interface ControllerDeps {
   clock?: () => number;
   stallMs?: number;
   pollMs?: number;
+  /** Observer for streamed assistant deltas (headless stream-json). Pure
+   * notification — never feeds back into controller state. */
+  onDelta?: (delta: string) => void;
 }
 
 export class TuiController {
@@ -158,6 +161,7 @@ export class TuiController {
   private readonly clock: () => number;
   private readonly stallMs: number;
   private readonly pollMs: number;
+  private readonly onDelta: ((delta: string) => void) | undefined;
   private busy = false;
 
   constructor(
@@ -167,6 +171,7 @@ export class TuiController {
     this.clock = deps.clock ?? (() => Date.now());
     this.stallMs = deps.stallMs ?? STALL_DEFAULT_MS;
     this.pollMs = deps.pollMs ?? 100;
+    this.onDelta = deps.onDelta;
   }
 
   subscribe(listener: () => void): () => void {
@@ -218,6 +223,7 @@ export class TuiController {
     } else {
       this.messages.push({ role: "assistant", content: delta });
     }
+    this.onDelta?.(delta);
     this.emit();
   }
 
@@ -380,6 +386,16 @@ export class TuiController {
     this.emit();
   }
 
+  /** Open a session up-front when none exists. runTurn calls this lazily;
+   * headless stream-json calls it eagerly so the init line carries the
+   * session id before the first delta. */
+  async ensureSession(): Promise<void> {
+    if (this.sessionId) return;
+    const opened = await this.client.openSession("cli-ts session");
+    this.adoptSnapshot(opened);
+    this.push({ role: "system", content: `session ${this.sessionId} opened` });
+  }
+
   async runTurn(text: string): Promise<void> {
     if (this.busy) {
       this.push({ role: "system", content: "turn in progress; input is not queued (frozen TURN_IN_PROGRESS semantics)" });
@@ -389,11 +405,7 @@ export class TuiController {
     this.lastError = null;
     this.lastStopReason = null;
     try {
-      if (!this.sessionId) {
-        const opened = await this.client.openSession("cli-ts session");
-        this.adoptSnapshot(opened);
-        this.push({ role: "system", content: `session ${this.sessionId} opened` });
-      }
+      await this.ensureSession();
       const sessionId = this.sessionId!;
       if (!this.stream) {
         const subscription = await this.client.subscribeStream(sessionId);

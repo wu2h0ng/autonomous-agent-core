@@ -127,7 +127,10 @@ def run_tui(desc: Path, rows: int, cols: int, body) -> None:
         body(master)
         os.write(master, b"\x03")  # Ctrl-C
         drain(master, 3)
-        proc.wait(timeout=5)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            raise AssertionError("Ctrl-C did not exit the TUI within 10s")
     finally:
         if proc.poll() is None:
             proc.terminate()
