@@ -230,7 +230,9 @@ class DeterministicProvider(ProviderPort):
                     len(message.content.split()) for message in request.messages
                 )
                 + len(text.split()),
-                estimated_cost_usd=Decimal("0"),
+                # E3: no pricing source in the hermetic provider — cost is
+                # honestly UNKNOWN, never a pseudo-zero.
+                cost_status="UNKNOWN",
             ),
             finish_reason="stop",
             received_at=datetime.now(timezone.utc),
@@ -466,7 +468,9 @@ class OpenAICompatibleProvider(ProviderPort):
                     total_tokens=int(
                         usage.get("total_tokens", input_tokens + output_tokens)
                     ),
-                    estimated_cost_usd=Decimal("0"),
+                    # E3: token counts are exact from the provider payload;
+                    # cost has no pricing source here — UNKNOWN, never zero.
+                    cost_status="UNKNOWN",
                 ),
                 finish_reason=str(choice.get("finish_reason", "stop")),
                 received_at=datetime.now(timezone.utc),
@@ -598,7 +602,9 @@ class OpenAICompatibleProvider(ProviderPort):
                 input_tokens=0,
                 output_tokens=len(text_out.split()),
                 total_tokens=len(text_out.split()),
-                estimated_cost_usd=Decimal("0"),
+                # E3: SSE frames here carry no usage counters and no pricing
+                # source — cost is UNKNOWN, never a pseudo-zero.
+                cost_status="UNKNOWN",
             ),
             finish_reason=finish_reason or "stop",
             received_at=datetime.now(timezone.utc),

@@ -240,15 +240,60 @@ class ProviderDecisionRequest(ContractModel):
 
 
 class ProviderUsage(ContractModel):
+    """V2 usage: token counts are exact; cost is honest.
+
+    cost_status UNKNOWN (default) means no versioned pricing source exists:
+    estimated_cost_usd must be None and is projected as None even for legacy
+    v1 payloads that carried an amount — historical figures have no pricing
+    provenance and are never trusted or rewritten in the event store.
+    cost_status KNOWN requires a non-null amount and a non-empty
+    pricing_source_ref; a zero amount is allowed only with a source
+    (genuinely free model), never as a pseudo-zero.
+    """
+
+    schema_version: Literal["2.0"] = "2.0"  # pyright: ignore[reportIncompatibleVariableOverride]
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     total_tokens: int = Field(ge=0)
-    estimated_cost_usd: Decimal = Field(ge=0)
+    estimated_cost_usd: Decimal | None = Field(default=None, ge=0)
+    cost_status: Literal["KNOWN", "UNKNOWN"] = "UNKNOWN"
+    pricing_source_ref: str | None = None
 
     @model_validator(mode="after")
     def _validate_total(self) -> ProviderUsage:
         if self.total_tokens != self.input_tokens + self.output_tokens:
             raise ValueError("total_tokens must equal input_tokens + output_tokens")
+        return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_v1(cls, data: Any) -> Any:
+        """Legacy v1 payloads carried an amount with no cost_status and no
+        pricing provenance. Project them to UNKNOWN + None at decode time;
+        stored raw events are never rewritten. Any payload that names an
+        amount MUST also name cost_status explicitly (v2 writer contract).
+        """
+        if isinstance(data, dict) and "cost_status" not in data:
+            data = dict(data)
+            data.pop("estimated_cost_usd", None)
+            data["schema_version"] = "2.0"
+        return data
+
+    @model_validator(mode="after")
+    def _validate_cost_honesty(self) -> ProviderUsage:
+        if self.cost_status == "UNKNOWN":
+            if self.estimated_cost_usd is not None:
+                raise ValueError(
+                    "UNKNOWN cost must not carry estimated_cost_usd "
+                    "(no pseudo-zero; use KNOWN with a pricing_source_ref)"
+                )
+            if self.pricing_source_ref is not None:
+                raise ValueError("UNKNOWN cost must not carry a pricing_source_ref")
+        else:
+            if self.estimated_cost_usd is None:
+                raise ValueError("KNOWN cost requires estimated_cost_usd")
+            if not self.pricing_source_ref:
+                raise ValueError("KNOWN cost requires a pricing_source_ref")
         return self
 
 

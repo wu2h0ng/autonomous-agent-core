@@ -31,7 +31,7 @@ from apps.runtime_daemon.descriptor import (
 
 def _descriptor(tmp_path: Path, port: int = 18787) -> RuntimeDescriptor:
     return RuntimeDescriptor(
-        protocol_version="1.0",
+        protocol_version="1.1",
         pid=123,
         boot_id="boot:1",
         host="127.0.0.1",

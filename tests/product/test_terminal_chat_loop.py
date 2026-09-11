@@ -1215,7 +1215,7 @@ def cli_daemon(
     descriptor_path.write_text(
         json.dumps(
             {
-                "protocol_version": "1.0",
+                "protocol_version": "1.1",
                 "pid": os.getpid(),
                 "boot_id": "boot:cli-daemon-test",
                 "host": "127.0.0.1",

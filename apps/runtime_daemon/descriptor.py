@@ -29,7 +29,7 @@ class RuntimeDescriptorError(ValueError):
 
 
 class RuntimeDescriptor(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     pid: int = Field(gt=0)
     boot_id: NonEmptyStr
     host: Literal["127.0.0.1"]

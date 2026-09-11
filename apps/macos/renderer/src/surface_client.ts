@@ -6,7 +6,7 @@
 // event sequence is tracked for commands. The bearer token is supplied by the
 // Rust layer and never stored in webview-local storage.
 
-export const SURFACE_PROTOCOL_VERSION = "1.0";
+export const SURFACE_PROTOCOL_VERSION = "1.1";
 
 export class SurfaceProtocolMismatch extends Error {}
 export class SurfaceClientAuthenticationError extends Error {}

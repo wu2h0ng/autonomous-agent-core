@@ -188,7 +188,7 @@ def stream_server(tmp_path: Path) -> Generator[StreamTestServer, None, None]:
 
 def _descriptor(port: int, token: str, tmp_path: Path) -> RuntimeDescriptor:
     return RuntimeDescriptor(
-        protocol_version="1.0",
+        protocol_version="1.1",
         pid=1234,
         boot_id="boot:stream-http:1",
         host="127.0.0.1",

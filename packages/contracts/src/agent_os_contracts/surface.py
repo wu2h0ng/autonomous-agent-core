@@ -11,7 +11,7 @@ from .provider import ProviderMessage, SessionRef
 from .runtime import TaskEvent
 
 
-SURFACE_PROTOCOL_VERSION = "1.0"
+SURFACE_PROTOCOL_VERSION = "1.1"  # E3: usage v2 cost-honesty contract on the wire
 
 
 PermissionMode = Literal["ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE"]
@@ -43,7 +43,7 @@ class SurfaceSessionStatus(str, Enum):
 
 
 class SurfaceOpenSessionCommand(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     client: SurfaceClientRef
     statement: NonEmptyStr
     idempotency_key: NonEmptyStr
@@ -51,7 +51,7 @@ class SurfaceOpenSessionCommand(ContractModel):
 
 
 class SurfaceTurnCommand(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     client: SurfaceClientRef
     session_id: NonEmptyStr
     text: NonEmptyStr
@@ -61,7 +61,7 @@ class SurfaceTurnCommand(ContractModel):
 
 
 class SurfaceApprovalCommand(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     client: SurfaceClientRef
     session_id: NonEmptyStr
     action_digest: NonEmptyStr
@@ -73,7 +73,7 @@ class SurfaceApprovalCommand(ContractModel):
 
 
 class SurfaceCorrectionCommand(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     client: SurfaceClientRef
     session_id: NonEmptyStr
     reason: NonEmptyStr
@@ -91,7 +91,7 @@ class SurfaceSetPermissionModeCommand(ContractModel):
     event's digest (provenance chain).
     """
 
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     client: SurfaceClientRef
     session_id: NonEmptyStr
     mode: PermissionMode
@@ -109,7 +109,7 @@ class PendingSurfaceApproval(ContractModel):
 
 
 class SurfaceSessionSnapshot(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     session: SessionRef
     envelope_id: NonEmptyStr
     expected_outcome_id: NonEmptyStr
@@ -122,7 +122,7 @@ class SurfaceSessionSnapshot(ContractModel):
 
 
 class SurfaceTurnResponse(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot
     turn_id: NonEmptyStr | None = None
     text: NonEmptyStr
@@ -132,7 +132,7 @@ class SurfaceTurnResponse(ContractModel):
 
 
 class SurfaceEventBatch(ContractModel):
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     task_id: NonEmptyStr
     after_sequence: int = Field(ge=0)
     next_sequence: int = Field(ge=0)
@@ -164,7 +164,7 @@ class SurfaceConflictProjection(ContractModel):
     touching authority or fence state.
     """
 
-    protocol_version: Literal["1.0"] = "1.0"
+    protocol_version: Literal["1.1"] = "1.1"
     action_id: NonEmptyStr
     lease_id: NonEmptyStr
     disposition: Literal["REPLAN", "CONFLICT", "CANCEL"]
@@ -222,7 +222,7 @@ class SurfaceBeginTurnCommand(ContractModel):
     authoritative `{turn_id, stream_id}`. The client never mints turn ids.
     """
 
-    protocol_version: Literal["1.0"]
+    protocol_version: Literal["1.1"]
     client: SurfaceClientRef
     session_id: NonEmptyStr
     text: NonEmptyStr
@@ -236,7 +236,7 @@ class SurfaceBeginTurnResponse(ContractModel):
     """Authoritative begin-turn result; idempotent replays return this
     recorded response without re-invoking the provider."""
 
-    protocol_version: Literal["1.0"] = "1.0"
+    protocol_version: Literal["1.1"] = "1.1"
     turn_id: NonEmptyStr
     stream_id: NonEmptyStr
 
@@ -291,7 +291,7 @@ class SurfaceStreamSubscription(ContractModel):
     `SurfaceStreamGone` and can never collide with the new one.
     """
 
-    protocol_version: Literal["1.0"] = "1.0"
+    protocol_version: Literal["1.1"] = "1.1"
     runtime_boot_id: NonEmptyStr
     stream_id: NonEmptyStr
 
@@ -305,7 +305,7 @@ class SurfaceStreamBatch(ContractModel):
     is required.
     """
 
-    protocol_version: Literal["1.0"] = "1.0"
+    protocol_version: Literal["1.1"] = "1.1"
     session_id: NonEmptyStr
     after_sequence: int = Field(ge=0)
     next_sequence: int = Field(ge=0)

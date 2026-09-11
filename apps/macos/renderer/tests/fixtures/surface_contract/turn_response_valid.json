@@ -1,7 +1,7 @@
 {
-  "protocol_version": "1.0",
+  "protocol_version": "1.1",
   "snapshot": {
-    "protocol_version": "1.0",
+    "protocol_version": "1.1",
     "session": {
       "schema_version": "1.0",
       "session_id": "session:1",

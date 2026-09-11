@@ -39,7 +39,7 @@ export async function fetchOverview(
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
-        "X-Agent-OS-Protocol": "1.0",
+        "X-Agent-OS-Protocol": "1.1",
       },
     },
   );

@@ -32,7 +32,7 @@ function conflictClient(
 }
 
 const validConflict = {
-  protocol_version: "1.0",
+  protocol_version: "1.1",
   action_id: "action:edit",
   lease_id: "lease:1",
   disposition: "CONFLICT",

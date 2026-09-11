@@ -27,7 +27,7 @@ from apps.runtime_daemon.descriptor import RuntimeDescriptor
 
 def _descriptor(port: int, tmp_path: Path) -> RuntimeDescriptor:
     return RuntimeDescriptor(
-        protocol_version="1.0",
+        protocol_version="1.1",
         pid=1234,
         boot_id="boot:test:1",
         host="127.0.0.1",
@@ -97,7 +97,7 @@ def fake_http_server(tmp_path: Path) -> Generator[FakeHttpServer, None, None]:
 
 def _snapshot_payload(session_id: str = "session:1", sequence: int = 1) -> dict:
     return {
-        "protocol_version": "1.0",
+        "protocol_version": "1.1",
         "session": {
             "schema_version": "1.0",
             "session_id": session_id,
@@ -118,7 +118,7 @@ def _snapshot_payload(session_id: str = "session:1", sequence: int = 1) -> dict:
 
 def _turn_payload(session_id: str = "session:1", sequence: int = 5) -> dict:
     return {
-        "protocol_version": "1.0",
+        "protocol_version": "1.1",
         "snapshot": _snapshot_payload(session_id, sequence),
         "turn_id": "turn:1",
         "text": "completed reply",
