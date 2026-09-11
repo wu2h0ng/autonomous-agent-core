@@ -162,6 +162,40 @@ def phase2(master: int) -> None:
     assert "files" in strip(out), "post-resize: /help did not render"
 
 
+def phase3(master: int) -> None:
+    """Approval flow in a real pty (iteration-18): turn 2 of the scripted
+    daemon proposes workspace.edit -> WAITING_APPROVAL in ASK mode; pressing
+    'y' is the human-only approve path and the continuation text streams."""
+    out = drain(master, 10, until="/help")
+    assert "/help" in strip(out), "approval phase: missing status line"
+
+    type_keys(master, "hi")
+    os.write(master, b"\r")
+    out = drain(master, 20, until="deterministic")
+    assert "deterministic" in strip(out), "approval phase: turn 1 did not stream"
+
+    # Regression guard (iteration-18): turn 2 must not be rejected with a
+    # stale expected_event_sequence after a durable-resolved turn 1.
+    type_keys(master, "edit please")
+    os.write(master, b"\r")
+    out = drain(master, 20, until="[y] approve")
+    out += drain(master, 3)  # settle frames
+    text = strip(out)
+    assert "does not match current sequence" not in text, (
+        "turn 2 rejected with stale expected_event_sequence"
+    )
+    assert "approval required" in text, "approval card did not render"
+    assert "unknown capability" not in text, (
+        "approval card flashed an empty snapshot frame"
+    )
+    assert "workspace.edit" in text, "approval card missing capability id"
+    assert "digest " in text, "approval card missing digest line"
+
+    os.write(master, b"y")
+    out = drain(master, 20, until="edit applied")
+    assert "edit applied" in strip(out), "approve (y) did not apply the edit"
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cli-ts-pty-") as tmp_str:
         tmp = Path(tmp_str)
@@ -178,8 +212,14 @@ def main() -> int:
         finally:
             daemon2.stop()
 
+        daemon3 = Daemon(tmp, "p3")
+        try:
+            run_tui(daemon3.desc, 24, 80, phase3)
+        finally:
+            daemon3.stop()
+
     print("[pty-smoke] PASS: render / typing echo / Enter submit+stream / "
-          "Ctrl-C exit / narrow+resize relayout")
+          "Ctrl-C exit / narrow+resize relayout / approval card y-approve")
     return 0
 
 

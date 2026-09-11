@@ -453,7 +453,16 @@ export class TuiController {
     const deadline = this.clock() + this.stallMs;
     for (;;) {
       this.drainDurable();
-      if (this.status === "idle" || this.status === "awaiting_approval") return;
+      if (this.status === "idle" || this.status === "awaiting_approval") {
+        // Turn resolved via durable events. Refresh the authoritative
+        // snapshot so the client's expected_event_sequence matches the
+        // kernel: stream-side frames advanced the session sequence beyond
+        // the last tracked snapshot, and the next command would otherwise
+        // be rejected with a sequence mismatch (iteration-18 pty finding).
+        this.adoptSnapshot(await this.client.getSession(sessionId));
+        this.emit();
+        return;
+      }
       if (this.clock() > deadline) {
         this.status = "stalled"; // transient; only durable state may overrule
         this.finalizeAll();

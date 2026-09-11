@@ -54,12 +54,16 @@ class FakeClient {
   completedSteps = 0;
   approvalPending = false;
   streamScript: SurfaceStreamFrame[] = [];
+  getSessionCalls = 0;
+  snapshotSequence = 1;
 
   async openSession() {
     return snapshot();
   }
   async getSession() {
+    this.getSessionCalls += 1;
     return snapshot({
+      event_sequence: this.snapshotSequence,
       status: this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE",
       ...(this.approvalPending
         ? {
@@ -301,6 +305,25 @@ test("approval pending → human approve → tokens + continuation text", async 
   assert.equal(controller.status, "idle");
   assert.equal(controller.tokensTotal, 12);
   assert.ok(controller.messages.some((m) => m.content === "edit applied"));
+});
+
+test("durable-resolved turn refreshes the authoritative snapshot (iteration-18)", async () => {
+  // Regression: when SESSION_TURN_COMPLETED resolves via the durable event
+  // drain, stream-side frames already advanced the kernel sequence past the
+  // last tracked snapshot. Without a post-turn getSession the next submit
+  // sends a stale expected_event_sequence and the kernel rejects it
+  // ("expected event sequence 7 does not match current sequence 12").
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 3;
+  client.snapshotSequence = 12; // kernel advanced past the tracked snapshot
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("hello");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "idle");
+  assert.ok(client.getSessionCalls >= 1, "no snapshot refresh after durable completion");
+  const adopted = (controller as never as { snapshot: SurfaceSessionSnapshot }).snapshot;
+  assert.equal(adopted.event_sequence, 12);
 });
 
 test("stall: quiet stream past threshold renders the typed transient state", () => {

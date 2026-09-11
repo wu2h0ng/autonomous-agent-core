@@ -89,25 +89,30 @@ export function App({ controller }: { controller: TuiController }) {
       {controller.status === "stalled" && (
         <Text color="yellow">STALLED_PENDING_DURABLE_STATE — waiting for the durable record…</Text>
       )}
-      {controller.status === "awaiting_approval" && (
-        <Box flexDirection="column" borderStyle="round" borderColor="yellow">
-          <Text bold>approval required — {pending?.capability_id ?? "unknown capability"}</Text>
-          {pending?.preview
-            ? segmentPreview(pending.preview).map((segment, index) => {
-                const color =
-                  segment.tone === "old" ? "red" : segment.tone === "new" ? "green" : undefined;
-                return (
-                  <Text key={index} wrap="wrap" {...(color ? { color } : {})}>
-                    {segment.text}
-                  </Text>
-                );
-              })
-            : null}
-          <Text dimColor>
-            digest {pending?.action_digest.slice(0, 16) ?? ""}… [y] approve [n] reject
-          </Text>
-        </Box>
-      )}
+      {controller.status === "awaiting_approval" &&
+        (pending ? (
+          <Box flexDirection="column" borderStyle="round" borderColor="yellow">
+            <Text bold>approval required — {pending.capability_id}</Text>
+            {pending.preview
+              ? segmentPreview(pending.preview).map((segment, index) => {
+                  const color =
+                    segment.tone === "old" ? "red" : segment.tone === "new" ? "green" : undefined;
+                  return (
+                    <Text key={index} wrap="wrap" {...(color ? { color } : {})}>
+                      {segment.text}
+                    </Text>
+                  );
+                })
+              : null}
+            <Text dimColor>
+              digest {pending.action_digest.slice(0, 16)}… [y] approve [n] reject
+            </Text>
+          </Box>
+        ) : (
+          // Snapshot refresh is in flight after the durable pending event;
+          // never flash an empty "unknown capability" card (iteration-18).
+          <Text dimColor>approval pending — loading preview…</Text>
+        ))}
       {controller.lastError && <Text color="red">error: {controller.lastError}</Text>}
       <Box>
         <Text color="green">{controller.status === "idle" ? "> " : "… "}</Text>
