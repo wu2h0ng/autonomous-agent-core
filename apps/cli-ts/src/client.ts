@@ -12,25 +12,30 @@
  *   embedded in error messages.
  */
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
   SurfaceEventBatchSchema,
+  SurfaceFileEntrySchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
   SurfaceStreamFrameSchema,
   SurfaceStreamSubscriptionSchema,
+  SurfaceTaskOverviewSchema,
   SurfaceTurnResponseSchema,
   TaskEventSchema,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
   type SurfaceClientRef,
   type SurfaceEventBatch,
+  type SurfaceFileEntry,
   type SurfaceSessionSnapshot,
   type SurfaceStreamBatch,
   type SurfaceStreamBinding,
   type SurfaceStreamFrame,
   type SurfaceStreamSubscription,
+  type SurfaceTaskOverview,
   type SurfaceTurnResponse,
   type TaskEvent,
 } from "./contracts.js";
@@ -351,6 +356,20 @@ export class SurfaceClient {
   /** Durable task events (append-only truth): bounded read over the
    * authenticated SSE events endpoint. Used for authoritative turn
    * completion, approval-pending detection and exact token totals. */
+  /** Bounded read-only workspace listing (path/size/mtime; no content). */
+  async files(taskId: string): Promise<SurfaceFileEntry[]> {
+    if (!taskId.trim()) throw new Error("task_id must be non-empty");
+    const response = await this.request("GET", `/v1/surface/tasks/${taskId}/files`);
+    return this.unwrap(response, "files", z.array(SurfaceFileEntrySchema));
+  }
+
+  /** Closed read-only task projection (status/run/receipt counts). */
+  async overview(taskId: string): Promise<SurfaceTaskOverview> {
+    if (!taskId.trim()) throw new Error("task_id must be non-empty");
+    const response = await this.request("GET", `/v1/surface/tasks/${taskId}/overview`);
+    return this.unwrap(response, "overview", SurfaceTaskOverviewSchema);
+  }
+
   async events(taskId: string, afterSequence = 0, waitMs = 0): Promise<SurfaceEventBatch> {
     if (!taskId.trim()) throw new Error("task_id must be non-empty");
     let response: Response;

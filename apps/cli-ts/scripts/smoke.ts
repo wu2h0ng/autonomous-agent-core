@@ -162,6 +162,18 @@ async function full(client: SurfaceClient, descriptorPath: string): Promise<void
   if (!fixture2.includes("(edited twice)")) fail("second edit was not auto-applied");
   console.log("[smoke] turn 3 PASS: tier-2 in-sandbox auto-allow + tool card projected");
 
+  // 5. read-only panels against the live daemon: /files lists the workspace,
+  //    /task projects the durable task overview (real endpoints, no mocks)
+  await controller.submit("/files");
+  const filesMsg = controller.messages.at(-1)?.content ?? "";
+  if (!filesMsg.includes("fixture.txt")) fail(`/files did not list fixture.txt: "${filesMsg}"`);
+  await controller.submit("/task");
+  const taskMsg = controller.messages.at(-1)?.content ?? "";
+  if (!/task task-.*· status/.test(taskMsg) && !taskMsg.includes("receipts")) {
+    fail(`/task overview malformed: "${taskMsg}"`);
+  }
+  console.log(`[smoke] /files + /task PASS: ${filesMsg.split("\n")[0]}; ${taskMsg.slice(0, 60)}…`);
+
   writeFileSync(
     `${descriptorPath}.state.json`,
     JSON.stringify({ sessionId, binding, eventSequence: snap3.event_sequence }),

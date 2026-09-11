@@ -141,6 +141,26 @@ class FakeClient {
   async correct() {
     return snapshot({ status: "CORRECTION_HALTED" });
   }
+  filesList = [
+    { path: "fixture.txt", size: 12, mtime: "2026-09-11T00:00:00Z" },
+    { path: "src/a.ts", size: 340, mtime: "2026-09-11T00:00:00Z" },
+  ];
+  async files(taskId: string) {
+    assert.equal(taskId, "task:1");
+    return this.filesList;
+  }
+  async overview(taskId: string) {
+    assert.equal(taskId, "task:1");
+    return {
+      task_id: taskId,
+      task_status: "ACTIVE",
+      run_status: "COMPLETED",
+      run_id: "run:1",
+      expected_outcome_id: "outcome:1",
+      receipt_count: 3,
+      session_id: "s:1",
+    };
+  }
 }
 
 test("slash commands: help/status/cost/invalid-mode/unknown", async () => {
@@ -242,6 +262,30 @@ test("stale approval-pending event from a resolved turn never resurrects", async
   ]);
   assert.equal(controller.status, "idle");
   assert.equal(controller.pendingPreview, null);
+});
+
+test("/files and /task: session-required, listing, prefix filter, overview", async () => {
+  const controller = new TuiController(new FakeClient() as never, { pollMs: 1 });
+  await controller.submit("/files");
+  assert.match(controller.messages.at(-1)?.content ?? "", /no session yet/);
+
+  await controller.submit("/resume s:1");
+  await controller.submit("/files");
+  const listing = controller.messages.at(-1)?.content ?? "";
+  assert.match(listing, /files \(2\)/);
+  assert.match(listing, /fixture\.txt \(12 B\)/);
+
+  await controller.submit("/files src/");
+  const filtered = controller.messages.at(-1)?.content ?? "";
+  assert.match(filtered, /files \(1\)/);
+  assert.ok(!filtered.includes("fixture.txt"));
+
+  await controller.submit("/files nope/");
+  assert.match(controller.messages.at(-1)?.content ?? "", /no workspace files matching nope\//);
+
+  await controller.submit("/task");
+  const overview = controller.messages.at(-1)?.content ?? "";
+  assert.match(overview, /task task:1 · status ACTIVE · run COMPLETED · receipts 3/);
 });
 
 test("approval pending → human approve → tokens + continuation text", async () => {

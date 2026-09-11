@@ -119,6 +119,8 @@ const SLASH_HELP: readonly string[] = [
   "/cost                exact token totals; cost is UNKNOWN (no pricing source)",
   "/mode [MODE]         show or set permission mode (ASK | ACCEPT_READ_ONLY | ACCEPT_IN_WORKSPACE)",
   "/resume <session-id> attach to an existing durable session",
+  "/files [PREFIX]      workspace files (bounded read-only listing; optional path filter)",
+  "/task                task overview: run status, receipts, outcome binding",
   "/help                this list",
 ];
 
@@ -250,6 +252,12 @@ export class TuiController {
       case "/resume":
         await this.resumeCommand(rest[0]);
         return true;
+      case "/files":
+        await this.filesCommand(rest[0]);
+        return true;
+      case "/task":
+        await this.taskCommand();
+        return true;
       default:
         this.push({ role: "system", content: `unknown command: ${command} (see /help)` });
         return true;
@@ -306,8 +314,41 @@ export class TuiController {
     });
   }
 
-  private adoptSnapshot(snapshot: SurfaceSessionSnapshot): void {
-    this.snapshot = snapshot;
+  /** Bounded workspace listing (server-side depth/noise bounded; client caps
+   * the display at 30 entries and always reports the true total). */
+  private async filesCommand(prefix: string | undefined): Promise<void> {
+    if (!this.taskId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    const files = await this.client.files(this.taskId);
+    const filtered = prefix ? files.filter((f) => f.path.startsWith(prefix)) : files;
+    const shown = filtered.slice(0, 30);
+    this.push({
+      role: "system",
+      content:
+        filtered.length === 0
+          ? `no workspace files${prefix ? ` matching ${prefix}` : ""}`
+          : `files (${filtered.length}${filtered.length > shown.length ? `, showing ${shown.length}` : ""}):\n` +
+            shown.map((f) => `  ${f.path} (${f.size} B)`).join("\n"),
+    });
+  }
+
+  private async taskCommand(): Promise<void> {
+    if (!this.taskId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    const overview = await this.client.overview(this.taskId);
+    this.push({
+      role: "system",
+      content:
+        `task ${overview.task_id} · status ${overview.task_status} · run ${overview.run_status}` +
+        ` · receipts ${overview.receipt_count} · outcome ${overview.expected_outcome_id || "none"}`,
+    });
+  }
+
+  private adoptSnapshot(snapshot: SurfaceSessionSnapshot): void {    this.snapshot = snapshot;
     this.sessionId = snapshot.session.session_id;
     this.taskId = snapshot.session.task_id;
     this.mode = snapshot.permission_mode;
