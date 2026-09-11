@@ -10,6 +10,7 @@ Surface-only truth: all durable state remains the Task event stream.
 from __future__ import annotations
 
 import hashlib
+import time
 from threading import RLock
 from typing import Any, Protocol, TypeVar
 
@@ -25,12 +26,13 @@ from agent_os_contracts import (
     SurfaceOpenSessionCommand,
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
+    SurfaceStreamBatch,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
     canonical_json,
 )
 
-from .session_stream import SessionStreamRegistry, SurfaceStreamGone
+from .session_stream import SessionStreamRegistry, StreamCursor, SurfaceStreamGone
 
 ResponseT = TypeVar(
     "ResponseT",
@@ -104,7 +106,9 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot: ...
 
-    def surface_event_batch(self, task_id: str, after_sequence: int) -> SurfaceEventBatch: ...
+    def surface_event_batch(
+        self, task_id: str, after_sequence: int
+    ) -> SurfaceEventBatch: ...
 
     def surface_files_listing(self, task_id: str) -> list[dict[str, Any]]: ...
 
@@ -112,9 +116,7 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_task_for_session(self, session_id: str) -> str: ...
 
-    def surface_conflict_projection(
-        self, session_id: str
-    ) -> Any | None: ...
+    def surface_conflict_projection(self, session_id: str) -> Any | None: ...
 
     def surface_current_sequence(self, task_id: str) -> int: ...
 
@@ -180,9 +182,7 @@ class SurfaceRuntime:
                 operation=lambda: self._run_turn_once(command),
             )
 
-    def begin_turn(
-        self, command: SurfaceBeginTurnCommand
-    ) -> SurfaceBeginTurnResponse:
+    def begin_turn(self, command: SurfaceBeginTurnCommand) -> SurfaceBeginTurnResponse:
         """E1 reserve/begin-turn: the single turn_id source (frozen).
 
         Idempotent replays return the recorded `{turn_id, stream_id}` without
@@ -207,9 +207,47 @@ class SurfaceRuntime:
             raise SurfaceProtocolError("stream registry is not configured")
         return self._stream_registry.subscribe(session_id)
 
-    def decide_approval(
-        self, command: SurfaceApprovalCommand
-    ) -> SurfaceTurnResponse:
+    @property
+    def stream_runtime_boot_id(self) -> str:
+        """Daemon generation identity binding every transient stream cursor."""
+        if self._stream_registry is None:
+            raise SurfaceProtocolError("stream registry is not configured")
+        return self._stream_registry.runtime_boot_id
+
+    def stream_batch(
+        self,
+        session_id: str,
+        cursor: StreamCursor,
+        wait_ms: int = 0,
+    ) -> SurfaceStreamBatch:
+        """Bounded long-poll read of transient frames after the cursor.
+
+        Stale generations and unknown streams fail typed `SurfaceStreamGone`;
+        gap frames are synthesized on the read path and are never buffer
+        residents. `wait_ms` is clamped to the same bound as durable events.
+        """
+        if self._stream_registry is None:
+            raise SurfaceProtocolError("stream registry is not configured")
+        if isinstance(wait_ms, bool) or not 0 <= wait_ms <= 25000:
+            raise ValueError("wait_ms must be within 0..25000")
+        deadline = time.monotonic() + wait_ms / 1000.0
+        frames: list[Any] = []
+        while True:
+            frames = self._stream_registry.read(session_id, cursor)
+            if frames or time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+        next_sequence = cursor.frame_sequence
+        for frame in frames:
+            next_sequence = max(next_sequence, frame.frame_sequence)
+        return SurfaceStreamBatch(
+            session_id=session_id,
+            after_sequence=cursor.frame_sequence,
+            next_sequence=next_sequence,
+            frames=tuple(frames),
+        )
+
+    def decide_approval(self, command: SurfaceApprovalCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):
             return self._idempotent(
                 scope=f"surface:approval:{command.session_id}",

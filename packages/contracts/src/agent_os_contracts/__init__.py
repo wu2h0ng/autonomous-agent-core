@@ -166,8 +166,10 @@ from .surface import (
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
     SurfaceStreamBinding,
+    SurfaceStreamBatch,
     SurfaceStreamFrame,
     SurfaceStreamFrameKind,
+    SurfaceStreamSubscription,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
 )
@@ -629,8 +631,10 @@ __all__ = [
     "SurfaceSessionSnapshot",
     "SurfaceSessionStatus",
     "SurfaceStreamBinding",
+    "SurfaceStreamBatch",
     "SurfaceStreamFrame",
     "SurfaceStreamFrameKind",
+    "SurfaceStreamSubscription",
     "SurfaceTurnCommand",
     "SurfaceTurnResponse",
 

@@ -21,8 +21,10 @@ from ._cors import _tauri_origin_cors
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
+    SurfaceBeginTurnCommand,
     SurfaceCorrectionCommand,
     SurfaceOpenSessionCommand,
+    SurfaceStreamBatch,
     SurfaceTurnCommand,
     canonical_json,
 )
@@ -34,9 +36,10 @@ from agent_os_core import (
     SurfaceScopeError,
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
+    SurfaceStreamGone,
     TaskNotFoundError,
 )
-
+from agent_os_core.session_stream import StreamCursor
 
 
 class SurfaceAuthenticationError(PermissionError):
@@ -46,6 +49,8 @@ class SurfaceAuthenticationError(PermissionError):
 def _surface_error_status(exc: BaseException) -> int:
     if isinstance(exc, SurfaceAuthenticationError):
         return 401
+    if isinstance(exc, SurfaceStreamGone):
+        return 410
     if isinstance(exc, (SurfaceScopeError, PermissionError)):
         return 403
     if isinstance(exc, (SurfaceSessionNotFound, TaskNotFoundError)):
@@ -64,9 +69,13 @@ def _surface_error_status(exc: BaseException) -> int:
     return 503
 
 
-def _match_surface_session_leaf(path: str, leaf: str) -> str | None:
+def _match_surface_session_leaf(
+    path: str, leaf: str, *, allow_query: bool = False
+) -> str | None:
     parsed = urlparse(path)
-    if parsed.query or parsed.fragment or parsed.path.endswith("/"):
+    if parsed.fragment or (parsed.query and not allow_query):
+        return None
+    if parsed.path.endswith("/"):
         return None
     parts = parsed.path.split("/")
     leaf_parts = leaf.split("/") if leaf else []
@@ -141,14 +150,10 @@ class SurfaceRoutes:
 
     def authenticate(self, authorization: str | None) -> None:
         supplied = (
-            ""
-            if authorization is None
-            else authorization.removeprefix("Bearer ")
+            "" if authorization is None else authorization.removeprefix("Bearer ")
         )
         if not secrets.compare_digest(supplied, self._bearer_token):
-            raise SurfaceAuthenticationError(
-                "local runtime authentication failed"
-            )
+            raise SurfaceAuthenticationError("local runtime authentication failed")
 
     def dispatch(self, handler: Any) -> None:
         try:
@@ -171,6 +176,12 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._get_session(handler, session_id)
                     return
+                session_id = _match_surface_session_leaf(
+                    handler.path, "stream", allow_query=True
+                )
+                if session_id is not None:
+                    self._get_stream(handler, session_id)
+                    return
                 task_id = _match_surface_task_events(handler.path)
                 if task_id is not None:
                     self._get_events(handler, task_id)
@@ -184,33 +195,31 @@ class SurfaceRoutes:
                     self._get_overview(handler, task_id)
                     return
             if method == "POST":
-                session_id = _match_surface_session_leaf(
-                    handler.path, "turns"
-                )
+                session_id = _match_surface_session_leaf(handler.path, "streams")
+                if session_id is not None:
+                    self._post_subscribe_stream(handler, session_id)
+                    return
+                session_id = _match_surface_session_leaf(handler.path, "begin-turn")
+                if session_id is not None:
+                    self._post_begin_turn(handler, session_id)
+                    return
+                session_id = _match_surface_session_leaf(handler.path, "turns")
                 if session_id is not None:
                     self._post_turn(handler, session_id)
                     return
-                session_id = _match_surface_session_leaf(
-                    handler.path, "approvals"
-                )
+                session_id = _match_surface_session_leaf(handler.path, "approvals")
                 if session_id is not None:
                     self._post_approval(handler, session_id)
                     return
-                session_id = _match_surface_session_leaf(
-                    handler.path, "pause"
-                )
+                session_id = _match_surface_session_leaf(handler.path, "pause")
                 if session_id is not None:
                     self._post_pause(handler, session_id)
                     return
-                session_id = _match_surface_session_leaf(
-                    handler.path, "resume"
-                )
+                session_id = _match_surface_session_leaf(handler.path, "resume")
                 if session_id is not None:
                     self._post_resume(handler, session_id)
                     return
-                session_id = _match_surface_session_leaf(
-                    handler.path, "correction"
-                )
+                session_id = _match_surface_session_leaf(handler.path, "correction")
                 if session_id is not None:
                     self._post_correction(handler, session_id)
                     return
@@ -225,10 +234,15 @@ class SurfaceRoutes:
         body = handler._body()
         command = SurfaceOpenSessionCommand.model_validate(body)
         self._require_protocol_header(handler)
-        handler._json(200, {"snapshot": self._runtime.open_session(command).model_dump(mode="json")})
+        handler._json(
+            200,
+            {"snapshot": self._runtime.open_session(command).model_dump(mode="json")},
+        )
 
     def _get_session(self, handler: Any, session_id: str) -> None:
-        handler._json(200, self._runtime.get_session(session_id).model_dump(mode="json"))
+        handler._json(
+            200, self._runtime.get_session(session_id).model_dump(mode="json")
+        )
 
     def _get_conflict(self, handler: Any, session_id: str) -> None:
         projection = self._runtime.conflict_projection(session_id)
@@ -250,7 +264,35 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(200, {"turn": self._runtime.run_turn(command).model_dump(mode="json")})
+        handler._json(
+            200, {"turn": self._runtime.run_turn(command).model_dump(mode="json")}
+        )
+
+    def _post_subscribe_stream(self, handler: Any, session_id: str) -> None:
+        stream_id = self._runtime.subscribe_stream(session_id)
+        handler._json(
+            200,
+            {
+                "subscription": {
+                    "protocol_version": SURFACE_PROTOCOL_VERSION,
+                    "runtime_boot_id": self._runtime.stream_runtime_boot_id,
+                    "stream_id": stream_id,
+                }
+            },
+        )
+
+    def _post_begin_turn(self, handler: Any, session_id: str) -> None:
+        body = handler._body()
+        command = SurfaceBeginTurnCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {"begin_turn": self._runtime.begin_turn(command).model_dump(mode="json")},
+        )
 
     def _post_approval(self, handler: Any, session_id: str) -> None:
         body = handler._body()
@@ -260,7 +302,10 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(200, {"turn": self._runtime.decide_approval(command).model_dump(mode="json")})
+        handler._json(
+            200,
+            {"turn": self._runtime.decide_approval(command).model_dump(mode="json")},
+        )
 
     def _post_pause(self, handler: Any, session_id: str) -> None:
         body = handler._body()
@@ -270,7 +315,9 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(200, {"snapshot": self._runtime.pause(command).model_dump(mode="json")})
+        handler._json(
+            200, {"snapshot": self._runtime.pause(command).model_dump(mode="json")}
+        )
 
     def _post_resume(self, handler: Any, session_id: str) -> None:
         body = handler._body()
@@ -280,7 +327,9 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(200, {"snapshot": self._runtime.resume(command).model_dump(mode="json")})
+        handler._json(
+            200, {"snapshot": self._runtime.resume(command).model_dump(mode="json")}
+        )
 
     def _post_correction(self, handler: Any, session_id: str) -> None:
         body = handler._body()
@@ -290,7 +339,9 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(200, {"snapshot": self._runtime.correct(command).model_dump(mode="json")})
+        handler._json(
+            200, {"snapshot": self._runtime.correct(command).model_dump(mode="json")}
+        )
 
     def _get_overview(self, handler: Any, task_id: str) -> None:
         handler._json(
@@ -303,6 +354,82 @@ class SurfaceRoutes:
             200,
             {"files": self._runtime._application.surface_files_listing(task_id)},
         )
+
+    def _get_stream(self, handler: Any, session_id: str) -> None:
+        parsed = urlparse(handler.path)
+        query: dict[str, list[str]] = {}
+        for raw in parsed.query.split("&"):
+            if not raw:
+                continue
+            name, separator, value = raw.partition("=")
+            query.setdefault(name, []).append(value)
+        stream_ids = query.get("stream_id", [])
+        if len(stream_ids) != 1 or not stream_ids[0]:
+            raise ValueError("stream_id must be provided exactly once")
+        stream_id = stream_ids[0]
+        if "/" in stream_id or "\\" in stream_id:
+            raise ValueError("stream_id must not contain path separators")
+        after_values = query.get("after", [])
+        if len(after_values) > 1:
+            raise ValueError("after must be provided at most once")
+        wait_values = query.get("wait_ms", ["0"])
+        if len(wait_values) != 1:
+            raise ValueError("wait_ms must be provided exactly once")
+        try:
+            wait_ms = int(wait_values[0])
+        except ValueError as exc:
+            raise ValueError("wait_ms must be an integer") from exc
+        if isinstance(wait_ms, bool) or not 0 <= wait_ms <= 25000:
+            raise ValueError("wait_ms must be within 0..25000")
+
+        after_sequence = 0
+        last_event_id = handler.headers.get("Last-Event-ID")
+        if last_event_id is not None:
+            try:
+                last_sequence = int(last_event_id)
+            except ValueError as exc:
+                raise ValueError("Last-Event-ID must be an integer sequence") from exc
+            if after_values:
+                try:
+                    query_after = int(after_values[0])
+                except ValueError as exc:
+                    raise ValueError("after must be an integer sequence") from exc
+                if query_after != last_sequence:
+                    raise ValueError("Last-Event-ID and after disagree on the cursor")
+            after_sequence = last_sequence
+        elif after_values:
+            try:
+                after_sequence = int(after_values[0])
+            except ValueError as exc:
+                raise ValueError("after must be an integer sequence") from exc
+
+        cursor = StreamCursor(
+            runtime_boot_id=self._runtime.stream_runtime_boot_id,
+            stream_id=stream_id,
+            frame_sequence=after_sequence,
+        )
+        batch = self._runtime.stream_batch(session_id, cursor, wait_ms)
+        self._write_frame_sse(handler, batch)
+
+    def _write_frame_sse(self, handler: Any, batch: SurfaceStreamBatch) -> None:
+        payload: list[str] = []
+        for frame in batch.frames:
+            payload.append(f"id: {frame.frame_sequence}\n")
+            payload.append(f"event: {frame.kind.value}\n")
+            payload.append(f"data: {canonical_json(frame.model_dump(mode='json'))}\n\n")
+        cursor = {"next_sequence": batch.next_sequence}
+        payload.append("event: cursor\n")
+        payload.append(f"data: {canonical_json(cursor)}\n\n")
+        body = "".join(payload).encode("utf-8")
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream")
+        for name, value in _tauri_origin_cors(handler.headers.get("Origin")).items():
+            handler.send_header(name, value)
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Accel-Buffering", "no")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
 
     def _get_events(self, handler: Any, task_id: str) -> None:
         parsed = urlparse(handler.path)
@@ -331,18 +458,14 @@ class SurfaceRoutes:
             try:
                 last_sequence = int(last_event_id)
             except ValueError as exc:
-                raise ValueError(
-                    "Last-Event-ID must be an integer sequence"
-                ) from exc
+                raise ValueError("Last-Event-ID must be an integer sequence") from exc
             if after_values:
                 try:
                     query_after = int(after_values[0])
                 except ValueError as exc:
                     raise ValueError("after must be an integer sequence") from exc
                 if query_after != last_sequence:
-                    raise ValueError(
-                        "Last-Event-ID and after disagree on the cursor"
-                    )
+                    raise ValueError("Last-Event-ID and after disagree on the cursor")
             after_sequence = last_sequence
         elif after_values:
             try:
@@ -369,15 +492,11 @@ class SurfaceRoutes:
             payload.append(f"data: {canonical_json(event.model_dump(mode='json'))}\n\n")
         cursor = {"next_sequence": batch.next_sequence}
         payload.append("event: cursor\n")
-        payload.append(
-            f"data: {canonical_json(cursor)}\n\n"
-        )
+        payload.append(f"data: {canonical_json(cursor)}\n\n")
         body = "".join(payload).encode("utf-8")
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream")
-        for name, value in _tauri_origin_cors(
-            handler.headers.get("Origin")
-        ).items():
+        for name, value in _tauri_origin_cors(handler.headers.get("Origin")).items():
             handler.send_header(name, value)
         handler.send_header("Cache-Control", "no-store")
         handler.send_header("X-Accel-Buffering", "no")
@@ -392,6 +511,4 @@ class SurfaceRoutes:
                 "X-Agent-OS-Protocol header is required for state changes"
             )
         if supplied != SURFACE_PROTOCOL_VERSION:
-            raise SurfaceProtocolError(
-                f"unsupported X-Agent-OS-Protocol {supplied}"
-            )
+            raise SurfaceProtocolError(f"unsupported X-Agent-OS-Protocol {supplied}")

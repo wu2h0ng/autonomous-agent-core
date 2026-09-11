@@ -54,9 +54,7 @@ class SurfaceApprovalCommand(ContractModel):
     client: SurfaceClientRef
     session_id: NonEmptyStr
     action_digest: NonEmptyStr
-    disposition: Literal[
-        ApprovalDisposition.APPROVE, ApprovalDisposition.REJECT
-    ]
+    disposition: Literal[ApprovalDisposition.APPROVE, ApprovalDisposition.REJECT]
     reason: NonEmptyStr
     expected_event_sequence: int = Field(ge=0)
     idempotency_key: NonEmptyStr
@@ -253,3 +251,32 @@ class SurfaceStreamFrame(ContractModel):
                 raise ValueError("gap range is only valid on gap frames")
         return self
 
+
+class SurfaceStreamSubscription(ContractModel):
+    """Subscription-first identity for the transient stream channel (E1).
+
+    The client subscribes before executing any turn and binds the returned
+    {runtime_boot_id, stream_id} into every begin-turn. `runtime_boot_id`
+    identifies the daemon process generation; a stale generation fails typed
+    `SurfaceStreamGone` and can never collide with the new one.
+    """
+
+    protocol_version: Literal["1.0"] = "1.0"
+    runtime_boot_id: NonEmptyStr
+    stream_id: NonEmptyStr
+
+
+class SurfaceStreamBatch(ContractModel):
+    """Bounded transient frame batch for the stream SSE endpoint (E1).
+
+    Cursors are per-stream frame sequences (never durable Task event
+    sequences). `next_sequence` is the resume cursor; a gap frame in `frames`
+    tells the consumer frames were lost to overflow and a fresh subscription
+    is required.
+    """
+
+    protocol_version: Literal["1.0"] = "1.0"
+    session_id: NonEmptyStr
+    after_sequence: int = Field(ge=0)
+    next_sequence: int = Field(ge=0)
+    frames: tuple[SurfaceStreamFrame, ...] = ()
