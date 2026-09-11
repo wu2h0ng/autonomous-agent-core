@@ -10,6 +10,7 @@ import React, { useEffect, useReducer, useState } from "react";
 import { Box, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { ChatMessage, TuiController } from "./controller.js";
+import { segmentPreview } from "./diff.js";
 import { handleGlobalKey } from "./keys.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -91,7 +92,17 @@ export function App({ controller }: { controller: TuiController }) {
       {controller.status === "awaiting_approval" && (
         <Box flexDirection="column" borderStyle="round" borderColor="yellow">
           <Text bold>approval required — {pending?.capability_id ?? "unknown capability"}</Text>
-          {pending?.preview ? <Text wrap="wrap">{pending.preview}</Text> : null}
+          {pending?.preview
+            ? segmentPreview(pending.preview).map((segment, index) => (
+                <Text
+                  key={index}
+                  wrap="wrap"
+                  color={segment.tone === "old" ? "red" : segment.tone === "new" ? "green" : undefined}
+                >
+                  {segment.text}
+                </Text>
+              ))
+            : null}
           <Text dimColor>
             digest {pending?.action_digest.slice(0, 16) ?? ""}… [y] approve [n] reject
           </Text>
