@@ -1,21 +1,46 @@
 #!/usr/bin/env node
-/** agent-os-ts entry: Ink TUI over the local runtime daemon. */
+/** agent-os-ts entry: Ink TUI over the local runtime daemon, or headless
+ * one-shot with -p/--print (frozen exit codes in headless.ts). */
 import React from "react";
 import { render } from "ink";
 import { SurfaceClient } from "./client.js";
 import { loadRuntimeDescriptor } from "./descriptor.js";
 import { TuiController } from "./controller.js";
+import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
 import { App } from "./App.js";
+
+function flagValue(args: string[], ...names: string[]): string | undefined {
+  for (const name of names) {
+    const index = args.indexOf(name);
+    if (index >= 0) return args[index + 1];
+  }
+  return undefined;
+}
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const descriptorFlag = args.indexOf("--descriptor");
-  const resumeFlag = args.indexOf("--resume");
-  const descriptorPath = descriptorFlag >= 0 ? args[descriptorFlag + 1] : undefined;
-  const resumeSessionId = resumeFlag >= 0 ? args[resumeFlag + 1] : undefined;
+  const descriptorPath = flagValue(args, "--descriptor");
+  const resumeSessionId = flagValue(args, "--resume");
+  const printPrompt = flagValue(args, "-p", "--print");
+  const outputFormat = flagValue(args, "--output-format") as HeadlessOutputFormat | undefined;
 
   const descriptor = await loadRuntimeDescriptor(descriptorPath);
   const client = new SurfaceClient(descriptor);
+
+  if (printPrompt !== undefined) {
+    if (outputFormat && outputFormat !== "text" && outputFormat !== "json") {
+      console.error(`agent-os-ts: unknown --output-format ${outputFormat} (text | json)`);
+      process.exitCode = 1;
+      return;
+    }
+    process.exitCode = await runHeadless(client, {
+      prompt: printPrompt,
+      sessionId: resumeSessionId,
+      outputFormat,
+    });
+    return;
+  }
+
   const controller = new TuiController(client);
   if (resumeSessionId) {
     await controller.submit(`/resume ${resumeSessionId}`);
