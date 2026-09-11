@@ -7,6 +7,7 @@ import { SurfaceClient } from "./client.js";
 import { loadRuntimeDescriptor } from "./descriptor.js";
 import { TuiController } from "./controller.js";
 import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
+import { renderDoctorText, runDoctor } from "./doctor.js";
 import { App } from "./App.js";
 
 function flagValue(args: string[], ...names: string[]): string | undefined {
@@ -23,6 +24,13 @@ async function main(): Promise<void> {
   const resumeSessionId = flagValue(args, "--resume");
   const printPrompt = flagValue(args, "-p", "--print");
   const outputFormat = flagValue(args, "--output-format") as HeadlessOutputFormat | undefined;
+
+  if (args[0] === "doctor") {
+    const report = await runDoctor(descriptorPath);
+    process.stdout.write(renderDoctorText(report));
+    process.exitCode = report.ok ? 0 : 1;
+    return;
+  }
 
   const descriptor = await loadRuntimeDescriptor(descriptorPath);
   const client = new SurfaceClient(descriptor);
