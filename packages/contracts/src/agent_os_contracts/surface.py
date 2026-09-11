@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -170,3 +170,86 @@ class SurfaceConflictProjection(ContractModel):
             relevant_event_ids=decision.relevant_event_ids,
             suggested_action=suggested_action,
         )
+
+
+class SurfaceStreamBinding(ContractModel):
+    """Pre-subscribed stream identity a begin-turn command binds to.
+
+    `runtime_boot_id` identifies the daemon process generation; it changes on
+    every restart so a dead generation's streams can never collide with the new
+    one.
+    """
+
+    runtime_boot_id: NonEmptyStr
+    stream_id: NonEmptyStr
+
+
+class SurfaceBeginTurnCommand(ContractModel):
+    """E1 reserve/begin-turn: the single turn_id source (M2, frozen).
+
+    Order of operations (frozen): the client subscribes to the session stream
+    first, then issues this command carrying the pre-subscribed
+    `{runtime_boot_id, stream_id}`. The server validates the stream is live,
+    atomically binds the turn, durably records turn-start, and returns the
+    authoritative `{turn_id, stream_id}`. The client never mints turn ids.
+    """
+
+    protocol_version: Literal["1.0"]
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    text: NonEmptyStr
+    stream: SurfaceStreamBinding
+    expected_event_sequence: int = Field(ge=0)
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceBeginTurnResponse(ContractModel):
+    """Authoritative begin-turn result; idempotent replays return this
+    recorded response without re-invoking the provider."""
+
+    protocol_version: Literal["1.0"] = "1.0"
+    turn_id: NonEmptyStr
+    stream_id: NonEmptyStr
+
+
+class SurfaceStreamFrameKind(str, Enum):
+    CHUNK = "CHUNK"
+    GAP = "GAP"
+    STREAM_END = "STREAM_END"
+
+
+class SurfaceStreamFrame(ContractModel):
+    """Transient display frame; never a durable Task event (frozen).
+
+    Every frame binds (runtime_boot_id, stream_id, turn_id, frame_sequence).
+    Gap frames are priority control frames synthesized on the read path: they
+    are never turn-bound, carry gap_from/gap_to, and are never buffer residents
+    so they cannot be evicted by overflow.
+    """
+
+    kind: SurfaceStreamFrameKind
+    runtime_boot_id: NonEmptyStr
+    stream_id: NonEmptyStr
+    turn_id: NonEmptyStr | None = None
+    frame_sequence: int = Field(ge=0)
+    gap_from: int | None = Field(default=None, ge=0)
+    gap_to: int | None = Field(default=None, ge=0)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_kind_invariants(self) -> SurfaceStreamFrame:
+        if self.kind is SurfaceStreamFrameKind.GAP:
+            if self.turn_id is not None:
+                raise ValueError("gap frames are control frames, never turn-bound")
+            if self.gap_from is None or self.gap_to is None:
+                raise ValueError("gap frames require gap_from/gap_to")
+            if self.gap_to < self.gap_from:
+                raise ValueError("gap_to must be >= gap_from")
+        else:
+            if self.turn_id is None:
+                raise ValueError(f"{self.kind.value} frames require turn binding")
+            if self.gap_from is not None or self.gap_to is not None:
+                raise ValueError("gap range is only valid on gap frames")
+        return self
+

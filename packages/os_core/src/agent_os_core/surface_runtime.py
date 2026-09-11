@@ -17,6 +17,8 @@ from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
     PrincipalIdentity,
     SurfaceApprovalCommand,
+    SurfaceBeginTurnCommand,
+    SurfaceBeginTurnResponse,
     SurfaceClientRef,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
@@ -28,10 +30,13 @@ from agent_os_contracts import (
     canonical_json,
 )
 
+from .session_stream import SessionStreamRegistry, SurfaceStreamGone
+
 ResponseT = TypeVar(
     "ResponseT",
     SurfaceSessionSnapshot,
     SurfaceTurnResponse,
+    SurfaceBeginTurnResponse,
 )
 
 
@@ -55,6 +60,14 @@ class SurfaceSessionNotFound(LookupError):
     """No durable session binds the requested identity."""
 
 
+class SurfaceTurnInProgress(RuntimeError):
+    """A begin-turn arrived while the session's prior turn is uncommitted.
+
+    Frozen (rev 9): one in-flight turn per session; the provider is never
+    started and no second turn is queued, multiplexed, or bound.
+    """
+
+
 class SurfaceApplicationPort(Protocol):
     """Composition-root authority consumed by the Surface runtime service."""
 
@@ -66,6 +79,12 @@ class SurfaceApplicationPort(Protocol):
     ) -> SurfaceSessionSnapshot: ...
 
     def surface_run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse: ...
+
+    def surface_has_uncommitted_turn(self, session_id: str) -> bool: ...
+
+    def surface_begin_turn(
+        self, command: SurfaceBeginTurnCommand
+    ) -> SurfaceBeginTurnResponse: ...
 
     def surface_decide_approval(
         self, command: SurfaceApprovalCommand
@@ -118,8 +137,13 @@ def command_digest(command: Any) -> str:
 class SurfaceRuntime:
     """Serialized, idempotent Surface command authority for one workspace."""
 
-    def __init__(self, application: SurfaceApplicationPort) -> None:
+    def __init__(
+        self,
+        application: SurfaceApplicationPort,
+        stream_registry: SessionStreamRegistry | None = None,
+    ) -> None:
         self._application = application
+        self._stream_registry = stream_registry
         self._locks: dict[str, RLock] = {}
         self._locks_guard = RLock()
 
@@ -154,6 +178,24 @@ class SurfaceRuntime:
                 command=command,
                 response_type=SurfaceTurnResponse,
                 operation=lambda: self._run_turn_once(command),
+            )
+
+    def begin_turn(
+        self, command: SurfaceBeginTurnCommand
+    ) -> SurfaceBeginTurnResponse:
+        """E1 reserve/begin-turn: the single turn_id source (frozen).
+
+        Idempotent replays return the recorded `{turn_id, stream_id}` without
+        re-invoking the provider; the same key with a different canonical
+        digest fails typed `SurfaceIdempotencyConflict` with no re-bind.
+        """
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:begin-turn:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceBeginTurnResponse,
+                operation=lambda: self._begin_turn_once(command),
             )
 
     def decide_approval(
@@ -223,6 +265,37 @@ class SurfaceRuntime:
         self._require_sequence(task_id, command.expected_event_sequence)
         self._require_open_session(command.session_id)
         return self._application.surface_run_turn(command)
+
+    def _begin_turn_once(
+        self, command: SurfaceBeginTurnCommand
+    ) -> SurfaceBeginTurnResponse:
+        self._require_protocol(command.protocol_version)
+        task_id = self._application.surface_task_for_session(command.session_id)
+        self._require_principal_scope(command.client)
+        self._require_sequence(task_id, command.expected_event_sequence)
+        self._require_open_session(command.session_id)
+        if self._stream_registry is not None and not self._stream_registry.is_live(
+            command.session_id,
+            command.stream.runtime_boot_id,
+            command.stream.stream_id,
+        ):
+            # Frozen: invalid stream fails typed STREAM_GONE; the provider is
+            # never started.
+            raise SurfaceStreamGone(
+                "referenced stream is not live in this daemon generation"
+            )
+        if self._application.surface_has_uncommitted_turn(command.session_id):
+            # Frozen (rev 9): one in-flight turn per session; no queueing, no
+            # multiplexing, provider never started.
+            raise SurfaceTurnInProgress(
+                "a prior turn is still uncommitted for this session"
+            )
+        response = self._application.surface_begin_turn(command)
+        if self._stream_registry is not None:
+            self._stream_registry.bind_turn(
+                command.session_id, command.stream.stream_id, response.turn_id
+            )
+        return response
 
     def _decide_approval_once(
         self, command: SurfaceApprovalCommand

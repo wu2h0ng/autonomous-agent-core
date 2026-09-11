@@ -97,6 +97,12 @@ from .session_projection import (
     SessionProjectionError,
     SessionProjector,
 )
+from .session_stream import (
+    STALL_THRESHOLD_DEFAULT_SECONDS,
+    SessionStreamRegistry,
+    StreamCursor,
+    SurfaceStreamGone,
+)
 from .surface_runtime import (
     SurfaceApplicationPort,
     SurfaceIdempotencyConflict,
@@ -105,6 +111,7 @@ from .surface_runtime import (
     SurfaceScopeError,
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
+    SurfaceTurnInProgress,
     command_digest,
 )
 from .recovery import build_recovery_snapshot
@@ -535,6 +542,9 @@ __all__ = [
     "SessionProjector",
     "ProjectedSession",
     "ProjectedResolvedContinuation",
+    "STALL_THRESHOLD_DEFAULT_SECONDS",
+    "SessionStreamRegistry",
+    "StreamCursor",
     "SurfaceApplicationPort",
     "SurfaceIdempotencyConflict",
     "SurfaceProtocolError",
@@ -542,6 +552,8 @@ __all__ = [
     "SurfaceScopeError",
     "SurfaceSequenceConflict",
     "SurfaceSessionNotFound",
+    "SurfaceStreamGone",
+    "SurfaceTurnInProgress",
     "command_digest",
 
 ]
