@@ -1846,6 +1846,8 @@ class AgentOSApplication:
             resumable_turn_ids=resumable_turn_ids,
             collaboration_preflight=self.collaboration_preflight,
             text_delta_sink=text_delta_sink,
+            permission_mode=projected.permission_mode,
+            permission_mode_event_id=projected.permission_mode_event_id,
         )
         return session, loop
 

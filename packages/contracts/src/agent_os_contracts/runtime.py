@@ -90,6 +90,7 @@ class TaskEventType(str, Enum):
     SESSION_APPROVAL_RESOLVED = "SESSION_APPROVAL_RESOLVED"
     SESSION_TURN_CONTINUATION_CHECKPOINT = "SESSION_TURN_CONTINUATION_CHECKPOINT"
     SESSION_PERMISSION_MODE_SET = "SESSION_PERMISSION_MODE_SET"
+    POLICY_VERDICT_RECORDED = "POLICY_VERDICT_RECORDED"
     SESSION_CLOSED = "SESSION_CLOSED"
 
 
@@ -207,22 +208,27 @@ class PatchCompensationRecord(ContractModel):
             raise ValueError(
                 "started/compensated record requires action and snapshot bindings"
             )
-        if (
-            self.status is CompensationStatus.COMPENSATED
-            and self.receipt_id is None
-        ):
+        if self.status is CompensationStatus.COMPENSATED and self.receipt_id is None:
             raise ValueError("compensated record requires receipt_id")
-        if self.status in {
-            CompensationStatus.FAILED,
-            CompensationStatus.BLOCKED,
-        } and not self.manual_intervention_required:
+        if (
+            self.status
+            in {
+                CompensationStatus.FAILED,
+                CompensationStatus.BLOCKED,
+            }
+            and not self.manual_intervention_required
+        ):
             raise ValueError(
                 "failed/blocked record requires manual_intervention_required"
             )
-        if self.status in {
-            CompensationStatus.STARTED,
-            CompensationStatus.COMPENSATED,
-        } and self.manual_intervention_required:
+        if (
+            self.status
+            in {
+                CompensationStatus.STARTED,
+                CompensationStatus.COMPENSATED,
+            }
+            and self.manual_intervention_required
+        ):
             raise ValueError(
                 "active/successful compensation cannot require manual intervention"
             )

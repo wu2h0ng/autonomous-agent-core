@@ -189,6 +189,7 @@ class ProjectedSession:
     resolved_continuation: ProjectedResolvedContinuation | None
     resumable_turn_id: str | None
     permission_mode: PermissionMode = "ASK"
+    permission_mode_event_id: str | None = None
 
 
 class SessionProjector:
@@ -262,6 +263,7 @@ def _strict_project(
     closed = False
     run_cancelled = False
     permission_mode: PermissionMode = "ASK"
+    permission_mode_event_id: str | None = None
     history: list[ProviderMessage] = []
     pending_continuation: ProjectedApprovalContinuation | None = None
     approval_execution_claim: ProjectedApprovalExecutionClaim | None = None
@@ -539,6 +541,7 @@ def _strict_project(
                         "session permission mode is not a frozen mode value"
                     )
                 permission_mode = mode
+                permission_mode_event_id = event.event_id
                 continue
 
             raise SessionProjectionError(
@@ -587,6 +590,7 @@ def _strict_project(
         resolved_continuation=resolved_continuation,
         resumable_turn_id=open_turn_id,
         permission_mode=permission_mode,
+        permission_mode_event_id=permission_mode_event_id,
     )
 
 

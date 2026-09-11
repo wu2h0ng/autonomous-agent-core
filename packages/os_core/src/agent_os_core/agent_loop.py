@@ -15,6 +15,7 @@ from agent_os_contracts import (
     BindingStatus,
     CandidateGenerationEnvelope,
     ExpectedOutcome,
+    PermissionMode,
     PrincipalIdentity,
     PrincipalRole,
     ProviderFailure,
@@ -44,6 +45,11 @@ from .capability import (
 )
 from .errors import ConcurrentWriteError, InvalidTransitionError, RunExecutionError
 from .governance import CorrectionReadPort, PolicyKernel
+from .permission_gate import (
+    ACTION_RISK_TIERS,
+    PermissionGateOutcome,
+    evaluate_permission_gate,
+)
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
 from .responsibility_loop import ResponsibilityLoopStaleFence
@@ -64,17 +70,11 @@ CHAT_CAPABILITY_IDS: tuple[str, ...] = (
     "workspace.shell",
 )
 
-# Action risk tiers per capability. Tier >= 3 escalates inside PolicyKernel and
-# requires a digest-bound ApprovalDecision; tier 2 is kernel-allowed but still
-# passes through the interactive confirmation gateway.
-ACTION_RISK_TIERS: dict[str, int] = {
-    "workspace.read": 1,
-    "workspace.search": 1,
-    "workspace.run_tests": 1,
-    "workspace.edit": 2,
-    "workspace.apply_patch": 2,
-    "workspace.shell": 3,
-}
+# Action risk tiers live in permission_gate (frozen allowlist, E2); tier >= 3
+# escalates inside PolicyKernel and requires a digest-bound ApprovalDecision;
+# tier 2 is kernel-allowed but still passes through the interactive
+# confirmation gateway unless the session permission mode policy auto-allows
+# it.
 
 # Grant risk ceilings the chat composition must provide per capability.
 CHAT_GRANT_MAX_RISK_TIERS: dict[str, int] = {
@@ -215,6 +215,8 @@ class AgentLoop:
         external_exact_approval: bool = False,
         collaboration_preflight: CollaborationPreflightPort | None = None,
         text_delta_sink: Callable[[str], None] | None = None,
+        permission_mode: PermissionMode = "ASK",
+        permission_mode_event_id: str | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -258,6 +260,8 @@ class AgentLoop:
         self._independent_approval = independent_approval
         self._external_exact_approval = external_exact_approval
         self._text_delta_sink = text_delta_sink
+        self._permission_mode: PermissionMode = permission_mode
+        self._permission_mode_event_id = permission_mode_event_id
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -885,6 +889,10 @@ class AgentLoop:
                 proposal = proposals[index]
                 capability_id = proposal.capability_id
                 if capability_id not in CHAT_CAPABILITY_IDS:
+                    # Fail closed in every mode: never executable, not
+                    # approvable. The denial is recorded durably (E2) with
+                    # reason and digest before the turn stops.
+                    self._record_out_of_allowlist_denial(session, proposal)
                     stop_reason = "unauthorized_proposal"
                     final_text = (
                         f"provider proposed unauthorized capability {capability_id}"
@@ -1263,7 +1271,30 @@ class AgentLoop:
             ),
         )
         approval = None
-        if risk_tier >= 2:
+        gate = evaluate_permission_gate(
+            capability_id=capability_id,
+            mode=self._permission_mode,
+            mode_event_id=self._permission_mode_event_id,
+        )
+        if gate.outcome is PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST:
+            # Fail closed in every mode: never executable, not approvable.
+            # No ApprovalDecision, human or otherwise, can authorize it; the
+            # denial is recorded durably with reason and the action digest.
+            self._record_policy_verdict(
+                session,
+                action,
+                verdict="DENY",
+                basis="out_of_allowlist",
+                reason="capability is outside the frozen session allowlist",
+            )
+            return self._tool_message(
+                proposal,
+                {
+                    "error": "denied: capability is outside the allowlist",
+                    "denied": True,
+                },
+            )
+        if gate.outcome is PermissionGateOutcome.REQUIRE_CONFIRM:
             confirmed = self._gateway.confirm(
                 action,
                 _action_preview(action, arguments),
@@ -1275,10 +1306,22 @@ class AgentLoop:
                     proposal,
                     {"error": "user rejected the proposed action", "rejected": True},
                 )
-            if risk_tier >= 3:
+            if gate.risk_tier >= 3:
                 approval = self._build_approval(action)
         else:
             self._actions.record_action_proposed(action)
+            if gate.outcome is PermissionGateOutcome.MODE_AUTO_ALLOW:
+                # Durable policy allowance with provenance — NEVER an
+                # ApprovalDecision(APPROVE): a permission mode is prior
+                # session policy, not per-action human approval.
+                self._record_policy_verdict(
+                    session,
+                    action,
+                    verdict="ALLOW",
+                    basis="permission_mode",
+                    reason=None,
+                    mode_event_id=gate.mode_event_id,
+                )
         # Replay-before-dispatch: a sealed or reserved action is resolved
         # through the durable outcome repository and never re-dispatched.
         reconciled = self._actions.reconcile_before_policy(
@@ -1343,6 +1386,57 @@ class AgentLoop:
         )
         truncated = _truncate_json(output)
         return self._tool_message(proposal, truncated)
+
+    def _record_out_of_allowlist_denial(
+        self, session: ChatSession, proposal: Any
+    ) -> None:
+        """E2: durably record a fail-closed denial for a provider proposal
+        whose capability is outside the frozen session allowlist. No Action is
+        built and no ApprovalDecision can ever authorize it."""
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.POLICY_VERDICT_RECORDED,
+            {
+                "verdict": "DENY",
+                "basis": "out_of_allowlist",
+                "mode_event_id": None,
+                "capability_id": proposal.capability_id,
+                "risk_tier": None,
+                "action_digest": hashlib.sha256(
+                    f"{proposal.capability_id}\n{proposal.arguments_json}".encode(
+                        "utf-8"
+                    )
+                ).hexdigest(),
+                "reason": "capability is outside the frozen session allowlist",
+            },
+        )
+
+    def _record_policy_verdict(
+        self,
+        session: ChatSession,
+        action: ActionContract,
+        *,
+        verdict: str,
+        basis: str | None,
+        reason: str | None,
+        mode_event_id: str | None = None,
+    ) -> None:
+        """E2 durable policy verdict: an auto-allowance is recorded with
+        provenance (basis=permission_mode + mode_event_id), never as an
+        ApprovalDecision; an out-of-allowlist denial is recorded with reason."""
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.POLICY_VERDICT_RECORDED,
+            {
+                "verdict": verdict,
+                "basis": basis,
+                "mode_event_id": mode_event_id,
+                "capability_id": action.capability_id,
+                "risk_tier": action.risk_tier,
+                "action_digest": action.action_digest(),
+                "reason": reason,
+            },
+        )
 
     def _record_denial(self, session: ChatSession, action: ActionContract) -> None:
         """Durably record that the principal declined this exact proposed action."""

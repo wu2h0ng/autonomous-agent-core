@@ -180,7 +180,9 @@ class TaskAggregate:
                     raise EventStreamError("TASK_COMMITTED requires DRAFT state")
                 commitment = Commitment.model_validate(payload["commitment"])
                 workflow = WorkflowGraph.model_validate(payload["workflow"])
-                expected_outcome = ExpectedOutcome.model_validate(payload["expected_outcome"])
+                expected_outcome = ExpectedOutcome.model_validate(
+                    payload["expected_outcome"]
+                )
                 self._validate_commitment_bindings(
                     commitment,
                     workflow,
@@ -198,10 +200,7 @@ class TaskAggregate:
                     last_event_id=event.event_id,
                 )
 
-            if (
-                event.event_type
-                is TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED
-            ):
+            if event.event_type is TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED:
                 if self.status is not TaskStatus.COMMITTED or self.run is not None:
                     raise EventStreamError(
                         "configuration snapshot requires COMMITTED state before run"
@@ -246,8 +245,13 @@ class TaskAggregate:
                 if self.run is None:
                     raise EventStreamError("wait registration requires an active run")
                 run = AgentRun.model_validate(payload["run"])
-                if run.status is not RunStatus.WAITING_EVENT or run.wait_condition is None:
-                    raise EventStreamError("WAIT_REGISTERED requires WAITING_EVENT run state")
+                if (
+                    run.status is not RunStatus.WAITING_EVENT
+                    or run.wait_condition is None
+                ):
+                    raise EventStreamError(
+                        "WAIT_REGISTERED requires WAITING_EVENT run state"
+                    )
                 return replace(
                     self,
                     sequence=event.sequence,
@@ -271,7 +275,10 @@ class TaskAggregate:
                 if self.run is None:
                     raise EventStreamError("wait satisfaction requires an active run")
                 run = AgentRun.model_validate(payload["run"])
-                if run.status is not RunStatus.RUNNING or run.wait_condition is not None:
+                if (
+                    run.status is not RunStatus.RUNNING
+                    or run.wait_condition is not None
+                ):
                     raise EventStreamError("WAIT_SATISFIED requires a resumed run")
                 return replace(
                     self,
@@ -300,7 +307,9 @@ class TaskAggregate:
 
             if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
                 if self.run is None or self.workflow is None:
-                    raise EventStreamError("run plan rebound requires an active workflow")
+                    raise EventStreamError(
+                        "run plan rebound requires an active workflow"
+                    )
                 workflow = WorkflowGraph.model_validate(payload["workflow"])
                 rebound = RunPlanRebound.model_validate(payload["rebound"])
                 run = AgentRun.model_validate(payload["run"])
@@ -337,9 +346,7 @@ class TaskAggregate:
             }:
                 if self.run is None:
                     raise EventStreamError("compensation event requires an active run")
-                record = PatchCompensationRecord.model_validate(
-                    payload["compensation"]
-                )
+                record = PatchCompensationRecord.model_validate(payload["compensation"])
                 expected_status = {
                     TaskEventType.COMPENSATION_STARTED: CompensationStatus.STARTED,
                     TaskEventType.ACTION_COMPENSATED: CompensationStatus.COMPENSATED,
@@ -447,6 +454,7 @@ class TaskAggregate:
             TaskEventType.SESSION_APPROVAL_RESOLVED,
             TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
             TaskEventType.SESSION_PERMISSION_MODE_SET,
+            TaskEventType.POLICY_VERDICT_RECORDED,
             TaskEventType.SESSION_CLOSED,
         }:
             # Chat-turn audit markers carry no aggregate state transition.
@@ -465,7 +473,10 @@ class TaskAggregate:
     ) -> None:
         if self.goal is None:
             raise InvalidTransitionError("task has no goal")
-        if commitment.task_id != self.task_id or expected_outcome.task_id != self.task_id:
+        if (
+            commitment.task_id != self.task_id
+            or expected_outcome.task_id != self.task_id
+        ):
             raise ScopeMismatchError("task binding mismatch")
         if commitment.goal_id != self.goal.goal_id:
             raise ScopeMismatchError("goal binding mismatch")
@@ -479,15 +490,23 @@ class TaskAggregate:
             f"{expected_outcome.evaluator_version}"
         )
         if evaluator_ref not in workflow.evaluator_refs:
-            raise ScopeMismatchError("expected outcome evaluator is not bound to workflow")
+            raise ScopeMismatchError(
+                "expected outcome evaluator is not bound to workflow"
+            )
 
     def _validate_run_bindings(self, run: AgentRun) -> None:
         if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
-            raise ScopeMismatchError("RUN_STARTED requires run status QUEUED or RUNNING")
+            raise ScopeMismatchError(
+                "RUN_STARTED requires run status QUEUED or RUNNING"
+            )
         self._validate_run_projection_bindings(run)
 
     def _validate_run_projection_bindings(self, run: AgentRun) -> None:
-        if self.commitment is None or self.workflow is None or self.expected_outcome is None:
+        if (
+            self.commitment is None
+            or self.workflow is None
+            or self.expected_outcome is None
+        ):
             raise InvalidTransitionError("task is missing committed contracts")
         if run.task_id != self.task_id:
             raise ScopeMismatchError("run task binding mismatch")
@@ -553,7 +572,9 @@ class TaskAggregate:
             snapshot.principal_id != self.goal.created_by
             or snapshot.principal_id != self.commitment.accepted_by
         ):
-            raise ScopeMismatchError("configuration snapshot principal binding mismatch")
+            raise ScopeMismatchError(
+                "configuration snapshot principal binding mismatch"
+            )
         if snapshot.workflow != self.workflow:
             raise ScopeMismatchError("configuration snapshot workflow binding mismatch")
         if (
