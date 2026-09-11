@@ -36,6 +36,10 @@ class AgentTuiApp(App[None]):
     def __init__(self, controller: TuiController) -> None:
         super().__init__()
         self._controller = controller
+        # Track rendered messages ourselves: RichLog.lines counts physical
+        # wrapped rows, not messages, so len(chat.lines) is wrong as a
+        # message cursor once any message wraps.
+        self._rendered_messages = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -58,8 +62,8 @@ class AgentTuiApp(App[None]):
 
     def _refresh_chat(self) -> None:
         chat = self.query_one("#chat", RichLog)
-        rendered = len(chat.lines)
-        for message in self._controller.messages[rendered:]:
+        messages = self._controller.messages
+        for message in messages[self._rendered_messages :]:
             style = "bold cyan" if message.role == "user" else "default"
             text = message.content + (
                 "  [dim]…stream interrupted[/dim]" if message.interrupted else ""
@@ -69,6 +73,7 @@ class AgentTuiApp(App[None]):
                 if message.role == "user"
                 else f"{message.role}> {text}"
             )
+            self._rendered_messages += 1
         approval = self.query_one("#approval", Label)
         if self._controller.status == STATUS_AWAITING_APPROVAL:
             approval.update(

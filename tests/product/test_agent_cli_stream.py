@@ -31,7 +31,9 @@ def _prepare_workspace(root: Path) -> None:
     (root / "fixture.txt").write_text("stable\n", encoding="utf-8")
 
 
-def _agent_app(root: Path, *, text: str = "streamed assistant reply") -> AgentOSApplication:
+def _agent_app(
+    root: Path, *, text: str = "streamed assistant reply"
+) -> AgentOSApplication:
     _prepare_workspace(root)
     app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
     app.provider = DeterministicProvider(
@@ -48,9 +50,7 @@ def _user_request(**overrides: object) -> ProviderRequest:
         "task_id": "task-chunk",
         "run_id": "run-chunk",
         "provider_profile_id": "profile-chunk",
-        "messages": (
-            ProviderMessage(role=ProviderMessageRole.USER, content="hello"),
-        ),
+        "messages": (ProviderMessage(role=ProviderMessageRole.USER, content="hello"),),
         "allowed_capability_ids": (),
         "timeout_seconds": 30,
         "created_at": datetime.now(timezone.utc),
@@ -64,6 +64,7 @@ def test_deterministic_provider_emits_chunked_deltas() -> None:
     request = _user_request()
     deltas: list[str] = []
     response = provider.complete_streaming(request, on_text_delta=deltas.append)
+    assert isinstance(response, ProviderResponse)
     assert len(deltas) > 1
     assert "".join(deltas) == "hello streaming world"
     assert response.text == "hello streaming world"

@@ -25,6 +25,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceClientRef,
     SurfaceOpenSessionCommand,
+    SurfaceStreamBinding,
     SurfaceStreamFrame,
     SurfaceStreamFrameKind,
 )
@@ -141,7 +142,10 @@ class StreamTestServer:
             client=_client(self.app),
             session_id=session_id,
             text="stream this reply",
-            stream={"runtime_boot_id": runtime_boot_id, "stream_id": stream_id},
+            stream=SurfaceStreamBinding(
+                runtime_boot_id=runtime_boot_id,
+                stream_id=stream_id,
+            ),
             expected_event_sequence=sequence,
             idempotency_key=f"idem:stream-http:begin:{stream_id}",
             requested_at=datetime.now(timezone.utc),
@@ -361,10 +365,10 @@ def test_surface_client_consumes_stream_end_to_end(
             ),
             session_id=session_id,
             text="stream this reply",
-            stream={
-                "runtime_boot_id": subscription.runtime_boot_id,
-                "stream_id": subscription.stream_id,
-            },
+            stream=SurfaceStreamBinding(
+                runtime_boot_id=subscription.runtime_boot_id,
+                stream_id=subscription.stream_id,
+            ),
             expected_event_sequence=sequence,
             idempotency_key=f"idem:stream-http:begin:{subscription.stream_id}",
             requested_at=datetime.now(timezone.utc),

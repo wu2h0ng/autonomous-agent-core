@@ -11,7 +11,7 @@ no re-bind).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -30,6 +30,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     STALL_THRESHOLD_DEFAULT_SECONDS,
     SessionStreamRegistry,
+    SurfaceApplicationPort,
     SurfaceIdempotencyConflict,
     SurfaceRuntime,
     SurfaceStreamGone,
@@ -95,9 +96,7 @@ class FakeStreamApplication:
             updated_at=datetime.now(timezone.utc),
         )
 
-    def surface_idempotency_record(
-        self, scope: str, key: str
-    ) -> dict[str, Any] | None:
+    def surface_idempotency_record(self, scope: str, key: str) -> dict[str, Any] | None:
         return self._idempotency.get(f"{scope}:{key}")
 
     def surface_store_idempotency(
@@ -143,7 +142,11 @@ def _begin_turn(
 def rig() -> tuple[FakeStreamApplication, SessionStreamRegistry, SurfaceRuntime]:
     app = FakeStreamApplication()
     registry = SessionStreamRegistry(runtime_boot_id="boot-1")
-    runtime = SurfaceRuntime(app, stream_registry=registry)
+    # The fake implements the subset the begin-turn path consumes; cast to
+    # the port so the runtime sees its declared composition-root authority.
+    runtime = SurfaceRuntime(
+        cast(SurfaceApplicationPort, app), stream_registry=registry
+    )
     return app, registry, runtime
 
 
@@ -177,7 +180,9 @@ class TestStreamSubscriptionFirst:
         app, registry, runtime = rig
         stream_id = registry.subscribe("sess-1")
         response = runtime.begin_turn(
-            _begin_turn(SurfaceStreamBinding(runtime_boot_id="boot-1", stream_id=stream_id))
+            _begin_turn(
+                SurfaceStreamBinding(runtime_boot_id="boot-1", stream_id=stream_id)
+            )
         )
         assert len(app.begin_turn_calls) == 1
         assert response.turn_id

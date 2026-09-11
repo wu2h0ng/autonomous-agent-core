@@ -73,3 +73,58 @@ def test_tui_app_f2_cycles_permission_mode() -> None:
             assert "ACCEPT_READ_ONLY" in (app.sub_title or "")
 
     asyncio.run(_drive())
+
+
+def test_tui_app_renders_new_messages_after_a_wrapping_message() -> None:
+    # Regression: the old cursor used len(RichLog.lines), which counts
+    # physical wrapped rows. After one wrapping assistant reply, later
+    # messages were silently never rendered. The app must track messages,
+    # not rows.
+    long_reply = "lorem ipsum dolor sit amet " * 40
+    client = _FakeStreamClient(
+        frames=[
+            _frame(1, SurfaceStreamFrameKind.CHUNK, {"delta": long_reply}),
+            _frame(2, SurfaceStreamFrameKind.STREAM_END, {}),
+        ]
+    )
+    client.queue_turn_completed(total_tokens=50)
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "first"
+            await pilot.click("#prompt")
+            await pilot.press("enter")
+            for _ in range(5):
+                await pilot.pause(0.15)
+            chat = app.query_one("#chat", RichLog)
+            # The reply wraps: physical rows far exceed the 3 messages.
+            assert len(chat.lines) > 10
+            first_render = "\n".join(str(line.text) for line in chat.lines)
+            assert "lorem ipsum" in first_render
+
+            # Second turn after the wrapping message completed.
+            client.frames.extend(
+                [
+                    _frame(
+                        3, SurfaceStreamFrameKind.CHUNK, {"delta": "SECOND-TURN-REPLY"}
+                    ),
+                    _frame(4, SurfaceStreamFrameKind.STREAM_END, {}),
+                ]
+            )
+            client.queue_turn_completed(total_tokens=7)
+            app.query_one("#prompt", Input).value = "second"
+            await pilot.click("#prompt")
+            await pilot.press("enter")
+            for _ in range(5):
+                await pilot.pause(0.15)
+            text = "\n".join(str(line.text) for line in chat.lines)
+            assert "SECOND-TURN-REPLY" in text
+            assert "user> second" in text
+
+    asyncio.run(_drive())
