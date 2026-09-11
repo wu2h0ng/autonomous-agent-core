@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -66,6 +68,8 @@ from agent_os_contracts import (
     SessionRef,
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
+    SurfaceBeginTurnCommand,
+    SurfaceBeginTurnResponse,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
@@ -79,6 +83,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     SurfaceRuntime,
     SurfaceSessionNotFound,
+    SessionStreamRegistry,
     AgentLoop,
     AgentLoopConfig,
     CHAT_CAPABILITY_IDS,
@@ -515,7 +520,13 @@ class AgentOSApplication:
         )
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
-        self.surface = SurfaceRuntime(self)
+        self._runtime_boot_id = uuid4().hex
+        self.surface = SurfaceRuntime(
+            self,
+            stream_registry=SessionStreamRegistry(
+                runtime_boot_id=self._runtime_boot_id
+            ),
+        )
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or self._clock()
@@ -1932,6 +1943,117 @@ class AgentOSApplication:
             result,
             loop.history[history_before:],
         )
+
+    @property
+    def runtime_boot_id(self) -> str:
+        """Daemon process generation id; changes on every restart so a dead
+        generation's transient cursors fail typed STREAM_GONE."""
+        return self._runtime_boot_id
+
+    def subscribe_stream(self, session_id: str) -> str:
+        """Mint a new transient stream for the session (subscription-first,
+        frozen): the TUI subscribes before issuing its begin-turn."""
+        self.surface_task_for_session(session_id)
+        return self.surface.subscribe_stream(session_id)
+
+    def surface_has_uncommitted_turn(self, session_id: str) -> bool:
+        """Durable truth: a SESSION_TURN_STARTED without its
+        SESSION_TURN_COMPLETED for this session's task."""
+        task_id = self.surface_task_for_session(session_id)
+        started: set[str] = set()
+        completed: set[str] = set()
+        for event in self.store.read(task_id):
+            if event.event_type not in {
+                TaskEventType.SESSION_TURN_STARTED,
+                TaskEventType.SESSION_TURN_COMPLETED,
+            }:
+                continue
+            payload = json.loads(event.payload_json)
+            turn_id = payload.get("turn_id")
+            if not isinstance(turn_id, str) or not turn_id:
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                started.add(turn_id)
+            else:
+                completed.add(turn_id)
+        return bool(started - completed)
+
+    def surface_begin_turn(
+        self, command: SurfaceBeginTurnCommand
+    ) -> SurfaceBeginTurnResponse:
+        """E1 reserve/begin-turn: durably record turn-start, return the
+        authoritative ids, then execute asynchronously.
+
+        The provider stream runs on a worker thread; this method returns as
+        soon as the durable SESSION_TURN_STARTED event is observable. Failures
+        raised before turn-start propagate to the caller synchronously; the
+        transient stream binding is recorded in the session-stream registry.
+        """
+        session, loop = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        failures: list[BaseException] = []
+
+        def _execute() -> None:
+            try:
+                loop.run_turn(session, command.text)
+            except (WorkspaceWriteRejected, ReplanRequired) as exc:
+                decision = getattr(exc, "decision", None)
+                if decision is not None:
+                    self._surface_conflicts[command.session_id] = (
+                        SurfaceConflictProjection.from_decision(decision)
+                    )
+                failures.append(exc)
+            except BaseException as exc:  # surfaced to the caller below
+                failures.append(exc)
+
+        worker = threading.Thread(
+            target=_execute,
+            daemon=True,
+            name=f"surface-begin-turn-{command.session_id}",
+        )
+        worker.start()
+        turn_id = self._await_turn_start(command.session_id, worker)
+        if turn_id is None:
+            if failures:
+                raise failures[0]
+            raise RuntimeError(
+                "turn execution finished without a durable turn-start event"
+            )
+        return SurfaceBeginTurnResponse(
+            turn_id=turn_id, stream_id=command.stream.stream_id
+        )
+
+    def _await_turn_start(
+        self, session_id: str, worker: threading.Thread, timeout: float = 5.0
+    ) -> str | None:
+        """Return the new turn's id as soon as its durable turn-start event is
+        observable, without waiting for the turn to finish."""
+        task_id = self.surface_task_for_session(session_id)
+        known = {
+            json.loads(event.payload_json)["turn_id"]
+            for event in self.store.read(task_id)
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED
+        }
+        deadline = time.monotonic() + timeout
+
+        def _new_turn_id() -> str | None:
+            for event in self.store.read(task_id):
+                if event.event_type is not TaskEventType.SESSION_TURN_STARTED:
+                    continue
+                turn_id = json.loads(event.payload_json).get("turn_id")
+                if isinstance(turn_id, str) and turn_id not in known:
+                    return turn_id
+            return None
+
+        while time.monotonic() < deadline:
+            fresh = _new_turn_id()
+            if fresh is not None:
+                return fresh
+            if not worker.is_alive():
+                return _new_turn_id()
+            time.sleep(0.005)
+        return None
 
     def surface_conflict_projection(
         self, session_id: str

@@ -198,6 +198,15 @@ class SurfaceRuntime:
                 operation=lambda: self._begin_turn_once(command),
             )
 
+    def subscribe_stream(self, session_id: str) -> str:
+        """Mint a new transient stream under the current daemon generation.
+
+        The TUI subscribes first (subscription-before-execution, frozen), then
+        binds a begin-turn to the returned stream_id."""
+        if self._stream_registry is None:
+            raise SurfaceProtocolError("stream registry is not configured")
+        return self._stream_registry.subscribe(session_id)
+
     def decide_approval(
         self, command: SurfaceApprovalCommand
     ) -> SurfaceTurnResponse:
