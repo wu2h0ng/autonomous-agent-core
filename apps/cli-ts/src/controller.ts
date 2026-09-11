@@ -450,6 +450,11 @@ export class TuiController {
         this.turnId = null;
         this.finalizeAll();
       } else if (event.event_type === "SESSION_APPROVAL_PENDING") {
+        // Turn-bound like completion: a replayed pending event from an
+        // earlier resolved turn must never resurrect an approval state
+        // (E2E flake root cause, iteration-9). Payloads without turn_id
+        // (older kernels) are accepted for back-compat.
+        if (typeof payload["turn_id"] === "string" && payload["turn_id"] !== this.turnId) continue;
         this.pendingPreview = String(payload["preview"] ?? "");
         this.status = "awaiting_approval";
         this.finalizeAll();

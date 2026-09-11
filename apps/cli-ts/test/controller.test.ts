@@ -225,6 +225,25 @@ test("completion event for another turn is ignored", async () => {
   assert.equal(controller.turns, 0);
 });
 
+test("stale approval-pending event from a resolved turn never resurrects", async () => {
+  // Regression (iteration-9 E2E flake): after /resume the durable cursor
+  // starts at 0 and replays an earlier turn's SESSION_APPROVAL_PENDING;
+  // without turn binding it hijacks the in-flight turn's state.
+  const controller = new TuiController(new FakeClient() as never, { pollMs: 1 });
+  (controller as never as { applyDurable: (n: number, e: unknown[]) => void }).applyDurable(1, [
+    {
+      event_id: "e:old",
+      task_id: "task:1",
+      event_type: "SESSION_APPROVAL_PENDING",
+      payload_json: JSON.stringify({ turn_id: "turn:resolved", preview: "old edit" }),
+      occurred_at: new Date().toISOString(),
+      sequence: 1,
+    },
+  ]);
+  assert.equal(controller.status, "idle");
+  assert.equal(controller.pendingPreview, null);
+});
+
 test("approval pending → human approve → tokens + continuation text", async () => {
   const client = new FakeClient();
   client.streamScript = [frame(1, "turn:1", "STREAM_END")];
