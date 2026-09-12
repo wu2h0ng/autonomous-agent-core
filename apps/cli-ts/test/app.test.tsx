@@ -227,6 +227,27 @@ test("vim: Esc to normal swallows navigation keys; i returns to insert", async (
   }
 });
 
+test("vim: normal mode must not swallow approval y/n", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  controller.vimMode = true;
+  let approvals = 0;
+  controller.approve = async () => {
+    approvals += 1;
+  };
+  (controller as never as { status: string }).status = "awaiting_approval";
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("\u001B"); // Esc would enter normal mode if not for the approval guard
+    await flush();
+    await view.stdin.write("y");
+    await flush();
+    assert.equal(approvals, 1);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

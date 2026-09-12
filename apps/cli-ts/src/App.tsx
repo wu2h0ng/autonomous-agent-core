@@ -287,8 +287,19 @@ export function App({
     }
 
     // Vim keymap: normal mode owns navigation/edits; insert mode is the
-    // standard composer and Esc returns to normal.
-    if (controller.vimMode && !searchMode && palette.length === 0) {
+    // standard composer and Esc returns to normal. Approvals keep priority:
+    // y/n must work even in normal mode, and Esc during an active turn is
+    // still a correction.
+    if (
+      controller.vimMode &&
+      !searchMode &&
+      palette.length === 0 &&
+      controller.status !== "awaiting_approval"
+    ) {
+      if (key.escape && (controller.status === "streaming" || controller.status === "stalled")) {
+        handleGlobalKey(controller, keyInput, key);
+        return;
+      }
       if (!vimInsert) {
         if (key.escape) return;
         if (keyInput === "i") {
