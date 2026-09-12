@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EvidenceLevel(str, Enum):
     E2_CONTROLLED_SIMULATION = "E2_CONTROLLED_SIMULATION"
+    E3_REAL_PROVIDER = "E3_REAL_PROVIDER"
 
 
 class CostStatus(str, Enum):

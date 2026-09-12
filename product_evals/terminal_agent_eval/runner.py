@@ -14,7 +14,7 @@ from typing import Any, Mapping, Protocol, Sequence
 from .gateway import assert_no_tier3_auto_approval
 from .manifest import EvalManifest, load_manifest, verify_manifest
 from .metrics import failure_distribution, project_task, summarize
-from .models import EvalReport, EvalTask
+from .models import EvalReport, EvalTask, EvidenceLevel
 from .report import render_report
 
 
@@ -25,10 +25,17 @@ class TurnExecutor(Protocol):
 
 
 class EvalRunner:
-    def __init__(self, executor: TurnExecutor, gateway: Any, probe_action: Any) -> None:
+    def __init__(
+        self,
+        executor: TurnExecutor,
+        gateway: Any,
+        probe_action: Any,
+        evidence_level: EvidenceLevel = EvidenceLevel.E2_CONTROLLED_SIMULATION,
+    ) -> None:
         self._executor = executor
         self._gateway = gateway
         self._probe_action = probe_action
+        self._evidence_level = evidence_level
 
     def run(self, manifest: EvalManifest) -> EvalReport:
         # Fail-closed before any task runs.
@@ -38,6 +45,7 @@ class EvalRunner:
             events, verify_ok = self._executor.run_task(task)
             results.append(project_task(events, task.task_id, verify_ok))
         return EvalReport(
+            evidence_level=self._evidence_level,
             metrics=summarize(results),
             tasks=tuple(results),
             failure_distribution=failure_distribution(results),
@@ -52,6 +60,7 @@ def run_eval(
     *,
     report_json_path: str | Path | None = None,
     report_text_path: str | Path | None = None,
+    evidence_level: EvidenceLevel = EvidenceLevel.E2_CONTROLLED_SIMULATION,
 ) -> EvalReport:
     """Public entry point for TERMINAL-AGENT-EVAL-0.
 
@@ -59,7 +68,7 @@ def run_eval(
     and an in-memory manifest is accepted only if already frozen and valid.
     """
     resolved = load_manifest(manifest) if isinstance(manifest, (str, Path)) else verify_manifest(manifest)
-    report = EvalRunner(executor, gateway, probe_action).run(resolved)
+    report = EvalRunner(executor, gateway, probe_action, evidence_level).run(resolved)
     if report_json_path is not None:
         Path(report_json_path).write_text(report.model_dump_json(indent=2) + "\n", "utf-8")
     if report_text_path is not None:
