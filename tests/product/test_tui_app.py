@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Input, RichLog
+from textual.widgets import Footer, Input, RichLog
 
 from apps.cli.tui_app import AgentTuiApp
 from apps.cli.tui_controller import TuiController
@@ -243,5 +243,21 @@ def test_tui_app_renders_tool_activity_panel() -> None:
             assert "✗ workspace.run_tests" in text
             assert "? workspace.shell" in text
             assert "run: pytest" in text
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_does_not_render_footer_shortcut_bar() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test():
+            assert list(app.query(Footer)) == []
 
     asyncio.run(_drive())

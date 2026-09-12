@@ -11,7 +11,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.widgets import Footer, Header, Input, Label, RichLog
+from textual.widgets import Header, Input, RichLog
 
 from apps.cli.tui_controller import (
     STATUS_AWAITING_APPROVAL,
@@ -51,11 +51,6 @@ class AgentTuiApp(App[None]):
         padding: 0 1;
     }
 
-    #approval-bar {
-        height: 1;
-        margin: 0 1;
-    }
-
     #prompt {
         margin: 0 1 1 1;
         border: tall $accent;
@@ -77,10 +72,7 @@ class AgentTuiApp(App[None]):
         with Horizontal(id="main"):
             with Vertical(id="conversation"):
                 yield RichLog(id="chat", wrap=True, markup=True)
-                with Horizontal(id="approval-bar"):
-                    yield Label("", id="approval")
                 yield Input(placeholder="Tell the agent what to do…", id="prompt")
-        yield Footer()
 
     def on_mount(self) -> None:
         self._refresh_chat()
@@ -122,15 +114,8 @@ class AgentTuiApp(App[None]):
                 else f"{message.role}> {text}"
             )
             self._rendered_messages += 1
-        approval = self.query_one("#approval", Label)
-        if self._controller.status == STATUS_AWAITING_APPROVAL:
-            approval.update(
-                f"approval required: {self._controller.pending_preview}  [y] approve / [n] reject"
-            )
-        elif self._controller.status == STATUS_STALLED:
-            approval.update("stream stalled; waiting for the runtime…")
-        else:
-            approval.update("")
+        if self._controller.status == STATUS_STALLED:
+            chat.write("[yellow]stream stalled; waiting for the runtime…[/yellow]")
         self.sub_title = (
             f"{self._controller.status_line()} · {self._controller.usage_line()}"
         )
