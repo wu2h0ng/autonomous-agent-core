@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Footer, Input, RichLog
+from textual.widgets import Footer, Input, RichLog, Static
 
 from apps.cli.tui_app import AgentTuiApp
 from apps.cli.tui_controller import TuiController
@@ -262,5 +262,95 @@ def test_tui_app_does_not_render_footer_shortcut_bar() -> None:
     async def _drive() -> None:
         async with app.run_test():
             assert list(app.query(Footer)) == []
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_shows_mainstream_command_hints_without_footer() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test():
+            hints = app.query_one("#hints", Static)
+            text = str(hints.content)
+            assert "/ commands" in text
+            assert "@ files" in text
+            assert "! shell" in text
+            assert list(app.query(Footer)) == []
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_permission_prompt_selection_can_move_to_reject() -> None:
+    client = _app_client()
+    client.queue_approval_pending()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            app._poll()
+            chat = app.query_one("#chat", RichLog)
+            before = "\n".join(str(line.text) for line in chat.lines)
+            assert "› Approve" in before
+
+            await pilot.press("right")
+            app._poll()
+            after = "\n".join(str(line.text) for line in chat.lines)
+            assert "Approve    › Reject" in after
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_enter_applies_selected_permission_option() -> None:
+    client = _app_client()
+    client.queue_approval_pending()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            app._poll()
+            await pilot.press("right")
+            await pilot.click("#prompt")
+            await pilot.press("enter")
+            assert client.approval_calls == [("digest:1", "REJECT")]
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_permission_prompt_compacts_long_multiline_preview() -> None:
+    client = _app_client()
+    client.queue_approval_pending(
+        preview="run: pytest\nline 1\nline 2\nline 3\nline 4\nline 5"
+    )
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test():
+            app._poll()
+            chat = app.query_one("#chat", RichLog)
+            text = "\n".join(str(line.text) for line in chat.lines)
+            assert "run: pytest ↵ 5 lines" in text
+            assert "line 5" not in text
 
     asyncio.run(_drive())

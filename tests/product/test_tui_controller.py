@@ -267,7 +267,7 @@ class _FakeStreamClient:
             )
         )
 
-    def queue_approval_pending(self) -> None:
+    def queue_approval_pending(self, *, preview: str = "run: pytest") -> None:
         from agent_os_contracts import PendingSurfaceApproval
 
         self.durable_cursor += 1
@@ -279,7 +279,7 @@ class _FakeStreamClient:
                     "action_digest": "digest:1",
                     "capability_id": "workspace.shell",
                     "proposal_id": "proposal:1",
-                    "preview": "run: pytest",
+                    "preview": preview,
                     "requested_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
@@ -288,7 +288,7 @@ class _FakeStreamClient:
             action_digest="digest:1",
             capability_id="workspace.shell",
             proposal_id="proposal:1",
-            preview="run: pytest",
+            preview=preview,
             requested_at=datetime.now(timezone.utc),
         )
 

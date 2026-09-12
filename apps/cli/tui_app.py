@@ -11,7 +11,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.widgets import Header, Input, RichLog
+from textual.widgets import Header, Input, RichLog, Static
 
 from apps.cli.tui_controller import (
     STATUS_AWAITING_APPROVAL,
@@ -31,6 +31,8 @@ class AgentTuiApp(App[None]):
 
     BINDINGS = [
         Binding("f2", "cycle_mode", "approvals"),
+        Binding("left", "select_approve", "approve option", show=False, priority=True),
+        Binding("right", "select_reject", "reject option", show=False, priority=True),
         Binding("y", "approve", "approve"),
         Binding("n", "reject", "reject"),
         Binding("ctrl+c", "quit", "quit"),
@@ -55,6 +57,12 @@ class AgentTuiApp(App[None]):
         margin: 0 1 1 1;
         border: tall $accent;
     }
+
+    #hints {
+        height: 1;
+        margin: 0 1;
+        color: $text-muted;
+    }
     """
 
     def __init__(self, controller: TuiController) -> None:
@@ -66,6 +74,7 @@ class AgentTuiApp(App[None]):
         self._rendered_messages = 0
         self._rendered_activity = 0
         self._rendered_todo_signature: tuple[tuple[str, str, str], ...] = ()
+        self._approval_selection = "approve"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -73,6 +82,7 @@ class AgentTuiApp(App[None]):
             with Vertical(id="conversation"):
                 yield RichLog(id="chat", wrap=True, markup=True)
                 yield Input(placeholder="Tell the agent what to do…", id="prompt")
+                yield Static("/ commands · @ files · ! shell", id="hints")
 
     def on_mount(self) -> None:
         self._refresh_chat()
@@ -143,7 +153,6 @@ class AgentTuiApp(App[None]):
             return
         icons = {
             "proposed": "…",
-            "waiting approval": "?",
             "succeeded": "✓",
             "failed": "✗",
         }
@@ -151,8 +160,11 @@ class AgentTuiApp(App[None]):
             if item.status == "waiting approval":
                 row = f"permission request  {item.capability_id}"
                 if item.preview:
-                    row = f"{row} — {item.preview}"
-                row = f"{row}\n  › Approve    Reject"
+                    row = f"{row} — {_compact_preview(item.preview)}"
+                if self._approval_selection == "reject":
+                    row = f"{row}\n    Approve    › Reject"
+                else:
+                    row = f"{row}\n  › Approve      Reject"
                 chat.write(row)
                 self._rendered_activity += 1
                 continue
@@ -165,6 +177,12 @@ class AgentTuiApp(App[None]):
     # -- input -------------------------------------------------------------
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
+        if not text and self._controller.status == STATUS_AWAITING_APPROVAL:
+            if self._approval_selection == "reject":
+                self.action_reject()
+            else:
+                self.action_approve()
+            return
         if not text:
             return
         event.input.value = ""
@@ -184,6 +202,18 @@ class AgentTuiApp(App[None]):
         self._controller.cycle_mode()
         self._refresh_chat()
 
+    def action_select_approve(self) -> None:
+        if self._controller.status != STATUS_AWAITING_APPROVAL:
+            return
+        self._approval_selection = "approve"
+        self._rerender_chat()
+
+    def action_select_reject(self) -> None:
+        if self._controller.status != STATUS_AWAITING_APPROVAL:
+            return
+        self._approval_selection = "reject"
+        self._rerender_chat()
+
     def action_approve(self) -> None:
         if self._controller.status != STATUS_AWAITING_APPROVAL:
             return
@@ -195,6 +225,29 @@ class AgentTuiApp(App[None]):
             return
         self._controller.reject(reason="rejected in TUI")
         self._refresh_chat()
+
+    def _rerender_chat(self) -> None:
+        try:
+            chat = self.query_one("#chat", RichLog)
+        except NoMatches:
+            return
+        chat.clear()
+        self._rendered_messages = 0
+        self._rendered_activity = 0
+        self._rendered_todo_signature = ()
+        self._refresh_chat()
+
+
+def _compact_preview(preview: str, *, limit: int = 96) -> str:
+    lines = [line.strip() for line in preview.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    head = lines[0]
+    if len(head) > limit:
+        head = f"{head[: limit - 1]}…"
+    if len(lines) > 1:
+        return f"{head} ↵ {len(lines) - 1} lines"
+    return head
 
 
 def run_tui(controller: TuiController) -> None:
