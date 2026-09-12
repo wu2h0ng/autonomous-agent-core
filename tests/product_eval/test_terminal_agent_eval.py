@@ -225,3 +225,70 @@ def test_frozen_l1_manifest_loads_with_valid_digest() -> None:
     manifest = load_manifest(path)
     assert manifest.manifest_sha256 is not None
     assert {task.task_id for task in manifest.tasks} == {"l1-fix-helper", "l1-add-test"}
+
+
+class _FakeEvent:
+    def __init__(self, event_type: object, sequence: int, payload: str, occurred_at: str) -> None:
+        self.event_type = event_type
+        self.sequence = sequence
+        self.payload_json = payload
+        self.occurred_at = occurred_at
+
+
+class _FakeBatch:
+    def __init__(self, events: list[object], next_sequence: int) -> None:
+        self.events = events
+        self.next_sequence = next_sequence
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.session_id = "session:1"
+        self.task_id = "task:1"
+
+
+class _FakeSnapshot:
+    def __init__(self) -> None:
+        self.session = _FakeSession()
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.turns: list[tuple[str, str]] = []
+
+    def open_session(self, statement: str) -> _FakeSnapshot:
+        return _FakeSnapshot()
+
+    def run_turn(self, session_id: str, text: str) -> object:
+        self.turns.append((session_id, text))
+        return object()
+
+    def events(self, task_id: str, *, after_sequence: int = 0) -> _FakeBatch:
+        if after_sequence == 0:
+            event = _FakeEvent(
+                "ACTION_RECEIPT_RECORDED",
+                1,
+                json.dumps({"receipt": {"action_id": "a1", "action_digest": "d1", "status": "SUCCEEDED"}}),
+                RECEIPT_AT,
+            )
+            return _FakeBatch([event], 1)
+        return _FakeBatch([], 1)
+
+
+def test_product_executor_runs_a_task_and_reads_durable_events(tmp_path) -> None:
+    from product_evals.terminal_agent_eval import ProductTurnExecutor
+
+    client = _FakeClient()
+    executor = ProductTurnExecutor(client, workspace_dir=tmp_path)
+    task = EvalTask(task_id="t1", input="fix it", verify_command=("python", "-c", "import sys; sys.exit(0)"))
+
+    events, verify_ok = executor.run_task(task)
+    assert client.turns == [("session:1", "fix it")]
+    assert verify_ok is True
+    assert len(events) == 1
+    assert events[0]["event_type"] == "ACTION_RECEIPT_RECORDED"
+    assert events[0]["payload"]["receipt"]["action_id"] == "a1"
+
+    # failing acceptance command -> verify_ok False (never coerced to pass)
+    failing = EvalTask(task_id="t2", input="fix it", verify_command=("python", "-c", "import sys; sys.exit(1)"))
+    assert executor.run_task(failing)[1] is False

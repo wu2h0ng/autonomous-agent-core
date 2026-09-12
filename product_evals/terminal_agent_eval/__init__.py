@@ -30,6 +30,7 @@ from .models import (
     TaskResult,
 )
 from .report import render_report
+from .product_executor import ProductTurnExecutor, SurfaceSessionClient
 from .runner import EvalRunner, TurnExecutor, run_eval
 
 __all__ = [
@@ -43,6 +44,8 @@ __all__ = [
     "EvidenceLevel",
     "ManifestIntegrityError",
     "MetricSummary",
+    "ProductTurnExecutor",
+    "SurfaceSessionClient",
     "TaskResult",
     "TurnExecutor",
     "assert_no_tier3_auto_approval",
