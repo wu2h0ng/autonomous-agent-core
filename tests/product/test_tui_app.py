@@ -241,8 +241,11 @@ def test_tui_app_renders_tool_activity_panel() -> None:
             assert "tool" in text
             assert "✓ workspace.read" in text
             assert "✗ workspace.run_tests" in text
-            assert "? workspace.shell" in text
+            assert "permission request" in text
+            assert "workspace.shell" in text
             assert "run: pytest" in text
+            assert "› Approve" in text
+            assert "Reject" in text
 
     asyncio.run(_drive())
 

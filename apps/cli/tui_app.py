@@ -148,6 +148,14 @@ class AgentTuiApp(App[None]):
             "failed": "✗",
         }
         for item in self._controller.activity[self._rendered_activity :]:
+            if item.status == "waiting approval":
+                row = f"permission request  {item.capability_id}"
+                if item.preview:
+                    row = f"{row} — {item.preview}"
+                row = f"{row}\n  › Approve    Reject"
+                chat.write(row)
+                self._rendered_activity += 1
+                continue
             row = f"tool {icons.get(item.status, '•')} {item.capability_id}"
             if item.preview:
                 row = f"{row} — {item.preview}"
