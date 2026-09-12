@@ -22,3 +22,10 @@ export function selectorChoice(state: SelectorState): string | undefined {
 export function numberedChoice(state: SelectorState, digit: number): string | undefined {
   return state.items[digit - 1];
 }
+
+/** Case-insensitive substring filter for pickers (typing narrows the list). */
+export function filterSelectorItems(items: readonly string[], query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [...items];
+  return items.filter((item) => item.toLowerCase().includes(needle));
+}

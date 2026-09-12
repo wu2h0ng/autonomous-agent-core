@@ -29,6 +29,7 @@ import { handleGlobalKey } from "./keys.js";
 import { layoutFor } from "./layout.js";
 import { renderMarkdown } from "./markdown.js";
 import { activeMention, applyMention, filterMentions } from "./mentions.js";
+import { filterSelectorItems } from "./selector.js";
 import { attentionFor, attentionSequence } from "./attention.js";
 import { highlightCode, languageForPath } from "./highlight.js";
 import { resolveTheme } from "./theme.js";
@@ -76,6 +77,20 @@ function MessageView({
   finalized: boolean;
   theme: ThemeColors;
 }) {
+  if (message.panel) {
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor={theme.accent}>
+        <Text bold color={theme.accent}>
+          {message.panel.title}
+        </Text>
+        {message.panel.lines.map((line, index) => (
+          <Text key={index} color={theme.notice}>
+            {line}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
   if (message.tool) {
     const tool = message.tool;
     const color =
@@ -123,6 +138,7 @@ export function App({
   const [searchMode, setSearchMode] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
+  const [selectorQuery, setSelectorQuery] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
@@ -169,6 +185,7 @@ export function App({
 
   useEffect(() => {
     setSelectorIndex(0);
+    setSelectorQuery("");
   }, [controller.pendingSelector]);
 
   // `/edit`: pull the last message out of the controller into the composer.
@@ -213,19 +230,24 @@ export function App({
   useInput((keyInput, key) => {
     const selector = controller.pendingSelector;
     if (selector) {
-      const count = selector.items.length;
+      const visible = filterSelectorItems(selector.items, selectorQuery);
+      const count = visible.length;
       if (key.escape) {
         controller.cancelSelector();
       } else if (key.return) {
-        const pick = selector.items[selectorIndex];
+        const pick = visible[selectorIndex];
         if (pick !== undefined) controller.chooseSelector(pick);
       } else if (key.upArrow) {
         setSelectorIndex((index) => (count === 0 ? 0 : (index - 1 + count) % count));
       } else if (key.downArrow) {
         setSelectorIndex((index) => (count === 0 ? 0 : (index + 1) % count));
-      } else if (/^[1-9]$/.test(keyInput)) {
-        const pick = selector.items[Number(keyInput) - 1];
+      } else if (key.backspace || key.delete) {
+        setSelectorQuery((query) => query.slice(0, -1));
+      } else if (/^[1-9]$/.test(keyInput) && selectorQuery === "") {
+        const pick = visible[Number(keyInput) - 1];
         if (pick !== undefined) controller.chooseSelector(pick);
+      } else if (isPrintable(keyInput, key)) {
+        setSelectorQuery((query) => query + keyInput);
       }
       return;
     }
@@ -394,6 +416,9 @@ export function App({
   const theme = resolveTheme(controller.themeName);
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
+  const selectorVisible = controller.pendingSelector
+    ? filterSelectorItems(controller.pendingSelector.items, selectorQuery)
+    : [];
   const approvalDiff = pending?.preview ? previewToDiff(pending.preview) : null;
   const approvalLang =
     approvalDiff && approvalDiff[0]
@@ -448,13 +473,15 @@ export function App({
           <Text bold color={theme.accent}>
             {controller.pendingSelector.title}
           </Text>
-          {controller.pendingSelector.items.map((item, index) => (
+          {selectorQuery ? <Text color={theme.notice}>filter: {selectorQuery}</Text> : null}
+          {selectorVisible.map((item, index) => (
             <Text key={item} color={index === selectorIndex ? theme.paletteSelected : theme.notice}>
               {index === selectorIndex ? "› " : "  "}
               {index + 1}. {item}
             </Text>
           ))}
-          <Text dimColor>↑↓ move · enter select · 1-9 quick · esc cancel</Text>
+          {selectorVisible.length === 0 && <Text dimColor>(no match)</Text>}
+          <Text dimColor>↑↓ move · type to filter · enter select · esc cancel</Text>
         </Box>
       )}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}

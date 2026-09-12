@@ -97,11 +97,18 @@ export function parseTodoItems(argsJson: string): TodoItem[] | null {
   return items;
 }
 
+export interface MessagePanel {
+  title: string;
+  lines: string[];
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   interrupted?: boolean;
   tool?: ToolCall;
+  /** Optional bordered card rendered instead of an inline text line. */
+  panel?: MessagePanel;
 }
 
 /** One-line argument preview for a tool card (path/command first). */
@@ -319,13 +326,10 @@ export class TuiController {
         for (const line of helpLines()) this.push({ role: "system", content: line });
         return true;
       case "/status":
-        this.push({ role: "system", content: this.statusLine() });
+        this.push({ role: "system", content: "", panel: this.statusPanel() });
         return true;
       case "/cost":
-        this.push({
-          role: "system",
-          content: `tokens ${this.tokensTotal} (exact) · cost UNKNOWN (no pricing source) · turns ${this.turns}`,
-        });
+        this.push({ role: "system", content: "", panel: this.costPanel() });
         return true;
       case "/mode":
         await this.modeCommand(rest[0]);
@@ -370,6 +374,34 @@ export class TuiController {
     const id = this.sessionId ?? "none";
     const events = this.snapshot?.event_sequence ?? 0;
     return `session ${id} · status ${this.status} · mode ${this.mode} · events ${events} · turns ${this.turns}`;
+  }
+
+  /** `/status` card. */
+  private statusPanel(): MessagePanel {
+    return {
+      title: "session status",
+      lines: [
+        `session  ${this.sessionId ?? "none"}`,
+        `status   ${this.status}`,
+        `mode     ${this.mode}`,
+        `events   ${this.snapshot?.event_sequence ?? 0}`,
+        `turns    ${this.turns}`,
+      ],
+    };
+  }
+
+  /** `/cost` card. Context usage is an honest session estimate: the provider
+   * does not expose a context-window size, so none is invented. */
+  private costPanel(): MessagePanel {
+    return {
+      title: "usage (cost honesty)",
+      lines: [
+        `tokens   ${this.tokensTotal} (exact)`,
+        `turns    ${this.turns}`,
+        `context  ≈${this.tokensTotal} tokens this session (window size not provided by the provider)`,
+        `cost     UNKNOWN (no pricing source)`,
+      ],
+    };
   }
 
   private async modeCommand(arg: string | undefined): Promise<void> {

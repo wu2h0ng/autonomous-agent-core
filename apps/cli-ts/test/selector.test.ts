@@ -3,7 +3,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { moveSelector, numberedChoice, selectorChoice } from "../src/selector.js";
+import { filterSelectorItems, moveSelector, numberedChoice, selectorChoice } from "../src/selector.js";
 
 const state = { items: ["a", "b", "c"] as const, index: 0 };
 
@@ -25,4 +25,12 @@ test("numberedChoice is 1-based and out-of-range safe", () => {
   assert.equal(numberedChoice(state, 3), "c");
   assert.equal(numberedChoice(state, 4), undefined);
   assert.equal(numberedChoice(state, 0), undefined);
+});
+
+test("filterSelectorItems narrows case-insensitively and lists all when empty", () => {
+  const items = ["session:abc", "session:def", "task:1"];
+  assert.deepEqual(filterSelectorItems(items, ""), items);
+  assert.deepEqual(filterSelectorItems(items, "SESSION:abc"), ["session:abc"]);
+  assert.deepEqual(filterSelectorItems(items, "def"), ["session:def"]);
+  assert.deepEqual(filterSelectorItems(items, "zzz"), []);
 });

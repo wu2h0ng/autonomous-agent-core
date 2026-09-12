@@ -176,10 +176,12 @@ test("slash commands: help/status/cost/invalid-mode/unknown", async () => {
   await controller.submit("/cost");
   await controller.submit("/mode bogus");
   await controller.submit("/frobnicate");
-  const text = controller.messages.map((m) => m.content).join("\n");
+  const text = controller.messages
+    .map((m) => (m.panel ? [m.panel.title, ...m.panel.lines].join("\n") : m.content))
+    .join("\n");
   assert.match(text, /\/exit/);
-  assert.match(text, /session none/);
-  assert.match(text, /cost UNKNOWN/);
+  assert.match(text, /session\s+none/);
+  assert.match(text, /cost\s+UNKNOWN/);
   assert.match(text, /invalid mode bogus/);
   assert.match(text, /unknown command: \/frobnicate/);
 });
