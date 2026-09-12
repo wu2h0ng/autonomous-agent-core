@@ -287,6 +287,97 @@ def test_tui_app_shows_mainstream_command_hints_without_footer() -> None:
     asyncio.run(_drive())
 
 
+def test_tui_app_shows_command_palette_when_slash_is_typed() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            prompt = app.query_one("#prompt", Input)
+            prompt.value = "/"
+            await pilot.pause(0.1)
+            palette = app.query_one("#command-palette", Static)
+            text = str(palette.content)
+            assert "› /model" in text
+            assert "choose model and reasoning effort" in text
+            assert "/permissions" in text
+            assert "choose what Agent OS is allowed to do" in text
+            assert "/exit" in text
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_hides_command_palette_when_prompt_is_not_a_command() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            prompt = app.query_one("#prompt", Input)
+            prompt.value = "ordinary task"
+            await pilot.pause(0.1)
+            palette = app.query_one("#command-palette", Static)
+            assert str(palette.content) == ""
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_command_palette_filters_by_prefix() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            prompt = app.query_one("#prompt", Input)
+            prompt.value = "/per"
+            await pilot.pause(0.1)
+            palette = app.query_one("#command-palette", Static)
+            text = str(palette.content)
+            assert "› /permissions" in text
+            assert "/model" not in text
+            assert "/exit" not in text
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_command_palette_selection_moves_with_arrow_keys() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            prompt = app.query_one("#prompt", Input)
+            prompt.value = "/"
+            await pilot.pause(0.1)
+            await pilot.press("down")
+            palette = app.query_one("#command-palette", Static)
+            text = str(palette.content)
+            assert "  /model" in text
+            assert "› /permissions" in text
+
+    asyncio.run(_drive())
+
+
 def test_tui_app_permission_prompt_selection_can_move_to_reject() -> None:
     client = _app_client()
     client.queue_approval_pending()

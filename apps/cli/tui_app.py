@@ -23,6 +23,14 @@ from apps.cli.tui_controller import (
 
 POLL_INTERVAL_SECONDS = 0.1
 
+COMMANDS: tuple[tuple[str, str], ...] = (
+    ("/model", "choose model and reasoning effort"),
+    ("/permissions", "choose what Agent OS is allowed to do"),
+    ("/keymap", "remap TUI shortcuts"),
+    ("/vim", "toggle Vim mode for the composer"),
+    ("/exit", "exit the app"),
+)
+
 
 class AgentTuiApp(App[None]):
     """Rich terminal client for one Agent OS surface session."""
@@ -33,6 +41,8 @@ class AgentTuiApp(App[None]):
         Binding("f2", "cycle_mode", "approvals"),
         Binding("left", "select_approve", "approve option", show=False, priority=True),
         Binding("right", "select_reject", "reject option", show=False, priority=True),
+        Binding("up", "select_previous_command", "previous command", show=False, priority=True),
+        Binding("down", "select_next_command", "next command", show=False, priority=True),
         Binding("y", "approve", "approve"),
         Binding("n", "reject", "reject"),
         Binding("ctrl+c", "quit", "quit"),
@@ -58,6 +68,12 @@ class AgentTuiApp(App[None]):
         border: tall $accent;
     }
 
+    #command-palette {
+        height: auto;
+        margin: 0 1;
+        color: $text-muted;
+    }
+
     #hints {
         height: 1;
         margin: 0 1;
@@ -75,12 +91,14 @@ class AgentTuiApp(App[None]):
         self._rendered_activity = 0
         self._rendered_todo_signature: tuple[tuple[str, str, str], ...] = ()
         self._approval_selection = "approve"
+        self._command_selection = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="main"):
             with Vertical(id="conversation"):
                 yield RichLog(id="chat", wrap=True, markup=True)
+                yield Static("", id="command-palette")
                 yield Input(placeholder="Tell the agent what to do…", id="prompt")
                 yield Static("/ commands · @ files · ! shell", id="hints")
 
@@ -197,6 +215,10 @@ class AgentTuiApp(App[None]):
             return
         self._poll()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self._command_selection = 0
+        self._refresh_command_palette(event.value)
+
     # -- key actions ---------------------------------------------------------
     def action_cycle_mode(self) -> None:
         self._controller.cycle_mode()
@@ -213,6 +235,22 @@ class AgentTuiApp(App[None]):
             return
         self._approval_selection = "reject"
         self._rerender_chat()
+
+    def action_select_previous_command(self) -> None:
+        value = self.query_one("#prompt", Input).value
+        matches = _matching_commands(value.strip())
+        if not value.startswith("/") or not matches:
+            return
+        self._command_selection = max(0, self._command_selection - 1)
+        self._refresh_command_palette(value)
+
+    def action_select_next_command(self) -> None:
+        value = self.query_one("#prompt", Input).value
+        matches = _matching_commands(value.strip())
+        if not value.startswith("/") or not matches:
+            return
+        self._command_selection = min(len(matches) - 1, self._command_selection + 1)
+        self._refresh_command_palette(value)
 
     def action_approve(self) -> None:
         if self._controller.status != STATUS_AWAITING_APPROVAL:
@@ -237,6 +275,23 @@ class AgentTuiApp(App[None]):
         self._rendered_todo_signature = ()
         self._refresh_chat()
 
+    def _refresh_command_palette(self, value: str) -> None:
+        try:
+            palette = self.query_one("#command-palette", Static)
+        except NoMatches:
+            return
+        if not value.startswith("/"):
+            palette.update("")
+            return
+        query = value.strip()
+        rows: list[str] = []
+        matches = _matching_commands(query)
+        self._command_selection = min(self._command_selection, max(0, len(matches) - 1))
+        for index, (command, description) in enumerate(matches):
+            pointer = "›" if index == self._command_selection else " "
+            rows.append(f"{pointer} {command:<14} {description}")
+        palette.update("\n".join(rows))
+
 
 def _compact_preview(preview: str, *, limit: int = 96) -> str:
     lines = [line.strip() for line in preview.splitlines() if line.strip()]
@@ -248,6 +303,12 @@ def _compact_preview(preview: str, *, limit: int = 96) -> str:
     if len(lines) > 1:
         return f"{head} ↵ {len(lines) - 1} lines"
     return head
+
+
+def _matching_commands(query: str) -> tuple[tuple[str, str], ...]:
+    if query == "/":
+        return COMMANDS
+    return tuple(item for item in COMMANDS if item[0].startswith(query))
 
 
 def run_tui(controller: TuiController) -> None:
