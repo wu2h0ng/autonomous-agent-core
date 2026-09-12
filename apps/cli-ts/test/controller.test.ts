@@ -411,6 +411,16 @@ test("/retry and /edit: recall the last operator message", async () => {
   assert.equal(client.beginTexts.filter((text) => text === "do the thing").length, 2);
 });
 
+test("/vim: toggles the vim keymap", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  assert.equal(controller.vimMode, false);
+  await controller.submit("/vim");
+  assert.equal(controller.vimMode, true);
+  assert.match(controller.messages.at(-1)?.content ?? "", /vim keymap on/);
+  await controller.submit("/vim");
+  assert.equal(controller.vimMode, false);
+});
+
 test("/theme /mode /resume selectors: open, choose, cancel", async () => {
   const client = new FakeClient();
   const controller = new TuiController(client as never, { pollMs: 1 });

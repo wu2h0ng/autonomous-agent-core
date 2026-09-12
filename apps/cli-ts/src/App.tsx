@@ -139,6 +139,7 @@ export function App({
   const [searchDraft, setSearchDraft] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [selectorQuery, setSelectorQuery] = useState("");
+  const [vimInsert, setVimInsert] = useState(true);
   const [files, setFiles] = useState<string[]>([]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
@@ -192,6 +193,11 @@ export function App({
   useEffect(() => {
     setSelectorIndex(0);
   }, [selectorQuery]);
+
+  // Vim keymap always starts in insert mode when toggled.
+  useEffect(() => {
+    setVimInsert(true);
+  }, [controller.vimMode]);
 
   // `/edit`: pull the last message out of the controller into the composer.
   useEffect(() => {
@@ -278,6 +284,70 @@ export function App({
         setComposer((current) => insertText(current, keyInput));
       }
       return;
+    }
+
+    // Vim keymap: normal mode owns navigation/edits; insert mode is the
+    // standard composer and Esc returns to normal.
+    if (controller.vimMode && !searchMode && palette.length === 0) {
+      if (!vimInsert) {
+        if (key.escape) return;
+        if (keyInput === "i") {
+          setVimInsert(true);
+          return;
+        }
+        if (keyInput === "a") {
+          setComposer((current) => move(current, "right"));
+          setVimInsert(true);
+          return;
+        }
+        if (keyInput === "A") {
+          setComposer((current) => move(current, "end"));
+          setVimInsert(true);
+          return;
+        }
+        if (keyInput === "I") {
+          setComposer((current) => move(current, "home"));
+          setVimInsert(true);
+          return;
+        }
+        if (keyInput === "h" || key.leftArrow) {
+          setComposer((current) => move(current, "left"));
+          return;
+        }
+        if (keyInput === "l" || key.rightArrow) {
+          setComposer((current) => move(current, "right"));
+          return;
+        }
+        if (keyInput === "j" || key.downArrow) {
+          setComposer((current) => move(current, "down"));
+          return;
+        }
+        if (keyInput === "k" || key.upArrow) {
+          setComposer((current) => move(current, "up"));
+          return;
+        }
+        if (keyInput === "0") {
+          setComposer((current) => move(current, "home"));
+          return;
+        }
+        if (keyInput === "$") {
+          setComposer((current) => move(current, "end"));
+          return;
+        }
+        if (keyInput === "x") {
+          setComposer((current) => deleteForward(current));
+          return;
+        }
+        if (key.return) {
+          submit();
+          return;
+        }
+        return; // normal mode swallows other keys
+      }
+      if (key.escape) {
+        setVimInsert(false);
+        return;
+      }
     }
 
     // Newline before Enter so the same physical key can never both split
@@ -587,7 +657,12 @@ export function App({
           {`🎯 goal · ${controller.goal} · (/goal clear to unset)`}
         </Text>
       )}
-      <Composer state={composer} placeholder={PLACEHOLDER} theme={theme} />
+      <Composer
+        state={composer}
+        placeholder={PLACEHOLDER}
+        theme={theme}
+        modeLabel={controller.vimMode ? (vimInsert ? "[I]" : "[N]") : undefined}
+      />
       <Text color={theme.footer} wrap="truncate-end">
         {`[${controller.mode}]`}
         {controller.queuedCount > 0 ? ` · ${controller.queuedCount} queued` : ""}

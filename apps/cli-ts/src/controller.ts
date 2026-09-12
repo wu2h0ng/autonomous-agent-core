@@ -202,6 +202,8 @@ export class TuiController {
   goal: string | null = null;
   /** Active render theme (operator-only `/theme`). */
   themeName: string = DEFAULT_THEME_NAME;
+  /** Vim keymap toggle (`/vim`; operator-only, persisted locally). */
+  vimMode = false;
   /** Open overlay selector, if any (mainstream `/resume` `/theme` `/mode`). */
   pendingSelector: PendingSelector | null = null;
   /** Locally observed session ids, most-recent first (no sessions-list
@@ -348,6 +350,14 @@ export class TuiController {
         return true;
       case "/theme":
         this.themeCommand(rest[0]);
+        return true;
+      case "/vim":
+        this.vimMode = !this.vimMode;
+        this.push({
+          role: "system",
+          content: `vim keymap ${this.vimMode ? "on (Esc → normal, i/a to insert)" : "off"}`,
+        });
+        this.emit();
         return true;
       case "/queue":
         this.queueCommand(rest[0]);

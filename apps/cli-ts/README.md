@@ -25,8 +25,8 @@ npm run dev
 ```
 
 Inside the TUI: type a message and press Enter to stream a turn; `/help`
-lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/queue`,
-`/doctor`, `/retry`, `/edit`, `/clear`, `/resume`).
+lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/vim`,
+`/queue`, `/doctor`, `/retry`, `/edit`, `/clear`, `/resume`).
 Messages sent while a turn is in flight are queued (shown in the footer) and
 run automatically when the turn ends; `/queue clear` discards them.
 `/goal <objective>` sets a persistent session objective (shown in the footer

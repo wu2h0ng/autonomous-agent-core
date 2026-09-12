@@ -43,6 +43,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "show or switch the render theme",
   },
   {
+    name: "/vim",
+    argsHint: "",
+    description: "toggle vim keymap (Esc normal; i/a insert)",
+  },
+  {
     name: "/doctor",
     argsHint: "",
     description: "run a read-only self-check (descriptor/auth/protocol)",

@@ -13,9 +13,10 @@ export interface CliState {
   history: string[];
   theme: string;
   goal: string | null;
+  vim: boolean;
 }
 
-export const DEFAULT_STATE: CliState = { history: [], theme: "default", goal: null };
+export const DEFAULT_STATE: CliState = { history: [], theme: "default", goal: null, vim: false };
 
 const MAX_HISTORY = 200;
 
@@ -33,6 +34,7 @@ export function loadState(path: string): CliState {
         : [],
       theme: typeof parsed.theme === "string" && parsed.theme ? parsed.theme : DEFAULT_STATE.theme,
       goal: typeof parsed.goal === "string" && parsed.goal ? parsed.goal : null,
+      vim: typeof parsed.vim === "boolean" ? parsed.vim : false,
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -46,6 +48,7 @@ export function saveState(path: string, state: CliState): boolean {
       history: state.history.slice(-MAX_HISTORY),
       theme: state.theme,
       goal: state.goal,
+      vim: state.vim,
     };
     writeFileSync(path, JSON.stringify(payload), { encoding: "utf8", mode: 0o600 });
     chmodSync(path, 0o600); // tighten pre-existing files too

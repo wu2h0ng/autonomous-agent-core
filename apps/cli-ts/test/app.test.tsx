@@ -204,6 +204,29 @@ test("selector: filtering after moving the cursor still picks the highlighted it
   }
 });
 
+test("vim: Esc to normal swallows navigation keys; i returns to insert", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  controller.vimMode = true;
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("ab");
+    await flush();
+    await view.stdin.write("\u001B"); // Esc -> normal mode
+    await flush();
+    await view.stdin.write("j"); // normal-mode motion, must not insert
+    await flush();
+    assert.equal((view.lastFrame() ?? "").includes("j"), false);
+    await view.stdin.write("i"); // back to insert
+    await flush();
+    await view.stdin.write("Z");
+    await flush();
+    assert.match(view.lastFrame() ?? "", /Z/);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

@@ -66,6 +66,7 @@ async function main(): Promise<void> {
   });
   controller.themeName = state.theme;
   controller.goal = state.goal;
+  controller.vimMode = state.vim;
   if (resumeSessionId) {
     await controller.submit(`/resume ${resumeSessionId}`);
   }
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
       history: historyEntries,
       theme: controller.themeName,
       goal: controller.goal,
+      vim: controller.vimMode,
     });
   };
   const scheduleSave = (): void => {

@@ -17,14 +17,18 @@ export function Composer({
   state,
   placeholder,
   theme,
+  modeLabel,
 }: {
   state: ComposerState;
   placeholder?: string;
   theme: ThemeColors;
+  modeLabel?: string | undefined;
 }) {
+  const label = modeLabel ? <Text color={theme.notice}>{modeLabel} </Text> : null;
   if (state.value.length === 0) {
     return (
       <Text>
+        {label}
         <Text color={theme.toolDone}>{"› "}</Text>
         <Text inverse> </Text>
         {placeholder ? <Text dimColor>{` ${placeholder}`}</Text> : null}
@@ -37,9 +41,11 @@ export function Composer({
     <Box flexDirection="column">
       {lines.map((line, index) => {
         const prefix = index === 0 ? "› " : "  ";
+        const lead = index === 0 ? label : null;
         if (index !== cursorLine) {
           return (
             <Text key={index}>
+              {lead}
               {prefix}
               {line.length > 0 ? line : " "}
             </Text>
@@ -50,6 +56,7 @@ export function Composer({
         const after = line.slice(column + glyph.length);
         return (
           <Text key={index}>
+            {lead}
             {prefix}
             {before}
             <Text inverse>{glyph}</Text>

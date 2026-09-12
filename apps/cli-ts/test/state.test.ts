@@ -14,8 +14,8 @@ function tempPath(): string {
 
 test("save/load round-trips and writes 0600", () => {
   const path = tempPath();
-  assert.equal(saveState(path, { history: ["a", "b"], theme: "ansi", goal: "ship it" }), true);
-  assert.deepEqual(loadState(path), { history: ["a", "b"], theme: "ansi", goal: "ship it" });
+  assert.equal(saveState(path, { history: ["a", "b"], theme: "ansi", goal: "ship it", vim: true }), true);
+  assert.deepEqual(loadState(path), { history: ["a", "b"], theme: "ansi", goal: "ship it", vim: true });
   assert.equal(statSync(path).mode & 0o777, 0o600);
 });
 
@@ -25,13 +25,13 @@ test("missing or corrupt state falls back to defaults (never throws)", () => {
   writeFileSync(path, "{not json", "utf8");
   assert.deepEqual(loadState(path), DEFAULT_STATE);
   writeFileSync(path, JSON.stringify({ history: [1, "ok", null], theme: "", goal: 7 }), "utf8");
-  assert.deepEqual(loadState(path), { history: ["ok"], theme: "default", goal: null });
+  assert.deepEqual(loadState(path), { history: ["ok"], theme: "default", goal: null, vim: false });
 });
 
 test("history is capped to the most recent 200 entries", () => {
   const path = tempPath();
   const history = Array.from({ length: 250 }, (_, index) => `m${index}`);
-  saveState(path, { history, theme: "default", goal: null });
+  saveState(path, { history, theme: "default", goal: null, vim: false });
   const loaded = loadState(path);
   assert.equal(loaded.history.length, 200);
   assert.equal(loaded.history[0], "m50");
@@ -41,7 +41,7 @@ test("history is capped to the most recent 200 entries", () => {
   // directly and assert loadState still caps.
   writeFileSync(
     path,
-    JSON.stringify({ history: Array.from({ length: 260 }, (_, i) => `d${i}`), theme: "ansi", goal: null }),
+    JSON.stringify({ history: Array.from({ length: 260 }, (_, i) => `d${i}`), theme: "ansi", goal: null, vim: false }),
     "utf8",
   );
   const direct = loadState(path);
