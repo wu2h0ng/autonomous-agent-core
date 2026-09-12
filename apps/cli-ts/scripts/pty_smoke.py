@@ -28,6 +28,7 @@ Usage: uv run python apps/cli-ts/scripts/pty_smoke.py
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import re
@@ -38,12 +39,19 @@ import sys
 import tempfile
 import termios
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLI_DIR = REPO_ROOT / "apps" / "cli-ts"
 CLI_ENTRY = CLI_DIR / "src" / "cli.tsx"
 TSX = CLI_DIR / "node_modules" / ".bin" / "tsx"
+
+# Generous, env-overridable timeouts: under a loaded `e2e` chain (multiple uv
+# daemons + tsx startup) a fixed 2s readiness sleep and 10s/20s drains raced.
+BOOT_TIMEOUT = float(os.environ.get("CLI_TS_PTY_BOOT_TIMEOUT", "30"))
+TURN_TIMEOUT = float(os.environ.get("CLI_TS_PTY_TURN_TIMEOUT", "60"))
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z]")
 
@@ -82,6 +90,9 @@ class Daemon:
 
     def __init__(self, tmp: Path, name: str) -> None:
         self.desc = tmp / f"{name}-runtime.json"
+        # Capture daemon output: DEVNULL made a crash/timeout undiagnosable.
+        self.log_path = tmp / f"{name}.daemon.log"
+        self._log = open(self.log_path, "wb")  # noqa: SIM115 - closed in stop()
         self.proc = subprocess.Popen(
             [
                 "uv", "run", "python",
@@ -91,8 +102,8 @@ class Daemon:
                 "--workspace", str(tmp / f"{name}-ws"),
             ],
             cwd=REPO_ROOT,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self._log,
+            stderr=subprocess.STDOUT,
         )
         for _ in range(60):
             if self.desc.exists():
@@ -101,7 +112,27 @@ class Daemon:
         if not self.desc.exists():
             self.proc.terminate()
             raise AssertionError(f"daemon {name} never wrote descriptor")
-        time.sleep(2)
+        self._wait_ready(name)
+
+    def _wait_ready(self, name: str) -> None:
+        """Poll the daemon over HTTP until it answers (any status = up).
+
+        Descriptor existence alone is not readiness; a fixed sleep raced under
+        the loaded e2e chain and produced flaky 'no streamed reply' failures.
+        """
+        data = json.loads(self.desc.read_text("utf-8"))
+        base_url = f"http://{data['host']}:{data['port']}"
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen(base_url, timeout=1)
+                return
+            except urllib.error.HTTPError:
+                return  # server answered (4xx/5xx) -> it is up
+            except Exception:
+                time.sleep(0.3)
+        self.proc.terminate()
+        raise AssertionError(f"daemon {name} did not become reachable at {base_url}")
 
     def stop(self) -> None:
         self.proc.terminate()
@@ -112,6 +143,7 @@ class Daemon:
             ["pkill", "-f", f"dev_daemon.py --descriptor {self.desc}"],
             check=False, capture_output=True,
         )
+        self._log.close()
 
 
 def run_tui(desc: Path, rows: int, cols: int, body) -> None:
@@ -127,7 +159,16 @@ def run_tui(desc: Path, rows: int, cols: int, body) -> None:
     )
     os.close(slave)
     try:
-        body(master)
+        try:
+            body(master)
+        except AssertionError:
+            # Surface what the TUI actually rendered so a flake is diagnosable.
+            try:
+                tail = strip(drain(master, 0.5))
+                sys.stderr.write("\n[pty-smoke] TUI output at failure (tail):\n" + tail[-2000:] + "\n")
+            except Exception:
+                pass
+            raise
         os.write(master, b"\x03")  # Ctrl-C
         drain(master, 3)
         try:
@@ -141,26 +182,26 @@ def run_tui(desc: Path, rows: int, cols: int, body) -> None:
 
 
 def phase1(master: int) -> None:
-    out = drain(master, 10, until="/help")
+    out = drain(master, BOOT_TIMEOUT, until="/help")
     assert "/help" in strip(out), "initial render missing status line"
 
     out = type_keys(master, "hello pty")
     assert "hello pty" in strip(out), "typed input did not echo"
 
     os.write(master, b"\r")
-    out = drain(master, 20, until="deterministic")
+    out = drain(master, TURN_TIMEOUT, until="deterministic")
     assert "deterministic" in strip(out), (
-        "Enter did not submit / no streamed reply within 20s"
+        f"Enter did not submit / no streamed reply within {TURN_TIMEOUT:.0f}s"
     )
 
 
 def phase2(master: int) -> None:
-    out = drain(master, 10, until="/help")
+    out = drain(master, BOOT_TIMEOUT, until="/help")
     assert "/help" in strip(out), "narrow boot: missing status line"
 
     type_keys(master, "hi")
     os.write(master, b"\r")
-    out = drain(master, 20, until="deterministic")
+    out = drain(master, TURN_TIMEOUT, until="deterministic")
     text = strip(out)
     assert "deterministic" in text, "narrow terminal: no streamed reply"
     assert "流式" in text, "narrow terminal: CJK reply corrupted"
@@ -170,7 +211,7 @@ def phase2(master: int) -> None:
     drain(master, 1)
     type_keys(master, "/help")
     os.write(master, b"\r")
-    out = drain(master, 8)
+    out = drain(master, 15)
     assert "files" in strip(out), "post-resize: /help did not render"
 
 
@@ -178,19 +219,19 @@ def phase3(master: int) -> None:
     """Approval flow in a real pty (iteration-18): turn 2 of the scripted
     daemon proposes workspace.edit -> WAITING_APPROVAL in ASK mode; pressing
     'y' is the human-only approve path and the continuation text streams."""
-    out = drain(master, 10, until="/help")
+    out = drain(master, BOOT_TIMEOUT, until="/help")
     assert "/help" in strip(out), "approval phase: missing status line"
 
     type_keys(master, "hi")
     os.write(master, b"\r")
-    out = drain(master, 20, until="deterministic")
+    out = drain(master, TURN_TIMEOUT, until="deterministic")
     assert "deterministic" in strip(out), "approval phase: turn 1 did not stream"
 
     # Regression guard (iteration-18): turn 2 must not be rejected with a
     # stale expected_event_sequence after a durable-resolved turn 1.
     type_keys(master, "edit please")
     os.write(master, b"\r")
-    out = drain(master, 20, until="[y] approve")
+    out = drain(master, TURN_TIMEOUT, until="[y] approve")
     out += drain(master, 3)  # settle frames
     text = strip(out)
     assert "does not match current sequence" not in text, (
@@ -204,31 +245,40 @@ def phase3(master: int) -> None:
     assert "digest " in text, "approval card missing digest line"
 
     os.write(master, b"y")
-    out = drain(master, 20, until="edit applied")
+    out = drain(master, TURN_TIMEOUT, until="edit applied")
     assert "edit applied" in strip(out), "approve (y) did not apply the edit"
+
+
+def run_phase(tmp: Path, name: str, rows: int, cols: int, body, attempts: int = 2) -> None:
+    """Run a phase with a fresh daemon, retrying once with diagnostics.
+
+    The race is a daemon/TUI turn-timing flake under the loaded e2e chain; a
+    fresh-daemon retry keeps the gate meaningful while daemon logs (captured in
+    Daemon) make any residual failure diagnosable.
+    """
+    last_error: AssertionError | None = None
+    for attempt in range(attempts):
+        daemon = Daemon(tmp, f"{name}-a{attempt}")
+        try:
+            run_tui(daemon.desc, rows, cols, body)
+            return
+        except AssertionError as exc:
+            last_error = exc
+            sys.stderr.write(f"[pty-smoke] {name} attempt {attempt + 1}/{attempts} failed: {exc}\n")
+            if attempt + 1 == attempts and daemon.log_path.exists():
+                log = daemon.log_path.read_text(errors="replace")
+                sys.stderr.write(f"[pty-smoke] {name} daemon log tail:\n{log[-2000:]}\n")
+        finally:
+            daemon.stop()
+    raise last_error if last_error is not None else AssertionError(name)
 
 
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cli-ts-pty-") as tmp_str:
         tmp = Path(tmp_str)
-
-        daemon1 = Daemon(tmp, "p1")
-        try:
-            run_tui(daemon1.desc, 24, 80, phase1)
-        finally:
-            daemon1.stop()
-
-        daemon2 = Daemon(tmp, "p2")
-        try:
-            run_tui(daemon2.desc, 12, 40, phase2)
-        finally:
-            daemon2.stop()
-
-        daemon3 = Daemon(tmp, "p3")
-        try:
-            run_tui(daemon3.desc, 24, 80, phase3)
-        finally:
-            daemon3.stop()
+        run_phase(tmp, "p1", 24, 80, phase1)
+        run_phase(tmp, "p2", 12, 40, phase2)
+        run_phase(tmp, "p3", 24, 80, phase3)
 
     print("[pty-smoke] PASS: render / typing echo / Enter submit+stream / "
           "Ctrl-C exit / narrow+resize relayout / approval card y-approve")
