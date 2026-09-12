@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  formatToolDetail,
   parseTodoItems,
   summarizeArgs,
   TODO_CAPABILITY,
@@ -35,6 +36,27 @@ test("summarizeArgs prefers path/command and truncates", () => {
   assert.equal(summarizeArgs('{"command":"npm test"}'), "npm test");
   assert.equal(summarizeArgs(`{"path":"${"p".repeat(100)}"}`).length, 73);
   assert.equal(summarizeArgs("not json"), "(unparseable arguments)");
+});
+
+test("formatToolDetail pretty-prints arguments and never throws on malformed JSON", () => {
+  const detail = formatToolDetail({
+    actionId: "a:1",
+    capabilityId: "workspace.edit",
+    argsSummary: "src/a.ts",
+    argsJson: '{"path":"src/a.ts","new_string":"b"}',
+    status: "done",
+  });
+  assert.deepEqual(detail[0], "action   a:1");
+  assert.deepEqual(detail[1], "status   done");
+  assert.ok(detail.some((line) => line.includes('"path": "src/a.ts"')));
+  const raw = formatToolDetail({
+    actionId: "a:2",
+    capabilityId: "workspace.edit",
+    argsSummary: "?",
+    argsJson: "not json",
+    status: "failed",
+  });
+  assert.ok(raw.some((line) => line.includes("not json")));
 });
 
 test("finalized cursor: messages finalize on push and on resolution", async () => {
@@ -103,6 +125,59 @@ test("tool cards: proposed → pending card; receipt → done/failed by action_i
     },
   ]);
   assert.equal(controller.messages[0]?.tool?.status, "done");
+});
+
+test("tool receipt: no-error sentinel never renders and non-success statuses stay honest", () => {
+  const controller = new TuiController({} as never);
+  const apply = controller as never as { applyDurable: (n: number, e: unknown[]) => void };
+  const proposed = (seq: number, actionId: string): Record<string, unknown> => ({
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_PROPOSED",
+    payload_json: JSON.stringify({
+      action: { action_id: actionId, capability_id: "workspace.edit", arguments_json: '{"path":"f.txt"}' },
+    }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  });
+  const receipt = (
+    seq: number,
+    actionId: string,
+    body: Record<string, unknown>,
+  ): Record<string, unknown> => ({
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_RECEIPT_RECORDED",
+    payload_json: JSON.stringify({ decision: { action_id: actionId }, ...body }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  });
+
+  apply.applyDurable(1, [proposed(1, "a:1")]);
+  apply.applyDurable(2, [
+    receipt(2, "a:1", {
+      receipt: { action_id: "a:1", status: "SUCCEEDED", error_code: "error:none", output_artifact_ids: ["art:1"] },
+      effect: { path: "f.txt", applied_sha256: "a".repeat(64) },
+    }),
+  ]);
+  const done = controller.messages[0]?.tool;
+  assert.equal(done?.status, "done");
+  assert.match(done?.resultSummary ?? "", /effect f\.txt/);
+  assert.match(done?.resultSummary ?? "", /artifacts 1/);
+  assert.ok(!(done?.resultSummary ?? "").includes("error:none"), "no-error sentinel must not render");
+
+  apply.applyDurable(3, [proposed(3, "a:2")]);
+  apply.applyDurable(4, [
+    receipt(4, "a:2", { receipt: { action_id: "a:2", status: "UNKNOWN", error_code: "error:none" } }),
+  ]);
+  assert.equal(controller.messages[1]?.tool?.status, "pending", "UNKNOWN must not render as success");
+
+  apply.applyDurable(5, [proposed(5, "a:3")]);
+  apply.applyDurable(6, [
+    receipt(6, "a:3", { receipt: { action_id: "a:3", status: "FAILED", error_code: "error:timeout" } }),
+  ]);
+  assert.equal(controller.messages[2]?.tool?.status, "failed");
+  assert.match(controller.messages[2]?.tool?.resultSummary ?? "", /error error:timeout/);
 });
 
 function todoProposedEvent(

@@ -25,8 +25,16 @@ npm run dev
 ```
 
 Inside the TUI: type a message and press Enter to stream a turn; `/help`
-lists commands (`/mode`, `/files`, `/task`, `/clear`, `/resume`); `y`/`n`
-answer approval cards; Esc/Ctrl-C issue a correction; Ctrl-L clears the view.
+lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/clear`,
+`/resume`).
+`/goal <objective>` sets a persistent session objective (shown in the footer
+and prefixed onto every subsequent turn); `/goal clear` unsets it. `/theme`
+cycles the render theme. `@` completes workspace file paths (Tab inserts).
+Typing `/`
+opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
+Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it, Ctrl-O
+toggles the tool detail panel. `y`/`n` answer approval cards; Esc issues a
+correction during a turn (Ctrl-C exits); Ctrl-L clears the view.
 
 ## Verify (one command, fully hermetic)
 

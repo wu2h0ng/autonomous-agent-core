@@ -15,14 +15,22 @@
 
 import type { SurfaceClient } from "./client.js";
 import { SurfaceStreamStaleError } from "./client.js";
+import { helpLines } from "./commands.js";
+import { diffLines } from "./diffview.js";
+import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
 import type {
   PermissionMode,
+  SurfaceFileEntry,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
   TaskEvent,
 } from "./contracts.js";
 
 export const STALL_DEFAULT_MS = 30_000;
+
+/** Kernel sentinel for "no error" (`agent_os_contracts.authority.NO_ERROR_CODE`).
+ * Every receipt carries it; it must never render as an error. */
+export const NO_ERROR_CODE = "error:none";
 
 export type ControllerStatus =
   | "idle"
@@ -39,6 +47,9 @@ export interface ToolCall {
    * never from the truncated summary. */
   argsJson: string;
   status: "pending" | "done" | "failed";
+  /** Optional durable receipt outcome (effect summary / error code / artifact
+   * count), shown in the Ctrl-O tool detail panel. */
+  resultSummary?: string;
 }
 
 export interface TodoItem {
@@ -107,22 +118,44 @@ export function summarizeArgs(argumentsJson: string): string {
   return JSON.stringify(args).slice(0, 72);
 }
 
+/** Diff lines for an edit-style tool call (old_string/new_string present). */
+function toolDiff(argsJson: string): string[] | null {
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(argsJson) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const oldText = args["old_string"];
+  const newText = args["new_string"];
+  if (typeof oldText !== "string" || typeof newText !== "string") return null;
+  return diffLines(oldText, newText).map((line) => {
+    const marker = line.kind === "del" ? "-" : line.kind === "add" ? "+" : " ";
+    return `  ${marker} ${line.text}`;
+  });
+}
+
+/** Multi-line detail block for the expanded tool view (Ctrl-O). Never
+ * throws on malformed arguments — the raw JSON is shown verbatim instead. */
+export function formatToolDetail(tool: ToolCall): string[] {
+  let pretty = tool.argsJson;
+  try {
+    pretty = JSON.stringify(JSON.parse(tool.argsJson), null, 2);
+  } catch {
+    // keep raw
+  }
+  const lines = [`action   ${tool.actionId}`, `status   ${tool.status}`];
+  if (tool.resultSummary) lines.push(`result   ${tool.resultSummary}`);
+  lines.push(...pretty.split("\n").map((line) => `  ${line}`));
+  const diff = toolDiff(tool.argsJson);
+  if (diff) lines.push("diff", ...diff);
+  return lines;
+}
+
 export const MODE_ORDER: PermissionMode[] = [
   "ASK",
   "ACCEPT_READ_ONLY",
   "ACCEPT_IN_WORKSPACE",
-];
-
-const SLASH_HELP: readonly string[] = [
-  "/exit                quit (Ctrl-C during a turn issues a correction first)",
-  "/status              session id, status, permission mode, event sequence",
-  "/cost                exact token totals; cost is UNKNOWN (no pricing source)",
-  "/mode [MODE]         show or set permission mode (ASK | ACCEPT_READ_ONLY | ACCEPT_IN_WORKSPACE)",
-  "/resume <session-id> attach to an existing durable session",
-  "/files [PREFIX]      workspace files (bounded read-only listing; optional path filter)",
-  "/task                task overview: run status, receipts, outcome binding",
-  "/clear               clear the LOCAL view (session context unchanged; Ctrl-L)",
-  "/help                this list",
 ];
 
 export interface ControllerDeps {
@@ -147,11 +180,21 @@ export class TuiController {
   /** stop_reason of the most recent completed turn, verbatim from the
    * durable SESSION_TURN_COMPLETED payload ("completed" on success). */
   lastStopReason: string | null = null;
+  /** Persistent session objective (Codex-style `/goal`). Client-scoped: while
+   * set it is prefixed onto every outgoing turn as an explicit context block
+   * and rendered in the footer, so the effect is never silent. */
+  goal: string | null = null;
+  /** Active render theme (operator-only `/theme`). */
+  themeName: string = DEFAULT_THEME_NAME;
+  /** Locally observed session ids, most-recent first (no sessions-list
+   * endpoint exists yet, so `/resume` can only offer what this client saw). */
+  recentSessions: string[] = [];
   lastError: string | null = null;
 
   private sessionId: string | null = null;
   private taskId: string | null = null;
   private snapshot: SurfaceSessionSnapshot | null = null;
+  private filesCache: SurfaceFileEntry[] | null = null;
   private stream: SurfaceStreamBinding | null = null;
   private turnId: string | null = null;
   private durableCursor = 0;
@@ -242,7 +285,7 @@ export class TuiController {
         this.emit();
         return true;
       case "/help":
-        for (const line of SLASH_HELP) this.push({ role: "system", content: line });
+        for (const line of helpLines()) this.push({ role: "system", content: line });
         return true;
       case "/status":
         this.push({ role: "system", content: this.statusLine() });
@@ -264,6 +307,12 @@ export class TuiController {
         return true;
       case "/task":
         await this.taskCommand();
+        return true;
+      case "/goal":
+        this.goalCommand(rest.join(" ").trim());
+        return true;
+      case "/theme":
+        this.themeCommand(rest[0]);
         return true;
       case "/clear":
         this.clearView();
@@ -307,21 +356,76 @@ export class TuiController {
     this.push({ role: "system", content: `permission mode → ${this.mode}` });
   }
 
-  private async resumeCommand(arg: string | undefined): Promise<void> {
+  /** `/theme` — show the active theme, cycle with `next`, or select by name. */
+  private themeCommand(arg: string | undefined): void {
     if (!arg) {
-      this.push({ role: "system", content: "usage: /resume <session-id>" });
+      this.push({
+        role: "system",
+        content: `theme: ${this.themeName} (available: ${themeNames().join(", ")}; /theme next to cycle)`,
+      });
       return;
     }
+    if (arg.toLowerCase() === "next") {
+      this.themeName = nextTheme(this.themeName);
+      this.push({ role: "system", content: `theme → ${this.themeName}` });
+      return;
+    }
+    const name = arg.toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(THEMES, name)) {
+      this.push({
+        role: "system",
+        content: `unknown theme ${arg}; available: ${themeNames().join(", ")}`,
+      });
+      return;
+    }
+    this.themeName = name;
+    this.push({ role: "system", content: `theme → ${this.themeName}` });
+  }
+
+  private async resumeCommand(arg: string | undefined): Promise<void> {
+    if (!arg) {
+      if (this.recentSessions.length === 0) {
+        this.push({ role: "system", content: "no recent sessions; usage: /resume <session-id>" });
+        return;
+      }
+      this.push({
+        role: "system",
+        content:
+          `recent sessions (local, this client only):\n` +
+          this.recentSessions.map((id, index) => `  ${index + 1}. ${id}`).join("\n") +
+          `\nusage: /resume <n> or /resume <session-id>`,
+      });
+      return;
+    }
+    // Allow picking a recent session by 1-based index.
+    const index = Number(arg);
+    const target =
+      Number.isInteger(index) && index >= 1 && index <= this.recentSessions.length
+        ? (this.recentSessions[index - 1] as string)
+        : arg;
     if (this.busy) {
       this.push({ role: "system", content: "turn in progress; cannot resume now" });
       return;
     }
-    const snapshot = await this.client.getSession(arg);
+    const snapshot = await this.client.getSession(target);
     this.adoptSnapshot(snapshot);
     this.push({
       role: "system",
       content: `resumed session ${snapshot.session.session_id} (status ${snapshot.status}, mode ${snapshot.permission_mode})`,
     });
+  }
+
+  /** Bounded workspace file list, fetched once per session and cached for
+   * `@` mention completion. Read-only; returns [] before a session exists. */
+  async workspaceFiles(): Promise<SurfaceFileEntry[]> {
+    if (this.filesCache) return this.filesCache;
+    if (!this.taskId) return [];
+    try {
+      this.filesCache = await this.client.files(this.taskId);
+    } catch {
+      return [];
+    }
+    return this.filesCache;
   }
 
   /** Bounded workspace listing (server-side depth/noise bounded; client caps
@@ -358,6 +462,31 @@ export class TuiController {
     });
   }
 
+  /** `/goal` — show, set or clear the persistent session objective. Not a
+   * kernel capability: it lives in the client and is re-emitted as an
+   * explicit context prefix per turn (honest about being session-scoped). */
+  private goalCommand(arg: string): void {
+    if (!arg) {
+      this.push({
+        role: "system",
+        content: this.goal
+          ? `session goal: ${this.goal}`
+          : "no session goal set; usage: /goal <objective> | /goal clear",
+      });
+      return;
+    }
+    if (arg.toLowerCase() === "clear") {
+      this.goal = null;
+      this.push({ role: "system", content: "session goal cleared" });
+      return;
+    }
+    this.goal = arg;
+    this.push({
+      role: "system",
+      content: `session goal set (included as context in each turn): ${arg}`,
+    });
+  }
+
   /** Clear the LOCAL view only: messages, finalized cursor, tool index.
    * Durable session state (history, tokens, mode) is server-side and
    * untouched — the notice says so, because unlike mainstream /clear this
@@ -378,11 +507,17 @@ export class TuiController {
     });
   }
 
-  private adoptSnapshot(snapshot: SurfaceSessionSnapshot): void {    this.snapshot = snapshot;
+  private adoptSnapshot(snapshot: SurfaceSessionSnapshot): void {
+    this.snapshot = snapshot;
     this.sessionId = snapshot.session.session_id;
     this.taskId = snapshot.session.task_id;
     this.mode = snapshot.permission_mode;
     this.stream = null;
+    this.filesCache = null;
+    this.recentSessions = [
+      snapshot.session.session_id,
+      ...this.recentSessions.filter((id) => id !== snapshot.session.session_id),
+    ].slice(0, 10);
     this.emit();
   }
 
@@ -415,12 +550,13 @@ export class TuiController {
         };
       }
       const binding = this.stream;
-      this.push({ role: "user", content: text });
+      const outgoing = this.goal ? `[session goal] ${this.goal}\n\n${text}` : text;
+      this.push({ role: "user", content: outgoing });
       this.status = "streaming";
       this.lastActivity = this.clock();
       this.emit();
 
-      const begin = await this.client.beginTurn(sessionId, text, binding);
+      const begin = await this.client.beginTurn(sessionId, outgoing, binding);
       this.turnId = begin.turn_id;
 
       for await (const frame of this.client.followStream(sessionId, binding, { pollMs: this.pollMs })) {
@@ -580,9 +716,33 @@ export class TuiController {
     const message = this.messages[index];
     if (!message?.tool) return;
     const status = String(receipt?.["status"] ?? "");
+    const parts: string[] = [];
+    const effect = payload["effect"] as Record<string, unknown> | undefined;
+    // Top-level `effect` is emitted by the kernel only for compensatable
+    // edits (workspace.edit/apply_patch, SUCCEEDED): task_service.py:1548.
+    if (effect && typeof effect["path"] === "string") {
+      const applied =
+        typeof effect["applied_sha256"] === "string"
+          ? String(effect["applied_sha256"]).slice(0, 12)
+          : "";
+      parts.push(`effect ${effect["path"]}${applied ? ` · applied ${applied}…` : ""}`);
+    }
+    const errorCode = String(receipt?.["error_code"] ?? "");
+    if (errorCode && errorCode !== NO_ERROR_CODE) parts.push(`error ${errorCode}`);
+    const artifacts = receipt?.["output_artifact_ids"];
+    if (Array.isArray(artifacts) && artifacts.length > 0) parts.push(`artifacts ${artifacts.length}`);
+    // Only SUCCEEDED is a success; FAILED/CANCELLED/COMPENSATED are failures;
+    // DISPATCHED/ACKNOWLEDGED/UNKNOWN are not-yet-confirmed (pending), never ✓.
+    const toolStatus: ToolCall["status"] =
+      status === "SUCCEEDED"
+        ? "done"
+        : status === "FAILED" || status === "CANCELLED" || status === "COMPENSATED"
+          ? "failed"
+          : "pending";
     message.tool = {
       ...message.tool,
-      status: status === "FAILED" || status === "CANCELLED" ? "failed" : "done",
+      status: toolStatus,
+      ...(parts.length > 0 ? { resultSummary: parts.join(" · ") } : {}),
     };
     this.emit();
   }

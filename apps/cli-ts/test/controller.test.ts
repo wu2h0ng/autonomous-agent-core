@@ -56,6 +56,7 @@ class FakeClient {
   streamScript: SurfaceStreamFrame[] = [];
   getSessionCalls = 0;
   snapshotSequence = 1;
+  beginTexts: string[] = [];
 
   async openSession() {
     return snapshot();
@@ -81,7 +82,8 @@ class FakeClient {
   async subscribeStream() {
     return { protocol_version: "1.1", runtime_boot_id: "boot:1", stream_id: "stream:1" };
   }
-  async beginTurn() {
+  async beginTurn(_sid: string, text: string) {
+    this.beginTexts.push(text);
     return { protocol_version: "1.1", turn_id: "turn:1", stream_id: "stream:1" };
   }
   async *followStream() {
@@ -359,4 +361,49 @@ test("ctrl-c during streaming issues a correction, not a silent kill", async () 
   assert.equal(result, "corrected");
   assert.equal(controller.status, "idle");
   assert.ok(controller.messages.some((m) => m.content.includes("correction issued")));
+});
+
+test("/theme and /resume selector: operator UX", async () => {
+  const controller = new TuiController(new FakeClient() as never, { pollMs: 1 });
+  await controller.submit("/theme");
+  assert.match(controller.messages.at(-1)?.content ?? "", /theme: default/);
+  await controller.submit("/theme mono");
+  assert.equal(controller.themeName, "mono");
+  await controller.submit("/theme next");
+  assert.notEqual(controller.themeName, "mono");
+  await controller.submit("/theme nope");
+  assert.match(controller.messages.at(-1)?.content ?? "", /unknown theme nope/);
+
+  await controller.submit("/resume s:1");
+  await controller.submit("/resume");
+  assert.match(controller.messages.at(-1)?.content ?? "", /recent sessions/);
+  assert.match(controller.messages.at(-1)?.content ?? "", /1\. s:1/);
+  await controller.submit("/resume 1");
+  assert.match(controller.messages.at(-1)?.content ?? "", /resumed session s:1/);
+});
+
+test("/goal: show / set / clear, and the active goal prefixes every turn", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 1;
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 50 });
+
+  await controller.submit("/goal");
+  assert.match(controller.messages.at(-1)?.content ?? "", /no session goal set/);
+
+  await controller.submit("/goal ship the parity increment");
+  assert.equal(controller.goal, "ship the parity increment");
+  assert.match(controller.messages.at(-1)?.content ?? "", /session goal set/);
+
+  await controller.submit("status?");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(client.beginTexts.at(-1), "[session goal] ship the parity increment\n\nstatus?");
+  const user = controller.messages.find((m) => m.role === "user");
+  assert.match(user?.content ?? "", /^\[session goal\] ship the parity increment/);
+
+  await controller.submit("/goal clear");
+  assert.equal(controller.goal, null);
+  await controller.submit("plain");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(client.beginTexts.at(-1), "plain");
 });
