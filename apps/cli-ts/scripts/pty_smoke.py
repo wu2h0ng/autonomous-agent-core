@@ -121,6 +121,9 @@ def run_tui(desc: Path, rows: int, cols: int, body) -> None:
     proc = subprocess.Popen(
         [str(TSX), str(CLI_ENTRY), "--descriptor", str(desc)],
         stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+        # Keep the run hermetic: never read/write the developer's real
+        # ~/.agent-os/cli-ts-state.json (history/theme/goal persistence).
+        env={**os.environ, "AGENT_OS_CLI_STATE": str(Path(desc).parent / "cli-ts-state.json")},
     )
     os.close(slave)
     try:

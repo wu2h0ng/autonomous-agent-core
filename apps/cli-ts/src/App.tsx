@@ -29,6 +29,8 @@ import { handleGlobalKey } from "./keys.js";
 import { layoutFor } from "./layout.js";
 import { renderMarkdown } from "./markdown.js";
 import { activeMention, applyMention, filterMentions } from "./mentions.js";
+import { attentionFor, attentionSequence } from "./attention.js";
+import { highlightCode, languageForPath } from "./highlight.js";
 import { resolveTheme } from "./theme.js";
 import type { ThemeColors } from "./theme.js";
 
@@ -102,8 +104,17 @@ function MessageView({
   );
 }
 
-export function App({ controller }: { controller: TuiController }) {
+export function App({
+  controller,
+  initialHistory = [],
+  onHistoryChange,
+}: {
+  controller: TuiController;
+  initialHistory?: readonly string[];
+  onHistoryChange?: (entries: string[]) => void;
+}) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [composer, setComposer] = useState<ComposerState>(EMPTY);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
@@ -111,8 +122,12 @@ export function App({ controller }: { controller: TuiController }) {
   const [showToolDetails, setShowToolDetails] = useState(false);
   const [searchMode, setSearchMode] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
+  const [selectorIndex, setSelectorIndex] = useState(0);
   const [files, setFiles] = useState<string[]>([]);
-  const history = useRef(new InputHistory()).current;
+  const historyRef = useRef<InputHistory | null>(null);
+  if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
+  const history = historyRef.current;
+  const prevStatus = useRef<string>(controller.status);
   const width = useTerminalWidth();
   const layout = layoutFor(width);
 
@@ -127,6 +142,18 @@ export function App({ controller }: { controller: TuiController }) {
     return () => clearInterval(timer);
   }, [controller]);
 
+  // Attention signal on status transitions (approval needed / turn done|failed).
+  useEffect(() => {
+    const previous = prevStatus.current;
+    prevStatus.current = controller.status;
+    const kind = attentionFor(previous, controller.status, controller.lastStopReason, controller.lastError);
+    const sequence = attentionSequence(kind, {
+      bell: process.env.AGENT_OS_BELL !== "0",
+      notify: process.env.AGENT_OS_NOTIFY === "osc",
+    });
+    if (sequence) stdout?.write(sequence);
+  }, [controller.status, controller.lastStopReason, controller.lastError, stdout]);
+
   const input = composer.value;
   const mention = activeMention(input, composer.cursor);
   const palette: CommandSpec[] = useMemo(() => {
@@ -139,6 +166,16 @@ export function App({ controller }: { controller: TuiController }) {
   useEffect(() => {
     setSelected(0);
   }, [input, searchMode]);
+
+  useEffect(() => {
+    setSelectorIndex(0);
+  }, [controller.pendingSelector]);
+
+  // `/edit`: pull the last message out of the controller into the composer.
+  useEffect(() => {
+    const text = controller.consumePendingComposer();
+    if (text !== null) setComposer({ value: text, cursor: text.length });
+  }, [controller.hasPendingComposer, controller]);
 
   useEffect(() => {
     if (!mention) return;
@@ -162,6 +199,7 @@ export function App({ controller }: { controller: TuiController }) {
     }
     if (!value.trim()) return;
     history.add(value);
+    onHistoryChange?.(history.all());
     setComposer(EMPTY);
     setPaletteDismissed(false);
     void controller.submit(value).catch(() => undefined);
@@ -173,6 +211,24 @@ export function App({ controller }: { controller: TuiController }) {
   };
 
   useInput((keyInput, key) => {
+    const selector = controller.pendingSelector;
+    if (selector) {
+      const count = selector.items.length;
+      if (key.escape) {
+        controller.cancelSelector();
+      } else if (key.return) {
+        const pick = selector.items[selectorIndex];
+        if (pick !== undefined) controller.chooseSelector(pick);
+      } else if (key.upArrow) {
+        setSelectorIndex((index) => (count === 0 ? 0 : (index - 1 + count) % count));
+      } else if (key.downArrow) {
+        setSelectorIndex((index) => (count === 0 ? 0 : (index + 1) % count));
+      } else if (/^[1-9]$/.test(keyInput)) {
+        const pick = selector.items[Number(keyInput) - 1];
+        if (pick !== undefined) controller.chooseSelector(pick);
+      }
+      return;
+    }
     const restoreDraft = (): void => {
       setComposer({ value: searchDraft, cursor: searchDraft.length });
     };
@@ -339,6 +395,10 @@ export function App({ controller }: { controller: TuiController }) {
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const approvalDiff = pending?.preview ? previewToDiff(pending.preview) : null;
+  const approvalLang =
+    approvalDiff && approvalDiff[0]
+      ? languageForPath(approvalDiff[0].text.replace(/^edit\s+/, "").trim())
+      : undefined;
   const finalized = controller.messages.slice(0, controller.finalizedIndex);
   const active = controller.messages.slice(controller.finalizedIndex);
   const todoPanel = controller.todoPanel;
@@ -383,6 +443,20 @@ export function App({ controller }: { controller: TuiController }) {
           })}
         </Box>
       )}
+      {controller.pendingSelector && (
+        <Box flexDirection="column" borderStyle="round" borderColor={theme.accent}>
+          <Text bold color={theme.accent}>
+            {controller.pendingSelector.title}
+          </Text>
+          {controller.pendingSelector.items.map((item, index) => (
+            <Text key={item} color={index === selectorIndex ? theme.paletteSelected : theme.notice}>
+              {index === selectorIndex ? "› " : "  "}
+              {index + 1}. {item}
+            </Text>
+          ))}
+          <Text dimColor>↑↓ move · enter select · 1-9 quick · esc cancel</Text>
+        </Box>
+      )}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}
       {controller.status === "stalled" && (
         <Text color={theme.toolPending}>STALLED_PENDING_DURABLE_STATE — waiting for the durable record…</Text>
@@ -407,7 +481,9 @@ export function App({ controller }: { controller: TuiController }) {
                     }
                   >
                     {line.kind === "del" ? "- " : line.kind === "add" ? "+ " : "  "}
-                    {line.text}
+                    {approvalLang && line.kind !== "context"
+                      ? highlightCode(line.text, approvalLang)
+                      : line.text}
                   </Text>
                 ))
               : pending.preview
@@ -482,6 +558,7 @@ export function App({ controller }: { controller: TuiController }) {
       <Composer state={composer} placeholder={PLACEHOLDER} theme={theme} />
       <Text color={theme.footer} wrap="truncate-end">
         {`[${controller.mode}]`}
+        {controller.queuedCount > 0 ? ` · ${controller.queuedCount} queued` : ""}
         {layout.footerFields && snapshot
           ? ` tokens ${controller.tokensTotal} · cost UNKNOWN · events ${snapshot.event_sequence}`
           : ""}

@@ -136,6 +136,7 @@ def main() -> int:
                 "--descriptor", str(desc),
             ],
             stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+            env={**os.environ, "AGENT_OS_CLI_STATE": str(Path(desc).parent / "cli-ts-state.json")},
         )
         os.close(slave)
         try:

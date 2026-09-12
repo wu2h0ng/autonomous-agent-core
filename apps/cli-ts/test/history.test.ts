@@ -62,3 +62,11 @@ test("reset clears everything", () => {
   assert.equal(history.size, 0);
   assert.equal(history.prev("x"), "x");
 });
+
+test("constructor seeds from persisted entries and all() round-trips chronologically", () => {
+  const history = new InputHistory(["old one", "old two"]);
+  assert.deepEqual(history.all(), ["old one", "old two"]);
+  assert.equal(history.prev("draft"), "old two");
+  history.add("new");
+  assert.deepEqual(history.all(), ["old one", "old two", "new"]);
+});

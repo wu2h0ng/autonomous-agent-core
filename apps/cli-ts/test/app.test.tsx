@@ -158,6 +158,26 @@ test("Ctrl-R enters reverse search mode", async () => {
   }
 });
 
+test("selector: /theme opens an overlay; a number key applies the choice", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("/theme");
+    await flush();
+    await view.stdin.write("\r");
+    await flush();
+    assert.match(view.lastFrame() ?? "", /↑↓ move/);
+
+    await view.stdin.write("2"); // choose items[1] (ansi)
+    await flush();
+    assert.equal(controller.themeName, "ansi");
+    assert.equal(controller.pendingSelector, null);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

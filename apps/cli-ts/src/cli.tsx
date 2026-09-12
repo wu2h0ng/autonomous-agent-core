@@ -8,6 +8,7 @@ import { loadRuntimeDescriptor } from "./descriptor.js";
 import { TuiController } from "./controller.js";
 import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
 import { renderDoctorText, runDoctor } from "./doctor.js";
+import { loadState, saveState, stateFilePath } from "./state.js";
 import { App } from "./App.js";
 
 // Writing to a closed pipe (e.g. `agent-os-ts -p ... | head -3`) raises
@@ -58,11 +59,52 @@ async function main(): Promise<void> {
     return;
   }
 
-  const controller = new TuiController(client);
+  const statePath = stateFilePath();
+  const state = loadState(statePath);
+  const controller = new TuiController(client, {
+    doctor: async () => renderDoctorText(await runDoctor(descriptorPath)),
+  });
+  controller.themeName = state.theme;
+  controller.goal = state.goal;
   if (resumeSessionId) {
     await controller.submit(`/resume ${resumeSessionId}`);
   }
-  render(React.createElement(App, { controller }));
+
+  // Persist history/theme/goal locally (0600, debounced). Never secrets.
+  let historyEntries: string[] = state.history;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const persist = (): void => {
+    saveState(statePath, {
+      history: historyEntries,
+      theme: controller.themeName,
+      goal: controller.goal,
+    });
+  };
+  const scheduleSave = (): void => {
+    if (saveTimer) clearTimeout(saveTimer);
+    const timer = setTimeout(persist, 500);
+    saveTimer = timer;
+    const maybe = timer as unknown as { unref?: () => void };
+    if (typeof maybe.unref === "function") maybe.unref();
+  };
+  controller.subscribe(() => {
+    // Flush immediately on close so a theme/goal change within the debounce
+    // window is never lost; otherwise debounce.
+    if (controller.status === "closed") persist();
+    else scheduleSave();
+  });
+  process.on("exit", persist); // last-resort synchronous flush
+
+  render(
+    React.createElement(App, {
+      controller,
+      initialHistory: state.history,
+      onHistoryChange: (entries: string[]) => {
+        historyEntries = entries;
+        scheduleSave();
+      },
+    }),
+  );
 }
 
 main().catch((cause: unknown) => {

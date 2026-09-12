@@ -25,16 +25,32 @@ npm run dev
 ```
 
 Inside the TUI: type a message and press Enter to stream a turn; `/help`
-lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/clear`,
-`/resume`).
+lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/queue`,
+`/doctor`, `/retry`, `/edit`, `/clear`, `/resume`).
+Messages sent while a turn is in flight are queued (shown in the footer) and
+run automatically when the turn ends; `/queue clear` discards them.
 `/goal <objective>` sets a persistent session objective (shown in the footer
-and prefixed onto every subsequent turn); `/goal clear` unsets it. `/theme`
-cycles the render theme. `@` completes workspace file paths (Tab inserts).
+and prefixed onto every subsequent turn); `/goal clear` unsets it. `/theme`,
+`/mode` and `/resume` with no argument open an interactive picker
+(↑/↓ move, Enter select, 1-9 quick pick, Esc cancel); `/doctor` runs the
+read-only self-check in the transcript; `/retry` re-sends the last message
+and `/edit` loads it into the composer. `@` completes workspace file paths
+(Tab inserts).
 Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
 Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it, Ctrl-O
 toggles the tool detail panel. `y`/`n` answer approval cards; Esc issues a
 correction during a turn (Ctrl-C exits); Ctrl-L clears the view.
+
+### Local state & notifications
+
+Input history, theme and `/goal` persist to `~/.agent-os/cli-ts-state.json`
+(0600; it stores whatever you typed verbatim, so treat it as sensitive and
+don't paste secrets you don't want retained). Override the path with
+`AGENT_OS_CLI_STATE`. A terminal
+bell rings on approval-needed and turn completion/failure (`AGENT_OS_BELL=0`
+disables it); set `AGENT_OS_NOTIFY=osc` for an OSC-9 desktop notification
+where the terminal supports it.
 
 ## Verify (one command, fully hermetic)
 
@@ -43,7 +59,7 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 40 unit tests; `npm run build` type-checks.
+`npm test` runs the 100 unit tests; `npm run build` type-checks.
 
 ## Other entry points
 

@@ -42,7 +42,27 @@ export const COMMANDS: readonly CommandSpec[] = [
     argsHint: "[name|next]",
     description: "show or switch the render theme",
   },
+  {
+    name: "/doctor",
+    argsHint: "",
+    description: "run a read-only self-check (descriptor/auth/protocol)",
+  },
+  {
+    name: "/retry",
+    argsHint: "",
+    description: "re-submit the last message as a fresh turn",
+  },
+  {
+    name: "/edit",
+    argsHint: "",
+    description: "load the last message into the composer for editing",
+  },
   { name: "/clear", argsHint: "", description: "clear the LOCAL view (session context unchanged; Ctrl-L)" },
+  {
+    name: "/queue",
+    argsHint: "[clear]",
+    description: "list or clear messages queued while a turn is in flight",
+  },
   { name: "/help", argsHint: "", description: "this list" },
 ] as const;
 

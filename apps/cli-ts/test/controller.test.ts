@@ -363,23 +363,96 @@ test("ctrl-c during streaming issues a correction, not a silent kill", async () 
   assert.ok(controller.messages.some((m) => m.content.includes("correction issued")));
 });
 
-test("/theme and /resume selector: operator UX", async () => {
-  const controller = new TuiController(new FakeClient() as never, { pollMs: 1 });
+test("/doctor: wired probe text is surfaced; unavailable probe is honest", async () => {
+  const wired = new TuiController(new FakeClient() as never, {
+    doctor: async () => "doctor: all checks passed",
+  });
+  await wired.submit("/doctor");
+  assert.match(wired.messages.at(-1)?.content ?? "", /doctor: all checks passed/);
+
+  const unavailable = new TuiController(new FakeClient() as never);
+  await unavailable.submit("/doctor");
+  assert.match(unavailable.messages.at(-1)?.content ?? "", /doctor unavailable/);
+
+  const failing = new TuiController(new FakeClient() as never, {
+    doctor: async () => {
+      throw new Error("probe exploded");
+    },
+  });
+  await failing.submit("/doctor");
+  assert.match(failing.messages.at(-1)?.content ?? "", /doctor failed: probe exploded/);
+});
+
+test("/retry and /edit: recall the last operator message", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 1;
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 50 });
+
+  await controller.submit("/retry");
+  assert.match(controller.messages.at(-1)?.content ?? "", /nothing to retry yet/);
+  await controller.submit("/edit");
+  assert.match(controller.messages.at(-1)?.content ?? "", /nothing to edit yet/);
+
+  await controller.submit("do the thing");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.lastUserText, "do the thing");
+
+  await controller.submit("/edit");
+  assert.equal(controller.hasPendingComposer, true);
+  assert.equal(controller.consumePendingComposer(), "do the thing");
+  assert.equal(controller.hasPendingComposer, false);
+  assert.equal(controller.consumePendingComposer(), null);
+
+  await controller.submit("/retry");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(client.beginTexts.filter((text) => text === "do the thing").length, 2);
+});
+
+test("/theme /mode /resume selectors: open, choose, cancel", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const wait = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5));
+
+  // helpers return values (not property paths) so assert narrowing cannot
+  // collapse controller.pendingSelector to `never` across assertions
+  const selKind = (): string => controller.pendingSelector?.kind ?? "";
+  const selItems = (): readonly string[] => controller.pendingSelector?.items ?? [];
+
+  // /theme (no arg) opens a selector; choosing applies; cancel clears
   await controller.submit("/theme");
-  assert.match(controller.messages.at(-1)?.content ?? "", /theme: default/);
-  await controller.submit("/theme mono");
+  assert.equal(selKind(), "theme");
+  assert.ok(selItems().includes("default"));
+  controller.chooseSelector("mono");
   assert.equal(controller.themeName, "mono");
+  assert.ok(controller.pendingSelector === null);
+
+  await controller.submit("/theme");
+  controller.cancelSelector();
+  assert.ok(controller.pendingSelector === null);
+
   await controller.submit("/theme next");
   assert.notEqual(controller.themeName, "mono");
   await controller.submit("/theme nope");
   assert.match(controller.messages.at(-1)?.content ?? "", /unknown theme nope/);
 
+  // /resume (no arg) opens a selector over locally-seen sessions
   await controller.submit("/resume s:1");
   await controller.submit("/resume");
-  assert.match(controller.messages.at(-1)?.content ?? "", /recent sessions/);
-  assert.match(controller.messages.at(-1)?.content ?? "", /1\. s:1/);
-  await controller.submit("/resume 1");
+  assert.equal(selKind(), "resume");
+  assert.ok(selItems().includes("s:1"));
+  controller.chooseSelector("s:1");
+  await wait();
   assert.match(controller.messages.at(-1)?.content ?? "", /resumed session s:1/);
+
+  // /mode (no arg) opens a selector; choosing sets the mode
+  await controller.submit("/mode");
+  assert.equal(selKind(), "mode");
+  assert.deepEqual(selItems(), ["ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE"]);
+  controller.chooseSelector("ACCEPT_IN_WORKSPACE");
+  await wait();
+  assert.deepEqual(client.modes, ["ACCEPT_IN_WORKSPACE"]);
+  assert.equal(controller.mode, "ACCEPT_IN_WORKSPACE");
 });
 
 test("/goal: show / set / clear, and the active goal prefixes every turn", async () => {
@@ -406,4 +479,59 @@ test("/goal: show / set / clear, and the active goal prefixes every turn", async
   await controller.submit("plain");
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(client.beginTexts.at(-1), "plain");
+});
+
+test("input queue: messages during a turn are queued, not refused, and auto-run on commit", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 1;
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 50 });
+  const internals = controller as never as {
+    busy: boolean;
+    status: string;
+    maybeDrain: () => void;
+  };
+
+  internals.busy = true; // a turn is in flight
+  await controller.submit("second");
+  assert.equal(controller.queuedCount, 1);
+  assert.match(controller.messages.at(-1)?.content ?? "", /queued \(#1\)/);
+
+  // turn resolves -> the queue drains and the queued message runs
+  internals.busy = false;
+  internals.status = "idle";
+  internals.maybeDrain();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(client.beginTexts.includes("second"), "queued message must run after the turn");
+  assert.equal(controller.queuedCount, 0);
+});
+
+test("/queue: list and clear", async () => {
+  const controller = new TuiController(new FakeClient() as never, { pollMs: 1 });
+  const internals = controller as never as { busy: boolean };
+
+  await controller.submit("/queue");
+  assert.match(controller.messages.at(-1)?.content ?? "", /queue empty/);
+
+  internals.busy = true;
+  await controller.submit("alpha");
+  await controller.submit("beta");
+  await controller.submit("/queue");
+  const listing = controller.messages.at(-1)?.content ?? "";
+  assert.match(listing, /queued \(2\)/);
+  assert.match(listing, /1\. alpha/);
+  assert.match(listing, /2\. beta/);
+
+  await controller.submit("/queue clear");
+  assert.equal(controller.queuedCount, 0);
+  assert.match(controller.messages.at(-1)?.content ?? "", /cleared 2 queued message/);
+});
+
+test("input queue: a submit while an approval is pending is queued, never a concurrent turn", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { status: string }).status = "awaiting_approval";
+  await controller.submit("later");
+  assert.equal(controller.queuedCount, 1);
+  assert.deepEqual(client.beginTexts, []);
 });

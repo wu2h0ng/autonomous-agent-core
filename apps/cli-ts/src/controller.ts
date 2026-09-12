@@ -58,6 +58,13 @@ export interface TodoItem {
   status: "pending" | "in_progress" | "done";
 }
 
+/** Overlay selector request: controller supplies items, App renders + routes. */
+export interface PendingSelector {
+  kind: "resume" | "theme" | "mode";
+  title: string;
+  items: string[];
+}
+
 /** Capability whose latest successful call defines the visible task list
  * (GC-SESSION-TODO-WRITE-2026-09-11; tier-1 internal scratchpad, pending
  * gate — the projection is inert until the capability exists). */
@@ -165,6 +172,8 @@ export interface ControllerDeps {
   /** Observer for streamed assistant deltas (headless stream-json). Pure
    * notification — never feeds back into controller state. */
   onDelta?: (delta: string) => void;
+  /** Read-only self-check reporter for the in-TUI `/doctor` command. */
+  doctor?: () => Promise<string>;
 }
 
 export class TuiController {
@@ -186,9 +195,20 @@ export class TuiController {
   goal: string | null = null;
   /** Active render theme (operator-only `/theme`). */
   themeName: string = DEFAULT_THEME_NAME;
+  /** Open overlay selector, if any (mainstream `/resume` `/theme` `/mode`). */
+  pendingSelector: PendingSelector | null = null;
   /** Locally observed session ids, most-recent first (no sessions-list
    * endpoint exists yet, so `/resume` can only offer what this client saw). */
   recentSessions: string[] = [];
+  /** Last operator message submitted as a turn (for `/retry` and `/edit`).
+   * Client-side only; never a message-level rollback (M2 non-target). */
+  lastUserText: string | null = null;
+  /** Set by `/edit`; App moves it into the composer and clears it. */
+  private pendingComposerText: string | null = null;
+  /** Client-side pre-submit queue (D2 adjudication 2026-09-11: steering must
+   * be a "next turn" queue, never a change to frozen TURN_IN_PROGRESS). One
+   * turn is still in flight at a time; queued messages run on resolution. */
+  private readonly queue: string[] = [];
   lastError: string | null = null;
 
   private sessionId: string | null = null;
@@ -205,6 +225,7 @@ export class TuiController {
   private readonly stallMs: number;
   private readonly pollMs: number;
   private readonly onDelta: ((delta: string) => void) | undefined;
+  private readonly doctor: (() => Promise<string>) | undefined;
   private busy = false;
 
   constructor(
@@ -215,6 +236,7 @@ export class TuiController {
     this.stallMs = deps.stallMs ?? STALL_DEFAULT_MS;
     this.pollMs = deps.pollMs ?? 100;
     this.onDelta = deps.onDelta;
+    this.doctor = deps.doctor;
   }
 
   subscribe(listener: () => void): () => void {
@@ -232,6 +254,15 @@ export class TuiController {
 
   get currentSessionId(): string | null {
     return this.sessionId;
+  }
+
+  get queuedCount(): number {
+    return this.queue.length;
+  }
+
+  /** Snapshot of queued messages (for `/queue`). */
+  get queuedMessages(): readonly string[] {
+    return this.queue;
   }
 
   /** Latest non-failed todo_write list (full-replace semantics), newest card
@@ -275,7 +306,7 @@ export class TuiController {
     const text = input.trim();
     if (!text) return true;
     if (!text.startsWith("/")) {
-      await this.runTurn(text);
+      await this.enqueueOrRun(text);
       return true;
     }
     const [command, ...rest] = text.split(/\s+/);
@@ -314,6 +345,18 @@ export class TuiController {
       case "/theme":
         this.themeCommand(rest[0]);
         return true;
+      case "/queue":
+        this.queueCommand(rest[0]);
+        return true;
+      case "/doctor":
+        await this.doctorCommand();
+        return true;
+      case "/retry":
+        await this.retryCommand();
+        return true;
+      case "/edit":
+        this.editCommand();
+        return true;
       case "/clear":
         this.clearView();
         return true;
@@ -342,7 +385,8 @@ export class TuiController {
       return;
     }
     if (!arg) {
-      this.push({ role: "system", content: `permission mode: ${this.mode}` });
+      this.pendingSelector = { kind: "mode", title: "permission mode", items: [...MODE_ORDER] };
+      this.emit();
       return;
     }
     const mode = arg.toUpperCase() as PermissionMode;
@@ -356,13 +400,42 @@ export class TuiController {
     this.push({ role: "system", content: `permission mode → ${this.mode}` });
   }
 
+  /** `/retry` — re-submit the last operator message as a fresh governed turn. */
+  private async retryCommand(): Promise<void> {
+    if (!this.lastUserText) {
+      this.push({ role: "system", content: "nothing to retry yet" });
+      return;
+    }
+    await this.enqueueOrRun(this.lastUserText);
+  }
+
+  /** `/edit` — load the last operator message into the composer for editing. */
+  private editCommand(): void {
+    if (!this.lastUserText) {
+      this.push({ role: "system", content: "nothing to edit yet" });
+      return;
+    }
+    this.pendingComposerText = this.lastUserText;
+    this.push({ role: "system", content: "loaded the last message into the composer (edit, then Enter)" });
+    this.emit();
+  }
+
+  /** App consumes this once to seed the composer (`/edit`). */
+  consumePendingComposer(): string | null {
+    const text = this.pendingComposerText;
+    this.pendingComposerText = null;
+    return text;
+  }
+
+  get hasPendingComposer(): boolean {
+    return this.pendingComposerText !== null;
+  }
+
   /** `/theme` — show the active theme, cycle with `next`, or select by name. */
   private themeCommand(arg: string | undefined): void {
     if (!arg) {
-      this.push({
-        role: "system",
-        content: `theme: ${this.themeName} (available: ${themeNames().join(", ")}; /theme next to cycle)`,
-      });
+      this.pendingSelector = { kind: "theme", title: "theme", items: themeNames() };
+      this.emit();
       return;
     }
     if (arg.toLowerCase() === "next") {
@@ -382,19 +455,82 @@ export class TuiController {
     this.push({ role: "system", content: `theme → ${this.themeName}` });
   }
 
+  /** `/doctor` — run the read-only self-check and show it in the transcript. */
+  private async doctorCommand(): Promise<void> {
+    if (!this.doctor) {
+      this.push({ role: "system", content: "doctor unavailable (no probe wired)" });
+      return;
+    }
+    try {
+      const text = (await this.doctor()).trim();
+      this.push({ role: "system", content: text || "doctor: no output" });
+    } catch (cause) {
+      this.push({ role: "system", content: `doctor failed: ${(cause as Error).message}` });
+    }
+  }
+
+  /** `/queue` — list or clear the client-side pre-submit queue. */
+  private queueCommand(arg: string | undefined): void {
+    if (arg?.toLowerCase() === "clear") {
+      const cleared = this.queue.length;
+      this.queue.length = 0;
+      this.push({ role: "system", content: `cleared ${cleared} queued message(s)` });
+      this.emit();
+      return;
+    }
+    if (this.queue.length === 0) {
+      this.push({ role: "system", content: "queue empty (messages sent while a turn is in flight are queued)" });
+      return;
+    }
+    this.push({
+      role: "system",
+      content:
+        `queued (${this.queue.length}):\n` +
+        this.queue.map((message, index) => `  ${index + 1}. ${message}`).join("\n") +
+        `\n/queue clear to discard`,
+    });
+  }
+
+  /** Resolve the open overlay selector (App calls on Enter / number key). */
+  chooseSelector(value: string): void {
+    const selector = this.pendingSelector;
+    if (!selector) return;
+    this.pendingSelector = null;
+    switch (selector.kind) {
+      case "theme":
+        if (Object.prototype.hasOwnProperty.call(THEMES, value)) {
+          this.themeName = value;
+          this.push({ role: "system", content: `theme → ${this.themeName}` });
+        }
+        break;
+      case "mode":
+        void this.modeCommand(value);
+        break;
+      case "resume":
+        void this.resumeCommand(value);
+        break;
+    }
+    this.emit();
+  }
+
+  cancelSelector(): void {
+    if (!this.pendingSelector) return;
+    this.pendingSelector = null;
+    this.emit();
+  }
+
   private async resumeCommand(arg: string | undefined): Promise<void> {
     if (!arg) {
       if (this.recentSessions.length === 0) {
         this.push({ role: "system", content: "no recent sessions; usage: /resume <session-id>" });
         return;
       }
-      this.push({
-        role: "system",
-        content:
-          `recent sessions (local, this client only):\n` +
-          this.recentSessions.map((id, index) => `  ${index + 1}. ${id}`).join("\n") +
-          `\nusage: /resume <n> or /resume <session-id>`,
-      });
+      this.pendingSelector = {
+        kind: "resume",
+        title: "recent sessions (local, this client only)",
+        items: [...this.recentSessions],
+      };
+      this.emit();
       return;
     }
     // Allow picking a recent session by 1-based index.
@@ -531,11 +667,47 @@ export class TuiController {
     this.push({ role: "system", content: `session ${this.sessionId} opened` });
   }
 
-  async runTurn(text: string): Promise<void> {
-    if (this.busy) {
-      this.push({ role: "system", content: "turn in progress; input is not queued (frozen TURN_IN_PROGRESS semantics)" });
+  /** Single predicate for "a new turn may start now" — used by both the
+   * submit router and the queue drain so they can never disagree. */
+  private canStartTurn(): boolean {
+    return (
+      !this.busy &&
+      this.status !== "awaiting_approval" &&
+      this.status !== "streaming" &&
+      this.status !== "stalled" &&
+      this.status !== "closed"
+    );
+  }
+
+  /** Route a normal message: run it now, or queue it behind the in-flight
+   * turn / pending approval (never a second concurrent turn). */
+  private async enqueueOrRun(text: string): Promise<void> {
+    if (!this.canStartTurn()) {
+      this.queue.push(text);
+      this.push({
+        role: "system",
+        content: `queued (#${this.queue.length}) — will send when the current turn ends`,
+      });
+      this.emit();
       return;
     }
+    await this.runTurn(text);
+  }
+
+  /** Start the next queued message once the turn/approval has resolved. */
+  private maybeDrain(): void {
+    if (this.queue.length === 0) return;
+    if (!this.canStartTurn()) return;
+    const next = this.queue.shift();
+    if (next !== undefined) void this.runTurn(next);
+  }
+
+  async runTurn(text: string): Promise<void> {
+    if (this.busy) {
+      this.push({ role: "system", content: "turn already in progress" });
+      return;
+    }
+    this.lastUserText = text;
     this.busy = true;
     this.lastError = null;
     this.lastStopReason = null;
@@ -590,6 +762,7 @@ export class TuiController {
       this.emit();
     } finally {
       this.busy = false;
+      this.maybeDrain();
     }
   }
 
@@ -783,6 +956,7 @@ export class TuiController {
     this.status = "idle";
     this.pendingPreview = null;
     this.finalizeAll();
+    this.maybeDrain();
   }
 
   /** Ctrl-C semantics: correction during activity, close when idle. */
@@ -792,6 +966,7 @@ export class TuiController {
       this.push({ role: "system", content: "correction issued (operator interrupt)" });
       this.status = "idle";
       this.finalizeAll();
+      this.maybeDrain();
       return "corrected";
     }
     this.status = "closed";
