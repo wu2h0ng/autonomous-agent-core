@@ -30,11 +30,37 @@ class AgentTuiApp(App[None]):
     TITLE = "Agent OS · Terminal Coding Agent"
 
     BINDINGS = [
-        Binding("f2", "cycle_mode", "mode"),
+        Binding("f2", "cycle_mode", "approvals"),
         Binding("y", "approve", "approve"),
         Binding("n", "reject", "reject"),
         Binding("ctrl+c", "quit", "quit"),
     ]
+
+    CSS = """
+    #main {
+        height: 1fr;
+    }
+
+    #conversation {
+        width: 1fr;
+    }
+
+    #chat {
+        height: 1fr;
+        border: round $primary;
+        padding: 0 1;
+    }
+
+    #approval-bar {
+        height: 1;
+        margin: 0 1;
+    }
+
+    #prompt {
+        margin: 0 1 1 1;
+        border: tall $accent;
+    }
+    """
 
     def __init__(self, controller: TuiController) -> None:
         super().__init__()
@@ -43,6 +69,8 @@ class AgentTuiApp(App[None]):
         # wrapped rows, not messages, so len(chat.lines) is wrong as a
         # message cursor once any message wraps.
         self._rendered_messages = 0
+        self._rendered_activity = 0
+        self._rendered_todo_signature: tuple[tuple[str, str, str], ...] = ()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -51,10 +79,7 @@ class AgentTuiApp(App[None]):
                 yield RichLog(id="chat", wrap=True, markup=True)
                 with Horizontal(id="approval-bar"):
                     yield Label("", id="approval")
-                yield Input(placeholder="message the agent…", id="prompt")
-            with Vertical(id="side-panel"):
-                yield Label("todos\n(no active task list)", id="todos")
-                yield Label("activity\n(no tool activity)", id="activity")
+                yield Input(placeholder="Tell the agent what to do…", id="prompt")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -109,44 +134,40 @@ class AgentTuiApp(App[None]):
         self.sub_title = (
             f"{self._controller.status_line()} · {self._controller.usage_line()}"
         )
-        self._refresh_todos()
-        self._refresh_activity()
+        self._refresh_inline_plan(chat)
+        self._refresh_inline_activity(chat)
 
-    def _refresh_todos(self) -> None:
-        try:
-            todos = self.query_one("#todos", Label)
-        except NoMatches:
-            return
+    def _refresh_inline_plan(self, chat: RichLog) -> None:
         if not self._controller.todos:
-            todos.update("todos\n(no active task list)")
             return
-        rows = ["todos"]
+        signature = tuple(
+            (item["id"], item["content"], item["status"])
+            for item in self._controller.todos
+        )
+        if signature == self._rendered_todo_signature:
+            return
+        self._rendered_todo_signature = signature
+        rows = ["[bold]plan[/bold]"]
         icons = {"done": "✓", "in_progress": "▶", "pending": "•"}
         for item in self._controller.todos:
             rows.append(f"{icons[item['status']]} {item['content']}")
-        todos.update("\n".join(rows))
+        chat.write("\n".join(rows))
 
-    def _refresh_activity(self) -> None:
-        try:
-            activity = self.query_one("#activity", Label)
-        except NoMatches:
-            return
+    def _refresh_inline_activity(self, chat: RichLog) -> None:
         if not self._controller.activity:
-            activity.update("activity\n(no tool activity)")
             return
-        rows = ["activity"]
         icons = {
             "proposed": "…",
             "waiting approval": "?",
             "succeeded": "✓",
             "failed": "✗",
         }
-        for item in self._controller.activity[-8:]:
-            row = f"{icons.get(item.status, '•')} {item.capability_id}"
+        for item in self._controller.activity[self._rendered_activity :]:
+            row = f"tool {icons.get(item.status, '•')} {item.capability_id}"
             if item.preview:
                 row = f"{row} — {item.preview}"
-            rows.append(row)
-        activity.update("\n".join(rows))
+            chat.write(row)
+            self._rendered_activity += 1
 
     # -- input -------------------------------------------------------------
     def on_input_submitted(self, event: Input.Submitted) -> None:

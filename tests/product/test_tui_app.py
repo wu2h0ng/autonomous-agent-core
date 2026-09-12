@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Input, Label, RichLog
+from textual.widgets import Input, RichLog
 
 from apps.cli.tui_app import AgentTuiApp
 from apps.cli.tui_controller import TuiController
@@ -70,7 +70,9 @@ def test_tui_app_f2_cycles_permission_mode() -> None:
             await pilot.press("f2")
             await pilot.pause(0.1)
             assert client.mode_calls == ["ACCEPT_READ_ONLY"]
-            assert "ACCEPT_READ_ONLY" in (app.sub_title or "")
+            assert "Approvals: auto-read" in (app.sub_title or "")
+            assert "ASK" not in (app.sub_title or "")
+            assert "ACCEPT_READ_ONLY" not in (app.sub_title or "")
 
     asyncio.run(_drive())
 
@@ -200,8 +202,9 @@ def test_tui_app_renders_session_todo_panel() -> None:
         async with app.run_test() as pilot:
             await pilot.pause(0.1)
             app._poll()
-            todo = app.query_one("#todos", Label)
-            text = str(todo.render())
+            chat = app.query_one("#chat", RichLog)
+            text = "\n".join(str(line.text) for line in chat.lines)
+            assert "plan" in text
             assert "✓ write tests" in text
             assert "▶ wire TUI panel" in text
             assert "• run verification" in text
@@ -233,8 +236,9 @@ def test_tui_app_renders_tool_activity_panel() -> None:
         async with app.run_test() as pilot:
             await pilot.pause(0.1)
             app._poll()
-            activity = app.query_one("#activity", Label)
-            text = str(activity.render())
+            chat = app.query_one("#chat", RichLog)
+            text = "\n".join(str(line.text) for line in chat.lines)
+            assert "tool" in text
             assert "✓ workspace.read" in text
             assert "✗ workspace.run_tests" in text
             assert "? workspace.shell" in text

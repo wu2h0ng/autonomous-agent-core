@@ -37,6 +37,12 @@ MODE_ORDER: tuple[PermissionMode, ...] = (
     "ACCEPT_IN_WORKSPACE",
 )
 
+MODE_LABELS: dict[PermissionMode, str] = {
+    "ASK": "manual",
+    "ACCEPT_READ_ONLY": "auto-read",
+    "ACCEPT_IN_WORKSPACE": "auto-edit",
+}
+
 STATUS_IDLE = "idle"
 STATUS_STREAMING = "streaming"
 STATUS_STALLED = "stalled"
@@ -421,7 +427,7 @@ class TuiController:
         return f"tokens {self.tokens_total} · cost UNKNOWN"
 
     def status_line(self) -> str:
-        return f"[{self.mode}] {self.status}"
+        return f"Approvals: {MODE_LABELS[self.mode]} · {self.status}"
 
 
 def _todo_output(output: dict[str, Any]) -> list[TodoItem] | None:

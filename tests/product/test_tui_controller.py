@@ -426,6 +426,22 @@ def test_mode_cycle_sends_operator_command() -> None:
     assert controller.mode == "ACCEPT_READ_ONLY"
 
 
+def test_status_line_uses_operator_facing_approval_language() -> None:
+    client = _FakeStreamClient()
+    controller = _controller(client)
+
+    assert controller.status_line() == "Approvals: manual · idle"
+    assert "ASK" not in controller.status_line()
+
+    controller.set_mode("ACCEPT_READ_ONLY")
+    assert controller.status_line() == "Approvals: auto-read · idle"
+    assert "ACCEPT_READ_ONLY" not in controller.status_line()
+
+    controller.set_mode("ACCEPT_IN_WORKSPACE")
+    assert controller.status_line() == "Approvals: auto-edit · idle"
+    assert "ACCEPT_IN_WORKSPACE" not in controller.status_line()
+
+
 def test_approval_pending_waits_for_human_decision() -> None:
     client = _FakeStreamClient(
         frames=[_frame(1, SurfaceStreamFrameKind.STREAM_END, {})]
