@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-from textual.widgets import Input, RichLog
+from textual.widgets import Input, Label, RichLog
 
 from apps.cli.tui_app import AgentTuiApp
 from apps.cli.tui_controller import TuiController
@@ -173,5 +173,37 @@ def test_tui_app_shows_full_reply_when_chunks_arrive_across_polls() -> None:
             app._poll()
             text = "\n".join(str(line.text) for line in chat.lines)
             assert "CHUNK-ONE CHUNK-TWO" in text
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_renders_session_todo_panel() -> None:
+    client = _app_client()
+    client.queue_todo_write(
+        action_id="action:todo",
+        receipt_id="receipt:todo",
+        status="SUCCEEDED",
+        output_todos=[
+            {"id": "a", "content": "write tests", "status": "done"},
+            {"id": "b", "content": "wire TUI panel", "status": "in_progress"},
+            {"id": "c", "content": "run verification", "status": "pending"},
+        ],
+    )
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            app._poll()
+            todo = app.query_one("#todos", Label)
+            text = str(todo.render())
+            assert "✓ write tests" in text
+            assert "▶ wire TUI panel" in text
+            assert "• run verification" in text
 
     asyncio.run(_drive())

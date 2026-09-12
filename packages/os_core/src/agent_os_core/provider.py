@@ -87,6 +87,30 @@ _WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
         "required": ["command"],
         "additionalProperties": False,
     },
+    "session.todo_write": {
+        "type": "object",
+        "properties": {
+            "todos": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1},
+                        "content": {"type": "string", "minLength": 1},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "in_progress", "done"],
+                        },
+                    },
+                    "required": ["id", "content", "status"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["todos"],
+        "additionalProperties": False,
+    },
 }
 
 

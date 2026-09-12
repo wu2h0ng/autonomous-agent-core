@@ -10,12 +10,14 @@ from __future__ import annotations
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.widgets import Footer, Header, Input, Label, RichLog
 
 from apps.cli.tui_controller import (
     STATUS_AWAITING_APPROVAL,
     STATUS_IDLE,
     STATUS_STALLED,
+    STATUS_STREAMING,
     TuiController,
 )
 
@@ -44,11 +46,14 @@ class AgentTuiApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Vertical():
-            yield RichLog(id="chat", wrap=True, markup=True)
-            with Horizontal(id="approval-bar"):
-                yield Label("", id="approval")
-            yield Input(placeholder="message the agent…", id="prompt")
+        with Horizontal(id="main"):
+            with Vertical(id="conversation"):
+                yield RichLog(id="chat", wrap=True, markup=True)
+                with Horizontal(id="approval-bar"):
+                    yield Label("", id="approval")
+                yield Input(placeholder="message the agent…", id="prompt")
+            with Vertical(id="side-panel"):
+                yield Label("todos\n(no active task list)", id="todos")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -58,11 +63,16 @@ class AgentTuiApp(App[None]):
     # -- polling -----------------------------------------------------------
     def _poll(self) -> None:
         self._controller.poll_stream()
+        if self._controller.status not in {STATUS_STREAMING, STATUS_STALLED}:
+            self._controller.refresh_events()
         self._controller.tick()
         self._refresh_chat()
 
     def _refresh_chat(self) -> None:
-        chat = self.query_one("#chat", RichLog)
+        try:
+            chat = self.query_one("#chat", RichLog)
+        except NoMatches:
+            return
         messages = self._controller.messages
         # The trailing assistant message is still being appended to in place
         # while a turn is in flight; rendering it now would freeze a prefix
@@ -98,6 +108,21 @@ class AgentTuiApp(App[None]):
         self.sub_title = (
             f"{self._controller.status_line()} · {self._controller.usage_line()}"
         )
+        self._refresh_todos()
+
+    def _refresh_todos(self) -> None:
+        try:
+            todos = self.query_one("#todos", Label)
+        except NoMatches:
+            return
+        if not self._controller.todos:
+            todos.update("todos\n(no active task list)")
+            return
+        rows = ["todos"]
+        icons = {"done": "✓", "in_progress": "▶", "pending": "•"}
+        for item in self._controller.todos:
+            rows.append(f"{icons[item['status']]} {item['content']}")
+        todos.update("\n".join(rows))
 
     # -- input -------------------------------------------------------------
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -112,7 +137,9 @@ class AgentTuiApp(App[None]):
             self._controller.submit(text)
         except (RuntimeError, ValueError) as exc:
             self.query_one("#chat", RichLog).write(f"[red]error: {exc}[/red]")
-        self._refresh_chat()
+            self._refresh_chat()
+            return
+        self._poll()
 
     # -- key actions ---------------------------------------------------------
     def action_cycle_mode(self) -> None:

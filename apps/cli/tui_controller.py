@@ -13,7 +13,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 from agent_os_contracts import (
     ApprovalDisposition,
@@ -48,6 +48,9 @@ class ChatMessage:
     role: str
     content: str
     interrupted: bool = False
+
+
+TodoItem = dict[str, str]
 
 
 class SurfaceClientPort(Protocol):
@@ -128,6 +131,7 @@ class TuiController:
         self.tokens_total = 0
         self.turns = 0
         self.pending_preview: str | None = None
+        self.todos: list[TodoItem] = []
 
         self._stream_id: str | None = None
         self._runtime_boot_id: str | None = None
@@ -136,6 +140,8 @@ class TuiController:
         self._turn_id: str | None = None
         self._current: ChatMessage | None = None
         self._last_activity: float | None = None
+        self._completed_outputs: dict[str, dict[str, Any]] = {}
+        self._pending_turn_completions: dict[str, tuple[int, str]] = {}
 
     # -- turns ------------------------------------------------------------
     def submit(self, text: str) -> None:
@@ -197,6 +203,11 @@ class TuiController:
                     self._current.interrupted = True
             # STREAM_END: the durable turn commit stays authoritative.
         self._drain_durable()
+        self._apply_pending_turn_completion()
+
+    def refresh_events(self) -> None:
+        """Refresh non-streaming side panels from the durable task event log."""
+        self._drain_durable()
 
     def _drain_durable(self) -> None:
         batch = self._client.events(self.task_id, after_sequence=self._durable_cursor)
@@ -204,17 +215,64 @@ class TuiController:
         for event in batch.events:
             if event.event_type is TaskEventType.SESSION_TURN_COMPLETED:
                 payload = json.loads(event.payload_json)
-                if payload.get("turn_id") != self._turn_id:
+                turn_id = payload.get("turn_id")
+                if not isinstance(turn_id, str):
                     continue
-                self.tokens_total += int(payload.get("total_tokens") or 0)
-                self.turns += 1
-                self.status = STATUS_IDLE
-                self._current = None
-                self._turn_id = None
+                if turn_id != self._turn_id:
+                    self._pending_turn_completions[turn_id] = (
+                        int(payload.get("total_tokens") or 0),
+                        str(payload.get("stop_reason") or "completed"),
+                    )
+                    continue
+                self._complete_turn(total_tokens=int(payload.get("total_tokens") or 0))
             elif event.event_type is TaskEventType.SESSION_APPROVAL_PENDING:
                 payload = json.loads(event.payload_json)
                 self.pending_preview = str(payload.get("preview") or "")
                 self.status = STATUS_AWAITING_APPROVAL
+            elif event.event_type is TaskEventType.NODE_COMPLETED:
+                payload = json.loads(event.payload_json)
+                action_id = payload.get("action_id")
+                output = payload.get("output")
+                if isinstance(action_id, str) and isinstance(output, dict):
+                    self._completed_outputs[action_id] = output
+            elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
+                payload = json.loads(event.payload_json)
+                self._apply_todo_receipt(payload)
+
+    def _apply_todo_receipt(self, payload: dict[str, Any]) -> None:
+        receipt = payload.get("receipt")
+        if not isinstance(receipt, dict):
+            return
+        if (
+            receipt.get("connector_id") != "session.todo_write"
+            or receipt.get("status") != "SUCCEEDED"
+        ):
+            return
+        action_id = receipt.get("action_id")
+        if not isinstance(action_id, str):
+            return
+        output = self._completed_outputs.get(action_id)
+        if output is None:
+            return
+        todos = _todo_output(output)
+        if todos is not None:
+            self.todos = todos
+
+    def _apply_pending_turn_completion(self) -> None:
+        if self._turn_id is None:
+            return
+        pending = self._pending_turn_completions.pop(self._turn_id, None)
+        if pending is None:
+            return
+        total_tokens, _stop_reason = pending
+        self._complete_turn(total_tokens=total_tokens)
+
+    def _complete_turn(self, *, total_tokens: int) -> None:
+        self.tokens_total += total_tokens
+        self.turns += 1
+        self.status = STATUS_IDLE
+        self._current = None
+        self._turn_id = None
 
     def tick(self) -> None:
         """Stall detection: quiet stream beyond the frozen threshold."""
@@ -282,3 +340,28 @@ class TuiController:
 
     def status_line(self) -> str:
         return f"[{self.mode}] {self.status}"
+
+
+def _todo_output(output: dict[str, Any]) -> list[TodoItem] | None:
+    if output.get("ok") is not True:
+        return None
+    raw_todos = output.get("todos")
+    if not isinstance(raw_todos, list):
+        return None
+    todos: list[TodoItem] = []
+    for item in raw_todos:
+        if not isinstance(item, dict):
+            return None
+        identifier = item.get("id")
+        content = item.get("content")
+        status = item.get("status")
+        if (
+            not isinstance(identifier, str)
+            or not isinstance(content, str)
+            or status not in {"pending", "in_progress", "done"}
+        ):
+            return None
+        todos.append({"id": identifier, "content": content, "status": status})
+    if output.get("count") != len(todos):
+        return None
+    return todos

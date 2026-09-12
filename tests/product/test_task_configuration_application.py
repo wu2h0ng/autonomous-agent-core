@@ -109,6 +109,7 @@ def test_application_composes_developer_capability_adapters(tmp_path) -> None:
     assert isinstance(app.execution_profile, DeveloperRepositoryPatchProfile)
     assert tuple(sorted(app.sandbox.specs())) == (
         "artifact.write",
+        "session.todo_write",
         "workspace.apply_patch",
         "workspace.edit",
         "workspace.read",

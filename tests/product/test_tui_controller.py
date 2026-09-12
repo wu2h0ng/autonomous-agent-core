@@ -181,6 +181,53 @@ class _FakeStreamClient:
             )
         )
 
+    def queue_todo_write(
+        self,
+        *,
+        action_id: str,
+        receipt_id: str,
+        status: str,
+        output_todos: list[dict[str, str]],
+        argument_todos: list[dict[str, str]] | None = None,
+    ) -> None:
+        argument_todos = argument_todos or output_todos
+        self.durable_cursor += 1
+        self.durable_events.append(
+            _event(
+                self.durable_cursor,
+                "NODE_COMPLETED",
+                {
+                    "node_id": f"{action_id}:node",
+                    "action_id": action_id,
+                    "provider_tool_call_id": f"{action_id}:proposal",
+                    "agent_loop_dynamic_action": True,
+                    "output": {
+                        "ok": True,
+                        "todos": output_todos,
+                        "count": len(output_todos),
+                    },
+                },
+            )
+        )
+        self.durable_cursor += 1
+        self.durable_events.append(
+            _event(
+                self.durable_cursor,
+                "ACTION_RECEIPT_RECORDED",
+                {
+                    "decision": {"action_id": action_id},
+                    "permit": {"permit_id": f"permit:{action_id}"},
+                    "receipt": {
+                        "receipt_id": receipt_id,
+                        "action_id": action_id,
+                        "connector_id": "session.todo_write",
+                        "status": status,
+                    },
+                    "test_only_arguments": {"todos": argument_todos},
+                },
+            )
+        )
+
     def queue_approval_pending(self) -> None:
         from agent_os_contracts import PendingSurfaceApproval
 
@@ -367,6 +414,45 @@ def test_usage_line_never_shows_pseudo_zero_cost() -> None:
     assert "UNKNOWN" in line
     assert "$0" not in line
     assert "0.00" not in line
+
+
+def test_todo_panel_tracks_latest_successful_receipt_output_only() -> None:
+    client = _FakeStreamClient()
+    client.queue_todo_write(
+        action_id="action:1",
+        receipt_id="receipt:1",
+        status="SUCCEEDED",
+        argument_todos=[
+            {"id": "arg", "content": "argument must not render", "status": "done"}
+        ],
+        output_todos=[
+            {"id": "a", "content": "write red tests", "status": "done"},
+            {"id": "b", "content": "implement panel", "status": "in_progress"},
+        ],
+    )
+    client.queue_todo_write(
+        action_id="action:2",
+        receipt_id="receipt:2",
+        status="FAILED",
+        output_todos=[
+            {"id": "failed", "content": "failed write", "status": "pending"}
+        ],
+    )
+    client.queue_todo_write(
+        action_id="action:3",
+        receipt_id="receipt:3",
+        status="SUCCEEDED",
+        output_todos=[
+            {"id": "c", "content": "run product tests", "status": "pending"}
+        ],
+    )
+    controller = _controller(client)
+
+    controller.refresh_events()
+
+    assert controller.todos == [
+        {"id": "c", "content": "run product tests", "status": "pending"}
+    ]
 
 
 def test_stream_stale_resubscribes_and_recovers_from_durable() -> None:

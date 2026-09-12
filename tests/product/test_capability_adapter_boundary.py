@@ -365,6 +365,7 @@ def test_developer_adapter_specs_match_capability_ids(tmp_path: Path) -> None:
 
     assert tuple(sorted(adapter.specs())) == (
         "artifact.write",
+        "session.todo_write",
         "workspace.apply_patch",
         "workspace.edit",
         "workspace.read",
@@ -374,6 +375,7 @@ def test_developer_adapter_specs_match_capability_ids(tmp_path: Path) -> None:
     )
     assert tuple(sorted(adapter.specs(include_internal=True))) == (
         "artifact.write",
+        "session.todo_write",
         "workspace.apply_patch",
         "workspace.compensate_patch",
         "workspace.edit",
