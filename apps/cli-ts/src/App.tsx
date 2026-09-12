@@ -188,6 +188,11 @@ export function App({
     setSelectorQuery("");
   }, [controller.pendingSelector]);
 
+  // Narrowing the list must not leave the cursor past the end (silent no-op).
+  useEffect(() => {
+    setSelectorIndex(0);
+  }, [selectorQuery]);
+
   // `/edit`: pull the last message out of the controller into the composer.
   useEffect(() => {
     const text = controller.consumePendingComposer();
@@ -235,7 +240,7 @@ export function App({
       if (key.escape) {
         controller.cancelSelector();
       } else if (key.return) {
-        const pick = visible[selectorIndex];
+        const pick = visible[Math.min(selectorIndex, Math.max(0, count - 1))];
         if (pick !== undefined) controller.chooseSelector(pick);
       } else if (key.upArrow) {
         setSelectorIndex((index) => (count === 0 ? 0 : (index - 1 + count) % count));

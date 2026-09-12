@@ -178,6 +178,32 @@ test("selector: /theme opens an overlay; a number key applies the choice", async
   }
 });
 
+test("selector: filtering after moving the cursor still picks the highlighted item", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("/theme");
+    await flush();
+    await view.stdin.write("\r");
+    await flush();
+    // move the cursor to the last item (default -> ansi -> mono)
+    await view.stdin.write("\u001B[B");
+    await flush();
+    await view.stdin.write("\u001B[B");
+    await flush();
+    // narrowing to "an" must not leave the cursor past the end (P1 regression)
+    await view.stdin.write("an");
+    await flush();
+    await view.stdin.write("\r");
+    await flush();
+    assert.equal(controller.themeName, "ansi");
+    assert.equal(controller.pendingSelector, null);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

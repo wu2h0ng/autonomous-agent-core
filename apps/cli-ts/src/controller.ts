@@ -390,15 +390,15 @@ export class TuiController {
     };
   }
 
-  /** `/cost` card. Context usage is an honest session estimate: the provider
-   * does not expose a context-window size, so none is invented. */
+  /** `/cost` card. Tokens are cumulative session usage; the provider does not
+   * expose a context-window size, so none is invented. */
   private costPanel(): MessagePanel {
     return {
       title: "usage (cost honesty)",
       lines: [
-        `tokens   ${this.tokensTotal} (exact)`,
+        `tokens   ${this.tokensTotal} (exact, cumulative session usage)`,
         `turns    ${this.turns}`,
-        `context  ≈${this.tokensTotal} tokens this session (window size not provided by the provider)`,
+        `window   not provided by the provider (context usage unknown)`,
         `cost     UNKNOWN (no pricing source)`,
       ],
     };
