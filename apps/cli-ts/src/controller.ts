@@ -102,6 +102,31 @@ export interface MessagePanel {
   lines: string[];
 }
 
+export interface SearchHit {
+  index: number;
+  text: string;
+}
+
+/** Case-insensitive transcript search over message text, panels and tools. */
+export function searchMessages(messages: readonly ChatMessage[], query: string): SearchHit[] {
+  const needle = query.toLowerCase();
+  if (!needle) return [];
+  const hits: SearchHit[] = [];
+  messages.forEach((message, position) => {
+    const haystack = [
+      message.content,
+      message.panel ? [message.panel.title, ...message.panel.lines].join("\n") : "",
+      message.tool
+        ? `${message.tool.capabilityId} ${message.tool.argsSummary} ${message.tool.resultSummary ?? ""}`
+        : "",
+    ].join("\n");
+    if (!haystack.toLowerCase().includes(needle)) return;
+    const line = haystack.split("\n").find((entry) => entry.toLowerCase().includes(needle)) ?? haystack;
+    hits.push({ index: position + 1, text: line.length > 80 ? `${line.slice(0, 80)}…` : line });
+  });
+  return hits;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -368,6 +393,9 @@ export class TuiController {
       case "/retry":
         await this.retryCommand();
         return true;
+      case "/find":
+        this.findCommand(rest.join(" ").trim());
+        return true;
       case "/edit":
         this.editCommand();
         return true;
@@ -440,6 +468,25 @@ export class TuiController {
     this.mode = updated.permission_mode;
     this.snapshot = updated;
     this.push({ role: "system", content: `permission mode → ${this.mode}` });
+  }
+
+  /** `/find <query>` — search the in-session transcript (view only). */
+  private findCommand(query: string): void {
+    if (!query) {
+      this.push({ role: "system", content: "usage: /find <query>" });
+      return;
+    }
+    const hits = searchMessages(this.messages, query);
+    if (hits.length === 0) {
+      this.push({ role: "system", content: `no transcript matches for "${query}"` });
+      return;
+    }
+    this.push({
+      role: "system",
+      content:
+        `${hits.length} match(es) for "${query}":\n` +
+        hits.map((hit) => `  #${hit.index}  ${hit.text}`).join("\n"),
+    });
   }
 
   /** `/retry` — re-submit the last operator message as a fresh governed turn. */

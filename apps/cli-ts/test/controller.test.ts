@@ -411,6 +411,25 @@ test("/retry and /edit: recall the last operator message", async () => {
   assert.equal(client.beginTexts.filter((text) => text === "do the thing").length, 2);
 });
 
+test("/find: searches the in-session transcript", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const push = (controller as never as { push: (m: { role: "user" | "assistant"; content: string }) => void }).push.bind(controller);
+  push({ role: "user", content: "hello world" });
+  push({ role: "assistant", content: "the world is round" });
+
+  await controller.submit("/find world");
+  const listing = controller.messages.at(-1)?.content ?? "";
+  assert.match(listing, /2 match\(es\) for "world"/);
+  assert.match(listing, /#1/);
+  assert.match(listing, /#2/);
+
+  await controller.submit("/find zzz");
+  assert.match(controller.messages.at(-1)?.content ?? "", /no transcript matches for "zzz"/);
+
+  await controller.submit("/find");
+  assert.match(controller.messages.at(-1)?.content ?? "", /usage: \/find/);
+});
+
 test("/vim: toggles the vim keymap", async () => {
   const controller = new TuiController(new FakeClient() as never);
   assert.equal(controller.vimMode, false);

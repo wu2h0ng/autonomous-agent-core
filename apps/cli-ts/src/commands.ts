@@ -43,6 +43,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "show or switch the render theme",
   },
   {
+    name: "/find",
+    argsHint: "<query>",
+    description: "search the in-session transcript (view only)",
+  },
+  {
     name: "/vim",
     argsHint: "",
     description: "toggle vim keymap (Esc normal; i/a insert)",
