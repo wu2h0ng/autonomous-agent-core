@@ -53,6 +53,14 @@ class ChatMessage:
 TodoItem = dict[str, str]
 
 
+@dataclass
+class ActivityItem:
+    action_id: str
+    capability_id: str
+    status: str
+    preview: str = ""
+
+
 class SurfaceClientPort(Protocol):
     """Narrow protocol surface the controller consumes."""
 
@@ -132,6 +140,7 @@ class TuiController:
         self.turns = 0
         self.pending_preview: str | None = None
         self.todos: list[TodoItem] = []
+        self.activity: list[ActivityItem] = []
 
         self._stream_id: str | None = None
         self._runtime_boot_id: str | None = None
@@ -142,6 +151,7 @@ class TuiController:
         self._last_activity: float | None = None
         self._completed_outputs: dict[str, dict[str, Any]] = {}
         self._pending_turn_completions: dict[str, tuple[int, str]] = {}
+        self._activity_by_action: dict[str, ActivityItem] = {}
 
     # -- turns ------------------------------------------------------------
     def submit(self, text: str) -> None:
@@ -213,7 +223,10 @@ class TuiController:
         batch = self._client.events(self.task_id, after_sequence=self._durable_cursor)
         self._durable_cursor = batch.next_sequence
         for event in batch.events:
-            if event.event_type is TaskEventType.SESSION_TURN_COMPLETED:
+            if event.event_type is TaskEventType.ACTION_PROPOSED:
+                payload = json.loads(event.payload_json)
+                self._record_activity_proposed(payload)
+            elif event.event_type is TaskEventType.SESSION_TURN_COMPLETED:
                 payload = json.loads(event.payload_json)
                 turn_id = payload.get("turn_id")
                 if not isinstance(turn_id, str):
@@ -229,6 +242,7 @@ class TuiController:
                 payload = json.loads(event.payload_json)
                 self.pending_preview = str(payload.get("preview") or "")
                 self.status = STATUS_AWAITING_APPROVAL
+                self._record_activity_pending(payload)
             elif event.event_type is TaskEventType.NODE_COMPLETED:
                 payload = json.loads(event.payload_json)
                 action_id = payload.get("action_id")
@@ -237,7 +251,75 @@ class TuiController:
                     self._completed_outputs[action_id] = output
             elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
                 payload = json.loads(event.payload_json)
+                self._record_activity_receipt(payload)
                 self._apply_todo_receipt(payload)
+
+    def _record_activity_proposed(self, payload: dict[str, Any]) -> None:
+        action = payload.get("action")
+        if not isinstance(action, dict):
+            return
+        action_id = action.get("action_id")
+        capability_id = action.get("capability_id")
+        if not isinstance(action_id, str) or not isinstance(capability_id, str):
+            return
+        self._upsert_activity(
+            ActivityItem(
+                action_id=action_id,
+                capability_id=capability_id,
+                status="proposed",
+            )
+        )
+
+    def _record_activity_pending(self, payload: dict[str, Any]) -> None:
+        action_digest = payload.get("action_digest")
+        capability_id = payload.get("capability_id")
+        proposal_id = payload.get("proposal_id")
+        preview = payload.get("preview")
+        if not isinstance(capability_id, str):
+            return
+        self._upsert_activity(
+            ActivityItem(
+                action_id=(
+                    action_digest
+                    if isinstance(action_digest, str)
+                    else str(proposal_id or capability_id)
+                ),
+                capability_id=capability_id,
+                status="waiting approval",
+                preview=preview if isinstance(preview, str) else "",
+            )
+        )
+
+    def _record_activity_receipt(self, payload: dict[str, Any]) -> None:
+        receipt = payload.get("receipt")
+        if not isinstance(receipt, dict):
+            return
+        action_id = receipt.get("action_id")
+        capability_id = receipt.get("connector_id")
+        status = receipt.get("status")
+        if not isinstance(action_id, str) or not isinstance(capability_id, str):
+            return
+        rendered_status = "succeeded" if status == "SUCCEEDED" else "failed"
+        existing = self._activity_by_action.get(action_id)
+        self._upsert_activity(
+            ActivityItem(
+                action_id=action_id,
+                capability_id=capability_id,
+                status=rendered_status,
+                preview=existing.preview if existing is not None else "",
+            )
+        )
+
+    def _upsert_activity(self, item: ActivityItem) -> None:
+        existing = self._activity_by_action.get(item.action_id)
+        self._activity_by_action[item.action_id] = item
+        if existing is None:
+            self.activity.append(item)
+            return
+        for index, current in enumerate(self.activity):
+            if current.action_id == item.action_id:
+                self.activity[index] = item
+                return
 
     def _apply_todo_receipt(self, payload: dict[str, Any]) -> None:
         receipt = payload.get("receipt")

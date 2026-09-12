@@ -54,6 +54,7 @@ class AgentTuiApp(App[None]):
                 yield Input(placeholder="message the agent…", id="prompt")
             with Vertical(id="side-panel"):
                 yield Label("todos\n(no active task list)", id="todos")
+                yield Label("activity\n(no tool activity)", id="activity")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -109,6 +110,7 @@ class AgentTuiApp(App[None]):
             f"{self._controller.status_line()} · {self._controller.usage_line()}"
         )
         self._refresh_todos()
+        self._refresh_activity()
 
     def _refresh_todos(self) -> None:
         try:
@@ -123,6 +125,28 @@ class AgentTuiApp(App[None]):
         for item in self._controller.todos:
             rows.append(f"{icons[item['status']]} {item['content']}")
         todos.update("\n".join(rows))
+
+    def _refresh_activity(self) -> None:
+        try:
+            activity = self.query_one("#activity", Label)
+        except NoMatches:
+            return
+        if not self._controller.activity:
+            activity.update("activity\n(no tool activity)")
+            return
+        rows = ["activity"]
+        icons = {
+            "proposed": "…",
+            "waiting approval": "?",
+            "succeeded": "✓",
+            "failed": "✗",
+        }
+        for item in self._controller.activity[-8:]:
+            row = f"{icons.get(item.status, '•')} {item.capability_id}"
+            if item.preview:
+                row = f"{row} — {item.preview}"
+            rows.append(row)
+        activity.update("\n".join(rows))
 
     # -- input -------------------------------------------------------------
     def on_input_submitted(self, event: Input.Submitted) -> None:

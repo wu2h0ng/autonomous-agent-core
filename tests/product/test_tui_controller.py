@@ -228,6 +228,45 @@ class _FakeStreamClient:
             )
         )
 
+    def queue_tool_activity(
+        self,
+        *,
+        action_id: str,
+        capability_id: str,
+        status: str = "SUCCEEDED",
+    ) -> None:
+        self.durable_cursor += 1
+        self.durable_events.append(
+            _event(
+                self.durable_cursor,
+                "ACTION_PROPOSED",
+                {
+                    "action": {
+                        "action_id": action_id,
+                        "capability_id": capability_id,
+                        "risk_tier": 1,
+                    }
+                },
+            )
+        )
+        self.durable_cursor += 1
+        self.durable_events.append(
+            _event(
+                self.durable_cursor,
+                "ACTION_RECEIPT_RECORDED",
+                {
+                    "decision": {"action_id": action_id},
+                    "permit": {"permit_id": f"permit:{action_id}"},
+                    "receipt": {
+                        "receipt_id": f"receipt:{action_id}",
+                        "action_id": action_id,
+                        "connector_id": capability_id,
+                        "status": status,
+                    },
+                },
+            )
+        )
+
     def queue_approval_pending(self) -> None:
         from agent_os_contracts import PendingSurfaceApproval
 
@@ -453,6 +492,31 @@ def test_todo_panel_tracks_latest_successful_receipt_output_only() -> None:
     assert controller.todos == [
         {"id": "c", "content": "run product tests", "status": "pending"}
     ]
+
+
+def test_activity_timeline_tracks_tool_receipts_and_pending_approval() -> None:
+    client = _FakeStreamClient()
+    client.queue_tool_activity(
+        action_id="action:read",
+        capability_id="workspace.read",
+        status="SUCCEEDED",
+    )
+    client.queue_tool_activity(
+        action_id="action:test",
+        capability_id="workspace.run_tests",
+        status="FAILED",
+    )
+    client.queue_approval_pending()
+    controller = _controller(client)
+
+    controller.refresh_events()
+
+    assert [(item.capability_id, item.status) for item in controller.activity] == [
+        ("workspace.read", "succeeded"),
+        ("workspace.run_tests", "failed"),
+        ("workspace.shell", "waiting approval"),
+    ]
+    assert controller.activity[-1].preview == "run: pytest"
 
 
 def test_stream_stale_resubscribes_and_recovers_from_durable() -> None:

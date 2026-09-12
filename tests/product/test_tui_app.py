@@ -207,3 +207,37 @@ def test_tui_app_renders_session_todo_panel() -> None:
             assert "• run verification" in text
 
     asyncio.run(_drive())
+
+
+def test_tui_app_renders_tool_activity_panel() -> None:
+    client = _app_client()
+    client.queue_tool_activity(
+        action_id="action:read",
+        capability_id="workspace.read",
+        status="SUCCEEDED",
+    )
+    client.queue_tool_activity(
+        action_id="action:test",
+        capability_id="workspace.run_tests",
+        status="FAILED",
+    )
+    client.queue_approval_pending()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            await pilot.pause(0.1)
+            app._poll()
+            activity = app.query_one("#activity", Label)
+            text = str(activity.render())
+            assert "✓ workspace.read" in text
+            assert "✗ workspace.run_tests" in text
+            assert "? workspace.shell" in text
+            assert "run: pytest" in text
+
+    asyncio.run(_drive())
