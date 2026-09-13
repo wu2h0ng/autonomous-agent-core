@@ -266,6 +266,9 @@ class SurfaceStreamFrameKind(str, Enum):
     CHUNK = "CHUNK"
     GAP = "GAP"
     STREAM_END = "STREAM_END"
+    # Transient provider reasoning: display-only, turn-bound, never durable
+    # (same lifecycle class as CHUNK). See ADR REASONING-TRANSIENT-FRAME.
+    REASONING = "REASONING"
 
 
 class SurfaceStreamFrame(ContractModel):
