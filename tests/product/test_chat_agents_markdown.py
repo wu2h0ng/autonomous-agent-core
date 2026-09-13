@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_os_core import DeferredApprovalGateway, DeterministicProvider
+from agent_os_core import AgentLoopConfig, DeferredApprovalGateway, DeterministicProvider
 
 from apps.api_server.app import AgentOSApplication
 
@@ -41,3 +41,20 @@ def test_chat_ignores_symlinked_agents_markdown(tmp_path: Path) -> None:
     (tmp_path / "real.md").write_text("secret\n", encoding="utf-8")
     (tmp_path / "AGENTS.md").symlink_to(tmp_path / "real.md")
     assert "Project AGENTS.md" not in _system_prompt(tmp_path)
+
+
+def test_chat_ignores_non_utf8_agents_markdown(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_bytes(b"\xff\xfe\x00not utf-8")
+    # must be a no-op, not an exception
+    assert "Project AGENTS.md" not in _system_prompt(tmp_path)
+
+
+def test_explicit_loop_config_wins_over_agents_markdown(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+    app = _app(tmp_path)
+    _, loop = app.open_chat_session(
+        "hi",
+        DeferredApprovalGateway(),
+        loop_config=AgentLoopConfig(system_prompt="EXPLICIT"),
+    )
+    assert loop.history[0].content == "EXPLICIT"
