@@ -1,9 +1,10 @@
 """Typed contracts for TERMINAL-AGENT-EVAL-0 (product eval instrument).
 
-Evidence level is E2_CONTROLLED_SIMULATION: the L1 task set is a deterministic
-hermetic fixture, never parity evidence. Cost is unconditionally UNKNOWN under
-L1 (ProviderUsage exposes no pricing_source_ref and this instrument changes no
-contract).
+Evidence levels: E2_CONTROLLED_SIMULATION (hermetic deterministic task set) and
+E3_REAL_PROVIDER (a real provider call). E3 is only honored when the executor
+declares live provenance (enforced by the runner), never a bare caller label.
+Cost is unconditionally UNKNOWN under L1 (ProviderUsage exposes no
+pricing_source_ref and this instrument changes no contract).
 """
 
 from __future__ import annotations
@@ -76,6 +77,8 @@ class EvalReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     evidence_level: EvidenceLevel = EvidenceLevel.E2_CONTROLLED_SIMULATION
+    manifest_sha256: str | None = None
+    provenance: tuple[tuple[str, str], ...] = ()
     metrics: MetricSummary
     tasks: tuple[TaskResult, ...]
     failure_distribution: tuple[tuple[str, int], ...] = ()

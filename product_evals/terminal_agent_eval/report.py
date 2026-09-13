@@ -24,4 +24,12 @@ def render_report(report: EvalReport) -> str:
     if report.failure_distribution:
         failures = ", ".join(f"{task_id}×{count}" for task_id, count in report.failure_distribution)
         lines.append(f"failures: {failures}")
+    lines.append(
+        f"note: small task set (n={len(report.tasks)}); fixture/provider arm — "
+        "NOT parity or autonomy evidence"
+    )
+    if report.manifest_sha256:
+        lines.append(f"manifest: {report.manifest_sha256[:16]}…")
+    if report.provenance:
+        lines.append("provenance: " + ", ".join(f"{key}={value}" for key, value in report.provenance))
     return "\n".join(lines)

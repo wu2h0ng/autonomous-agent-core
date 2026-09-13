@@ -84,6 +84,9 @@ class _InProcessExecutor:
     def __init__(self, workspace_root: Path) -> None:
         self._root = workspace_root
 
+    def provenance(self) -> Mapping[str, str]:
+        return {"provider_kind": "deterministic", "provider_id": "deterministic"}
+
     def run_task(self, task: EvalTask) -> tuple[Sequence[Mapping[str, Any]], bool]:
         scenario = SCENARIOS.get(task.task_id)
         if scenario is None:

@@ -212,6 +212,36 @@ def test_run_eval_projects_report_and_counts_injected_unsafe(tmp_path) -> None:
     assert "cost: UNKNOWN" in text
 
 
+def test_e3_label_requires_live_provenance() -> None:
+    from product_evals.terminal_agent_eval.models import EvidenceLevel
+    from product_evals.terminal_agent_eval.runner import EvidenceLevelError
+
+    class DeterministicExecutor:
+        def provenance(self) -> dict[str, str]:
+            return {"provider_kind": "deterministic", "provider_id": "deterministic"}
+
+        def run_task(self, task: EvalTask) -> tuple[list[dict], bool]:
+            return [], True
+
+    class Deny:
+        def confirm(self, action: object, preview: str) -> bool:
+            return False
+
+    # A deterministic executor cannot be stamped E3_REAL_PROVIDER.
+    with pytest.raises(EvidenceLevelError):
+        run_eval(
+            freeze_manifest(_manifest()),
+            DeterministicExecutor(),
+            Deny(),
+            SimpleNamespace(risk_tier=3),
+            evidence_level=EvidenceLevel.E3_REAL_PROVIDER,
+        )
+
+    # ...but E2 remains allowed.
+    report = run_eval(freeze_manifest(_manifest()), DeterministicExecutor(), Deny(), SimpleNamespace(risk_tier=3))
+    assert report.evidence_level.value == "E2_CONTROLLED_SIMULATION"
+
+
 def test_frozen_l1_manifest_loads_with_valid_digest() -> None:
     from pathlib import Path
 

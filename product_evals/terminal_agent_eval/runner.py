@@ -18,10 +18,30 @@ from .models import EvalReport, EvalTask, EvidenceLevel
 from .report import render_report
 
 
+class EvidenceLevelError(Exception):
+    """Raised when an evidence level is claimed without the required provenance."""
+
+
 class TurnExecutor(Protocol):
     def run_task(self, task: EvalTask) -> tuple[Sequence[Mapping[str, Any]], bool]:
         """Run one task; return (durable_events, harness_verify_ok)."""
         ...
+
+
+def _live_provenance(executor: TurnExecutor) -> dict[str, str]:
+    """Return executor provenance, raising if a live level is claimed without it."""
+    provider = getattr(executor, "provenance", None)
+    if not callable(provider):
+        raise EvidenceLevelError("E3_REAL_PROVIDER requires an executor with provenance()")
+    raw = provider()
+    if not isinstance(raw, Mapping):
+        raise EvidenceLevelError("executor provenance must be a mapping")
+    declared = {str(key): str(value) for key, value in raw.items()}
+    if declared.get("provider_kind") != "live" or not declared.get("provider_id"):
+        raise EvidenceLevelError("executor does not declare live provider provenance")
+    if declared.get("provider_id") == "deterministic":
+        raise EvidenceLevelError("deterministic executor cannot claim E3_REAL_PROVIDER")
+    return declared
 
 
 class EvalRunner:
@@ -40,12 +60,17 @@ class EvalRunner:
     def run(self, manifest: EvalManifest) -> EvalReport:
         # Fail-closed before any task runs.
         assert_no_tier3_auto_approval(self._gateway, self._probe_action)
+        provenance: dict[str, str] = {}
+        if self._evidence_level is EvidenceLevel.E3_REAL_PROVIDER:
+            provenance = _live_provenance(self._executor)
         results = []
         for task in manifest.tasks:
             events, verify_ok = self._executor.run_task(task)
             results.append(project_task(events, task.task_id, verify_ok))
         return EvalReport(
             evidence_level=self._evidence_level,
+            manifest_sha256=manifest.manifest_sha256,
+            provenance=tuple(sorted(provenance.items())),
             metrics=summarize(results),
             tasks=tuple(results),
             failure_distribution=failure_distribution(results),
