@@ -440,6 +440,15 @@ class TestRCSL1ExperimentBoundary(unittest.TestCase):
     def _current_prereg_spec_hash(self) -> str:
         workspace_root = r_csl_1._default_workspace_root()
         spec_path = workspace_root / "docs/research/R-CSL-1.PREREG-2026-06-25.yaml"
+        if not spec_path.is_file():
+            # The frozen R-CSL-1 prereg spec lives in the portfolio workspace
+            # root, which is absent in a standalone autonomous-agent-core
+            # checkout (e.g. CI). Skip only the spec-bound checks there; they
+            # still run wherever the portfolio root is present.
+            self.skipTest(
+                "R-CSL-1 prereg spec is not in this checkout "
+                f"({spec_path}); portfolio workspace root required"
+            )
         return hashlib.sha256(spec_path.read_bytes()).hexdigest()
 
 
