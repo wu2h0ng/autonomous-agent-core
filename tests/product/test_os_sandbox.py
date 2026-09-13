@@ -64,6 +64,10 @@ def test_sandboxed_without_os_sandbox_fails_closed(
         tmp_path, execution_isolation=EXECUTION_ISOLATION_SANDBOXED
     )
     monkeypatch.setattr(
+        "domain_packs.developer_agent.workspace_capability.sys.platform",
+        "darwin",
+    )
+    monkeypatch.setattr(
         "domain_packs.developer_agent.workspace_capability."
         "shutil.which",
         lambda _name: None,
@@ -163,11 +167,43 @@ def test_shell_sandboxed_fails_closed_when_os_sandbox_absent(
         execution_isolation=EXECUTION_ISOLATION_SANDBOXED,
     )
     monkeypatch.setattr(
+        "domain_packs.developer_agent.workspace_capability.sys.platform",
+        "darwin",
+    )
+    monkeypatch.setattr(
         "domain_packs.developer_agent.workspace_capability.shutil.which",
         lambda _name: None,
     )
     with pytest.raises(CapabilityDenied, match="OS filesystem sandbox"):
         sandbox._shell({"command": "pytest"}, "action:shell")
+
+
+def test_seatbelt_path_guard_rejects_unsafe_characters() -> None:
+    from domain_packs.developer_agent.workspace_capability import (
+        _assert_seatbelt_paths,
+    )
+
+    with pytest.raises(CapabilityDenied, match="unsafe characters"):
+        _assert_seatbelt_paths(("/tmp/ok", '/tmp/bad"name'))
+    with pytest.raises(CapabilityDenied, match="unsafe characters"):
+        _assert_seatbelt_paths(("/tmp/back\\slash",))
+    _assert_seatbelt_paths(("/tmp/ok", "/tmp/also-ok"))
+
+
+def test_read_roots_exclude_filesystem_root_and_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from domain_packs.developer_agent.workspace_capability import (
+        _sandbox_read_roots,
+    )
+
+    monkeypatch.setenv("PATH", os.pathsep.join((str(Path.home()), "/")))
+    roots = {str(value) for value in _sandbox_read_roots(tmp_path)}
+    assert str(Path.home().resolve()) not in roots
+    assert "/" not in roots
+    assert str(tmp_path.resolve()) in roots
 
 
 def test_shell_report_records_isolation_evidence(tmp_path: Path) -> None:

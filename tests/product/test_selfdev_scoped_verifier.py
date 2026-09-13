@@ -98,6 +98,8 @@ def test_scoped_verifier_uses_only_bound_paths_and_records_exact_argv(
     assert report["verifier_binding_digest"] == _binding_digest([binding])
     assert report["argv"][-7:] == observed_argv[-7:]
     assert report["command"] == "pytest"
+    assert report["execution_isolation"] == "sandboxed"
+    assert report["sandbox_profile_sha256"]
 
 
 def test_selfdev_organ_fails_unbound_before_agent_loop_and_forwards_sealed_binding(
