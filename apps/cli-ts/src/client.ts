@@ -12,8 +12,7 @@
  *   embedded in error messages.
  */
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
-import {
+import { z } from "zod";import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
   SurfaceEventBatchSchema,
@@ -43,6 +42,10 @@ import {
 } from "./contracts.js";
 import { localHostname, type RuntimeDescriptor } from "./descriptor.js";
 import { parseSse } from "./sse.js";
+
+/** Frame kinds this client understands; unknown kinds are skipped on the
+ * stream for forward compatibility (ADR REASONING-TRANSIENT-FRAME). */
+const KNOWN_FRAME_KINDS = new Set(["CHUNK", "GAP", "STREAM_END", "REASONING"]);
 
 export class SurfaceClientError extends Error {}
 export class SurfaceProtocolMismatch extends SurfaceClientError {}
@@ -352,7 +355,13 @@ export class SurfaceClient {
         const payload = JSON.parse(message.data) as { next_sequence: number };
         nextSequence = payload.next_sequence;
       } else if (message.data) {
-        frames.push(SurfaceStreamFrameSchema.parse(JSON.parse(message.data)));
+        const raw: unknown = JSON.parse(message.data);
+        const kind = (raw as { kind?: unknown } | null)?.kind;
+        // Forward-compat (ADR REASONING-TRANSIENT-FRAME): skip frame kinds this
+        // client does not know; a KNOWN kind still validates strictly below.
+        if (typeof kind === "string" && KNOWN_FRAME_KINDS.has(kind)) {
+          frames.push(SurfaceStreamFrameSchema.parse(raw));
+        }
       }
     }
     return SurfaceStreamBatchSchema.parse({

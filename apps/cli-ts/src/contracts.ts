@@ -125,7 +125,7 @@ export type SurfaceStreamSubscription = z.infer<typeof SurfaceStreamSubscription
 
 export const SurfaceStreamFrameSchema = z
   .object({
-    kind: z.enum(["CHUNK", "GAP", "STREAM_END"]),
+    kind: z.enum(["CHUNK", "GAP", "STREAM_END", "REASONING"]),
     runtime_boot_id: NonEmptyStr,
     stream_id: NonEmptyStr,
     turn_id: NonEmptyStr.nullable().optional(),

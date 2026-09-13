@@ -152,6 +152,7 @@ export function App({
   const [selectorQuery, setSelectorQuery] = useState("");
   const [vimInsert, setVimInsert] = useState(true);
   const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
@@ -431,6 +432,10 @@ export function App({
       setShowToolDetails((visible) => !visible);
       return;
     }
+    if (key.ctrl && keyInput === "t") {
+      setShowReasoning((visible) => !visible);
+      return;
+    }
     if (key.ctrl && keyInput === "g") {
       launchEditor();
       return;
@@ -641,6 +646,16 @@ export function App({
           <Text dimColor>↑↓ move · type to filter · enter select · esc cancel</Text>
         </Box>
       )}
+      {showReasoning && controller.reasoningText ? (
+        <Text color={theme.notice} wrap="wrap">
+          🧠 {controller.reasoningText}
+        </Text>
+      ) : null}
+      {!showReasoning && controller.reasoningText ? (
+        <Text dimColor>
+          🧠 thinking ({controller.reasoningText.length} chars) · ctrl-t to show
+        </Text>
+      ) : null}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}
       {controller.status === "stalled" && (
         <Text color={theme.toolPending}>STALLED_PENDING_DURABLE_STATE — waiting for the durable record…</Text>

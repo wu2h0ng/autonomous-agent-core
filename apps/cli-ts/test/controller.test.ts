@@ -209,6 +209,26 @@ test("streaming turn: chunks assemble; durable completion adds exact tokens", as
   assert.equal(controller.status, "idle");
 });
 
+test("REASONING frames are transient and never part of the answer", async () => {
+  const client = new FakeClient();
+  client.streamScript = [
+    frame(1, "turn:1", "REASONING", "think-1"),
+    frame(2, "turn:1", "REASONING", "think-2"),
+    frame(3, "turn:1", "CHUNK", "answer"),
+    frame(4, "turn:1", "STREAM_END"),
+  ];
+  client.completedTokens = 1;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("q");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.reasoningText, "think-1think-2");
+  const assistant = controller.messages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content)
+    .join("");
+  assert.equal(assistant, "answer");
+});
+
 test("non-completed stop_reason surfaces verbatim (max_steps is not success)", async () => {
   const client = new FakeClient();
   client.streamScript = [frame(1, "turn:1", "STREAM_END")];
