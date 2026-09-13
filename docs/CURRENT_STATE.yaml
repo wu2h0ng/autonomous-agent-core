@@ -21,12 +21,13 @@ live_pins:
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
   terminal_supported_path_2026_09_13: "cli-ts (TS/Ink, apps/cli-ts) = the unique supported interactive terminal chat UI (founder-ratified 2026-09-13). Path A (packages/os_core/src/agent_os_core/agent_cli.py) = non-interactive/headless entry. Path B (apps/cli/tui_app.py textual) = frozen reference + protocol pilot. PR #13 merged the terminal line into main at ecc82b13."
   m2_gate9_record_2026_09_13: "Founder merge authorization of PR #13 (2026-09-13) records M2 gate-9 acceptance for the terminal line; the GC-TERMINAL-CODING-AGENT-M2 marker RESUBMISSION_PENDING_CTO_GATE_9 / NO_IMPLEMENTATION_AUTHORITY is superseded. A standalone gate-9 acceptance artifact was not produced — acknowledged debt, recorded here by founder decision rather than hidden."
+  os_sandbox_0_local_2026_09_14: "OS-SANDBOX-0 LOCAL_ONLY on branch codex/os-sandbox-20260913 (base be37762c): opt-in macOS Seatbelt execution isolation (execution_isolation {trusted_workspace_only(default) | sandboxed}) wrapping DeveloperWorkspaceAdapter._shell/_run_tests via the reused SELFDEV profile generator; fail-closed (CapabilityDenied) when sandboxed and the OS sandbox is unavailable; evidence in shell-report/test-report (execution_isolation + sandbox_profile_sha256). Sit BELOW permit/approval; NOT a gate/permit input; no PolicyKernel/C7 change. Legacy duplicate class absent (WorkspaceSandbox is an alias only). Verified: tests/product/test_os_sandbox.py 11 passed; targeted regressions 123 passed; ruff clean; pyright 0; real Seatbelt probes block out-of-workspace write, network and HOME read. NOT_COMMITTED / NOT_PUSHED / NOT_MERGED / NOT_REVIEWED; independent exact-diff review and founder merge authorization are pre-gates. macOS-only; Linux bubblewrap independent GC. Distribution: npm global install (Node>=20) verified (clean 27-file tarball); single-binary deferred (Node SEA experimental; Bun --compile is the mature option pending founder A/B)."
   approved_designs:
     - "P-AGENT-RESPONSIBILITY-LOOP-1 design at 5036ab7; Kimi R3 SPEC_APPROVE; persistence foundation at exact head ddb021b independently returned TECHNICAL_APPROVE_FOUNDATION; controller/CLI/application loop remains incomplete"
   portfolio_meta_notes:
     - "DEV-HOLDOUT pack FROZEN under portfolio .agent_runs/dev-heldout-tasks-20260719; fold-1 scored BOTH_ARMS_ZERO; folds 2-6 PARK; not Agent OS main capability"
     - "R-STATE-CREDIT-1 exact-head review at c063b37: CONDITIONAL_APPROVE (2026-07-19 Cursor substitute after OpenCode no-deliverable); still NOT_FROZEN / NOT_RUN"
-updated: "2026-09-13T00:00:00+08:00"
+updated: "2026-09-14T00:00:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"

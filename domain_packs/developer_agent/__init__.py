@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from agent_os_contracts import DomainPackManifest
 
 from .repository_patch_profile import DeveloperRepositoryPatchProfile
-from .workspace_capability import DeveloperWorkspaceAdapter
+from .workspace_capability import (
+    EXECUTION_ISOLATION_SANDBOXED,
+    EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
+    DeveloperWorkspaceAdapter,
+)
 from .workspace_collaboration import (
     SQLiteWorkspaceCommitFence,
     WorkspaceCollaborationPreflight,
@@ -23,6 +27,8 @@ WorkspaceSandbox = DeveloperWorkspaceAdapter
 __all__ = [
     "DeveloperRepositoryPatchProfile",
     "DeveloperWorkspaceAdapter",
+    "EXECUTION_ISOLATION_SANDBOXED",
+    "EXECUTION_ISOLATION_TRUSTED_WORKSPACE",
     "WorkspaceSandbox",
     "SQLiteWorkspaceCommitFence",
     "WorkspaceCollaborationPreflight",

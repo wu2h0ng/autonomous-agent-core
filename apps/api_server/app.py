@@ -152,6 +152,7 @@ from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.session_projection import SessionLoopConfig
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import (
+    EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
     DeveloperRepositoryPatchProfile,
     DeveloperWorkspaceAdapter,
     SQLiteWorkspaceCommitFence,
@@ -313,6 +314,7 @@ class AgentOSApplication:
         data_agent_query_grant: CapabilityGrant | None = None,
         observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
         trusted_shell_profile: bool | None = None,
+        execution_isolation: str | None = None,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -393,8 +395,19 @@ class AgentOSApplication:
         ) = None
         self._mandate_steward: MandateSteward | None = None
         self.workspace_root = Path(workspace).resolve()
+        # OS-SANDBOX-0 (opt-in): OS filesystem isolation sits below the
+        # permit/approval spine; default is the prior trusted-workspace
+        # behaviour. Never implicit, never a gate input.
+        self.execution_isolation = (
+            execution_isolation
+            if execution_isolation is not None
+            else os.environ.get("AGENT_OS_EXECUTION_ISOLATION")
+            or EXECUTION_ISOLATION_TRUSTED_WORKSPACE
+        )
         self.sandbox = DeveloperWorkspaceAdapter(
-            workspace, idempotency_store=self.store
+            workspace,
+            idempotency_store=self.store,
+            execution_isolation=self.execution_isolation,
         )
         # M2 (opt-in, mainstream-aligned): the trusted shell profile broadens
         # the shell allowlist, so it is OFF unless explicitly requested (ctor
@@ -779,7 +792,11 @@ class AgentOSApplication:
         ):
             raise PermissionError("workspace path is outside the local allowlist")
         with self._configuration_lock:
-            self.sandbox = DeveloperWorkspaceAdapter(root, idempotency_store=self.store)
+            self.sandbox = DeveloperWorkspaceAdapter(
+                root,
+                idempotency_store=self.store,
+                execution_isolation=self.execution_isolation,
+            )
             self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
             rebuilt_grants = self._build_grants()
             self.grants.clear()
