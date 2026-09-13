@@ -313,12 +313,20 @@ class SrlRuntime:
         that produced the source assessment (I-23). The default M0 port remains
         fail-closed; a trusted gate may activate through the authority spine.
         """
-        # I-23: producer cannot be acceptor.
+        # I-23: producer cannot be acceptor. The producer identity is required;
+        # its absence fails closed (it is caller-strippable metadata).
         producer_instance_id = self._extract_producer_instance_id(proposed_goal)
-        if (
-            producer_instance_id
-            and authority.authority_instance_id == producer_instance_id
-        ):
+        if producer_instance_id is None:
+            self._record_transition(
+                "ACTIVATION_REJECTED",
+                proposed_goal.proposal_goal_id,
+                "producer identity unavailable",
+            )
+            return TaskActivationResult(
+                activated=False,
+                rejection_reason="I-23: producer identity unavailable",
+            )
+        if authority.authority_instance_id == producer_instance_id:
             self._record_transition(
                 "ACTIVATION_REJECTED",
                 proposed_goal.proposal_goal_id,

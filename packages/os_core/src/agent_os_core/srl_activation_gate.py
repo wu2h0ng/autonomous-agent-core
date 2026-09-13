@@ -30,6 +30,7 @@ class ActivationDenialReason(str, Enum):
     TRUSTED_AUTHORITY_MISSING = "TRUSTED_AUTHORITY_MISSING"
     AUTHORITY_NOT_RECOGNIZED = "AUTHORITY_NOT_RECOGNIZED"
     AUTHORITY_BINDING_MISMATCH = "AUTHORITY_BINDING_MISMATCH"
+    PRODUCER_IDENTITY_UNAVAILABLE = "PRODUCER_IDENTITY_UNAVAILABLE"
     SAME_INSTANCE_PROPOSE_AND_ACCEPT = "SAME_INSTANCE_PROPOSE_AND_ACCEPT"
     MANDATE_UNAVAILABLE = "MANDATE_UNAVAILABLE"
     MANDATE_NOT_ACTIVE = "MANDATE_NOT_ACTIVE"
@@ -157,13 +158,28 @@ class TrustedTaskActivationGate(TaskActivationPort):
         # 2. The authority must bind the exact proposal it claims to authorize.
         if authority.source_proposed_goal_id != proposed_goal.proposal_goal_id:
             return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
+        # 2b. The goal's own mandate/assessment references must match the
+        # authority; missing metadata fails closed (it is caller-strippable).
+        goal_mandate_ref = self._goal_constraint(proposed_goal, "mandate-ref:")
+        if goal_mandate_ref is None or authority.mandate_id != goal_mandate_ref:
+            return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
+        goal_assessment_ref = self._goal_constraint(
+            proposed_goal, "assessment-ref:"
+        )
+        if (
+            goal_assessment_ref is None
+            or authority.source_assessment_id != goal_assessment_ref
+        ):
+            return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
 
         # 3. The producer of the assessment cannot also accept it (I-23).
-        producer_instance_id = self._producer_instance_id(proposed_goal)
-        if (
-            producer_instance_id is not None
-            and authority.authority_instance_id == producer_instance_id
-        ):
+        # The producer identity is required; its absence fails closed.
+        producer_instance_id = self._goal_constraint(
+            proposed_goal, "assessor-instance:"
+        )
+        if producer_instance_id is None:
+            return rejected(ActivationDenialReason.PRODUCER_IDENTITY_UNAVAILABLE)
+        if authority.authority_instance_id == producer_instance_id:
             return rejected(ActivationDenialReason.SAME_INSTANCE_PROPOSE_AND_ACCEPT)
 
         # 4. The Mandate must be currently active and scope-matched.
@@ -233,10 +249,10 @@ class TrustedTaskActivationGate(TaskActivationPort):
         return _build
 
     @staticmethod
-    def _producer_instance_id(proposed_goal: ProposedGoal) -> str | None:
+    def _goal_constraint(proposed_goal: ProposedGoal, prefix: str) -> str | None:
         for constraint in proposed_goal.constraints:
-            if constraint.startswith("assessor-instance:"):
-                return constraint.split(":", 1)[1]
+            if constraint.startswith(prefix):
+                return constraint[len(prefix):]
         return None
 
 

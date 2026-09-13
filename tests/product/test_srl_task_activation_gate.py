@@ -159,7 +159,11 @@ def goal(now):
         created_by="srl-goal-formation:v1",
         created_at=now,
         statement="fix the failing test",
-        constraints=("assessor-instance:assessor-instance-1",),
+        constraints=(
+            "mandate-ref:mandate-1",
+            "assessment-ref:assessment:event-1",
+            "assessor-instance:assessor-instance-1",
+        ),
     )
 
 
@@ -453,6 +457,87 @@ def test_runtime_default_port_remains_fail_closed(goal, authority, now):
     )
     result = runtime.activate_goal(goal, authority)
     assert not result.activated
+
+
+def test_gate_rejects_stripped_producer_identity(mandate_registry, goal, authority):
+    stripped = goal.model_copy(
+        update={
+            "constraints": tuple(
+                c for c in goal.constraints if not c.startswith("assessor-instance:")
+            )
+        }
+    )
+    result = _gate(mandate_registry, authority=authority).activate(stripped, authority)
+    assert not result.activated
+    assert ActivationDenialReason.PRODUCER_IDENTITY_UNAVAILABLE.value in (
+        result.rejection_reason or ""
+    )
+
+
+def test_gate_rejects_cross_mandate_authority(mandate_registry, goal, authority, now):
+    cross = authority.model_copy(update={"mandate_id": "mandate-2"})
+    result = _gate(mandate_registry, authority=cross).activate(goal, cross)
+    assert not result.activated
+    assert ActivationDenialReason.AUTHORITY_BINDING_MISMATCH.value in (
+        result.rejection_reason or ""
+    )
+
+
+def test_gate_rejects_assessment_ref_mismatch(mandate_registry, goal, authority, now):
+    other = authority.model_copy(update={"source_assessment_id": "assessment:other"})
+    result = _gate(mandate_registry, authority=other).activate(goal, other)
+    assert not result.activated
+    assert ActivationDenialReason.AUTHORITY_BINDING_MISMATCH.value in (
+        result.rejection_reason or ""
+    )
+
+
+def test_gate_rejects_mismatched_registered_authority(mandate_registry, goal, authority, now):
+    # Registry resolves the id to a different record than the caller supplied.
+    different = authority.model_copy(update={"authorization_digest": "sha256:different"})
+    gate = TrustedTaskActivationGate(
+        authority_registry=_AuthorityRegistry([different]),
+        mandate_registry=mandate_registry,
+        requirements=_Requirements(_requirements()),
+        c7_clearance=_C7(_clearance()),
+        task_creation=_Creation(),
+    )
+    result = gate.activate(goal, authority)
+    assert not result.activated
+    assert ActivationDenialReason.AUTHORITY_NOT_RECOGNIZED.value in (
+        result.rejection_reason or ""
+    )
+
+
+def test_gate_rejects_tenant_scope_mismatch(mandate_registry, goal, authority):
+    out_of_scope = goal.model_copy(update={"tenant_id": "t-2"})
+    result = _gate(mandate_registry, authority=authority).activate(
+        out_of_scope, authority
+    )
+    assert not result.activated
+    assert ActivationDenialReason.AUTHORITY_BINDING_MISMATCH.value in (
+        result.rejection_reason or ""
+    )
+
+
+def test_gate_rejects_mission_mismatch(mandate_registry, goal, authority, now):
+    wrong_mission = authority.model_copy(update={"standing_mission_id": "mission-9"})
+    result = _gate(mandate_registry, authority=wrong_mission).activate(
+        goal, wrong_mission
+    )
+    assert not result.activated
+    assert ActivationDenialReason.AUTHORITY_BINDING_MISMATCH.value in (
+        result.rejection_reason or ""
+    )
+
+
+def test_gate_rejects_unavailable_mandate(goal, authority):
+    empty = InMemoryMandateRegistry()
+    result = _gate(empty, authority=authority).activate(goal, authority)
+    assert not result.activated
+    assert ActivationDenialReason.MANDATE_UNAVAILABLE.value in (
+        result.rejection_reason or ""
+    )
 
 
 def test_task_service_adapter_creates_durable_idempotent_task(

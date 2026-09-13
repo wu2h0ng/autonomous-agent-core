@@ -477,7 +477,8 @@ def test_p0_runtime_rejects_mismatched_authority_without_producer_metadata(
     result = runtime.activate_goal(goal_without_producer, mismatched_authority)
 
     assert not result.activated
-    assert "TaskService/C7" in (result.rejection_reason or "")
+    # I-23 now fails closed when producer identity is absent.
+    assert "producer identity unavailable" in (result.rejection_reason or "")
 
 
 def test_i15_untrusted_outcome_rejected(make_runtime, mandate, standing_mission, now):
