@@ -215,6 +215,7 @@ class AgentLoop:
         external_exact_approval: bool = False,
         collaboration_preflight: CollaborationPreflightPort | None = None,
         text_delta_sink: Callable[[str], None] | None = None,
+        reasoning_delta_sink: Callable[[str], None] | None = None,
         permission_mode: PermissionMode = "ASK",
         permission_mode_event_id: str | None = None,
     ) -> None:
@@ -260,6 +261,7 @@ class AgentLoop:
         self._independent_approval = independent_approval
         self._external_exact_approval = external_exact_approval
         self._text_delta_sink = text_delta_sink
+        self._reasoning_delta_sink = reasoning_delta_sink
         self._permission_mode: PermissionMode = permission_mode
         self._permission_mode_event_id = permission_mode_event_id
 
@@ -1104,6 +1106,19 @@ class AgentLoop:
         except Exception:  # noqa: BLE001 - transient display path only
             return
 
+    def _emit_reasoning_delta(self, delta: str) -> None:
+        """Forward one transient provider reasoning chunk (display-only).
+
+        Frozen (E1): reasoning is transient, never durable and never part of
+        the assistant message or evidence; a display failure is swallowed."""
+        sink = self._reasoning_delta_sink
+        if sink is None or not delta:
+            return
+        try:
+            sink(delta)
+        except Exception:  # noqa: BLE001 - transient display path only
+            return
+
     def _call_provider(
         self, session: ChatSession, turn_id: TurnId, step: int
     ) -> ProviderResponse | ProviderFailure:
@@ -1152,6 +1167,7 @@ class AgentLoop:
             response = self._provider.complete_streaming(
                 request,
                 on_text_delta=self._emit_text_delta,
+                on_reasoning_delta=self._emit_reasoning_delta,
             )
             if isinstance(response, ProviderFailure):
                 last_failure = response

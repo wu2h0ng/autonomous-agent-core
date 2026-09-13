@@ -1750,6 +1750,7 @@ class AgentOSApplication:
         session_id: str,
         gateway: ConfirmationGateway,
         text_delta_sink: Callable[[str], None] | None = None,
+        reasoning_delta_sink: Callable[[str], None] | None = None,
     ) -> tuple[ChatSession, AgentLoop]:
         """Restore one exact durable chat session without replaying prior turns."""
         if not self.provider_configured:
@@ -1846,6 +1847,7 @@ class AgentOSApplication:
             resumable_turn_ids=resumable_turn_ids,
             collaboration_preflight=self.collaboration_preflight,
             text_delta_sink=text_delta_sink,
+            reasoning_delta_sink=reasoning_delta_sink,
             permission_mode=projected.permission_mode,
             permission_mode_event_id=projected.permission_mode_event_id,
         )
@@ -2019,10 +2021,18 @@ class AgentOSApplication:
                 return
             _publish(SurfaceStreamFrameKind.CHUNK, {"delta": delta})
 
+        def _reasoning_sink(delta: str) -> None:
+            # Transient reasoning (display-only, never durable) for providers
+            # that expose it; the same turn-start barrier applies.
+            if not turn_ready.wait(timeout=5.0) or not turn_holder:
+                return
+            _publish(SurfaceStreamFrameKind.REASONING, {"delta": delta})
+
         session, loop = self.restore_chat_session(
             command.session_id,
             DeferredApprovalGateway(),
             text_delta_sink=_sink,
+            reasoning_delta_sink=_reasoning_sink,
         )
 
         def _execute() -> None:

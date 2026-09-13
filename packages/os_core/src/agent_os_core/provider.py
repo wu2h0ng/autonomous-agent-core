@@ -124,8 +124,13 @@ class ProviderPort(ABC):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
-        """Default: non-streaming complete; subclasses may stream deltas."""
+        """Default: non-streaming complete; subclasses may stream deltas.
+
+        `on_reasoning_delta` (if a provider exposes transient reasoning) is
+        display-only and must never be merged into `ProviderResponse.text`.
+        """
         result = self.complete(request)
         if (
             on_text_delta is not None
@@ -173,6 +178,7 @@ class DeterministicProvider(ProviderPort):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         response = self.complete(request)
         if isinstance(response, ProviderFailure):
@@ -344,12 +350,14 @@ class OpenAICompatibleProvider(ProviderPort):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         return self._invoke(
             request,
             allowed_capability_ids=request.allowed_capability_ids,
             stream=True,
             on_text_delta=on_text_delta,
+            on_reasoning_delta=on_reasoning_delta,
         )
 
     def decide(
@@ -382,6 +390,7 @@ class OpenAICompatibleProvider(ProviderPort):
         allowed_capability_ids: tuple[str, ...],
         stream: bool = False,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         try:
             invocation = self._invocation_binding
@@ -450,6 +459,7 @@ class OpenAICompatibleProvider(ProviderPort):
                         response,
                         request=request,
                         on_text_delta=on_text_delta,
+                        on_reasoning_delta=on_reasoning_delta,
                     )
                 payload = json.loads(response.read().decode("utf-8"))
             choice = payload["choices"][0]
@@ -529,6 +539,7 @@ class OpenAICompatibleProvider(ProviderPort):
         *,
         request: ProviderRequest | ProviderDecisionRequest,
         on_text_delta: Callable[[str], None] | None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         text_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
@@ -579,6 +590,11 @@ class OpenAICompatibleProvider(ProviderPort):
                 text_parts.append(str(content))
                 if on_text_delta is not None:
                     on_text_delta(str(content))
+            # Transient reasoning (DeepSeek `reasoning_content`): display-only,
+            # never appended to text_parts / the durable response.
+            reasoning = delta.get("reasoning_content")
+            if reasoning and on_reasoning_delta is not None:
+                on_reasoning_delta(str(reasoning))
             for tool_delta in delta.get("tool_calls") or []:
                 index = int(tool_delta.get("index", 0))
                 bucket = tool_calls.setdefault(
