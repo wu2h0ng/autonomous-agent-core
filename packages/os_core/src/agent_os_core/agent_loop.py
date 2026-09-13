@@ -124,9 +124,9 @@ class AutoApproveGateway:
 
     Auto-admits risk tier <= 2 actions with no human in the loop; tier >= 3
     still requires an explicit approval callback, so shell commands are never
-    auto-approved here. This gateway is NOT used by `chat -p` (which fails
-    closed via NonInteractiveDenyGateway) and must not be wired into
-    interactive production paths.
+    auto-approved here. It is currently also wired for the non-interactive
+    one-shot `-p` path (tier <= 2 auto-approve; tier >= 3 fails closed), and
+    must not be wired into interactive production paths.
     """
 
     def confirm(self, action: ActionContract, preview: str) -> bool:

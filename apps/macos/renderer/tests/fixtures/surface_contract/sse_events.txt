@@ -4,4 +4,3 @@ data: {"schema_version":"1.0","event_id":"event:1","task_id":"task:1","sequence"
 
 event: cursor
 data: {"next_sequence": 3}
-
