@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum
+import hashlib
 import os
 from pathlib import Path
 import stat
 import subprocess
 from typing import Any
 
-from agent_os_contracts import SelfDevelopmentWorkSpec
+from agent_os_contracts import SelfDevelopmentWorkSpec, content_digest
 
 _MAX_COMPLETE_REPLACEMENT_CHARACTERS = 20_000
 
@@ -61,6 +62,7 @@ class SelfDevelopmentOrgan:
             and self._has_persisted_effects(task_id)
         )
         self._assert_exact_workspace(spec, require_clean=not precise_resume)
+        self._assert_verifier_bindings(spec)
         if precise_resume:
             self._assert_only_target_changed(spec)
         self._assert_targets_admitted(spec)
@@ -69,6 +71,7 @@ class SelfDevelopmentOrgan:
 
         def assert_selfdev_current(phase: str) -> None:
             assert_current(phase)
+            self._assert_verifier_bindings(spec)
             if phase in {
                 "before_outcome_evaluation",
                 "before_run_finalization",
@@ -81,6 +84,18 @@ class SelfDevelopmentOrgan:
             "isolated_branch": spec.isolated_branch,
             "allowed_write_path": spec.target_path,
             "verifier_command": spec.verifier_command,
+            "verifier_bindings": [
+                binding.model_dump(mode="json")
+                for binding in spec.verifier_bindings
+            ],
+            "verifier_binding_digest": content_digest(
+                {
+                    "verifier_bindings": [
+                        binding.model_dump(mode="json")
+                        for binding in spec.verifier_bindings
+                    ]
+                }
+            ),
             "rollback_strategy": spec.rollback_strategy,
             "prohibited_effects": (
                 "main",
@@ -133,6 +148,78 @@ class SelfDevelopmentOrgan:
         assert_current("after_selfdev_execution")
         self._assert_exact_workspace(spec, require_clean=False)
         self._assert_only_target_changed(spec)
+
+    def _assert_verifier_bindings(self, spec: SelfDevelopmentWorkSpec) -> None:
+        if not spec.verifier_bindings:
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_VERIFIER_UNBOUND",
+                "SELFDEV execution requires an admission-sealed Product oracle",
+            )
+        paths = tuple(binding.path for binding in spec.verifier_bindings)
+        if len(set(paths)) != len(paths) or set(paths) & set(spec.allowed_write_paths):
+            raise SelfDevelopmentOrganBlocked(
+                "SELFDEV_VERIFIER_BINDING_INVALID",
+                "verifier paths must be unique and outside the SELFDEV write set",
+            )
+        for binding in spec.verifier_bindings:
+            tree = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self._workspace),
+                    "ls-tree",
+                    spec.repository_head,
+                    "--",
+                    binding.path,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            records = tuple(line for line in tree.stdout.splitlines() if line)
+            if tree.returncode != 0 or len(records) != 1 or "\t" not in records[0]:
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_VERIFIER_BASE_DRIFT",
+                    f"verifier base blob is unavailable: {binding.path}",
+                )
+            metadata, recorded_path = records[0].split("\t", 1)
+            parts = metadata.split()
+            if (
+                len(parts) != 3
+                or parts[0] not in {"100644", "100755"}
+                or parts[1] != "blob"
+                or recorded_path != binding.path
+            ):
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_VERIFIER_BASE_DRIFT",
+                    f"verifier base object is not a regular blob: {binding.path}",
+                )
+            blob = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self._workspace),
+                    "cat-file",
+                    "blob",
+                    parts[2],
+                ],
+                check=False,
+                capture_output=True,
+            )
+            oracle = self._workspace / binding.path
+            if (
+                blob.returncode != 0
+                or hashlib.sha256(blob.stdout).hexdigest()
+                != binding.base_blob_sha256
+                or not oracle.is_file()
+                or oracle.is_symlink()
+                or hashlib.sha256(oracle.read_bytes()).hexdigest()
+                != binding.base_blob_sha256
+            ):
+                raise SelfDevelopmentOrganBlocked(
+                    "SELFDEV_VERIFIER_WORKTREE_DRIFT",
+                    f"verifier bytes differ from the sealed base blob: {binding.path}",
+                )
 
     def _assert_exact_workspace(
         self,
@@ -242,6 +329,8 @@ class SelfDevelopmentOrgan:
             "agent-os.sqlite3-wal",
             "agent-os.sqlite3-journal",
             "agent-os.sqlite3.loop.lock",
+            "agent-os.sqlite3.collaboration",
+            "agent-os.sqlite3.collaboration.lock",
         }
         return {
             path

@@ -51,6 +51,22 @@ class ResponsibilityAttentionReason(str, Enum):
     UNHANDLED_TASK_RUN_STATE = "UNHANDLED_TASK_RUN_STATE"
 
 
+class SelfDevelopmentVerifierBinding(ContractModel):
+    """Admission-sealed immutable Product test oracle."""
+
+    path: NonEmptyStr
+    base_blob_sha256: Sha256Digest
+
+    @field_validator("path", mode="after")
+    @classmethod
+    def _validate_path(cls, value: str) -> str:
+        if re.fullmatch(r"tests/product/test_[A-Za-z0-9_]+\.py", value) is None:
+            raise ValueError(
+                "verifier binding path must be an exact tests/product/test_*.py path"
+            )
+        return value
+
+
 class SelfDevelopmentWorkSpec(ContractModel):
     """Persisted execution envelope for one isolated Agent OS change."""
 
@@ -64,6 +80,11 @@ class SelfDevelopmentWorkSpec(ContractModel):
     additional_target_paths: tuple[NonEmptyStr, ...] = Field(
         default=(),
         max_length=7,
+        exclude_if=lambda value: not value,
+    )
+    verifier_bindings: tuple[SelfDevelopmentVerifierBinding, ...] = Field(
+        default=(),
+        max_length=8,
         exclude_if=lambda value: not value,
     )
     verifier_command: NonEmptyStr
@@ -209,7 +230,26 @@ class SelfDevelopmentAdmissionCommand(ContractModel):
     statement: NonEmptyStr
     deliverables: tuple[NonEmptyStr, ...] = Field(min_length=1)
     acceptance_criteria: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    verifier_paths: tuple[NonEmptyStr, ...] = Field(min_length=1, max_length=8)
     selfdev_spec: SelfDevelopmentWorkSpec
+
+    @field_validator("verifier_paths", mode="after")
+    @classmethod
+    def _validate_verifier_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("verifier_paths must be unique")
+        for value in values:
+            path = PurePosixPath(value)
+            if (
+                re.fullmatch(r"tests/product/test_[A-Za-z0-9_]+\.py", value)
+                is None
+                or path.as_posix() != value
+                or any(ord(character) < 32 or ord(character) == 127 for character in value)
+            ):
+                raise ValueError(
+                    "verifier_paths must be exact canonical tests/product/test_*.py paths"
+                )
+        return values
 
     @model_validator(mode="after")
     def _require_precise_route(self) -> SelfDevelopmentAdmissionCommand:
@@ -217,6 +257,12 @@ class SelfDevelopmentAdmissionCommand(ContractModel):
             raise ValueError(
                 "SELFDEV admission requires edit_mode=agent_loop_precise"
             )
+        if self.selfdev_spec.verifier_bindings:
+            raise ValueError(
+                "SELFDEV verifier bindings are server-computed; callers provide verifier_paths only"
+            )
+        if self.selfdev_spec.verifier_command != "pytest":
+            raise ValueError("new SELFDEV admission requires canonical pytest")
         return self
 
 

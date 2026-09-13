@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import secrets
 import unicodedata
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, unquote_to_bytes, urlparse
 
 from pydantic import ValidationError
@@ -46,7 +48,9 @@ from agent_os_core import (
     TaskNotFoundError,
 )
 
+from ._cors import _tauri_origin_cors
 from .app import AgentOSApplication
+from .surface_routes import SurfaceRoutes
 from domain_packs.data_agent.runtime import DataAgentDenied
 
 
@@ -269,6 +273,17 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
 class Handler(BaseHTTPRequestHandler):
     application: AgentOSApplication
     admin_applications: dict[str, AgentOSApplication] = {}
+    local_token: str | None = None
+    surface_routes: Any = None
+
+    def _local_authenticated(self) -> bool:
+        if self.local_token is None:
+            return True
+        supplied = self.headers.get("Authorization", "").removeprefix("Bearer ")
+        if secrets.compare_digest(supplied, self.local_token):
+            return True
+        self._json(401, {"error": "local_authentication_failed"})
+        return False
 
     def _admin_application(self) -> AgentOSApplication | None:
         authorization = self.headers.get("Authorization", "")
@@ -303,7 +318,8 @@ class Handler(BaseHTTPRequestHandler):
         response_headers: dict[str, str] | None = None,
     ) -> None:
         if (
-            self.command == "POST"
+            status < 400
+            and self.command == "POST"
             and isinstance(payload, dict)
             and _uses_generic_http_idempotency(self.path)
         ):
@@ -315,6 +331,10 @@ class Handler(BaseHTTPRequestHandler):
         data = json.dumps(payload, ensure_ascii=False, default=str).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        for name, value in _tauri_origin_cors(
+            self.headers.get("Origin")
+        ).items():
+            self.send_header(name, value)
         for name, value in (response_headers or {}).items():
             self.send_header(name, value)
         self.send_header("Content-Length", str(len(data)))
@@ -328,8 +348,27 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("JSON body must be an object")
         return value
 
+    def do_OPTIONS(self) -> None:
+        cors = _tauri_origin_cors(self.headers.get("Origin"))
+        if not cors:
+            self._json(403, {"error": "origin_not_allowed"})
+            return
+        self.send_response(204)
+        for name, value in cors.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/v1/") and not self._local_authenticated():
+            return
+        if (
+            parsed.path.startswith("/v1/surface/")
+            and self.surface_routes is not None
+        ):
+            self.surface_routes.dispatch(self)
+            return
         if parsed.path == "/":
             data = INDEX.encode()
             self.send_response(HTTPStatus.OK)
@@ -658,6 +697,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/v1/") and not self._local_authenticated():
+            return
+        if (
+            parsed.path.startswith("/v1/surface/")
+            and self.surface_routes is not None
+        ):
+            self.surface_routes.dispatch(self)
+            return
         try:
             key = self.headers.get("Idempotency-Key")
             if key and _uses_generic_http_idempotency(self.path):
@@ -967,19 +1014,45 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-def serve(
+def build_server(
     application: AgentOSApplication,
     host: str = "127.0.0.1",
-    port: int = 8787,
+    port: int = 0,
     *,
     admin_applications: dict[str, AgentOSApplication] | None = None,
-) -> None:
+    local_token: str | None = None,
+) -> ThreadingHTTPServer:
+    if local_token is not None and not local_token:
+        raise ValueError("local runtime token must be non-empty")
     handler = type(
         "AgentOSHandler",
         (Handler,),
         {
             "application": application,
             "admin_applications": dict(admin_applications or {}),
+            "local_token": local_token,
+            "surface_routes": (
+                SurfaceRoutes(application.surface, local_token)
+                if local_token is not None
+                else None
+            ),
         },
     )
-    ThreadingHTTPServer((host, port), handler).serve_forever()
+    return ThreadingHTTPServer((host, port), handler)
+
+
+def serve(
+    application: AgentOSApplication,
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    *,
+    admin_applications: dict[str, AgentOSApplication] | None = None,
+    local_token: str | None = None,
+) -> None:
+    build_server(
+        application,
+        host,
+        port,
+        admin_applications=admin_applications,
+        local_token=local_token,
+    ).serve_forever()

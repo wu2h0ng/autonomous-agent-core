@@ -27,7 +27,13 @@ from agent_os_contracts import (
     WorkflowGraph,
 )
 from agent_os_core.action_pipeline import ActionPipeline
-from agent_os_core.capability import CapabilityBroker, CapabilityEffect, CapabilityPort
+from agent_os_core.capability import (
+    CapabilityBroker,
+    CapabilityEffect,
+    CapabilityEffectUnknown,
+    CapabilityPort,
+    ExecutionLease,
+)
 from agent_os_core.governance import CorrectionAuthority, PolicyKernel
 from apps.api_server.app import AgentOSApplication
 from domain_packs.data_agent.contracts import (
@@ -286,6 +292,7 @@ def _runtime(
         authority,
         _grant(bound_request),
     )
+    connector.bind_idempotency_store(app.tasks._event_store)
     runtime = DataAgentRuntime(
         tasks=app.tasks,
         pipeline=pipeline,
@@ -359,13 +366,33 @@ class _UnknownEffectQueryCapability:
     def specs(self, now=None, *, include_internal: bool = False):
         return self._spec_source.specs(now, include_internal=include_internal)
 
+    def bind_idempotency_store(self, store):
+        return self._spec_source.bind_idempotency_store(store)
+
+    def outcomes(self):
+        return self._spec_source.outcomes()
+
+    def replay(self, action):
+        return self._spec_source.replay(action)
+
+    def preflight(self, capability_id, args, action_key):
+        return self._spec_source.preflight(capability_id, args, action_key)
+
+    def acquire_execution_lease(self, action, owner):
+        return self._spec_source.acquire_execution_lease(action, owner)
+
+    def release_execution_lease(self, lease):
+        return self._spec_source.release_execution_lease(lease)
+
     def execute(self, action):
         self.execution_count += 1
-        return CapabilityEffect(
-            status=ReceiptStatus.UNKNOWN,
-            output={},
-            error_code="EFFECT_UNKNOWN",
-            detail_ref="detail:query-effect-unknown",
+        # ADR-0059: UNKNOWN is expressed by raising the typed unknown
+        # exception inside the guarded dispatch window, never by a sealed
+        # FAILED/UNKNOWN effect status.
+        raise CapabilityEffectUnknown(
+            action,
+            reason_code="EFFECT_UNKNOWN",
+            detail="query effect is unknown after dispatch",
         )
 
 
@@ -552,6 +579,7 @@ def test_shared_action_pipeline_records_unknown_receipt_without_forcing_resend(
     connector = _UnknownEffectQueryCapability(
         SQLiteDataQueryCapability(_database(tmp_path))
     )
+    connector.bind_idempotency_store(app.tasks._event_store)
     grant = _grant(request).model_copy(
         update={
             "budget_limit": ResourceBudget(
@@ -587,18 +615,33 @@ def test_shared_action_pipeline_records_unknown_receipt_without_forcing_resend(
     )
     pipeline.record_action_proposed(action)
 
-    result = pipeline.execute_observed(
-        action,
-        app.principal,
-        capability_spec=connector.specs()[DATA_QUERY_CAPABILITY_ID],
-        record_artifacts=False,
+    lease_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    lease_fence = app.tasks._event_store.acquire_lease(
+        active.run.run_id, "data-agent-runtime", lease_expiry.isoformat()
     )
+    with pytest.raises(CapabilityEffectUnknown, match="EFFECT_UNKNOWN"):
+        pipeline.execute_observed(
+            action,
+            app.principal,
+            capability_spec=connector.specs()[DATA_QUERY_CAPABILITY_ID],
+            record_artifacts=False,
+            execution_claim=ExecutionLease(
+                run_id=active.run.run_id,
+                owner="data-agent-runtime",
+                fence=lease_fence,
+                expires_at=lease_expiry,
+            ),
+        )
 
-    assert result.receipt.status is ReceiptStatus.UNKNOWN
+    assert connector.execution_count == 1
+    reservation = app.store.get_idempotency(
+        "capability-reservation.v1", action.idempotency_key
+    )
+    assert reservation is not None
+    assert reservation["state"] == "RESERVED"
     receipt_events = [
         event
         for event in app.store.read(task.task_id)
         if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
     ]
-    assert len(receipt_events) == 1
-    assert connector.execution_count == 1
+    assert len(receipt_events) == 0

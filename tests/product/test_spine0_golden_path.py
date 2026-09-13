@@ -153,7 +153,7 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
         "evidence_requirements": ["test-report"],
         "failure_semantics": ["non-zero exit"],
         "threshold": 1,
-        "observation_window_seconds": 60,
+        "observation_window_seconds": 3600,
         "frozen_at": NOW,
     }
     app.commit_task(

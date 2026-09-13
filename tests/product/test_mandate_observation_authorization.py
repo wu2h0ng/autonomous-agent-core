@@ -57,7 +57,7 @@ from tests.product.test_provider_relevance_assessor import (
 )
 
 
-NOW = datetime(2026, 7, 18, 8, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc) - timedelta(minutes=1)
 
 
 def _principal(

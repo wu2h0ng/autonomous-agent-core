@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from collections.abc import Callable
+import hashlib
 import json
 import os
 import socket
@@ -21,6 +22,7 @@ from agent_os_contracts import (
     PrincipalRole,
     ResponsibilityWorkRoute,
     SelfDevelopmentAdmissionCommand,
+    SelfDevelopmentVerifierBinding,
     SelfDevelopmentWorkSpec,
     RunStatus,
     TaskEventType,
@@ -112,6 +114,7 @@ def _setup(tmp_path: Path, *, database_in_workspace: bool = False):
         statement="Make the exact bounded product change",
         deliverables=("bounded implementation",),
         acceptance_criteria=("pytest passes",),
+        verifier_paths=("tests/product/test_selfdev_fixture.py",),
         selfdev_spec=SelfDevelopmentWorkSpec(
             repository_head=head,
             isolated_branch=branch,
@@ -255,6 +258,7 @@ def test_contract_rejects_non_precise_mode() -> None:
             statement="bad",
             deliverables=("bad",),
             acceptance_criteria=("bad",),
+            verifier_paths=("tests/product/test_selfdev_fixture.py",),
             selfdev_spec=SelfDevelopmentWorkSpec(
                 repository_head=head,
                 isolated_branch="codex/bad",
@@ -266,6 +270,228 @@ def test_contract_rejects_non_precise_mode() -> None:
         assert "agent_loop_precise" in str(exc)
     else:
         raise AssertionError("non-precise admission must fail")
+
+
+def test_admission_contract_requires_one_to_eight_product_verifier_paths() -> None:
+    base = {
+        "admission_id": "selfdev-admission:scoped-verifier",
+        "statement": "verify one bounded product oracle",
+        "deliverables": ("bounded implementation",),
+        "acceptance_criteria": ("the named oracle passes",),
+        "selfdev_spec": {
+            "repository_head": "a" * 40,
+            "isolated_branch": "codex/scoped-verifier",
+            "target_path": "packages/os_core/src/agent_os_core/fixture.py",
+            "edit_mode": "agent_loop_precise",
+            "verifier_command": "pytest",
+        },
+    }
+
+    with pytest.raises(ValueError, match="verifier_paths"):
+        SelfDevelopmentAdmissionCommand.model_validate(base)
+
+    invalid_paths = (
+        (),
+        tuple(f"tests/product/test_{index}.py" for index in range(9)),
+        ("tests/product/test_ok.py", "tests/product/test_ok.py"),
+        ("tests/product/test_ok.py", "tests/product/test_other.py -q"),
+        ("tests/product/*.py",),
+        ("tests/product/../product/test_ok.py",),
+        ("tests/product/test_ok.py\n--collect-only",),
+        ("packages/os_core/test_ok.py",),
+    )
+    for verifier_paths in invalid_paths:
+        with pytest.raises(ValueError, match="verifier_paths"):
+            SelfDevelopmentAdmissionCommand.model_validate(
+                {**base, "verifier_paths": verifier_paths}
+            )
+
+    command = SelfDevelopmentAdmissionCommand.model_validate(
+        {
+            **base,
+            "verifier_paths": (
+                "tests/product/test_agent_cli_stream.py",
+                "tests/product/test_selfdev_admission.py",
+            ),
+        }
+    )
+    assert command.verifier_paths == (
+        "tests/product/test_agent_cli_stream.py",
+        "tests/product/test_selfdev_admission.py",
+    )
+    noncanonical = {
+        **base,
+        "verifier_paths": ("tests/product/test_agent_cli_stream.py",),
+        "selfdev_spec": {
+            **base["selfdev_spec"],
+            "verifier_command": "python -m pytest",
+        },
+    }
+    with pytest.raises(ValueError, match="canonical pytest"):
+        SelfDevelopmentAdmissionCommand.model_validate(noncanonical)
+
+
+def test_admission_computes_exact_base_blob_binding_and_rejects_self_attestation(
+    tmp_path: Path,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    caller_payload = command.model_dump(mode="json")
+    caller_payload["selfdev_spec"]["verifier_bindings"] = [
+        {
+            "path": "tests/product/test_selfdev_fixture.py",
+            "base_blob_sha256": "0" * 64,
+        }
+    ]
+    with pytest.raises(ValueError, match="server-computed"):
+        SelfDevelopmentAdmissionCommand.model_validate(caller_payload)
+
+    receipt = admit_self_development(
+        app=authority,
+        execution_app=execution,
+        workspace=workspace,
+        database=database,
+        command=command,
+    )
+    link = authority.mandate_responsibility_store.list_links(
+        "mandate:build-agent-os", authority.principal
+    )[0]
+    assert link.task_id == receipt.task_id
+    assert link.selfdev_spec is not None
+    assert len(link.selfdev_spec.verifier_bindings) == 1
+    binding = link.selfdev_spec.verifier_bindings[0]
+    base_bytes = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(workspace),
+            "show",
+            f"{command.selfdev_spec.repository_head}:{binding.path}",
+        ],
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert binding.path == "tests/product/test_selfdev_fixture.py"
+    assert binding.base_blob_sha256 == hashlib.sha256(base_bytes).hexdigest()
+    assert receipt.work_spec_digest == content_digest(link.selfdev_spec)
+
+
+def test_admission_runtime_rejects_constructed_self_attested_binding(
+    tmp_path: Path,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    forged = command.model_copy(
+        update={
+            "selfdev_spec": command.selfdev_spec.model_copy(
+                update={
+                    "verifier_bindings": (
+                        SelfDevelopmentVerifierBinding(
+                            path="tests/product/test_selfdev_fixture.py",
+                            base_blob_sha256="0" * 64,
+                        ),
+                    )
+                }
+            )
+        }
+    )
+
+    with pytest.raises(
+        SelfDevelopmentAdmissionError,
+        match="ADMISSION_VERIFIER_INVALID",
+    ):
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=forged,
+        )
+    assert authority.mandate_responsibility_store.list_links(
+        "mandate:build-agent-os", authority.principal
+    ) == ()
+    assert isinstance(execution.provider, DeterministicProvider)
+    assert execution.provider.decision_requests == []
+
+
+@pytest.mark.parametrize("oracle_kind", ("missing", "symlink", "non_blob"))
+def test_admission_rejects_verifier_that_is_not_an_unchanged_regular_base_blob(
+    tmp_path: Path,
+    oracle_kind: str,
+) -> None:
+    database, workspace, authority, execution, command = _setup(tmp_path)
+    verifier_path = f"tests/product/test_{oracle_kind}.py"
+    if oracle_kind == "symlink":
+        (workspace / verifier_path).symlink_to("test_selfdev_fixture.py")
+        subprocess.run(
+            ["git", "-C", str(workspace), "add", verifier_path], check=True
+        )
+        subprocess.run(
+            ["git", "-C", str(workspace), "commit", "-m", "symlink oracle"],
+            check=True,
+            capture_output=True,
+        )
+    elif oracle_kind == "non_blob":
+        prior_head = command.selfdev_spec.repository_head
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(workspace),
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{prior_head},{verifier_path}",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(workspace), "commit", "-m", "gitlink oracle"],
+            check=True,
+            capture_output=True,
+        )
+        gitlink = workspace / verifier_path
+        gitlink.mkdir(parents=True)
+        subprocess.run(["git", "-C", str(gitlink), "init"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(gitlink), "fetch", str(workspace), prior_head],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(gitlink), "checkout", prior_head],
+            check=True,
+            capture_output=True,
+        )
+    head = subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    command = command.model_copy(
+        update={
+            "verifier_paths": (verifier_path,),
+            "selfdev_spec": command.selfdev_spec.model_copy(
+                update={"repository_head": head}
+            ),
+        }
+    )
+
+    with pytest.raises(
+        SelfDevelopmentAdmissionError,
+        match="ADMISSION_VERIFIER_INVALID",
+    ):
+        admit_self_development(
+            app=authority,
+            execution_app=execution,
+            workspace=workspace,
+            database=database,
+            command=command,
+        )
+    assert authority.mandate_responsibility_store.list_links(
+        "mandate:build-agent-os", authority.principal
+    ) == ()
+    assert isinstance(execution.provider, DeterministicProvider)
+    assert execution.provider.decision_requests == []
 
 
 @pytest.mark.parametrize(
@@ -995,7 +1221,7 @@ def test_preattach_rejects_revoked_and_relinked_task_without_commitment(
             task_id=task_id,
             reason=f"SELFDEV admission {command.admission_id}",
             work_route=ResponsibilityWorkRoute.SELFDEV,
-            selfdev_spec=command.selfdev_spec,
+            selfdev_spec=link.selfdev_spec,
         ),
         "mandate:build-agent-os",
         authority.principal,
@@ -1129,7 +1355,12 @@ def test_real_cli_default_local_database_first_admission_and_replay(
         capture_output=True,
         text=True,
     ).stdout
-    assert "lock" not in status
     assert {
         line[3:] for line in status.splitlines()
-    } <= {"agent-os.sqlite3", "agent-os.sqlite3-shm", "agent-os.sqlite3-wal"}
+    } <= {
+        "agent-os.sqlite3",
+        "agent-os.sqlite3-shm",
+        "agent-os.sqlite3-wal",
+        "agent-os.sqlite3.collaboration",
+        "agent-os.sqlite3.collaboration.lock",
+    }

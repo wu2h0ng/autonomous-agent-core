@@ -1,0 +1,26 @@
+{
+  "protocol_version": "1.1",
+  "snapshot": {
+    "protocol_version": "1.1",
+    "session": {
+      "schema_version": "1.0",
+      "session_id": "session:1",
+      "task_id": "task:1",
+      "run_id": "run:1",
+      "tenant_id": "tenant:local",
+      "workspace_id": "workspace:local"
+    },
+    "envelope_id": "envelope:1",
+    "expected_outcome_id": "expected:1",
+    "status": "ACTIVE",
+    "event_sequence": 1,
+    "message_count": 2,
+    "pending_approval": null,
+    "updated_at": "2026-08-12T00:00:00+00:00"
+  },
+  "turn_id": "turn:1",
+  "text": "completed reply",
+  "steps": [],
+  "stop_reason": "completed",
+  "total_tokens": 12
+}

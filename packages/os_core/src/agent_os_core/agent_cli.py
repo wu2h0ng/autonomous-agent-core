@@ -8,7 +8,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
 
-from agent_os_contracts import RunStatus, SessionRef, TaskEventType
+from agent_os_contracts import (
+    ProviderMessage,
+    ProviderMessageRole,
+    RunStatus,
+    SessionRef,
+    TaskEventType,
+)
 
 from .agent_context import (
     AgentsMarkdownContext,
@@ -31,7 +37,6 @@ from .mandate_terminal import (
 )
 from .provider import DeterministicProvider
 from .terminal_session import (
-    history_from_messages,
     load_terminal_session,
     save_terminal_session,
 )
@@ -94,6 +99,8 @@ def _build_chat_loop(
     *,
     stream: bool = True,
     on_text_delta: Any | None = None,
+    initial_history: tuple[ProviderMessage, ...] | None = None,
+    resumable_turn_ids: tuple[str, ...] = (),
 ) -> AgentLoop:
     grants = dict(app.grants)
     for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
@@ -110,18 +117,51 @@ def _build_chat_loop(
     config = loop_config or _default_loop_config()
     if not stream:
         config = replace(config, stream=False)
+
+    def _message_sink(
+        session: ChatSession,
+        message_index: int,
+        message: ProviderMessage,
+        turn_id: str | None,
+    ) -> None:
+        if (
+            on_text_delta is not None
+            and message.role is ProviderMessageRole.ASSISTANT
+        ):
+            on_text_delta(message.content)
+        app.tasks.record_session_message(
+            session.task_id,
+            session.ref.session_id,
+            message_index,
+            message,
+            turn_id=turn_id,
+        )
+
     return AgentLoop(
         tasks=app.tasks,
         provider=app.provider,
         provider_profile=app.provider_profile,
         policy=app.policy,
         correction=app.correction,
-        sandbox=app.sandbox,
+        connector=app.sandbox,
         grants=chat_grants,
         principal=app.principal,
         gateway=gateway,
+        session=session,
         config=config,
-        on_text_delta=on_text_delta,
+        initial_history=(
+            initial_history
+            if initial_history is not None
+            else (
+                ProviderMessage(
+                    role=ProviderMessageRole.SYSTEM,
+                    content=config.system_prompt,
+                ),
+            )
+        ),
+        message_sink=_message_sink,
+        resumable_turn_ids=resumable_turn_ids,
+        collaboration_preflight=getattr(app, "collaboration_preflight", None),
     )
 
 
@@ -191,10 +231,22 @@ def _resume_chat_session(
         envelope_id=record.envelope_id,
         expected=aggregate.expected_outcome,
     )
-    loop = _build_chat_loop(
-        app, session, gateway, loop_config, stream=stream, on_text_delta=on_text_delta
+    projected = app.tasks.project_session(record.task_id, record.session_id)
+    resumable_turn_ids = (
+        (projected.resumable_turn_id,)
+        if projected.resumable_turn_id is not None
+        else ()
     )
-    loop.restore_history(history_from_messages(record.messages))
+    loop = _build_chat_loop(
+        app,
+        session,
+        gateway,
+        loop_config,
+        stream=stream,
+        on_text_delta=on_text_delta,
+        initial_history=projected.history,
+        resumable_turn_ids=resumable_turn_ids,
+    )
     return session, loop
 
 
@@ -271,7 +323,7 @@ def _emit_turn_output(
 ) -> None:
     if result.text:
         if streamed:
-            print(file=out)
+            print(result.text, file=out)
         else:
             print(result.text, file=out)
     if result.stop_reason != "completed":

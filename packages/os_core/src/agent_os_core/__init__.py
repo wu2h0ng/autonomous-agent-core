@@ -91,6 +91,29 @@ from .protocol_ingress import (
     SQLiteProtocolIngressStore,
     WorkloadIdentityAdapter,
 )
+from .session_projection import (
+    ProjectedResolvedContinuation,
+    ProjectedSession,
+    SessionProjectionError,
+    SessionProjector,
+)
+from .session_stream import (
+    STALL_THRESHOLD_DEFAULT_SECONDS,
+    SessionStreamRegistry,
+    StreamCursor,
+    SurfaceStreamGone,
+)
+from .surface_runtime import (
+    SurfaceApplicationPort,
+    SurfaceIdempotencyConflict,
+    SurfaceProtocolError,
+    SurfaceRuntime,
+    SurfaceScopeError,
+    SurfaceSequenceConflict,
+    SurfaceSessionNotFound,
+    SurfaceTurnInProgress,
+    command_digest,
+)
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
@@ -141,9 +164,18 @@ from .mandate_responsibility import (
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
+    CapabilityEffectUnknown,
     CapabilityEffect,
     CapabilityPort,
     CapabilityResult,
+    CollaborationPreflightPort,
+    ReplanRequired,
+    WorkspaceWriteRejected,
+)
+from ._action_outcome import (
+    DurableActionOutcomeRepository,
+    ExecutionLease,
+    ExecutionLeaseConflict,
 )
 from .agent_cli import AgentCLIError, AgentCLIResult, event_types, run_agent_cli
 from .agent_context import (
@@ -185,6 +217,8 @@ from .agent_loop import (
     AgentLoop,
     AgentLoopConfig,
     AutoApproveGateway,
+    ApprovalRequired,
+    DeferredApprovalGateway,
     ChatSession,
     ConfirmationGateway,
     NonInteractiveDenyGateway,
@@ -428,10 +462,19 @@ __all__ = [
     "SQLiteMandateOutcomePortfolioStore",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
+    "CapabilityEffectUnknown",
+    "CapabilityResult",
+    "DurableActionOutcomeRepository",
+    "ExecutionLease",
+    "ExecutionLeaseConflict",
+    "CapabilityEffectUnknown",
     "CapabilityBroker",
     "CapabilityEffect",
     "CapabilityPort",
     "CapabilityResult",
+    "CollaborationPreflightPort",
+    "ReplanRequired",
+    "WorkspaceWriteRejected",
     "AgentCLIError",
     "AgentCLIResult",
     "event_types",
@@ -469,6 +512,8 @@ __all__ = [
     "AgentLoop",
     "AgentLoopConfig",
     "AutoApproveGateway",
+    "ApprovalRequired",
+    "DeferredApprovalGateway",
     "ChatSession",
     "ConfirmationGateway",
     "NonInteractiveDenyGateway",
@@ -493,4 +538,22 @@ __all__ = [
     "candidate_promotion_idempotency_key",
     "candidate_promotion_payload_digest",
     "candidate_receipt_chain_digest",
+    "SessionProjectionError",
+    "SessionProjector",
+    "ProjectedSession",
+    "ProjectedResolvedContinuation",
+    "STALL_THRESHOLD_DEFAULT_SECONDS",
+    "SessionStreamRegistry",
+    "StreamCursor",
+    "SurfaceApplicationPort",
+    "SurfaceIdempotencyConflict",
+    "SurfaceProtocolError",
+    "SurfaceRuntime",
+    "SurfaceScopeError",
+    "SurfaceSequenceConflict",
+    "SurfaceSessionNotFound",
+    "SurfaceStreamGone",
+    "SurfaceTurnInProgress",
+    "command_digest",
+
 ]

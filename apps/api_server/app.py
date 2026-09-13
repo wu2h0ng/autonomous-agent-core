@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -56,7 +58,6 @@ from agent_os_contracts import (
     ProtocolIngressReceipt,
     ResourceBudget,
     RunStatus,
-    SessionRef,
     TaskConfigurationSnapshot,
     TaskConfigurationSnapshotCommand,
     TaskEventType,
@@ -64,21 +65,45 @@ from agent_os_contracts import (
     TaskStatus,
     TrajectoryProjection,
     WorkflowGraph,
+    SessionRef,
+    SURFACE_PROTOCOL_VERSION,
+    SurfaceApprovalCommand,
+    SurfaceBeginTurnCommand,
+    SurfaceBeginTurnResponse,
+    SurfaceCorrectionCommand,
+    SurfaceEventBatch,
+    SurfaceOpenSessionCommand,
+    SurfaceSessionListResponse,
+    SurfaceSessionSnapshot,
+    SurfaceSessionSummary,
+    SurfaceSetPermissionModeCommand,
+    SurfaceSessionStatus,
+    SurfaceConflictProjection,
+    SurfaceStreamFrameKind,
+    SurfaceTurnCommand,
+    SurfaceTurnResponse,
     content_digest,
 )
 from agent_os_core import (
+    SurfaceRuntime,
+    SurfaceSessionNotFound,
+    SessionStreamRegistry,
+    SurfaceStreamGone,
     AgentLoop,
     AgentLoopConfig,
     CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
     CapabilityBroker,
+    ReplanRequired,
+    WorkspaceWriteRejected,
     ChatSession,
     ConfirmationGateway,
     CandidateEvaluationScopeMismatch,
     CandidatePromotionScopeMismatch,
     Clock,
     CorrectionAuthority,
+    DeferredApprovalGateway,
     DeterministicProvider,
     PolicyKernel,
     MandateSteward,
@@ -87,6 +112,7 @@ from agent_os_core import (
     DomainCandidateEvaluationRecorder,
     DomainCandidatePromotionService,
     EVALUATION_CAPABILITY,
+    InvalidTransitionError,
     PROMOTION_CAPABILITY,
     SQLiteCandidateStore,
     SQLiteCandidateEvaluationStore,
@@ -97,6 +123,8 @@ from agent_os_core import (
     MandateResponsibilityProjector,
     SQLiteMandateOutcomePortfolioStore,
     SQLiteMandateResponsibilityStore,
+    SessionProjectionError,
+    SessionProjector,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -111,15 +139,20 @@ from agent_os_core import (
     TASK_CONFIGURATION_CAPABILITY,
     TASK_CONFIGURATION_CAPABILITY_VERSION,
     TaskConfigurationNotBound,
+    TurnResult,
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.execution import EffectCustodyPort
+from agent_os_core.session_projection import SessionLoopConfig
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import (
     DeveloperRepositoryPatchProfile,
     DeveloperWorkspaceAdapter,
+    SQLiteWorkspaceCommitFence,
+    WorkspaceCollaborationPreflight,
+    WorkspaceCommitFence,
     manifest as developer_agent_manifest,
 )
 from domain_packs.data_agent.contracts import (
@@ -337,6 +370,15 @@ class AgentOSApplication:
         self.sandbox = DeveloperWorkspaceAdapter(
             workspace, idempotency_store=self.store
         )
+        self.workspace_fence = (
+            WorkspaceCommitFence()
+            if str(database) == ":memory:"
+            else SQLiteWorkspaceCommitFence(f"{canonical_database}.collaboration")
+        )
+        self.collaboration_preflight = WorkspaceCollaborationPreflight(
+            self.workspace_fence
+        )
+        self._surface_conflicts: dict[str, SurfaceConflictProjection] = {}
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
@@ -379,6 +421,7 @@ class AgentOSApplication:
                     "Data Agent query grant must match the application principal scope"
                 )
             connector = SQLiteDataQueryCapability(data_agent_query_database)
+            connector.bind_idempotency_store(self.tasks._event_store)
             pipeline = ActionPipeline(
                 self.tasks,
                 CapabilityBroker(connector, self.correction),
@@ -482,6 +525,11 @@ class AgentOSApplication:
         )
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
+        self._runtime_boot_id = uuid4().hex
+        self._stream_registry = SessionStreamRegistry(
+            runtime_boot_id=self._runtime_boot_id
+        )
+        self.surface = SurfaceRuntime(self, stream_registry=self._stream_registry)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or self._clock()
@@ -1244,6 +1292,61 @@ class AgentOSApplication:
     ) -> tuple[TaskConfigurationSnapshot, ...]:
         return self.task_configurations.list_for_task(self.principal, task_id)
 
+    def _install_run_work_lease(self, aggregate) -> None:
+        """Install an authoritative work lease for a started run.
+
+        The lease binds the run/task/tenant/workspace/principal and covers the
+        workspace root (`file:///ws`) so that single-operator file-level writes
+        authorized by the run can dispatch; a conflicting event on any covered
+        scope still forces CONFLICT/REPLAN/CANCEL.
+        """
+        run = aggregate.run
+        if run is None:
+            return
+        now = self._clock()
+        principal = self.principal
+        from agent_os_contracts import (
+            CoordinationAuthorityContext,
+            ResourceScope,
+            WorkLease,
+        )
+
+        workspace_scope = ResourceScope(resource_uri="file:///ws")
+        # A new run's lease cursor starts at the fence's current high-water so
+        # that replanning after a conflict does not re-block on already-seen
+        # events (M1b, closes P2 #3: cursor advances instead of hard-coding 0).
+        try:
+            snapshot = self.workspace_fence.read_coordination(principal.workspace_id)
+            event_cursor = snapshot.batch.through_cursor
+        except Exception:
+            event_cursor = 0
+        lease = WorkLease(
+            lease_id=f"lease:{run.run_id}",
+            lease_version=1,
+            fence_token=1,
+            task_id=run.task_id,
+            run_id=run.run_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            holder_id=principal.principal_id,
+            plan_version=1,
+            event_cursor=event_cursor,
+            scopes=(workspace_scope,),
+            authority_context=CoordinationAuthorityContext(
+                authorization_id=f"auth:{run.run_id}",
+                principal_id=principal.principal_id,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                authorized_scopes=(workspace_scope,),
+                evidence_refs=(run.run_id,),
+                issued_at=now,
+                expires_at=now + timedelta(hours=24),
+            ),
+            issued_at=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        self.workspace_fence.install_lease(lease)
+
     def start_run(
         self,
         task_id: str,
@@ -1255,20 +1358,23 @@ class AgentOSApplication:
                 raise TaskConfigurationNotBound(
                     "exact configuration snapshot id is required before Run start"
                 )
-            return self.task_configurations.start_run(
+            aggregate = self.task_configurations.start_run(
                 self.principal,
                 task_id,
                 configuration_snapshot_id,
             )
-        if configuration_snapshot_id is not None:
+        elif configuration_snapshot_id is not None:
             raise TaskConfigurationNotBound(
                 "configuration snapshot id was supplied for an unsealed Task"
             )
-        with self._configuration_lock:
-            return self.tasks.start_run(
-                task_id,
-                provider_profile_id=self.provider_profile.profile_id,
-            )
+        else:
+            with self._configuration_lock:
+                aggregate = self.tasks.start_run(
+                    task_id,
+                    provider_profile_id=self.provider_profile.profile_id,
+                )
+        self._install_run_work_lease(aggregate)
+        return aggregate
 
     def seal_domain_candidate(
         self,
@@ -1443,6 +1549,7 @@ class AgentOSApplication:
                     self.correction,
                     dict(self.grants),
                     compensation_grant=self.compensation_grant,
+                    collaboration_preflight=self.collaboration_preflight,
                 )
         else:
             if configuration_snapshot_id is not None:
@@ -1460,6 +1567,7 @@ class AgentOSApplication:
                     self.correction,
                     dict(self.grants),
                     compensation_grant=self.compensation_grant,
+                    collaboration_preflight=self.collaboration_preflight,
                 )
         return runner.run(
             task_id,
@@ -1570,6 +1678,31 @@ class AgentOSApplication:
             envelope_id=f"envelope-{uuid4()}",
             expected=aggregate.expected_outcome,
         )
+        config = loop_config or AgentLoopConfig()
+        self.tasks.open_session(
+            session.ref,
+            session.envelope_id,
+            session.expected.expected_outcome_id,
+            loop_config=SessionLoopConfig(
+                max_steps_per_turn=config.max_steps_per_turn,
+                max_provider_retries=config.max_provider_retries,
+                max_turn_tokens=config.max_turn_tokens,
+                max_context_chars=config.max_context_chars,
+                loop_detection_threshold=config.loop_detection_threshold,
+                system_prompt=config.system_prompt,
+            ),
+        )
+        system_message = ProviderMessage(
+            role=ProviderMessageRole.SYSTEM,
+            content=config.system_prompt,
+        )
+        self.tasks.record_session_message(
+            session.task_id,
+            session.session_id,
+            0,
+            system_message,
+            turn_id=None,
+        )
         grants = dict(self.grants)
         for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
             grant = grants.get(capability_id)
@@ -1589,11 +1722,15 @@ class AgentOSApplication:
             provider_profile=self.provider_profile,
             policy=self.policy,
             correction=self.correction,
-            sandbox=self.sandbox,
+            connector=self.sandbox,
             grants=chat_grants,
             principal=self.principal,
             gateway=gateway,
-            config=loop_config,
+            session=session,
+            config=config,
+            initial_history=(system_message,),
+            message_sink=self._record_chat_message,
+            collaboration_preflight=self.collaboration_preflight,
         )
         self.tasks.append_event(
             task.task_id,
@@ -1609,6 +1746,750 @@ class AgentOSApplication:
             correlation_id=session.run_id,
         )
         return session, loop
+
+    def restore_chat_session(
+        self,
+        session_id: str,
+        gateway: ConfirmationGateway,
+        text_delta_sink: Callable[[str], None] | None = None,
+        reasoning_delta_sink: Callable[[str], None] | None = None,
+    ) -> tuple[ChatSession, AgentLoop]:
+        """Restore one exact durable chat session without replaying prior turns."""
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before restoring a chat session"
+            )
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        matches: list[str] = []
+        for task_id in self.store.list_task_ids():
+            for event in self.store.read(task_id):
+                if event.event_type is not TaskEventType.SESSION_OPENED:
+                    continue
+                try:
+                    payload = event.decoded_payload()
+                except (TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        "invalid durable session open record"
+                    ) from exc
+                if payload.get("session_id") == session_id:
+                    matches.append(task_id)
+        if not matches:
+            raise SessionProjectionError("session not found")
+        if len(matches) != 1:
+            raise SessionProjectionError("duplicate durable session identity")
+
+        projected = SessionProjector(self.store).project(matches[0], session_id)
+        if projected.closed:
+            raise ValueError("cannot restore a closed chat session")
+        if (
+            projected.ref.tenant_id != self.principal.tenant_id
+            or projected.ref.workspace_id != self.principal.workspace_id
+        ):
+            raise PermissionError("chat session principal scope mismatch")
+
+        aggregate = self.tasks.get_task(projected.ref.task_id)
+        run = aggregate.run
+        expected = aggregate.expected_outcome
+        snapshot = aggregate.configuration_snapshot
+        if (
+            run is None
+            or expected is None
+            or snapshot is None
+            or projected.ref.run_id != run.run_id
+            or projected.expected_outcome_id != expected.expected_outcome_id
+        ):
+            raise ValueError("chat session durable scope mismatch")
+        if run.status in {RunStatus.SUCCEEDED, RunStatus.CANCELLED}:
+            raise ValueError("cannot restore a terminal chat Run")
+        self.task_configurations.assert_runtime_binding(
+            self.principal,
+            aggregate.task_id,
+            snapshot.snapshot_id,
+        )
+        try:
+            invocation_profile = self.provider.invocation_binding.provider_profile
+        except RuntimeError as exc:
+            raise ConnectionError("chat provider binding is unavailable") from exc
+        if invocation_profile != self.provider_profile:
+            raise ValueError("chat provider profile binding mismatch")
+        config = AgentLoopConfig(
+            max_steps_per_turn=projected.loop_config.max_steps_per_turn,
+            max_provider_retries=projected.loop_config.max_provider_retries,
+            max_turn_tokens=projected.loop_config.max_turn_tokens,
+            max_context_chars=projected.loop_config.max_context_chars,
+            loop_detection_threshold=projected.loop_config.loop_detection_threshold,
+            system_prompt=projected.loop_config.system_prompt,
+        )
+        resumable_turn_ids = (
+            (projected.resumable_turn_id,)
+            if projected.resumable_turn_id is not None
+            else ()
+        )
+
+        session = ChatSession(
+            ref=projected.ref,
+            envelope_id=projected.envelope_id,
+            expected=expected,
+        )
+        loop = AgentLoop(
+            tasks=self.tasks,
+            provider=self.provider,
+            provider_profile=self.provider_profile,
+            policy=self.policy,
+            correction=self.correction,
+            connector=self.sandbox,
+            grants=self._chat_grants(),
+            principal=self.principal,
+            gateway=gateway,
+            session=session,
+            config=config,
+            initial_history=projected.history,
+            message_sink=self._record_chat_message,
+            resumable_turn_ids=resumable_turn_ids,
+            collaboration_preflight=self.collaboration_preflight,
+            text_delta_sink=text_delta_sink,
+            reasoning_delta_sink=reasoning_delta_sink,
+            permission_mode=projected.permission_mode,
+            permission_mode_event_id=projected.permission_mode_event_id,
+        )
+        return session, loop
+
+    def decide_session_approval(
+        self,
+        session_id: str,
+        action_digest: str,
+        disposition: ApprovalDisposition,
+        reason: str,
+    ) -> TurnResult:
+        """Resolve one exact durable approval and continue its open turn."""
+
+        if not action_digest.strip():
+            raise ValueError("action_digest must be non-empty")
+        if not reason.strip():
+            raise ValueError("approval reason must be non-empty")
+        if disposition not in {
+            ApprovalDisposition.APPROVE,
+            ApprovalDisposition.REJECT,
+        }:
+            raise ValueError("session approval must be APPROVE or REJECT")
+        session, loop = self.restore_chat_session(
+            session_id,
+            DeferredApprovalGateway(),
+        )
+        projected = self.tasks.project_session(session.task_id, session_id)
+        pending = projected.pending_continuation
+        if pending is None:
+            resolved = projected.resolved_continuation
+            if resolved is None:
+                raise InvalidTransitionError("session has no pending approval")
+            recorded = self.tasks.resolved_session_approval(
+                session.task_id,
+                resolved,
+            )
+            if (
+                action_digest != resolved.source_action_digest
+                or disposition is not recorded.disposition
+                or reason != recorded.reason
+                or recorded.actor_id != self.principal.principal_id
+                or recorded.actor_role is not self.principal.role
+            ):
+                raise InvalidTransitionError(
+                    "approval retry does not match the exact durable decision"
+                )
+            return loop.resume_resolved_continuation(
+                session,
+                action_digest=action_digest,
+                disposition=disposition,
+            )
+        if action_digest != pending.action.action_digest():
+            raise InvalidTransitionError(
+                "approval digest does not match the pending action"
+            )
+        now = self._clock()
+        approval = ApprovalDecision(
+            approval_id=f"approval-{uuid4()}",
+            tenant_id=pending.action.tenant_id,
+            workspace_id=pending.action.workspace_id,
+            action_digest=action_digest,
+            actor_id=self.principal.principal_id,
+            actor_role=self.principal.role,
+            disposition=disposition,
+            reason=reason,
+            decided_at=now,
+            expires_at=now + timedelta(minutes=5),
+        )
+        return loop.resume_pending_approval(session, approval)
+
+    def surface_open_session(
+        self, command: SurfaceOpenSessionCommand
+    ) -> SurfaceSessionSnapshot:
+        session, _ = self.open_chat_session(
+            command.statement, DeferredApprovalGateway()
+        )
+        return self.surface_session_snapshot(session.session_id)
+
+    def surface_run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
+        session, loop = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        history_before = len(loop.history)
+        try:
+            result = loop.run_turn(session, command.text)
+        except (WorkspaceWriteRejected, ReplanRequired) as exc:
+            decision = getattr(exc, "decision", None)
+            if decision is not None:
+                self._surface_conflicts[command.session_id] = (
+                    SurfaceConflictProjection.from_decision(decision)
+                )
+            raise
+        return self._surface_turn_response(
+            session.session_id,
+            result,
+            loop.history[history_before:],
+        )
+
+    @property
+    def runtime_boot_id(self) -> str:
+        """Daemon process generation id; changes on every restart so a dead
+        generation's transient cursors fail typed STREAM_GONE."""
+        return self._runtime_boot_id
+
+    @property
+    def stream_registry(self) -> SessionStreamRegistry:
+        """Transient frame registry; dies with the process (a new generation
+        carries a new runtime_boot_id)."""
+        return self._stream_registry
+
+    def subscribe_stream(self, session_id: str) -> str:
+        """Mint a new transient stream for the session (subscription-first,
+        frozen): the TUI subscribes before issuing its begin-turn."""
+        self.surface_task_for_session(session_id)
+        return self.surface.subscribe_stream(session_id)
+
+    def surface_has_uncommitted_turn(self, session_id: str) -> bool:
+        """Durable truth: a SESSION_TURN_STARTED without its
+        SESSION_TURN_COMPLETED for this session's task."""
+        task_id = self.surface_task_for_session(session_id)
+        started: set[str] = set()
+        completed: set[str] = set()
+        for event in self.store.read(task_id):
+            if event.event_type not in {
+                TaskEventType.SESSION_TURN_STARTED,
+                TaskEventType.SESSION_TURN_COMPLETED,
+            }:
+                continue
+            payload = json.loads(event.payload_json)
+            turn_id = payload.get("turn_id")
+            if not isinstance(turn_id, str) or not turn_id:
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                started.add(turn_id)
+            else:
+                completed.add(turn_id)
+        return bool(started - completed)
+
+    def surface_begin_turn(
+        self, command: SurfaceBeginTurnCommand
+    ) -> SurfaceBeginTurnResponse:
+        """E1 reserve/begin-turn: durably record turn-start, return the
+        authoritative ids, then execute asynchronously.
+
+        The provider stream runs on a worker thread; this method returns as
+        soon as the durable SESSION_TURN_STARTED event is observable. Failures
+        raised before turn-start propagate to the caller synchronously; the
+        transient stream binding is recorded in the session-stream registry.
+        """
+        failures: list[BaseException] = []
+        turn_holder: list[str] = []
+        turn_ready = threading.Event()
+
+        def _publish(kind: SurfaceStreamFrameKind, payload: dict[str, object]) -> None:
+            try:
+                self._stream_registry.publish(
+                    command.session_id,
+                    command.stream.stream_id,
+                    kind,
+                    turn_holder[0] if turn_holder else None,
+                    payload,
+                )
+            except SurfaceStreamGone:
+                return  # stream terminated mid-turn; display path only
+
+        def _sink(delta: str) -> None:
+            # Chunks only exist after the durable turn-start record; block
+            # briefly until the authoritative turn_id is observed.
+            if not turn_ready.wait(timeout=5.0) or not turn_holder:
+                return
+            _publish(SurfaceStreamFrameKind.CHUNK, {"delta": delta})
+
+        def _reasoning_sink(delta: str) -> None:
+            # Transient reasoning (display-only, never durable) for providers
+            # that expose it; the same turn-start barrier applies.
+            if not turn_ready.wait(timeout=5.0) or not turn_holder:
+                return
+            _publish(SurfaceStreamFrameKind.REASONING, {"delta": delta})
+
+        session, loop = self.restore_chat_session(
+            command.session_id,
+            DeferredApprovalGateway(),
+            text_delta_sink=_sink,
+            reasoning_delta_sink=_reasoning_sink,
+        )
+
+        def _execute() -> None:
+            try:
+                loop.run_turn(session, command.text)
+            except (WorkspaceWriteRejected, ReplanRequired) as exc:
+                decision = getattr(exc, "decision", None)
+                if decision is not None:
+                    self._surface_conflicts[command.session_id] = (
+                        SurfaceConflictProjection.from_decision(decision)
+                    )
+                failures.append(exc)
+            except BaseException as exc:  # surfaced to the caller below
+                failures.append(exc)
+            finally:
+                # stream_end (transient): the provider stream closed; the
+                # durable turn commit remains authoritative. Wait briefly for
+                # the authoritative turn_id — a fast provider can finish the
+                # whole turn before the caller observes turn-start.
+                turn_ready.wait(timeout=5.0)
+                if turn_holder:
+                    _publish(SurfaceStreamFrameKind.STREAM_END, {})
+
+        worker = threading.Thread(
+            target=_execute,
+            daemon=True,
+            name=f"surface-begin-turn-{command.session_id}",
+        )
+        worker.start()
+        turn_id = self._await_turn_start(command.session_id, worker)
+        if turn_id is None:
+            # Release the worker's display-path wait; no turn was started so
+            # no stream_end may be published.
+            turn_ready.set()
+            if failures:
+                raise failures[0]
+            raise RuntimeError(
+                "turn execution finished without a durable turn-start event"
+            )
+        turn_holder.append(turn_id)
+        turn_ready.set()
+        return SurfaceBeginTurnResponse(
+            turn_id=turn_id, stream_id=command.stream.stream_id
+        )
+
+    def _await_turn_start(
+        self, session_id: str, worker: threading.Thread, timeout: float = 5.0
+    ) -> str | None:
+        """Return the new turn's id as soon as its durable turn-start event is
+        observable, without waiting for the turn to finish."""
+        task_id = self.surface_task_for_session(session_id)
+        known = {
+            json.loads(event.payload_json)["turn_id"]
+            for event in self.store.read(task_id)
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED
+        }
+        deadline = time.monotonic() + timeout
+
+        def _new_turn_id() -> str | None:
+            for event in self.store.read(task_id):
+                if event.event_type is not TaskEventType.SESSION_TURN_STARTED:
+                    continue
+                turn_id = json.loads(event.payload_json).get("turn_id")
+                if isinstance(turn_id, str) and turn_id not in known:
+                    return turn_id
+            return None
+
+        while time.monotonic() < deadline:
+            fresh = _new_turn_id()
+            if fresh is not None:
+                return fresh
+            if not worker.is_alive():
+                return _new_turn_id()
+            time.sleep(0.005)
+        return None
+
+    def surface_conflict_projection(
+        self, session_id: str
+    ) -> SurfaceConflictProjection | None:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        return self._surface_conflicts.get(session_id)
+
+    def surface_decide_approval(
+        self, command: SurfaceApprovalCommand
+    ) -> SurfaceTurnResponse:
+        _, loop_before = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        history_before = len(loop_before.history)
+        result = self.decide_session_approval(
+            command.session_id,
+            command.action_digest,
+            command.disposition,
+            command.reason,
+        )
+        _, loop_after = self.restore_chat_session(
+            command.session_id, DeferredApprovalGateway()
+        )
+        return self._surface_turn_response(
+            command.session_id,
+            result,
+            loop_after.history[history_before:],
+        )
+
+    def surface_pause_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        task_id = self.surface_task_for_session(command.session_id)
+        self.pause_task(task_id)
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_resume_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        task_id = self.surface_task_for_session(command.session_id)
+        self.resume_task(task_id)
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_correct_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        task_id = self.surface_task_for_session(command.session_id)
+        self.correct_task(task_id, command.reason)
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_set_permission_mode(
+        self, command: SurfaceSetPermissionModeCommand
+    ) -> SurfaceSessionSnapshot:
+        """E2 operator-only mode change, recorded once per change as a durable
+        SESSION_PERMISSION_MODE_SET event with a provenance chain (who set it,
+        prior event digest)."""
+        task_id = self.surface_task_for_session(command.session_id)
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("permission mode requires principal authority")
+        prior_digest: str | None = None
+        for event in self.store.read(task_id):
+            if event.event_type is not TaskEventType.SESSION_PERMISSION_MODE_SET:
+                continue
+            prior_digest = content_digest(event.decoded_payload())
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.SESSION_PERMISSION_MODE_SET,
+            {
+                "session_id": command.session_id,
+                "mode": command.mode,
+                "set_by": actor.principal_id,
+                "prior_digest": prior_digest,
+            },
+        )
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        aggregate = self.tasks.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise InvalidTransitionError("surface session requires an active Run")
+        return SurfaceSessionSnapshot(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            session=projected.ref,
+            envelope_id=projected.envelope_id,
+            expected_outcome_id=projected.expected_outcome_id,
+            status=self._surface_session_status(task_id, run, projected.closed),
+            event_sequence=aggregate.sequence,
+            message_count=projected.next_message_index,
+            pending_approval=projected.pending_approval,
+            permission_mode=projected.permission_mode,
+            updated_at=self._clock(),
+        )
+
+    def _surface_session_status(
+        self,
+        task_id: str,
+        run: Any,
+        closed: bool,
+    ) -> SurfaceSessionStatus:
+        if closed:
+            return SurfaceSessionStatus.CLOSED
+        if self.correction.halted(task_id, run.run_id, "provider"):
+            return SurfaceSessionStatus.CORRECTION_HALTED
+        if run.status is RunStatus.WAITING_APPROVAL:
+            return SurfaceSessionStatus.WAITING_APPROVAL
+        if run.status is RunStatus.PAUSED:
+            return SurfaceSessionStatus.PAUSED
+        if run.status in {
+            RunStatus.SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }:
+            return SurfaceSessionStatus.CLOSED
+        return SurfaceSessionStatus.ACTIVE
+
+    def surface_sessions_listing(
+        self, limit: int, cursor: str | None
+    ) -> SurfaceSessionListResponse:
+        """Read-only session listing: minimal fields, tenant/workspace scoped.
+
+        Uses only existing durable records (`list_task_ids` + `SESSION_OPENED`);
+        `updated_at` is the last durable event's `occurred_at` (not wall-clock).
+        Unprojectable sessions are omitted (fail-closed), never fabricated.
+        """
+        entries: list[SurfaceSessionSummary] = []
+        seen_sessions: set[str] = set()
+        for task_id in self.store.list_task_ids():
+            events = tuple(self.store.read(task_id))
+            opened: dict[str, Any] | None = None
+            for event in events:
+                if event.event_type is not TaskEventType.SESSION_OPENED:
+                    continue
+                try:
+                    opened = event.decoded_payload()
+                except (TypeError, ValueError):
+                    opened = None
+                    break
+            if not isinstance(opened, dict) or not events:
+                continue
+            if opened.get("tenant_id") != self.principal.tenant_id:
+                continue
+            if opened.get("workspace_id") != self.principal.workspace_id:
+                continue
+            session_id = opened.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                continue
+            if session_id in seen_sessions:
+                continue
+            try:
+                projected = self.tasks.project_session(task_id, session_id)
+                aggregate = self.tasks.get_task(task_id)
+                run = aggregate.run
+                if run is None:
+                    continue  # no Run -> not a live enumerable session (fail-closed)
+                status = self._surface_session_status(task_id, run, projected.closed)
+            except Exception:
+                continue  # fail-closed: omit rather than fabricate
+            seen_sessions.add(session_id)
+            entries.append(
+                SurfaceSessionSummary(
+                    session_id=session_id,
+                    task_id=task_id,
+                    status=status,
+                    permission_mode=projected.permission_mode,
+                    message_count=projected.next_message_index,
+                    updated_at=events[-1].occurred_at,
+                )
+            )
+        entries.sort(key=lambda summary: summary.session_id)
+        if cursor is not None:
+            entries = [summary for summary in entries if summary.session_id > cursor]
+        page = tuple(entries[:limit])
+        next_cursor = page[-1].session_id if len(entries) > limit and page else None
+        return SurfaceSessionListResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            sessions=page,
+            next_cursor=next_cursor,
+        )
+
+    def _surface_turn_response(
+        self,
+        session_id: str,
+        result: TurnResult,
+        steps: tuple[ProviderMessage, ...],
+    ) -> SurfaceTurnResponse:
+        return SurfaceTurnResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            snapshot=self.surface_session_snapshot(session_id),
+            turn_id=result.turn_id.turn_id,
+            text=result.text or f"turn stopped: {result.stop_reason}",
+            steps=tuple(steps),
+            stop_reason=result.stop_reason,
+            total_tokens=result.total_tokens,
+        )
+
+    def surface_event_batch(
+        self, task_id: str, after_sequence: int
+    ) -> SurfaceEventBatch:
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        self.tasks.get_task(task_id)
+        events = tuple(
+            event
+            for event in self.store.read(task_id)
+            if event.sequence > after_sequence
+        )
+        next_sequence = events[-1].sequence if events else after_sequence
+        return SurfaceEventBatch(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            task_id=task_id,
+            after_sequence=after_sequence,
+            next_sequence=next_sequence,
+            events=events,
+        )
+
+    def surface_task_for_session(self, session_id: str) -> str:
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        matches: list[str] = []
+        for task_id in self.store.list_task_ids():
+            for event in self.store.read(task_id):
+                if event.event_type is not TaskEventType.SESSION_OPENED:
+                    continue
+                try:
+                    payload = event.decoded_payload()
+                except (TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        "invalid durable session open record"
+                    ) from exc
+                if payload.get("session_id") == session_id:
+                    matches.append(task_id)
+                    break
+        if not matches:
+            raise SurfaceSessionNotFound(f"session {session_id} not found")
+        if len(matches) != 1:
+            raise SurfaceSessionNotFound("duplicate durable session identity")
+        return matches[0]
+
+    def surface_task_overview(self, task_id: str) -> dict[str, object]:
+        """Closed read-only task projection for the Plan and Tasks panel."""
+
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        aggregate = self.tasks.get_task(task_id)
+        run = aggregate.run
+        session_id: str | None = None
+        for event in self.store.read(task_id):
+            if event.event_type is TaskEventType.SESSION_OPENED:
+                payload = event.decoded_payload()
+                if isinstance(payload, dict) and isinstance(
+                    payload.get("session_id"), str
+                ):
+                    session_id = payload["session_id"]
+                break
+        receipts = sum(
+            event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+            for event in self.store.read(task_id)
+        )
+        run_status = "NONE"
+        run_id = ""
+        if run is not None:
+            run_status = run.status.value
+            run_id = run.run_id
+        return {
+            "task_id": task_id,
+            "task_status": (
+                aggregate.status.value if aggregate.status is not None else "NONE"
+            ),
+            "run_status": run_status,
+            "run_id": run_id,
+            "expected_outcome_id": (
+                aggregate.expected_outcome.expected_outcome_id
+                if aggregate.expected_outcome is not None
+                else ""
+            ),
+            "receipt_count": receipts,
+            "session_id": session_id or "",
+        }
+
+    def surface_files_listing(self, task_id: str) -> list[dict[str, object]]:
+        """Bounded read-only workspace listing for the Files panel (Wave 2a).
+
+        Returns path/size/mtime only, depth-bounded, skipping noise and
+        artifact directories. No file content is exposed without a task
+        capability; task ownership is enforced by get_task.
+        """
+
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        self.tasks.get_task(task_id)
+        root = self.sandbox.root
+        noise = {
+            ".git",
+            ".venv",
+            "node_modules",
+            "target",
+            ".agent-os-artifacts",
+            ".agent_runs",
+            ".worktrees",
+        }
+        entries: list[dict[str, object]] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            if any(part in noise for part in path.relative_to(root).parts):
+                continue
+            if len(path.relative_to(root).parts) > 3:
+                continue
+            try:
+                stat_result = path.stat()
+            except OSError:
+                continue
+            entries.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "size": stat_result.st_size,
+                    "mtime": datetime.fromtimestamp(
+                        stat_result.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                }
+            )
+        return entries
+
+    def surface_current_sequence(self, task_id: str) -> int:
+        if not task_id.strip():
+            raise ValueError("task_id must be non-empty")
+        return self.tasks.get_task(task_id).sequence
+
+    def surface_idempotency_record(self, scope: str, key: str) -> dict[str, Any] | None:
+        if not scope.strip() or not key.strip():
+            raise ValueError("idempotency scope and key must be non-empty")
+        return self.store.get_idempotency(scope, key)
+
+    def surface_store_idempotency(
+        self, scope: str, key: str, record: dict[str, Any]
+    ) -> bool:
+        if not scope.strip() or not key.strip():
+            raise ValueError("idempotency scope and key must be non-empty")
+        return self.store.put_idempotency(
+            scope, key, record, datetime.now(timezone.utc).isoformat()
+        )
+
+    def _chat_grants(self) -> dict[str, CapabilityGrant]:
+        grants = dict(self.grants)
+        for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
+            grant = grants.get(capability_id)
+            if grant is None:
+                raise RuntimeError(f"chat capability is not granted: {capability_id}")
+            if grant.max_risk_tier < max_tier:
+                # Elevate only the chat-scoped grant copies; the shared
+                # composition-root envelope stays at its declared ceiling.
+                grants[capability_id] = grant.model_copy(
+                    update={"max_risk_tier": max_tier}
+                )
+        return {
+            capability_id: grants[capability_id]
+            for capability_id in CHAT_CAPABILITY_IDS
+        }
+
+    def _record_chat_message(
+        self,
+        session: ChatSession,
+        message_index: int,
+        message: ProviderMessage,
+        turn_id: str | None,
+    ) -> None:
+        self.tasks.record_session_message(
+            session.task_id,
+            session.session_id,
+            message_index,
+            message,
+            turn_id=turn_id,
+        )
 
     def pause_task(self, task_id: str):
         return self.tasks.update_run_status(
@@ -1697,12 +2578,17 @@ class AgentOSApplication:
         if not reason:
             raise ValueError("replan reason is required")
         workflow = WorkflowGraph.model_validate(workflow_payload)
-        return self.tasks.replan_task(
+        aggregate = self.tasks.replan_task(
             task_id,
             workflow,
             requested_by=self.principal.principal_id,
             reason=reason,
         )
+        # Explicit replan acknowledges the conflicting events: advance the work
+        # lease cursor to the fence high-water so the next dispatch re-evaluates
+        # from the acknowledged state instead of silently overriding.
+        self._install_run_work_lease(aggregate)
+        return aggregate
 
     def resume_correction(
         self,
@@ -1742,6 +2628,7 @@ class AgentOSApplication:
             self.correction,
             self.grants,
             compensation_grant=self.compensation_grant,
+            collaboration_preflight=self.collaboration_preflight,
         )
         return runner.compensate_task(
             task_id,

@@ -18,3 +18,14 @@ experiments/data/perturb_seq/
 
 # Experiment run logs (reproducible stdout artifacts)
 experiments/*.stdout.log
+
+# Local runtime SQLite databases (dev artifacts, never repo content)
+agent-os.sqlite3
+*.sqlite3
+
+# Eval run residue (generated; commit only eval-report.json / report.md)
+.agent_runs/**/workspace/
+.agent_runs/**/_probe/
+.agent-os-artifacts/
+*.sqlite3-*
+*.collaboration.lock

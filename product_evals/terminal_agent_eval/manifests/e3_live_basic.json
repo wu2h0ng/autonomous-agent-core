@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task_id": "e3-edit-fixture",
+      "input": "Read fixture.txt with workspace.read, then use workspace.edit to set its entire contents to exactly one line: fixed",
+      "verify_command": [
+        "python",
+        "-c",
+        "import pathlib,sys; sys.exit(0 if pathlib.Path('fixture.txt').read_text()=='fixed\\n' else 1)"
+      ],
+      "expected_outcome": null,
+      "file_digests": []
+    },
+    {
+      "task_id": "e3-edit-note",
+      "input": "Read note.txt with workspace.read, then use workspace.edit to set its entire contents to exactly one line: final",
+      "verify_command": [
+        "python",
+        "-c",
+        "import pathlib,sys; sys.exit(0 if pathlib.Path('note.txt').read_text()=='final\\n' else 1)"
+      ],
+      "expected_outcome": null,
+      "file_digests": []
+    }
+  ],
+  "manifest_sha256": "bd8dbe559743465c2b55580427d90aea3194caab5e486913a36a7e203b07a62c"
+}

@@ -19,7 +19,9 @@ from agent_os_core import (
     AgentLoop,
     AgentLoopConfig,
     AutoApproveGateway,
+    DeferredApprovalGateway,
     DeterministicProvider,
+    ExecutionLease,
     NonInteractiveDenyGateway,
     ensure_local_mandate_session,
     load_terminal_session,
@@ -27,7 +29,7 @@ from agent_os_core import (
 )
 from agent_os_core.agent_cli import AgentCLIError, event_types
 from agent_os_core.capability import CapabilityDenied
-from agent_os_core.errors import InvalidTransitionError, RunExecutionError
+from agent_os_core.errors import InvalidTransitionError
 from agent_os_core.mandate_terminal import mandate_status
 from agent_os_core.responsibility_loop import ResponsibilityLoopStaleFence
 
@@ -60,6 +62,69 @@ def _proposed_actions_for_task(app: AgentOSApplication, task_id: str):
         for event in app.tasks._event_store.read(task_id)
         if event.event_type is TaskEventType.ACTION_PROPOSED
     ]
+
+
+def _held_claim(app: AgentOSApplication) -> ExecutionLease:
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    fence = app.store.acquire_lease(
+        "run:test-claim", "test:worker", expiry.isoformat()
+    )
+    return ExecutionLease(
+        run_id="run:test-claim",
+        owner="test:worker",
+        fence=fence,
+        expires_at=expiry,
+    )
+
+
+def _record_sink(app):
+    def sink(session, message_index, message, turn_id):
+        app.tasks.record_session_message(
+            session.task_id,
+            session.ref.session_id,
+            message_index,
+            message,
+            turn_id=turn_id,
+        )
+
+    return sink
+
+
+def _session_loop(
+    app,
+    session,
+    *,
+    custody=None,
+    execution_fence=None,
+    gateway=None,
+) -> AgentLoop:
+    projected = app.tasks.project_session(session.task_id, session.session_id)
+    resumable_turn_ids = (
+        (projected.resumable_turn_id,)
+        if projected.resumable_turn_id is not None
+        else ()
+    )
+    return AgentLoop(
+        tasks=app.tasks,
+        provider=app.provider,
+        provider_profile=app.provider_profile,
+        policy=app.policy,
+        correction=app.correction,
+        connector=app.sandbox,
+        grants=dict(app.grants),
+        principal=app.principal,
+        gateway=gateway or DeferredApprovalGateway(),
+        session=session,
+        config=AgentLoopConfig(stream=False),
+        initial_history=projected.history,
+        message_sink=_record_sink(app),
+        resumable_turn_ids=resumable_turn_ids,
+        execution_fence=execution_fence or (lambda _phase: None),
+        effect_custody=custody,
+        independent_approval=True,
+        external_exact_approval=True,
+        collaboration_preflight=getattr(app, "collaboration_preflight", None),
+    )
 
 
 def _agent_app(root: Path, scripted=()) -> AgentOSApplication:
@@ -248,11 +313,13 @@ def test_stale_responsibility_fence_stops_before_next_tool_effect(
         provider_profile=app.provider_profile,
         policy=app.policy,
         correction=app.correction,
-        sandbox=app.sandbox,
+        connector=app.sandbox,
         grants=dict(app.grants),
         principal=app.principal,
         gateway=AutoApproveGateway(),
+        session=session,
         config=AgentLoopConfig(stream=False),
+        message_sink=_record_sink(app),
         execution_fence=assert_current,
     )
 
@@ -284,11 +351,13 @@ def test_agent_loop_routes_tool_effect_through_responsibility_custody(
         provider_profile=app.provider_profile,
         policy=app.policy,
         correction=app.correction,
-        sandbox=app.sandbox,
+        connector=app.sandbox,
         grants=dict(app.grants),
         principal=app.principal,
         gateway=AutoApproveGateway(),
+        session=session,
         config=AgentLoopConfig(stream=False),
+        message_sink=_record_sink(app),
         effect_custody=custody,
     )
 
@@ -341,13 +410,16 @@ def test_agent_loop_fences_after_custodied_effect_before_task_receipt(
         provider_profile=app.provider_profile,
         policy=app.policy,
         correction=app.correction,
-        sandbox=app.sandbox,
+        connector=app.sandbox,
         grants=dict(app.grants),
         principal=app.principal,
         gateway=AutoApproveGateway(),
+        session=session,
         config=AgentLoopConfig(stream=False),
+        message_sink=_record_sink(app),
         execution_fence=assert_current,
         effect_custody=custody,
+        collaboration_preflight=getattr(app, "collaboration_preflight", None),
     )
 
     with pytest.raises(ResponsibilityLoopStaleFence, match="Process B"):
@@ -389,27 +461,11 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
     def custody(_operation_slot, _intent_digest, effect):
         return effect()
 
-    loop = AgentLoop(
-        tasks=app.tasks,
-        provider=app.provider,
-        provider_profile=app.provider_profile,
-        policy=app.policy,
-        correction=app.correction,
-        sandbox=app.sandbox,
-        grants=dict(app.grants),
-        principal=app.principal,
-        gateway=NonInteractiveDenyGateway(),
-        config=AgentLoopConfig(stream=False),
-        execution_fence=lambda _phase: None,
-        effect_custody=custody,
-        allowed_capability_ids=("workspace.read", "workspace.search", "workspace.edit"),
-        durable_write_approval=True,
-        allowed_write_paths=("fixture.txt",),
-    )
+    loop = _session_loop(app, session, custody=custody)
 
     waiting = loop.run_turn(session, "make the exact edit")
 
-    assert waiting.stop_reason == "waiting_approval"
+    assert waiting.stop_reason == "approval_required"
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
     aggregate = app.tasks.get_task(session.task_id)
     assert aggregate.run is not None
@@ -420,7 +476,7 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
         if action.capability_id == "workspace.edit"
     ]
     assert len(pending) == 1
-    with pytest.raises(RunExecutionError, match="approval is pending"):
+    with pytest.raises(ValueError, match="already has an open durable turn"):
         loop.run_turn(session, "silently substitute a second action")
     assert _proposed_actions_for_task(app, session.task_id) == pending
     with pytest.raises(InvalidTransitionError, match="external exact approval"):
@@ -432,6 +488,7 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
             record_artifacts=False,
             execution_fence=lambda _phase: None,
             effect_custody=custody,
+            execution_claim=_held_claim(app),
         )
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
     now = datetime.now(timezone.utc)
@@ -451,7 +508,9 @@ def test_existing_task_agent_loop_waits_for_external_exact_write_approval(
         ),
     )
 
-    completed = loop.resume_after_approval(session)
+    approval = app.tasks.get_task(session.task_id).approval
+    assert approval is not None
+    completed = loop.resume_pending_approval(session, approval)
 
     assert completed.stop_reason == "completed"
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "mutated\n"
@@ -503,27 +562,7 @@ def test_existing_task_agent_loop_restarts_and_requires_each_file_approval(
         def custody(_operation_slot, _intent_digest, effect):
             return effect()
 
-        return AgentLoop(
-            tasks=app.tasks,
-            provider=app.provider,
-            provider_profile=app.provider_profile,
-            policy=app.policy,
-            correction=app.correction,
-            sandbox=app.sandbox,
-            grants=dict(app.grants),
-            principal=app.principal,
-            gateway=NonInteractiveDenyGateway(),
-            config=AgentLoopConfig(stream=False),
-            execution_fence=lambda _phase: None,
-            effect_custody=custody,
-            allowed_capability_ids=(
-                "workspace.read",
-                "workspace.search",
-                "workspace.edit",
-            ),
-            durable_write_approval=True,
-            allowed_write_paths=("fixture.txt", "second.txt"),
-        )
+        return _session_loop(app, session, custody=custody)
 
     def approve_latest() -> None:
         action = _proposed_actions_for_task(app, session.task_id)[-1]
@@ -545,21 +584,24 @@ def test_existing_task_agent_loop_restarts_and_requires_each_file_approval(
         )
 
     first_wait = new_loop().run_turn(session, "edit both files precisely")
-    assert first_wait.stop_reason == "waiting_approval"
+    assert first_wait.stop_reason == "approval_required"
     approve_latest()
 
-    second_wait = new_loop().resume_after_approval(session)
-    assert second_wait.stop_reason == "waiting_approval"
+    approval = app.tasks.get_task(session.task_id).approval
+    assert approval is not None
+    second_wait = new_loop().resume_pending_approval(session, approval)
+    assert second_wait.stop_reason == "approval_required"
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "first\n"
     assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "before\n"
     assert app.tasks.get_task(session.task_id).approval is None
     approve_latest()
 
-    completed = new_loop().resume_after_approval(session)
+    approval = app.tasks.get_task(session.task_id).approval
+    assert approval is not None
+    completed = new_loop().resume_pending_approval(session, approval)
     assert completed.stop_reason == "completed"
     assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "second\n"
     history = new_loop()
-    history.restore_history_from_task(session)
     roles = [message.role for message in history.history]
     assert roles.count(ProviderMessageRole.ASSISTANT) == 3
     assert roles.count(ProviderMessageRole.TOOL) == 2
@@ -595,30 +637,10 @@ def test_durable_agent_loop_recovers_crash_after_effect_receipt_before_tool_comp
         return effect()
 
     def new_loop() -> AgentLoop:
-        return AgentLoop(
-            tasks=app.tasks,
-            provider=app.provider,
-            provider_profile=app.provider_profile,
-            policy=app.policy,
-            correction=app.correction,
-            sandbox=app.sandbox,
-            grants=dict(app.grants),
-            principal=app.principal,
-            gateway=NonInteractiveDenyGateway(),
-            config=AgentLoopConfig(stream=False),
-            execution_fence=lambda _phase: None,
-            effect_custody=custody,
-            allowed_capability_ids=(
-                "workspace.read",
-                "workspace.search",
-                "workspace.edit",
-            ),
-            durable_write_approval=True,
-            allowed_write_paths=("fixture.txt",),
-        )
+        return _session_loop(app, session, custody=custody)
 
     first = new_loop()
-    assert first.run_turn(session, "edit once").stop_reason == "waiting_approval"
+    assert first.run_turn(session, "edit once").stop_reason == "approval_required"
     action = app.tasks.pending_action(session.task_id)
     assert action is not None
     now = datetime.now(timezone.utc)
@@ -641,12 +663,18 @@ def test_durable_agent_loop_recovers_crash_after_effect_receipt_before_tool_comp
     def crash_after_receipt(*_args, **_kwargs):
         raise RuntimeError("simulated crash after Task action receipt")
 
-    monkeypatch.setattr(first, "_record_tool_completion", crash_after_receipt)
+    original_resolve = app.tasks.resolve_session_approval
+    monkeypatch.setattr(app.tasks, "resolve_session_approval", crash_after_receipt)
     with pytest.raises(RuntimeError, match="simulated crash"):
-        first.resume_after_approval(session)
+        approval = app.tasks.get_task(session.task_id).approval
+        assert approval is not None
+        first.resume_pending_approval(session, approval)
+    monkeypatch.setattr(app.tasks, "resolve_session_approval", original_resolve)
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "recovered\n"
 
-    completed = new_loop().resume_after_approval(session)
+    approval = app.tasks.get_task(session.task_id).approval
+    assert approval is not None
+    completed = new_loop().resume_pending_approval(session, approval)
 
     assert completed.stop_reason == "completed"
     receipts = [

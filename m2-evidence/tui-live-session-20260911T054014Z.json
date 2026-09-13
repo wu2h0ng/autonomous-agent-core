@@ -1,0 +1,740 @@
+{
+  "evidence_kind": "m2_tui_live_session",
+  "branch": "codex/terminal-coding-agent-m2",
+  "commit": "940e6ec31929da4be6f549eba8d9a75873563f5f",
+  "provider": {
+    "endpoint_class": "openai-compatible",
+    "base_url": "https://agent-gw.kimi.com/coding/v1",
+    "model": "k2d6-agent"
+  },
+  "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+  "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+  "prompt": "Use the workspace.read tool to read fixture.txt, then reply with its exact content and nothing else.",
+  "started_at": "2026-09-11T05:40:14.930610+00:00",
+  "finished_at": "2026-09-11T05:40:20.729493+00:00",
+  "elapsed_seconds": 5.799,
+  "tui": {
+    "transcript": [
+      {
+        "role": "user",
+        "content": "Use the workspace.read tool to read fixture.txt, then reply with its exact content and nothing else.",
+        "interrupted": false
+      },
+      {
+        "role": "assistant",
+        "content": "M2 live evidence fixture",
+        "interrupted": false
+      }
+    ],
+    "turns": 1,
+    "tokens_total": 1603,
+    "usage_line": "tokens 1603 \u00b7 cost UNKNOWN",
+    "status_line": "[ACCEPT_READ_ONLY] idle",
+    "final_mode": "ACCEPT_READ_ONLY"
+  },
+  "stream_frames_observed": {
+    "chunk": 5,
+    "gap": 0,
+    "stream_end": 1
+  },
+  "durable_events": [
+    {
+      "sequence": 1,
+      "event_type": "TASK_CREATED",
+      "payload": {
+        "goal": {
+          "constraints": [],
+          "created_at": "2026-09-11T05:40:14.914723Z",
+          "created_by": "user:local",
+          "goal_id": "goal:chat:0a0c0eba9df7",
+          "schema_version": "1.0",
+          "statement": "M2 live textual TUI evidence session",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local"
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "event_type": "TASK_COMMITTED",
+      "payload": {
+        "commitment": {
+          "acceptance_criteria": [
+            "user request addressed"
+          ],
+          "accepted_at": "2026-09-11T05:40:14.914723Z",
+          "accepted_by": "user:local",
+          "assumptions": [],
+          "authority_scopes": [
+            "task.configuration.snapshot",
+            "workspace:read",
+            "workspace:write"
+          ],
+          "budget": {
+            "max_cost_usd": "10",
+            "max_duration_seconds": 28800,
+            "max_provider_tokens": 500000,
+            "max_tool_calls": 500,
+            "schema_version": "1.0"
+          },
+          "commitment_id": "commitment:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "deliverables": [
+            "interactive chat session outcome"
+          ],
+          "exit_conditions": [
+            "session closed"
+          ],
+          "expires_at": "2026-09-11T13:40:14.914723Z",
+          "goal_id": "goal:chat:0a0c0eba9df7",
+          "risk_tier": 1,
+          "schema_version": "1.0",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local"
+        },
+        "expected_outcome": {
+          "evaluator_type": "pytest",
+          "evaluator_version": "1",
+          "evidence_requirements": [
+            "test-report"
+          ],
+          "expected_outcome_id": "expected:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "failure_semantics": [
+            "non-zero exit"
+          ],
+          "frozen_at": "2026-09-11T05:40:14.914723Z",
+          "observation_window_seconds": 28800,
+          "schema_version": "1.0",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "threshold": 1.0,
+          "workspace_id": "workspace:local"
+        },
+        "workflow": {
+          "created_at": "2026-09-11T05:40:14.914723Z",
+          "created_by": "user:local",
+          "edges": [],
+          "evaluator_refs": [
+            "evaluator:pytest:1"
+          ],
+          "max_replans": 1,
+          "nodes": [
+            {
+              "capability": null,
+              "failure_edge": null,
+              "idempotency": "none",
+              "input_contract": "contract:any:1",
+              "kind": "terminal",
+              "max_attempts": 1,
+              "max_concurrency": null,
+              "max_iterations": null,
+              "node_id": "done",
+              "output_contract": "contract:any:1",
+              "retry_class": "never",
+              "risk_tier": 0,
+              "schema_version": "1.0",
+              "stop_predicate": null,
+              "subworkflow_ref": null,
+              "timeout_seconds": 60,
+              "wait_correlation_key": null,
+              "wait_signal_name": null
+            }
+          ],
+          "policy_version": "policy-1",
+          "schema_version": "WorkflowGraph/dag_v1",
+          "tenant_id": "tenant:local",
+          "version": 1,
+          "workflow_id": "workflow:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "workspace_id": "workspace:local"
+        },
+        "workflow_digest": "32c214af92c0bba41559472390210797023f763abe7bf8b40886f941f8d5c64c"
+      }
+    },
+    {
+      "sequence": 3,
+      "event_type": "TASK_CONFIGURATION_SNAPSHOT_SEALED",
+      "payload": {
+        "configuration_snapshot": {
+          "commitment_id": "commitment:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "consumer_task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "execution_grants": [],
+          "execution_grants_digest": "7d10d845a99cf46b500a7d2fda9cc1a8906793add6fff5fcf2f0f4094feaa0e1",
+          "expected_outcome": {
+            "evaluator_type": "pytest",
+            "evaluator_version": "1",
+            "evidence_requirements": [
+              "test-report"
+            ],
+            "expected_outcome_id": "expected:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+            "failure_semantics": [
+              "non-zero exit"
+            ],
+            "frozen_at": "2026-09-11T05:40:14.914723Z",
+            "observation_window_seconds": 28800,
+            "schema_version": "1.0",
+            "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+            "tenant_id": "tenant:local",
+            "threshold": 1.0,
+            "workspace_id": "workspace:local"
+          },
+          "expected_outcome_digest": "2cf8548dbb19b6fe80c4e1f0e233146c037f048dd8d763d8b234869eb3c6f0c1",
+          "observed_correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "optional_prior": null,
+          "policy_digest": "96919d59893d7310515e41132b30f5175933f2b201eb6ec3fa70a54228a28f5b",
+          "policy_version": "policy-1",
+          "principal_id": "user:local",
+          "prior_consumption_mode": "REFERENCE_ONLY",
+          "provider_profile": {
+            "capabilities": [
+              "chat",
+              "tool-calls"
+            ],
+            "created_at": "2026-09-11T05:40:12.401863Z",
+            "credential_ref_id": "credential:local:506aa79b-1da6-49f3-9991-e886836ab177",
+            "endpoint_class": "openai-compatible",
+            "max_context_tokens": 16000,
+            "model_id": "k2d6-agent",
+            "model_revision_digest": null,
+            "profile_id": "provider-profile:7ee20da4-8cff-472d-baf0-99b77d5f7206",
+            "provider_id": "openai-compatible",
+            "request_timeout_seconds": 60,
+            "schema_version": "1.0"
+          },
+          "provider_profile_digest": "c2a15f4d67cf9fca9a1a31101f2d1b0e9eb456fa3ce08d3b0aa6428afb7357bd",
+          "reserved_run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+          "schema_version": "1.0",
+          "seal_request_digest": "50ae80d1bb0723e292903c94a866500311397391771350f6033546b899ff68cd",
+          "sealed_at": "2026-09-11T05:40:14.916347Z",
+          "sealed_by": "system:task-configuration-sealer:v1",
+          "snapshot_digest": "3b38678cc494328fea4e6cdc962a8823208bf1072d50bb5fa0f3cf77f386e1e8",
+          "snapshot_id": "task-configuration:fd8aa442-b667-4dcd-9716-cbeda703e1ac",
+          "snapshot_version": 1,
+          "state": "SEALED",
+          "tenant_id": "tenant:local",
+          "workflow": {
+            "created_at": "2026-09-11T05:40:14.914723Z",
+            "created_by": "user:local",
+            "edges": [],
+            "evaluator_refs": [
+              "evaluator:pytest:1"
+            ],
+            "max_replans": 1,
+            "nodes": [
+              {
+                "capability": null,
+                "failure_edge": null,
+                "idempotency": "none",
+                "input_contract": "contract:any:1",
+                "kind": "terminal",
+                "max_attempts": 1,
+                "max_concurrency": null,
+                "max_iterations": null,
+                "node_id": "done",
+                "output_contract": "contract:any:1",
+                "retry_class": "never",
+                "risk_tier": 0,
+                "schema_version": "1.0",
+                "stop_predicate": null,
+                "subworkflow_ref": null,
+                "timeout_seconds": 60,
+                "wait_correlation_key": null,
+                "wait_signal_name": null
+              }
+            ],
+            "policy_version": "policy-1",
+            "schema_version": "WorkflowGraph/dag_v1",
+            "tenant_id": "tenant:local",
+            "version": 1,
+            "workflow_id": "workflow:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+            "workspace_id": "workspace:local"
+          },
+          "workflow_digest": "32c214af92c0bba41559472390210797023f763abe7bf8b40886f941f8d5c64c",
+          "workspace_id": "workspace:local"
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "event_type": "RUN_STARTED",
+      "payload": {
+        "run": {
+          "active_node_id": null,
+          "attempt": 1,
+          "commitment_id": "commitment:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "configuration_snapshot_digest": "3b38678cc494328fea4e6cdc962a8823208bf1072d50bb5fa0f3cf77f386e1e8",
+          "configuration_snapshot_id": "task-configuration:fd8aa442-b667-4dcd-9716-cbeda703e1ac",
+          "created_at": "2026-09-11T05:40:14.919077Z",
+          "expected_outcome_id": "expected:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "lease_fence": 0,
+          "policy_version": "policy-1",
+          "provider_profile_id": "provider-profile:7ee20da4-8cff-472d-baf0-99b77d5f7206",
+          "replan_count": 0,
+          "run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+          "schema_version": "1.0",
+          "status": "QUEUED",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "wait_condition": null,
+          "workflow_digest": "32c214af92c0bba41559472390210797023f763abe7bf8b40886f941f8d5c64c",
+          "workflow_id": "workflow:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "workflow_version": 1,
+          "workspace_id": "workspace:local"
+        }
+      }
+    },
+    {
+      "sequence": 5,
+      "event_type": "SESSION_OPENED",
+      "payload": {
+        "agent_loop_config": {
+          "loop_detection_threshold": 3,
+          "max_context_chars": 60000,
+          "max_provider_retries": 2,
+          "max_steps_per_turn": 25,
+          "max_turn_tokens": 100000,
+          "system_prompt": "You are a governed terminal coding agent operating inside a workspace. You act only through the provided typed tools; you never claim an action succeeded before its tool result confirms it. Prefer workspace.search and workspace.read to inspect before editing. Use workspace.edit for precise string replacements and workspace.apply_patch only for full-file replacement or new files. Run tests with workspace.run_tests after edits. If a tool result reports an error, adjust and retry with corrected arguments instead of repeating the identical call."
+        },
+        "agent_loop_config_digest": "8ed88cbd39287e4e54d8673b4dc6b5b60ccbec41cbd87fcc1fd664095ba49429",
+        "envelope_id": "envelope-2e486deb-5184-4a68-94fe-408261ccb26b",
+        "expected_outcome_id": "expected:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+        "run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+        "session": {
+          "run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+          "schema_version": "1.0",
+          "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local"
+        },
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local"
+      }
+    },
+    {
+      "sequence": 6,
+      "event_type": "SESSION_MESSAGE_RECORDED",
+      "payload": {
+        "message": {
+          "content": "You are a governed terminal coding agent operating inside a workspace. You act only through the provided typed tools; you never claim an action succeeded before its tool result confirms it. Prefer workspace.search and workspace.read to inspect before editing. Use workspace.edit for precise string replacements and workspace.apply_patch only for full-file replacement or new files. Run tests with workspace.run_tests after edits. If a tool result reports an error, adjust and retry with corrected arguments instead of repeating the identical call.",
+          "role": "SYSTEM",
+          "schema_version": "1.0",
+          "tool_call_id": null,
+          "tool_calls": []
+        },
+        "message_index": 0,
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "turn_id": null
+      }
+    },
+    {
+      "sequence": 7,
+      "event_type": "CANDIDATES_GENERATED",
+      "payload": {
+        "envelope": {
+          "allowed_capability_ids": [
+            "workspace.apply_patch",
+            "workspace.edit",
+            "workspace.read",
+            "workspace.run_tests",
+            "workspace.search",
+            "workspace.shell"
+          ],
+          "envelope_id": "envelope-2e486deb-5184-4a68-94fe-408261ccb26b",
+          "generator_id": "terminal-chat-loop",
+          "generator_version": "1"
+        }
+      }
+    },
+    {
+      "sequence": 8,
+      "event_type": "SESSION_MESSAGE_RECORDED",
+      "payload": {
+        "message": {
+          "content": "Use the workspace.read tool to read fixture.txt, then reply with its exact content and nothing else.",
+          "role": "USER",
+          "schema_version": "1.0",
+          "tool_call_id": null,
+          "tool_calls": []
+        },
+        "message_index": 1,
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "turn_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501"
+      }
+    },
+    {
+      "sequence": 9,
+      "event_type": "SESSION_TURN_STARTED",
+      "payload": {
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "turn_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501",
+        "user_text": "Use the workspace.read tool to read fixture.txt, then reply with its exact content and nothing else."
+      }
+    },
+    {
+      "sequence": 10,
+      "event_type": "PROVIDER_RESPONDED",
+      "payload": {
+        "node_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-1",
+        "provider_execution_receipt": {
+          "correction_epoch": 0,
+          "invocation_binding_digest": "d14b5d43834bec9326a10d8cea65bd408a9a4823f1398884d3d2ecedc2718068",
+          "missing_fields": [
+            "model_revision_digest",
+            "working_set_digest"
+          ],
+          "model_id": "k2d6-agent",
+          "model_revision_digest": null,
+          "node_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-1",
+          "post_correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "pre_correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "provider_id": "openai-compatible",
+          "provider_profile_digest": "c2a15f4d67cf9fca9a1a31101f2d1b0e9eb456fa3ce08d3b0aa6428afb7357bd",
+          "provider_profile_id": "provider-profile:7ee20da4-8cff-472d-baf0-99b77d5f7206",
+          "receipt_digest": "06d402927c5e95f104192f9240aae73bd5262a5f9390cc45b3553fbfec406743",
+          "request_digest": "224659a7eb5a80907bf718a5512e8262ee299ca9984fd3412664f1bdd0edbeb2",
+          "request_id": "request-b2ac0265-0756-4807-a5d1-e294b6cd1ac9",
+          "response_digest": "83a1ce8303f47def4ddb563a678467e3d692acb744d564a0c5c4a89042f1457d",
+          "response_id": "chatcmpl-XFaBzCjE5hOPZfBWXHMiQHBE",
+          "run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+          "schema_version": "1.0",
+          "source_event_id": "event-d3872d98-fc66-43e9-a0c0-a19590857906",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "working_set_ref": {
+            "digest": null,
+            "gap_reason": "terminal chat has no TrustedWorkingSet binding",
+            "schema_version": "1.0",
+            "status": "MISSING",
+            "working_set_id": null
+          },
+          "workspace_id": "workspace:local"
+        },
+        "provider_output": {
+          "finish_reason": "tool_calls",
+          "text": "",
+          "tool_proposals": [
+            {
+              "arguments_json": "{\"path\":\"fixture.txt\"}",
+              "capability_id": "workspace.read",
+              "proposal_id": "tool_Xh0GbcUN2hOx4sGCtUbzj6En",
+              "schema_version": "1.0"
+            }
+          ],
+          "usage": {
+            "cost_status": "UNKNOWN",
+            "estimated_cost_usd": null,
+            "input_tokens": 663,
+            "output_tokens": 81,
+            "pricing_source_ref": null,
+            "schema_version": "2.0",
+            "total_tokens": 744
+          }
+        }
+      }
+    },
+    {
+      "sequence": 11,
+      "event_type": "SESSION_MESSAGE_RECORDED",
+      "payload": {
+        "message": {
+          "content": "",
+          "role": "ASSISTANT",
+          "schema_version": "1.0",
+          "tool_call_id": null,
+          "tool_calls": [
+            {
+              "arguments_json": "{\"path\":\"fixture.txt\"}",
+              "capability_id": "workspace.read",
+              "schema_version": "1.0",
+              "tool_call_id": "tool_Xh0GbcUN2hOx4sGCtUbzj6En"
+            }
+          ]
+        },
+        "message_index": 2,
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "turn_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501"
+      }
+    },
+    {
+      "sequence": 12,
+      "event_type": "ACTION_PROPOSED",
+      "payload": {
+        "action": {
+          "action_id": "action-27ac3441-538c-4f34-b444-7a981901da0e",
+          "arguments_json": "{\"path\":\"fixture.txt\"}",
+          "candidate_envelope_id": "envelope-2e486deb-5184-4a68-94fe-408261ccb26b",
+          "capability_id": "workspace.read",
+          "capability_version": "1",
+          "created_at": "2026-09-11T05:40:17.828229Z",
+          "estimated_budget": {
+            "max_cost_usd": "0",
+            "max_duration_seconds": 120,
+            "max_provider_tokens": 0,
+            "max_tool_calls": 1,
+            "schema_version": "1.0"
+          },
+          "expected_outcome_id": "expected:chat:task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "idempotency_key": "run:62b9980b-ac96-4421-9549-06763cd32548:turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-1-action-0",
+          "node_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-1-action-0",
+          "observed_correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "policy_version": "policy-1",
+          "principal_id": "user:local",
+          "risk_tier": 1,
+          "run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+          "schema_version": "1.0",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local"
+        }
+      }
+    },
+    {
+      "sequence": 13,
+      "event_type": "POLICY_DECIDED",
+      "payload": {
+        "decision": {
+          "action_digest": "74d56d8e645cd220bae6f2b7ec7a3f4ce24a5687d0a51969b4e8257a98588d41",
+          "action_id": "action-27ac3441-538c-4f34-b444-7a981901da0e",
+          "approval_id": "approval:none",
+          "correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "decision_id": "decision-badf3868-9576-46af-aa9f-663fdcbf7edb",
+          "evaluated_at": "2026-09-11T05:40:17.834262Z",
+          "policy_version": "policy-1",
+          "principal_id": "user:local",
+          "reason_codes": [
+            "ADMITTED"
+          ],
+          "schema_version": "1.0",
+          "tenant_id": "tenant:local",
+          "verdict": "ALLOW",
+          "workspace_id": "workspace:local"
+        }
+      }
+    },
+    {
+      "sequence": 14,
+      "event_type": "ACTION_RECEIPT_RECORDED",
+      "payload": {
+        "decision": {
+          "action_digest": "74d56d8e645cd220bae6f2b7ec7a3f4ce24a5687d0a51969b4e8257a98588d41",
+          "action_id": "action-27ac3441-538c-4f34-b444-7a981901da0e",
+          "approval_id": "approval:none",
+          "correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "decision_id": "decision-badf3868-9576-46af-aa9f-663fdcbf7edb",
+          "evaluated_at": "2026-09-11T05:40:17.834262Z",
+          "policy_version": "policy-1",
+          "principal_id": "user:local",
+          "reason_codes": [
+            "ADMITTED"
+          ],
+          "schema_version": "1.0",
+          "tenant_id": "tenant:local",
+          "verdict": "ALLOW",
+          "workspace_id": "workspace:local"
+        },
+        "permit": {
+          "action_digest": "74d56d8e645cd220bae6f2b7ec7a3f4ce24a5687d0a51969b4e8257a98588d41",
+          "action_id": "action-27ac3441-538c-4f34-b444-7a981901da0e",
+          "correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "expires_at": "2026-09-11T05:45:17.835794Z",
+          "grant_id": "grant:workspace.read",
+          "issued_at": "2026-09-11T05:40:17.835794Z",
+          "lease_fence": 1,
+          "permit_id": "permit-7d37f0a9-e27b-4d3d-a456-846085de9504",
+          "policy_decision_id": "decision-badf3868-9576-46af-aa9f-663fdcbf7edb",
+          "principal_id": "user:local",
+          "schema_version": "1.0",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local"
+        },
+        "receipt": {
+          "action_digest": "74d56d8e645cd220bae6f2b7ec7a3f4ce24a5687d0a51969b4e8257a98588d41",
+          "action_id": "action-27ac3441-538c-4f34-b444-7a981901da0e",
+          "attempt": 1,
+          "connector_id": "workspace.read",
+          "detail_ref": "detail:none",
+          "error_code": "error:none",
+          "idempotency_key": "run:62b9980b-ac96-4421-9549-06763cd32548:turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-1-action-0",
+          "occurred_at": "2026-09-11T05:40:17.836735Z",
+          "output_artifact_ids": [],
+          "permit_id": "permit-7d37f0a9-e27b-4d3d-a456-846085de9504",
+          "receipt_id": "receipt-fbcbe37f-4cce-4517-a40c-4fddb845e61d",
+          "schema_version": "1.0",
+          "status": "SUCCEEDED",
+          "tenant_id": "tenant:local",
+          "workspace_id": "workspace:local"
+        }
+      }
+    },
+    {
+      "sequence": 15,
+      "event_type": "NODE_COMPLETED",
+      "payload": {
+        "action_id": "action-27ac3441-538c-4f34-b444-7a981901da0e",
+        "agent_loop_dynamic_action": true,
+        "node_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-1-action-0",
+        "output": {
+          "content": "M2 live evidence fixture\n",
+          "path": "fixture.txt",
+          "sha256": "7b55057c6f5f3f743450c3e1098cfc7dd97ecd4fd24881d61005008f97b61d08"
+        },
+        "provider_tool_call_id": "tool_Xh0GbcUN2hOx4sGCtUbzj6En"
+      }
+    },
+    {
+      "sequence": 16,
+      "event_type": "SESSION_MESSAGE_RECORDED",
+      "payload": {
+        "message": {
+          "content": "{\"content\": \"M2 live evidence fixture\\n\", \"path\": \"fixture.txt\", \"sha256\": \"7b55057c6f5f3f743450c3e1098cfc7dd97ecd4fd24881d61005008f97b61d08\"}",
+          "role": "TOOL",
+          "schema_version": "1.0",
+          "tool_call_id": "tool_Xh0GbcUN2hOx4sGCtUbzj6En",
+          "tool_calls": []
+        },
+        "message_index": 3,
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "turn_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501"
+      }
+    },
+    {
+      "sequence": 17,
+      "event_type": "PROVIDER_RESPONDED",
+      "payload": {
+        "node_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-2",
+        "provider_execution_receipt": {
+          "correction_epoch": 0,
+          "invocation_binding_digest": "d14b5d43834bec9326a10d8cea65bd408a9a4823f1398884d3d2ecedc2718068",
+          "missing_fields": [
+            "model_revision_digest",
+            "working_set_digest"
+          ],
+          "model_id": "k2d6-agent",
+          "model_revision_digest": null,
+          "node_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501-step-2",
+          "post_correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "pre_correction_epochs": {
+            "capability_epoch": 0,
+            "run_epoch": 0,
+            "schema_version": "1.0",
+            "task_epoch": 0
+          },
+          "provider_id": "openai-compatible",
+          "provider_profile_digest": "c2a15f4d67cf9fca9a1a31101f2d1b0e9eb456fa3ce08d3b0aa6428afb7357bd",
+          "provider_profile_id": "provider-profile:7ee20da4-8cff-472d-baf0-99b77d5f7206",
+          "receipt_digest": "8c58d9e9d6adca48878e624f92a3dd9580a507b04155f9731ba71bff781e020f",
+          "request_digest": "43d3efc48264da8227101f947ad78028350977343e035eb84a9e0c337755f8a4",
+          "request_id": "request-0d379fe6-fbb7-4fe3-93bb-abf99663c955",
+          "response_digest": "5b85a2ae624f30bdab5fb35d82cf14218786f4192987e608234dcd25bcf0ad66",
+          "response_id": "chatcmpl-2r4avpT4McxXfdYJVTHjtaQB",
+          "run_id": "run:62b9980b-ac96-4421-9549-06763cd32548",
+          "schema_version": "1.0",
+          "source_event_id": "event-5fbd269a-ef87-486b-b470-c917f8081a1a",
+          "task_id": "task-8f21ce4e-117b-4841-8169-a5c9acb79f5f",
+          "tenant_id": "tenant:local",
+          "working_set_ref": {
+            "digest": null,
+            "gap_reason": "terminal chat has no TrustedWorkingSet binding",
+            "schema_version": "1.0",
+            "status": "MISSING",
+            "working_set_id": null
+          },
+          "workspace_id": "workspace:local"
+        },
+        "provider_output": {
+          "finish_reason": "stop",
+          "text": "M2 live evidence fixture",
+          "tool_proposals": [],
+          "usage": {
+            "cost_status": "UNKNOWN",
+            "estimated_cost_usd": null,
+            "input_tokens": 806,
+            "output_tokens": 53,
+            "pricing_source_ref": null,
+            "schema_version": "2.0",
+            "total_tokens": 859
+          }
+        }
+      }
+    },
+    {
+      "sequence": 18,
+      "event_type": "SESSION_MESSAGE_RECORDED",
+      "payload": {
+        "message": {
+          "content": "M2 live evidence fixture",
+          "role": "ASSISTANT",
+          "schema_version": "1.0",
+          "tool_call_id": null,
+          "tool_calls": []
+        },
+        "message_index": 4,
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "turn_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501"
+      }
+    },
+    {
+      "sequence": 19,
+      "event_type": "SESSION_TURN_COMPLETED",
+      "payload": {
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "steps": 2,
+        "stop_reason": "completed",
+        "total_tokens": 1603,
+        "turn_id": "turn-257c4d8c-c722-42c9-93cb-570f8d407501"
+      }
+    },
+    {
+      "sequence": 20,
+      "event_type": "SESSION_PERMISSION_MODE_SET",
+      "payload": {
+        "mode": "ACCEPT_READ_ONLY",
+        "prior_digest": null,
+        "session_id": "session-3b085aa0-0d23-4ffe-b171-0b289e9a52ee",
+        "set_by": "user:local"
+      }
+    }
+  ]
+}

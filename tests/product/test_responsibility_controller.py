@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,7 @@ from agent_os_contracts import (
     PersistentCommitmentState,
     ResponsibilityWorkRoute,
     SelfDevelopmentWorkSpec,
+    SelfDevelopmentVerifierBinding,
     SrlHelpResponseKind,
     TaskEventType,
     ProviderToolProposal,
@@ -38,7 +40,7 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core.errors import RunExecutionError
-from agent_os_core import DeterministicProvider, TASK_CONFIGURATION_CAPABILITY
+from agent_os_core import DeterministicProvider, ExecutionLease, TASK_CONFIGURATION_CAPABILITY
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.capability import CapabilityBroker
 from agent_os_core.responsibility_controller import (
@@ -82,6 +84,26 @@ from tests.product.test_mandate_outcome_portfolio import _budget
 AUTHORITY_BEARER = "test-only-agent-work-authority-bearer"
 
 
+def _test_verifier_bindings(
+    workspace: Path,
+    head: str,
+) -> tuple[SelfDevelopmentVerifierBinding, ...]:
+    path = "tests/product/test_selfdev_fixture.py"
+    blob = subprocess.run(
+        ["git", "-C", str(workspace), "show", f"{head}:{path}"],
+        check=False,
+        capture_output=True,
+    )
+    if blob.returncode != 0:
+        return ()
+    return (
+        SelfDevelopmentVerifierBinding(
+            path=path,
+            base_blob_sha256=hashlib.sha256(blob.stdout).hexdigest(),
+        ),
+    )
+
+
 def _verified_responsibility(
     tmp_path: Path,
     *,
@@ -112,6 +134,14 @@ def _verified_responsibility(
             "    source = Path('packages/os_core/src/agent_os_core/selfdev_fixture.py')\n"
             "    assert runpy.run_path(str(source))['VALUE'] is True\n",
             encoding="utf-8",
+        )
+    if selfdev_spec is not None and not selfdev_spec.verifier_bindings:
+        selfdev_spec = selfdev_spec.model_copy(
+            update={
+                "verifier_bindings": _test_verifier_bindings(
+                    tmp_path, selfdev_spec.repository_head
+                )
+            }
         )
     database, owner, admin = _apps(tmp_path)
     owner.provider_configured = True
@@ -721,6 +751,7 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
     )
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
@@ -743,8 +774,20 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
                     "repository_head": head,
                     "isolated_branch": branch,
                     "allowed_write_path": "packages/os_core/src/agent_os_core/selfdev_fixture.py",
-                    "verifier_command": "pytest",
-                    "rollback_strategy": "compensate_task",
+                        "verifier_command": "pytest",
+                        "verifier_bindings": [
+                            binding.model_dump(mode="json")
+                            for binding in spec.verifier_bindings
+                        ],
+                        "verifier_binding_digest": content_digest(
+                            {
+                                "verifier_bindings": [
+                                    binding.model_dump(mode="json")
+                                    for binding in spec.verifier_bindings
+                                ]
+                            }
+                        ),
+                        "rollback_strategy": "compensate_task",
                     "prohibited_effects": (
                         "main",
                         "master",
@@ -796,6 +839,7 @@ def test_selfdev_organ_admits_large_precise_multi_file_write_set(
 
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path=primary,
         edit_mode="agent_loop_precise",
@@ -822,6 +866,7 @@ def test_selfdev_precise_write_set_rejects_out_of_scope_change(
     isolated, branch, head = _linked_worktree(tmp_path)
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         edit_mode="agent_loop_precise",
@@ -892,6 +937,7 @@ def test_selfdev_organ_rejects_dirty_large_and_out_of_scope_changes(
     isolated, branch, head = _linked_worktree(tmp_path)
     spec = SelfDevelopmentWorkSpec(
         repository_head=head,
+        verifier_bindings=_test_verifier_bindings(isolated, head),
         isolated_branch=branch,
         target_path="packages/os_core/src/agent_os_core/selfdev_fixture.py",
         verifier_command="pytest",
@@ -1570,10 +1616,12 @@ def test_selfdev_keyboard_interrupt_after_patch_compensates_exact_preimage(
     )
     original_invoke = CapabilityBroker.invoke
 
-    def interrupt_tests(self, action, permit, attempt=1):
+    def interrupt_tests(self, action, permit, attempt=1, *, execution_claim):
         if action.capability_id == "workspace.run_tests":
             raise KeyboardInterrupt
-        return original_invoke(self, action, permit, attempt=attempt)
+        return original_invoke(
+            self, action, permit, attempt=attempt, execution_claim=execution_claim
+        )
 
     monkeypatch.setattr(CapabilityBroker, "invoke", interrupt_tests)
     with pytest.raises(KeyboardInterrupt):
@@ -2276,7 +2324,11 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
     )
     pipeline = ActionPipeline(
         owner.tasks,
-        CapabilityBroker(owner.sandbox, owner.correction),
+        CapabilityBroker(
+            owner.sandbox,
+            owner.correction,
+            collaboration_preflight=owner.collaboration_preflight,
+        ),
         owner.policy,
         owner.correction,
         owner.grants,
@@ -2326,6 +2378,16 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
         process_instance_id="process:receipt-reconcile",
         now=NOW,
     )
+    lease_expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    lease_fence = owner.tasks._event_store.acquire_lease(  # type: ignore[attr-defined]
+        action.run_id, "test:worker", lease_expiry.isoformat()
+    )
+    execution_claim = ExecutionLease(
+        run_id=action.run_id,
+        owner="test:worker",
+        fence=lease_fence,
+        expires_at=lease_expiry,
+    )
 
     def execute_effect(
         operation_slot,
@@ -2362,6 +2424,7 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
             record_artifacts=False,
             execution_fence=lambda _phase: None,
             effect_custody=custody,
+            execution_claim=execution_claim,
         )
     assert loop_store.runtime_status(binding)["applied_without_task_receipt_count"] == 1
     monkeypatch.setattr(owner.tasks, "_record_action_receipt", original_record)
@@ -2374,6 +2437,7 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
         record_artifacts=False,
         execution_fence=lambda _phase: None,
         effect_custody=custody,
+        execution_claim=execution_claim,
     )
 
     runtime = loop_store.runtime_status(binding)

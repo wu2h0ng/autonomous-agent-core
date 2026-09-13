@@ -15,7 +15,15 @@ def _load_pyproject(path: Path) -> dict[str, Any]:
 def test_root_distribution_does_not_co_ship_product_packages() -> None:
     config = _load_pyproject(REPO_ROOT / "pyproject.toml")
 
-    assert config["tool"]["setuptools"]["packages"]["find"]["where"] == ["src"]
+    assert config["tool"]["setuptools"]["packages"]["find"]["where"] == ["src", "."]
+    assert config["tool"]["setuptools"]["packages"]["find"]["include"] == [
+        "aac*",
+        "envs*",
+        "apps*",
+        "domain_packs*",
+    ]
+    excluded = config["tool"]["setuptools"]["packages"]["find"]["exclude"]
+    assert "packages*" in excluded
 
 
 def test_contracts_distribution_declares_pydantic_runtime_dependency() -> None:

@@ -208,7 +208,9 @@ def test_resume_rejects_terminal_run_status(tmp_path: Path) -> None:
         offline=True,
     )
     saved = load_terminal_session(tmp_path)
-    status = app.tasks.get_task(saved.task_id).run.status
+    run = app.tasks.get_task(saved.task_id).run
+    assert run is not None
+    status = run.status
     if status is RunStatus.QUEUED:
         app.tasks.update_run_status(
             saved.task_id,

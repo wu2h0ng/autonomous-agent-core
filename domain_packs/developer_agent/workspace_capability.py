@@ -18,8 +18,15 @@ from agent_os_contracts import (
     CapabilitySpec,
     ReceiptStatus,
     SideEffectGuarantee,
+    content_digest,
 )
-from agent_os_core import CapabilityDenied, CapabilityEffect
+from agent_os_core import (
+    CapabilityDenied,
+    CapabilityEffect,
+    CapabilityResult,
+    DurableActionOutcomeRepository,
+    ExecutionLease,
+)
 
 
 class DeveloperWorkspaceAdapter:
@@ -45,6 +52,258 @@ class DeveloperWorkspaceAdapter:
 
     def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None:
         self._shell_allowlist = tuple(allowlist)
+
+    def outcomes(self) -> DurableActionOutcomeRepository | None:
+        """Durable reservation/outcome repository (ADR-0059 connector contract)."""
+
+        if self._idempotency_store is None:
+            return None
+        return DurableActionOutcomeRepository(self._idempotency_store)
+
+    def replay(self, action: ActionContract) -> CapabilityResult | None:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            return None
+        return outcomes.replay(action)
+
+    def preflight(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        """Deterministic deny before any reservation (ADR-0059 P1)."""
+
+        self._preflight(capability_id, args, action_key)
+
+    def acquire_execution_lease(
+        self, action: ActionContract, owner: str
+    ) -> ExecutionLease:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required for execution lease"
+            )
+        return outcomes.acquire_execution_lease(action, owner)
+
+    def release_execution_lease(self, lease: ExecutionLease) -> bool:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            raise CapabilityDenied(
+                "durable idempotency store is required for execution lease"
+            )
+        return outcomes.release_execution_lease(lease)
+
+    def reconcile_effect(
+        self,
+        action: ActionContract,
+        result: CapabilityResult,
+    ) -> None:
+        """Read current local evidence without altering or replaying history."""
+
+        args = json.loads(action.arguments_json)
+        if not isinstance(args, dict):
+            raise CapabilityDenied("capability arguments must be an object")
+        if (
+            result.receipt.status is ReceiptStatus.SUCCEEDED
+            and action.capability_id in {"workspace.apply_patch", "workspace.edit"}
+        ):
+            self._validate_cached_patch_effect(args, result.output)
+        elif (
+            result.receipt.status is ReceiptStatus.COMPENSATED
+            and action.capability_id == "workspace.compensate_patch"
+        ):
+            self._validate_cached_compensation_effect(args, result.output)
+
+    def _preflight(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        if capability_id == "workspace.read":
+            path = self._safe_path(str(args.get("path", "")))
+            if not path.is_file():
+                raise FileNotFoundError(str(args.get("path")))
+            return
+        if capability_id == "workspace.apply_patch":
+            self._preflight_apply_patch(args, action_key)
+            return
+        if capability_id == "workspace.edit":
+            patch_args = self._edit_patch_args(args)
+            self._preflight_apply_patch(patch_args, action_key)
+            return
+        if capability_id == "workspace.search":
+            self._preflight_search(args)
+            return
+        if capability_id == "workspace.shell":
+            self._preflight_shell(args)
+            return
+        if capability_id == "workspace.compensate_patch":
+            self._preflight_compensate_patch(args)
+            return
+        if capability_id == "workspace.run_tests":
+            self._preflight_run_tests(args)
+            return
+        if capability_id == "artifact.write":
+            return
+        raise CapabilityDenied(f"capability is not registered: {capability_id}")
+
+    def _preflight_apply_patch(
+        self,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        path = self._safe_path(str(args.get("path", "")))
+        content_bytes = str(args.get("content", "")).encode("utf-8")
+        relative_path = str(path.relative_to(self.root))
+        key_digest = _sha256(action_key.encode("utf-8"))
+        compensation_ref = f"compensation:{key_digest}"
+        snapshot_dir = self.artifacts / "compensation" / key_digest
+        applied_sha256 = _sha256(content_bytes)
+        if snapshot_dir.exists():
+            manifest, _, state, _ = self._load_snapshot(compensation_ref)
+            if state == "COMPENSATED":
+                raise CapabilityDenied("patch was already compensated and cannot replay")
+            if manifest["action_key_sha256"] != key_digest:
+                raise CapabilityDenied("snapshot action key binding mismatch")
+            if manifest["relative_path"] != relative_path:
+                raise CapabilityDenied("snapshot path binding mismatch")
+            if manifest["applied_sha256"] != applied_sha256:
+                raise CapabilityDenied(
+                    "idempotency key reused for different patch content"
+                )
+            current_matches_applied = (
+                path.exists() and _sha256(path.read_bytes()) == applied_sha256
+            )
+            before_existed = bool(manifest["before_existed"])
+            current_matches_before = (
+                path.exists()
+                and before_existed
+                and _sha256(path.read_bytes()) == manifest["before_sha256"]
+            ) or (not path.exists() and not before_existed)
+            if state == "PREPARED" and not (
+                current_matches_before or current_matches_applied
+            ):
+                raise CapabilityDenied(
+                    "workspace changed outside the prepared patch replay"
+                )
+            if state == "APPLIED" and not current_matches_applied:
+                raise CapabilityDenied(
+                    "APPLIED snapshot no longer matches the patch effect"
+                )
+            return
+        expected = args.get("expected_sha256")
+        before_existed = path.exists()
+        before_bytes = path.read_bytes() if before_existed else b""
+        actual = _sha256(before_bytes) if before_existed else None
+        if expected is not None and expected != actual:
+            raise CapabilityDenied("workspace changed since proposal")
+
+    def _preflight_compensate_patch(self, args: dict[str, object]) -> None:
+        relative_path = str(args.get("path", ""))
+        target = self._safe_path(relative_path)
+        action_key = str(args.get("original_action_key", ""))
+        compensation_ref = str(args.get("compensation_ref", ""))
+        expected_manifest_sha256 = str(args.get("manifest_sha256", ""))
+        manifest, _, state, _ = self._load_snapshot(
+            compensation_ref,
+            expected_manifest_sha256=expected_manifest_sha256,
+        )
+        if manifest["action_key_sha256"] != _sha256(action_key.encode("utf-8")):
+            raise CapabilityDenied("snapshot action key binding mismatch")
+        if manifest["relative_path"] != relative_path:
+            raise CapabilityDenied("snapshot path binding mismatch")
+        applied_sha256 = str(manifest["applied_sha256"])
+        before_existed = bool(manifest["before_existed"])
+        before_sha256 = str(manifest["before_sha256"])
+        current_is_applied = (
+            target.exists() and _sha256(target.read_bytes()) == applied_sha256
+        )
+        current_is_before = (
+            target.exists()
+            and before_existed
+            and _sha256(target.read_bytes()) == before_sha256
+        ) or (not target.exists() and not before_existed)
+        if state == "COMPENSATED":
+            if not current_is_before:
+                raise CapabilityDenied(
+                    "COMPENSATED snapshot is terminal and target has changed"
+                )
+            return
+        if state != "APPLIED":
+            raise CapabilityDenied("patch snapshot is not in APPLIED state")
+        if not current_is_applied and not current_is_before:
+            raise CapabilityDenied("target changed after patch; compensation refused")
+
+    def _edit_patch_args(
+        self,
+        args: dict[str, object],
+    ) -> dict[str, object]:
+        relative_path = str(args.get("path", ""))
+        path = self._safe_path(relative_path)
+        if not path.is_file():
+            raise FileNotFoundError(relative_path)
+        old_string = str(args.get("old_string", ""))
+        new_string = str(args.get("new_string", ""))
+        if not old_string:
+            raise CapabilityDenied("workspace.edit requires a non-empty old_string")
+        if old_string == new_string:
+            raise CapabilityDenied("workspace.edit old_string and new_string are identical")
+        content = path.read_text(encoding="utf-8")
+        occurrences = content.count(old_string)
+        if occurrences != 1:
+            raise CapabilityDenied(
+                f"workspace.edit old_string must match exactly once (found {occurrences})"
+            )
+        patch_args: dict[str, object] = {
+            "path": relative_path,
+            "content": content.replace(old_string, new_string, 1),
+        }
+        if args.get("expected_sha256") is not None:
+            patch_args["expected_sha256"] = args["expected_sha256"]
+        return patch_args
+
+    _SEARCH_SKIP_DIRS = frozenset({".git", ".agent-os-artifacts", "node_modules", "__pycache__", ".venv"})
+    _SEARCH_MAX_RESULTS = 200
+    _SEARCH_MAX_OUTPUT_CHARS = 20000
+
+    def _preflight_search(self, args: dict[str, object]) -> None:
+        mode = str(args.get("mode", ""))
+        base_value = str(args.get("path", "") or ".")
+        base = self.root if base_value == "." else self._safe_path(base_value)
+        if mode == "ls":
+            if not base.is_dir():
+                raise FileNotFoundError(base_value)
+            return
+        if mode == "glob":
+            if not str(args.get("pattern", "")):
+                raise CapabilityDenied("workspace.search glob requires a pattern")
+            return
+        if mode == "grep":
+            pattern = str(args.get("pattern", ""))
+            if not pattern:
+                raise CapabilityDenied("workspace.search grep requires a pattern")
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise CapabilityDenied(f"invalid grep pattern: {exc}") from exc
+            return
+        raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
+
+    def _preflight_shell(self, args: dict[str, object]) -> None:
+        command = " ".join(str(args.get("command", "")).split())
+        if command not in self._shell_allowlist:
+            raise CapabilityDenied("command is not in the shell allowlist")
+        int(str(args.get("timeout_seconds", 120)))
+
+    @staticmethod
+    def _preflight_run_tests(args: dict[str, object]) -> None:
+        command = str(args.get("command", ""))
+        allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
+        if command not in allowed:
+            raise CapabilityDenied("only the allowlisted test commands are permitted")
+        int(str(args.get("timeout_seconds", 120)))
 
     def specs(
         self,
@@ -83,6 +342,7 @@ class DeveloperWorkspaceAdapter:
                 idempotency_supported=True,
                 cancellation_supported=True,
                 compensation_supported=True,
+                collaboration_required=True,
                 **{**common, "risk_tier": 2},
             ),
             "workspace.run_tests": CapabilitySpec(
@@ -103,6 +363,7 @@ class DeveloperWorkspaceAdapter:
                 idempotency_supported=True,
                 cancellation_supported=True,
                 compensation_supported=True,
+                collaboration_required=True,
                 **{**common, "risk_tier": 2},
             ),
             "workspace.search": CapabilitySpec(
@@ -150,97 +411,20 @@ class DeveloperWorkspaceAdapter:
         return specs
 
     def execute(self, action: ActionContract) -> CapabilityEffect:
+        """Physical effect execution (ADR-0059 connector contract).
+
+        Deterministic checks already ran in preflight (before reservation).
+        Any exception here propagates to the broker, which converts it to a
+        typed UNKNOWN (never FAILED). No adapter-level idempotency: replay,
+        reservation, and outcome authority belong to the broker's durable
+        outcome repository.
+        """
+
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
             raise CapabilityDenied("capability arguments must be an object")
-        intent_fingerprint = _intent_fingerprint(action)
-        stored = self._get_idempotency(
-            action.idempotency_key,
-            intent_fingerprint,
-        )
-        if stored is not None:
-            if action.capability_id in {"workspace.apply_patch", "workspace.edit"}:
-                self._validate_cached_patch_effect(args, stored)
-            elif action.capability_id == "workspace.compensate_patch":
-                self._validate_cached_compensation_effect(args, stored)
-            output: dict[str, object] = stored
-            status = (
-                ReceiptStatus.COMPENSATED
-                if action.capability_id == "workspace.compensate_patch"
-                else ReceiptStatus.SUCCEEDED
-            )
-            error_code = "error:none"
-        else:
-            try:
-                output = self._dispatch(
-                    action.capability_id, args, action.idempotency_key
-                )
-                self._put_idempotency(
-                    action.idempotency_key,
-                    intent_fingerprint,
-                    output,
-                )
-                status = (
-                    ReceiptStatus.COMPENSATED
-                    if action.capability_id == "workspace.compensate_patch"
-                    else ReceiptStatus.SUCCEEDED
-                )
-                error_code = "error:none"
-            except Exception as exc:
-                output = {"error": f"{type(exc).__name__}: {exc}"}
-                status = ReceiptStatus.FAILED
-                error_code = type(exc).__name__
-        return CapabilityEffect(
-            status=status,
-            output=output,
-            error_code=error_code,
-            detail_ref=str(output.get("compensation_ref", "detail:none")),
-        )
-
-    def _get_idempotency(
-        self,
-        key: str,
-        intent_fingerprint: str,
-    ) -> dict[str, object] | None:
-        if self._idempotency_store is None:
-            return None
-        getter = getattr(self._idempotency_store, "get_idempotency", None)
-        stored = getter("capability", key) if getter is not None else None
-        if stored is None:
-            return None
-        if not isinstance(stored, dict):
-            raise CapabilityDenied("invalid idempotency record")
-        if stored.get("intent_fingerprint") != intent_fingerprint:
-            raise CapabilityDenied(
-                "idempotency key reused for a different action intent"
-            )
-        output = stored.get("output")
-        if not isinstance(output, dict):
-            raise CapabilityDenied("invalid idempotency output record")
-        return output
-
-    def _put_idempotency(
-        self,
-        key: str,
-        intent_fingerprint: str,
-        output: dict[str, object],
-    ) -> None:
-        if self._idempotency_store is None:
-            return
-        setter = getattr(self._idempotency_store, "put_idempotency", None)
-        if setter is not None:
-            stored = {
-                "intent_fingerprint": intent_fingerprint,
-                "output": output,
-            }
-            inserted = setter(
-                "capability",
-                key,
-                stored,
-                datetime.now(timezone.utc).isoformat(),
-            )
-            if inserted is False:
-                self._get_idempotency(key, intent_fingerprint)
+        output = self._dispatch(action.capability_id, args, action.idempotency_key)
+        return CapabilityEffect(status=ReceiptStatus.SUCCEEDED, output=output)
 
     def _dispatch(
         self, capability_id: str, args: dict[str, object], action_key: str
@@ -829,8 +1013,10 @@ class DeveloperWorkspaceAdapter:
             raise CapabilityDenied("only the allowlisted test commands are permitted")
         timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
         snapshot = args.get("selfdev_verification_snapshot")
+        verifier_bindings: list[dict[str, str]] | None = None
+        verifier_argv: list[str] | None = None
         if isinstance(snapshot, dict):
-            result = self._run_selfdev_tests_in_mirror(
+            result, verifier_bindings, verifier_argv = self._run_selfdev_tests_in_mirror(
                 command,
                 timeout,
                 snapshot,
@@ -853,6 +1039,12 @@ class DeveloperWorkspaceAdapter:
             "stdout": result.stdout,
             "stderr": result.stderr,
         }
+        if verifier_bindings is not None and verifier_argv is not None:
+            report["verifier_bindings"] = verifier_bindings
+            report["verifier_binding_digest"] = content_digest(
+                {"verifier_bindings": verifier_bindings}
+            )
+            report["argv"] = verifier_argv
         output = _canonical_json_bytes(report)
         digest = _sha256(output)
         artifact = self.artifacts / digest
@@ -869,17 +1061,81 @@ class DeveloperWorkspaceAdapter:
         command: str,
         timeout: int,
         snapshot: dict[str, object],
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> tuple[
+        subprocess.CompletedProcess[str],
+        list[dict[str, str]],
+        list[str],
+    ]:
         expected_head = str(snapshot.get("repository_head", ""))
-        raw_target_paths = snapshot.get("target_paths")
-        if isinstance(raw_target_paths, (list, tuple)) and raw_target_paths:
-            target_paths = tuple(str(path) for path in raw_target_paths)
-        else:
-            target_paths = (str(snapshot.get("target_path", "")),)
-        if any(not path for path in target_paths) or len(set(target_paths)) != len(
-            target_paths
+        if set(snapshot) != {
+            "repository_head",
+            "verifier_bindings",
+            "verifier_binding_digest",
+        }:
+            raise CapabilityDenied("SELFDEV verifier snapshot is malformed")
+        raw_bindings = snapshot.get("verifier_bindings")
+        if not isinstance(raw_bindings, (list, tuple)) or not 1 <= len(raw_bindings) <= 8:
+            raise CapabilityDenied("SELFDEV verifier binding set is invalid")
+        verifier_bindings: list[dict[str, str]] = []
+        base_blobs: list[bytes] = []
+        for raw_binding in raw_bindings:
+            if not isinstance(raw_binding, dict) or set(raw_binding) != {
+                "schema_version",
+                "path",
+                "base_blob_sha256",
+            } or raw_binding.get("schema_version") != "1.0":
+                raise CapabilityDenied("SELFDEV verifier binding is malformed")
+            path = str(raw_binding["path"])
+            digest = str(raw_binding["base_blob_sha256"])
+            if re.fullmatch(r"tests/product/test_[A-Za-z0-9_]+\.py", path) is None:
+                raise CapabilityDenied("SELFDEV verifier path is invalid")
+            tree = subprocess.run(
+                ["git", "-C", str(self.root), "ls-tree", expected_head, "--", path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            records = tuple(line for line in tree.stdout.splitlines() if line)
+            if tree.returncode != 0 or len(records) != 1 or "\t" not in records[0]:
+                raise CapabilityDenied("SELFDEV verifier base blob is unavailable")
+            metadata, recorded_path = records[0].split("\t", 1)
+            parts = metadata.split()
+            if (
+                len(parts) != 3
+                or parts[0] not in {"100644", "100755"}
+                or parts[1] != "blob"
+                or recorded_path != path
+            ):
+                raise CapabilityDenied("SELFDEV verifier base object is not a regular blob")
+            blob = subprocess.run(
+                ["git", "-C", str(self.root), "cat-file", "blob", parts[2]],
+                capture_output=True,
+                check=False,
+            )
+            oracle = self._safe_path(path)
+            if (
+                blob.returncode != 0
+                or _sha256(blob.stdout) != digest
+                or not oracle.is_file()
+                or oracle.is_symlink()
+                or _sha256(oracle.read_bytes()) != digest
+            ):
+                raise CapabilityDenied("SELFDEV verifier blob or worktree oracle drift")
+            verifier_bindings.append(
+                {
+                    "schema_version": "1.0",
+                    "path": path,
+                    "base_blob_sha256": digest,
+                }
+            )
+            base_blobs.append(blob.stdout)
+        target_paths = tuple(binding["path"] for binding in verifier_bindings)
+        if len(set(target_paths)) != len(target_paths):
+            raise CapabilityDenied("SELFDEV verifier binding paths must be unique")
+        if snapshot.get("verifier_binding_digest") != content_digest(
+            {"verifier_bindings": verifier_bindings}
         ):
-            raise CapabilityDenied("SELFDEV verifier target set is invalid")
+            raise CapabilityDenied("SELFDEV verifier binding digest drift")
         head = subprocess.run(
             ["git", "-C", str(self.root), "rev-parse", "HEAD"],
             capture_output=True,
@@ -888,9 +1144,6 @@ class DeveloperWorkspaceAdapter:
         )
         if head.returncode != 0 or head.stdout.strip() != expected_head:
             raise CapabilityDenied("SELFDEV verifier repository HEAD drift")
-        targets = tuple(self._safe_path(path) for path in target_paths)
-        if any(not target.is_file() or target.is_symlink() for target in targets):
-            raise CapabilityDenied("SELFDEV verifier target is unavailable")
         sandbox_exec = shutil.which("sandbox-exec")
         if sandbox_exec is None:
             raise CapabilityDenied("SELFDEV verifier requires an OS filesystem sandbox")
@@ -910,10 +1163,10 @@ class DeveloperWorkspaceAdapter:
                     ".pytest_cache",
                 ),
             )
-            for target_path, target in zip(target_paths, targets, strict=True):
-                mirrored_target = mirror / target_path
-                mirrored_target.parent.mkdir(parents=True, exist_ok=True)
-                mirrored_target.write_bytes(target.read_bytes())
+            for target_path, base_blob in zip(target_paths, base_blobs, strict=True):
+                mirrored_oracle = mirror / target_path
+                mirrored_oracle.parent.mkdir(parents=True, exist_ok=True)
+                mirrored_oracle.write_bytes(base_blob)
             sandbox_tmp = verification_root / "tmp"
             sandbox_home = verification_root / "home"
             runtime_site = verification_root / "runtime-site"
@@ -1000,18 +1253,21 @@ class DeveloperWorkspaceAdapter:
                 "NO_COLOR": "1",
                 "LANG": os.environ.get("LANG", "C.UTF-8"),
             }
-            return subprocess.run(
-                [
-                    sandbox_exec,
-                    "-p",
-                    profile,
-                    str(base_executable),
-                    "-S",
-                    "-m",
-                    "pytest",
-                    "-p",
-                    "no:cacheprovider",
-                ],
+            argv = [
+                sandbox_exec,
+                "-p",
+                profile,
+                str(base_executable),
+                "-S",
+                "-m",
+                "pytest",
+                "-p",
+                "no:cacheprovider",
+                "-q",
+                *target_paths,
+            ]
+            result = subprocess.run(
+                argv,
                 cwd=mirror,
                 capture_output=True,
                 text=True,
@@ -1019,6 +1275,7 @@ class DeveloperWorkspaceAdapter:
                 check=False,
                 env=environment,
             )
+            return result, verifier_bindings, [str(value) for value in argv]
 
 
 def _sha256(value: bytes) -> str:

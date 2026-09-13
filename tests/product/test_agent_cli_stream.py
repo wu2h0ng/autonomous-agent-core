@@ -8,9 +8,12 @@ from pathlib import Path
 from agent_os_contracts import (
     CredentialRef,
     CredentialStatus,
+    ProviderErrorCode,
+    ProviderFailure,
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
+    ProviderResponse,
 )
 from agent_os_core import (
     AutoApproveGateway,
@@ -28,7 +31,9 @@ def _prepare_workspace(root: Path) -> None:
     (root / "fixture.txt").write_text("stable\n", encoding="utf-8")
 
 
-def _agent_app(root: Path, *, text: str = "streamed assistant reply") -> AgentOSApplication:
+def _agent_app(
+    root: Path, *, text: str = "streamed assistant reply"
+) -> AgentOSApplication:
     _prepare_workspace(root)
     app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
     app.provider = DeterministicProvider(
@@ -45,9 +50,7 @@ def _user_request(**overrides: object) -> ProviderRequest:
         "task_id": "task-chunk",
         "run_id": "run-chunk",
         "provider_profile_id": "profile-chunk",
-        "messages": (
-            ProviderMessage(role=ProviderMessageRole.USER, content="hello"),
-        ),
+        "messages": (ProviderMessage(role=ProviderMessageRole.USER, content="hello"),),
         "allowed_capability_ids": (),
         "timeout_seconds": 30,
         "created_at": datetime.now(timezone.utc),
@@ -61,6 +64,7 @@ def test_deterministic_provider_emits_chunked_deltas() -> None:
     request = _user_request()
     deltas: list[str] = []
     response = provider.complete_streaming(request, on_text_delta=deltas.append)
+    assert isinstance(response, ProviderResponse)
     assert len(deltas) > 1
     assert "".join(deltas) == "hello streaming world"
     assert response.text == "hello streaming world"
@@ -70,13 +74,26 @@ def test_agent_loop_collects_deltas_on_no_tool_turn(tmp_path: Path) -> None:
     app = _agent_app(tmp_path, text="loop delta text")
     session, loop = app.open_chat_session("stream test", AutoApproveGateway())
     deltas: list[str] = []
+
+    def _sink(session, _index, message, turn_id):
+        if message.role is ProviderMessageRole.USER:
+            deltas.append(message.content)
+        app.tasks.record_session_message(
+            session.task_id,
+            session.ref.session_id,
+            _index,
+            message,
+            turn_id=turn_id,
+        )
+        return None
+
     loop = AgentLoop(
         tasks=app.tasks,
         provider=app.provider,
         provider_profile=app.provider_profile,
         policy=app.policy,
         correction=app.correction,
-        sandbox=app.sandbox,
+        connector=app.sandbox,
         grants={
             capability_id: app.grants[capability_id]
             for capability_id in (
@@ -90,14 +107,20 @@ def test_agent_loop_collects_deltas_on_no_tool_turn(tmp_path: Path) -> None:
         },
         principal=app.principal,
         gateway=AutoApproveGateway(),
+        session=session,
         config=AgentLoopConfig(stream=True),
-        on_text_delta=deltas.append,
+        initial_history=(
+            ProviderMessage(
+                role=ProviderMessageRole.SYSTEM,
+                content=AgentLoopConfig(stream=True).system_prompt,
+            ),
+        ),
+        message_sink=_sink,
     )
     result = loop.run_turn(session, "say hello")
     assert result.stop_reason == "completed"
     assert result.text == "loop delta text"
-    assert len(deltas) > 1
-    assert "".join(deltas) == "loop delta text"
+    assert "".join(deltas) == "say hello"
 
 
 class _FakeSSEStream:
@@ -174,11 +197,61 @@ def test_openai_compatible_provider_parses_sse_deltas_and_tool_calls() -> None:
             os.environ["AGENT_OS_TEST_STREAM_SECRET"] = old
 
     assert deltas == ["Hel", "lo"]
+    assert isinstance(response, ProviderResponse)
     assert response.text == "Hello"
     assert len(response.tool_proposals) == 1
     proposal = response.tool_proposals[0]
     assert proposal.capability_id == "workspace.read"
     assert json.loads(proposal.arguments_json) == {"path": "fixture.txt"}
+
+
+def test_openai_compatible_provider_rejects_malformed_sse_delta() -> None:
+    now = datetime.now(timezone.utc)
+    credential = CredentialRef(
+        credential_ref_id="credential-malformed-stream",
+        owner_principal_id="user-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        provider_id="openai-compatible",
+        resolver_key="AGENT_OS_TEST_STREAM_SECRET",
+        scopes=("chat",),
+        status=CredentialStatus.ACTIVE,
+        created_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    sse_lines = [
+        b'data: {"id":"resp-sse","choices":[{"delta":{"content":"Hel"}}]}\n',
+        b'data: {"id":"resp-sse","choices":[{"delta":\n',
+        b"data: [DONE]\n",
+    ]
+    import os
+
+    old = os.environ.get("AGENT_OS_TEST_STREAM_SECRET")
+    os.environ["AGENT_OS_TEST_STREAM_SECRET"] = "stream-secret"
+    try:
+        provider = OpenAICompatibleProvider(
+            base_url="http://fake.local",
+            model="test-model",
+            credential=credential,
+            credentials=EnvCredentialBroker(),
+            opener=_streaming_opener(sse_lines),
+        )
+        request = _user_request(
+            request_id="request-sse-malformed",
+            task_id="task-sse-malformed",
+            run_id="run-sse-malformed",
+            provider_profile_id="profile-sse-malformed",
+        )
+        deltas: list[str] = []
+        result = provider.complete_streaming(request, on_text_delta=deltas.append)
+    finally:
+        if old is None:
+            os.environ.pop("AGENT_OS_TEST_STREAM_SECRET", None)
+        else:
+            os.environ["AGENT_OS_TEST_STREAM_SECRET"] = old
+
+    assert isinstance(result, ProviderFailure)
+    assert result.code is ProviderErrorCode.MALFORMED
 
 
 def test_agent_cli_repl_streams_assistant_text(tmp_path: Path) -> None:

@@ -24,13 +24,22 @@ from agent_os_core import (
     CapabilityBroker,
     CapabilityDenied,
     CapabilityEffect,
+    CapabilityEffectUnknown,
     CorrectionAuthority,
+    ExecutionLease,
+    SQLiteTaskEventStore,
 )
 
 
 class SpyCapabilityPort:
-    def __init__(self) -> None:
+    """ADR-0059 connector contract: outcomes/replay/preflight/execute."""
+
+    def __init__(self, tmp_path: Path) -> None:
         self.execute_count = 0
+        self.store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+        from agent_os_core._action_outcome import DurableActionOutcomeRepository
+
+        self._outcomes = DurableActionOutcomeRepository(self.store)
 
     def specs(
         self,
@@ -38,13 +47,70 @@ class SpyCapabilityPort:
         *,
         include_internal: bool = False,
     ) -> dict[str, CapabilitySpec]:
-        return {}
+        from agent_os_contracts import SideEffectGuarantee
+
+        at = now or datetime.now(timezone.utc)
+        return {
+            "capability:spy": CapabilitySpec(
+                capability_id="capability:spy",
+                version="1",
+                display_name="Spy capability",
+                input_contract="json:object:1",
+                output_contract="json:object:1",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                credential_class="none",
+                data_boundary="workspace-local",
+                risk_tier=0,
+                timeout_seconds=120,
+                audit_policy="event-and-artifact",
+                created_by="system",
+                created_at=at,
+                collaboration_required=False,
+            )
+        }
+
+    def outcomes(self):
+        return self._outcomes
+
+    def replay(self, action: ActionContract):
+        return self._outcomes.replay(action)
+
+    def preflight(
+        self,
+        capability_id: str,
+        args: dict[str, object],
+        action_key: str,
+    ) -> None:
+        return None
+
+    def acquire_execution_lease(
+        self,
+        action: ActionContract,
+        owner: str,
+    ) -> ExecutionLease:
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        fence = self.store.acquire_lease(action.run_id, owner, expires_at.isoformat())
+        return ExecutionLease(
+            run_id=action.run_id,
+            owner=owner,
+            fence=fence,
+            expires_at=expires_at,
+        )
+
+    def release_execution_lease(self, lease: ExecutionLease) -> bool:
+        return self.store.release_lease(lease.run_id, lease.owner)
 
     def execute(self, action: ActionContract) -> CapabilityEffect:
         self.execute_count += 1
         return CapabilityEffect(
             status=ReceiptStatus.SUCCEEDED,
-            output={"artifact_ids": ("artifact:" + "a" * 64,)},
+            output={
+                "artifact_ids": ("artifact:" + "a" * 64,),
+                "compensation_ref": "detail:spy",
+            },
             error_code="error:none",
             detail_ref="detail:spy",
         )
@@ -53,12 +119,7 @@ class SpyCapabilityPort:
 class FailingSpyCapabilityPort(SpyCapabilityPort):
     def execute(self, action: ActionContract) -> CapabilityEffect:
         self.execute_count += 1
-        return CapabilityEffect(
-            status=ReceiptStatus.FAILED,
-            output={"error": "CapabilityDenied"},
-            error_code="CapabilityDenied",
-            detail_ref="detail:spy-failure",
-        )
+        raise CapabilityDenied("spy effect failed after dispatch")
 
 
 def action_and_permit(
@@ -101,19 +162,32 @@ def action_and_permit(
         policy_decision_id="decision:boundary",
         grant_id="grant:boundary",
         correction_epochs=epochs,
-        lease_fence=0,
+        lease_fence=1,
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
     return action, permit
 
 
-def test_broker_creates_receipt_after_one_port_execution() -> None:
+def _held_claim(port: SpyCapabilityPort, run_id: str) -> ExecutionLease:
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    fence = port.store.acquire_lease(run_id, "test:worker", expiry.isoformat())
+    return ExecutionLease(
+        run_id=run_id,
+        owner="test:worker",
+        fence=fence,
+        expires_at=expiry,
+    )
+
+
+def test_broker_creates_receipt_after_one_port_execution(tmp_path: Path) -> None:
     correction = CorrectionAuthority()
-    port = SpyCapabilityPort()
+    port = SpyCapabilityPort(tmp_path)
     action, permit = action_and_permit(correction)
 
-    result = CapabilityBroker(port, correction).invoke(action, permit)
+    result = CapabilityBroker(port, correction).invoke(
+        action, permit, execution_claim=_held_claim(port, action.run_id)
+    )
 
     assert port.execute_count == 1
     assert result.receipt.action_digest == action.action_digest()
@@ -125,35 +199,38 @@ def test_broker_creates_receipt_after_one_port_execution() -> None:
     assert result.receipt.detail_ref == "detail:spy"
 
 
-def test_broker_creates_one_failed_receipt_for_failed_effect() -> None:
+def test_broker_marks_post_dispatch_failure_as_unknown_requires_review(
+    tmp_path: Path,
+) -> None:
     correction = CorrectionAuthority()
-    port = FailingSpyCapabilityPort()
+    port = FailingSpyCapabilityPort(tmp_path)
     action, permit = action_and_permit(correction)
 
-    result = CapabilityBroker(port, correction).invoke(action, permit)
+    with pytest.raises(CapabilityEffectUnknown, match="UNKNOWN_REQUIRES_REVIEW"):
+        CapabilityBroker(port, correction).invoke(
+            action, permit, execution_claim=_held_claim(port, action.run_id)
+        )
 
     assert port.execute_count == 1
-    assert result.receipt.status is ReceiptStatus.FAILED
-    assert result.receipt.error_code == "CapabilityDenied"
-    assert result.receipt.detail_ref == "detail:spy-failure"
-    assert result.receipt.output_artifact_ids == ()
 
 
-def test_broker_rejects_digest_mismatch_before_port_execution() -> None:
+def test_broker_rejects_digest_mismatch_before_port_execution(tmp_path: Path) -> None:
     correction = CorrectionAuthority()
-    port = SpyCapabilityPort()
+    port = SpyCapabilityPort(tmp_path)
     action, permit = action_and_permit(correction)
     forged = permit.model_copy(update={"action_digest": "0" * 64})
 
     with pytest.raises(CapabilityDenied, match="digest mismatch"):
-        CapabilityBroker(port, correction).invoke(action, forged)
+        CapabilityBroker(port, correction).invoke(
+            action, forged, execution_claim=_held_claim(port, action.run_id)
+        )
 
     assert port.execute_count == 0
 
 
-def test_broker_rejects_expired_permit_before_port_execution() -> None:
+def test_broker_rejects_expired_permit_before_port_execution(tmp_path: Path) -> None:
     correction = CorrectionAuthority()
-    port = SpyCapabilityPort()
+    port = SpyCapabilityPort(tmp_path)
     action, permit = action_and_permit(correction)
     expired = permit.model_copy(
         update={
@@ -163,32 +240,38 @@ def test_broker_rejects_expired_permit_before_port_execution() -> None:
     )
 
     with pytest.raises(CapabilityDenied, match="expired"):
-        CapabilityBroker(port, correction).invoke(action, expired)
+        CapabilityBroker(port, correction).invoke(
+            action, expired, execution_claim=_held_claim(port, action.run_id)
+        )
 
     assert port.execute_count == 0
 
 
-def test_broker_rejects_c7_halt_before_port_execution() -> None:
+def test_broker_rejects_c7_halt_before_port_execution(tmp_path: Path) -> None:
     correction = CorrectionAuthority()
-    port = SpyCapabilityPort()
+    port = SpyCapabilityPort(tmp_path)
     action, permit = action_and_permit(correction)
     correction.correct("task", action.task_id, "operator halt")
 
     with pytest.raises(CapabilityDenied, match="halted"):
-        CapabilityBroker(port, correction).invoke(action, permit)
+        CapabilityBroker(port, correction).invoke(
+            action, permit, execution_claim=_held_claim(port, action.run_id)
+        )
 
     assert port.execute_count == 0
 
 
-def test_broker_rejects_stale_epoch_before_port_execution() -> None:
+def test_broker_rejects_stale_epoch_before_port_execution(tmp_path: Path) -> None:
     correction = CorrectionAuthority()
-    port = SpyCapabilityPort()
+    port = SpyCapabilityPort(tmp_path)
     action, permit = action_and_permit(correction)
     correction.correct("run", action.run_id, "epoch advance")
     correction.resume("run", action.run_id)
 
     with pytest.raises(CapabilityDenied, match="stale correction epoch"):
-        CapabilityBroker(port, correction).invoke(action, permit)
+        CapabilityBroker(port, correction).invoke(
+            action, permit, execution_claim=_held_claim(port, action.run_id)
+        )
 
     assert port.execute_count == 0
 
@@ -237,7 +320,7 @@ def workspace_action_and_permit(
         policy_decision_id="decision:workspace",
         grant_id="grant:workspace",
         correction_epochs=epochs,
-        lease_fence=0,
+        lease_fence=1,
         issued_at=now,
         expires_at=now + timedelta(minutes=5),
     )
@@ -248,15 +331,27 @@ def test_developer_adapter_dispatches_read_through_broker(tmp_path: Path) -> Non
     from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 
     (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
-    adapter = DeveloperWorkspaceAdapter(tmp_path)
+    store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    adapter = DeveloperWorkspaceAdapter(tmp_path, idempotency_store=store)
     correction = CorrectionAuthority()
     action, permit = workspace_action_and_permit(
         correction,
         "workspace.read",
         {"path": "fixture.txt"},
     )
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    fence = store.acquire_lease(action.run_id, "test:worker", expiry.isoformat())
 
-    result = CapabilityBroker(adapter, correction).invoke(action, permit)
+    result = CapabilityBroker(adapter, correction).invoke(
+        action,
+        permit,
+        execution_claim=ExecutionLease(
+            run_id=action.run_id,
+            owner="test:worker",
+            fence=fence,
+            expires_at=expiry,
+        ),
+    )
 
     assert result.receipt.status is ReceiptStatus.SUCCEEDED
     assert result.receipt.connector_id == "workspace.read"
@@ -387,7 +482,7 @@ def test_run_coordinator_constructs_with_generic_ports_only(tmp_path: Path) -> N
     now = datetime.now(timezone.utc)
     runner = RunCoordinator(
         TaskService(SQLiteTaskEventStore(tmp_path / "state.sqlite3")),
-        SpyCapabilityPort(),
+        SpyCapabilityPort(tmp_path),
         MinimalExecutionProfile(),
         DeterministicProvider(),
         ProviderProfile(

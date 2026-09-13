@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -14,7 +15,9 @@ from agent_os_contracts import (
     BindingStatus,
     CandidateGenerationEnvelope,
     ExpectedOutcome,
+    PermissionMode,
     PrincipalIdentity,
+    PrincipalRole,
     ProviderFailure,
     ProviderMessage,
     ProviderMessageRole,
@@ -22,6 +25,7 @@ from agent_os_contracts import (
     ProviderRequest,
     ProviderResponse,
     ProviderToolCall,
+    ProviderToolProposal,
     RunStatus,
     SessionRef,
     TaskEventType,
@@ -30,14 +34,28 @@ from agent_os_contracts import (
 )
 
 from .action_pipeline import ActionPipeline, EffectCustodyPort
-from .capability import CapabilityBroker, CapabilityPort
+from ._action_outcome import ExecutionLeaseConflict
+from .capability import (
+    CapabilityBroker,
+    CapabilityCorrectionBlocked,
+    CapabilityEffectUnknown,
+    CapabilityPort,
+    CapabilityResult,
+    CollaborationPreflightPort,
+)
+from .errors import ConcurrentWriteError, InvalidTransitionError, RunExecutionError
 from .governance import CorrectionReadPort, PolicyKernel
-from .errors import RunExecutionError
-from .provider_receipts import build_provider_execution_receipt
+from .permission_gate import (
+    ACTION_RISK_TIERS,
+    PermissionGateOutcome,
+    evaluate_permission_gate,
+)
+from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
-from .responsibility_loop import (
-    ResponsibilityLoopEffectUnknown,
-    ResponsibilityLoopStaleFence,
+from .responsibility_loop import ResponsibilityLoopStaleFence
+from .session_projection import (
+    ProjectedApprovalContinuation,
+    ProjectedResolvedContinuation,
 )
 from .task_service import TaskService
 
@@ -52,17 +70,11 @@ CHAT_CAPABILITY_IDS: tuple[str, ...] = (
     "workspace.shell",
 )
 
-# Action risk tiers per capability. Tier >= 3 escalates inside PolicyKernel and
-# requires a digest-bound ApprovalDecision; tier 2 is kernel-allowed but still
-# passes through the interactive confirmation gateway.
-ACTION_RISK_TIERS: dict[str, int] = {
-    "workspace.read": 1,
-    "workspace.search": 1,
-    "workspace.run_tests": 1,
-    "workspace.edit": 2,
-    "workspace.apply_patch": 2,
-    "workspace.shell": 3,
-}
+# Action risk tiers live in permission_gate (frozen allowlist, E2); tier >= 3
+# escalates inside PolicyKernel and requires a digest-bound ApprovalDecision;
+# tier 2 is kernel-allowed but still passes through the interactive
+# confirmation gateway unless the session permission mode policy auto-allows
+# it.
 
 # Grant risk ceilings the chat composition must provide per capability.
 CHAT_GRANT_MAX_RISK_TIERS: dict[str, int] = {
@@ -94,11 +106,27 @@ class ConfirmationGateway(Protocol):
     def confirm(self, action: ActionContract, preview: str) -> bool: ...
 
 
-class AutoApproveGateway:
-    """Non-interactive gateway for `-p` runs and hermetic tests.
+@dataclass(frozen=True)
+class ApprovalRequired(Exception):
+    action: ActionContract
+    preview: str
 
-    Only admits risk tier <= 2 actions; tier >= 3 still requires an explicit
-    approval callback, so shell commands are never auto-approved here.
+
+class DeferredApprovalGateway:
+    """Persist the exact proposal and return control to the Surface caller."""
+
+    def confirm(self, action: ActionContract, preview: str) -> bool:
+        raise ApprovalRequired(action=action, preview=preview)
+
+
+class AutoApproveGateway:
+    """Test-support gateway for hermetic suites and pre-authorized batch runs.
+
+    Auto-admits risk tier <= 2 actions with no human in the loop; tier >= 3
+    still requires an explicit approval callback, so shell commands are never
+    auto-approved here. It is currently also wired for the non-interactive
+    one-shot `-p` path (tier <= 2 auto-approve; tier >= 3 fails closed), and
+    must not be wired into interactive production paths.
     """
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
@@ -110,10 +138,6 @@ class NonInteractiveDenyGateway:
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
         return False
-
-
-class _DurableApprovalPending(RuntimeError):
-    """Internal control signal: a persisted write action awaits external approval."""
 
 
 @dataclass(frozen=True)
@@ -176,160 +200,93 @@ class AgentLoop:
         provider_profile: ProviderProfile,
         policy: PolicyKernel,
         correction: CorrectionReadPort,
-        sandbox: CapabilityPort,
+        connector: CapabilityPort,
         grants: dict[str, Any],
         principal: PrincipalIdentity,
         gateway: ConfirmationGateway,
+        session: ChatSession,
         config: AgentLoopConfig | None = None,
-        on_text_delta: Callable[[str], None] | None = None,
+        initial_history: tuple[ProviderMessage, ...] | None = None,
+        message_sink: Callable[[ChatSession, int, ProviderMessage, str | None], None],
+        resumable_turn_ids: tuple[str, ...] = (),
         execution_fence: Callable[[str], None] | None = None,
         effect_custody: EffectCustodyPort | None = None,
-        allowed_capability_ids: tuple[str, ...] = CHAT_CAPABILITY_IDS,
-        durable_write_approval: bool = False,
-        allowed_write_paths: tuple[str, ...] | None = None,
+        independent_approval: bool = False,
+        external_exact_approval: bool = False,
+        collaboration_preflight: CollaborationPreflightPort | None = None,
+        text_delta_sink: Callable[[str], None] | None = None,
+        reasoning_delta_sink: Callable[[str], None] | None = None,
+        permission_mode: PermissionMode = "ASK",
+        permission_mode_event_id: str | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
         self._profile = provider_profile
         self._policy = policy
         self._correction = correction
-        self._sandbox = sandbox
+        self._sandbox = connector
         self._principal = principal
         self._gateway = gateway
+        self._session = session
         self._config = config or AgentLoopConfig()
-        self._on_text_delta = on_text_delta
+        self._broker = CapabilityBroker(
+            connector, correction, collaboration_preflight=collaboration_preflight
+        )
+        self._actions = ActionPipeline(tasks, self._broker, policy, correction, grants)
+        history = (
+            initial_history
+            if initial_history is not None
+            else (
+                ProviderMessage(
+                    role=ProviderMessageRole.SYSTEM,
+                    content=self._config.system_prompt,
+                ),
+            )
+        )
+        system_indexes = tuple(
+            index
+            for index, message in enumerate(history)
+            if message.role is ProviderMessageRole.SYSTEM
+        )
+        if system_indexes != (0,) or history[0].content != self._config.system_prompt:
+            raise ValueError(
+                "agent loop history requires exactly one leading frozen system prompt"
+            )
+        self._history = list(history)
+        self._message_sink = message_sink
+        self._resumable_turn_ids = set(resumable_turn_ids)
+        self._execution_owner = f"surface-runtime:{uuid4()}"
         self._execution_fence = execution_fence
         self._effect_custody = effect_custody
-        if (
-            not allowed_capability_ids
-            or len(set(allowed_capability_ids)) != len(allowed_capability_ids)
-            or any(
-                capability_id not in CHAT_CAPABILITY_IDS
-                for capability_id in allowed_capability_ids
-            )
-        ):
-            raise ValueError("AgentLoop capability allowlist is invalid")
-        self._allowed_capability_ids = allowed_capability_ids
-        self._durable_write_approval = durable_write_approval
-        if durable_write_approval and (
-            not allowed_write_paths
-            or len(set(allowed_write_paths)) != len(allowed_write_paths)
-            or execution_fence is None
-            or effect_custody is None
-        ):
-            raise ValueError(
-                "durable AgentLoop requires exact paths, fence, and effect custody"
-            )
-        self._allowed_write_paths = frozenset(allowed_write_paths or ())
-        self._broker = CapabilityBroker(sandbox, correction)
-        self._actions = ActionPipeline(
-            tasks, self._broker, policy, correction, grants
-        )
-        self._history: list[ProviderMessage] = [
-            ProviderMessage(
-                role=ProviderMessageRole.SYSTEM,
-                content=self._config.system_prompt,
-            )
-        ]
+        self._independent_approval = independent_approval
+        self._external_exact_approval = external_exact_approval
+        self._text_delta_sink = text_delta_sink
+        self._reasoning_delta_sink = reasoning_delta_sink
+        self._permission_mode: PermissionMode = permission_mode
+        self._permission_mode_event_id = permission_mode_event_id
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
         return tuple(self._history)
-
-    def restore_history(self, messages: list[ProviderMessage]) -> None:
-        """Replace in-memory conversation state for session resume."""
-        if not messages:
-            return
-        self._history = list(messages)
-
-    def restore_history_from_task(self, session: ChatSession) -> None:
-        """Rebuild existing-run conversation state from the canonical Task ledger."""
-        history = [self._history[0]]
-        for event in self._tasks._event_store.read(session.task_id):
-            if event.correlation_id != session.run_id:
-                continue
-            payload = event.decoded_payload()
-            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
-                user_text = payload.get("user_text")
-                if isinstance(user_text, str) and user_text.strip():
-                    history.append(
-                        ProviderMessage(
-                            role=ProviderMessageRole.USER,
-                            content=user_text,
-                        )
-                    )
-            elif event.event_type is TaskEventType.PROVIDER_RESPONDED:
-                provider_output = payload.get("provider_output")
-                if not isinstance(provider_output, dict):
-                    continue
-                proposals = provider_output.get("tool_proposals", ())
-                if not isinstance(proposals, list):
-                    continue
-                tool_calls = []
-                for raw in proposals:
-                    if not isinstance(raw, dict):
-                        continue
-                    proposal_id = raw.get("proposal_id")
-                    capability_id = raw.get("capability_id")
-                    arguments_json = raw.get("arguments_json")
-                    if (
-                        isinstance(proposal_id, str)
-                        and isinstance(capability_id, str)
-                        and isinstance(arguments_json, str)
-                    ):
-                        tool_calls.append(
-                            ProviderToolCall(
-                                tool_call_id=proposal_id,
-                                capability_id=capability_id,
-                                arguments_json=arguments_json,
-                            )
-                        )
-                history.append(
-                    ProviderMessage(
-                        role=ProviderMessageRole.ASSISTANT,
-                        content=str(provider_output.get("text", "")),
-                        tool_calls=tuple(tool_calls),
-                    )
-                )
-            elif (
-                event.event_type is TaskEventType.NODE_COMPLETED
-                and payload.get("agent_loop_dynamic_action") is True
-            ):
-                tool_call_id = payload.get("provider_tool_call_id")
-                output = payload.get("output")
-                if isinstance(tool_call_id, str) and isinstance(output, dict):
-                    history.append(
-                        ProviderMessage(
-                            role=ProviderMessageRole.TOOL,
-                            content=json.dumps(
-                                _truncate_json(output), default=str
-                            )[:_MAX_TOOL_RESULT_CHARS],
-                            tool_call_id=tool_call_id,
-                        )
-                    )
-        self._history = history
 
     def _assert_execution_fence(self, phase: str) -> None:
         if self._execution_fence is not None:
             self._execution_fence(phase)
 
     def run_turn(self, session: ChatSession, user_input: str) -> TurnResult:
-        if self._durable_write_approval:
-            aggregate = self._tasks.get_task(session.task_id)
-            if aggregate.run is None or aggregate.run.run_id != session.run_id:
-                raise RunExecutionError(
-                    "durable AgentLoop requires the existing bound Run"
-                )
-            if aggregate.run.status is RunStatus.WAITING_APPROVAL:
-                raise RunExecutionError(
-                    "durable AgentLoop cannot create a new turn while approval is pending"
-                )
-            if aggregate.run.status in {RunStatus.CREATED, RunStatus.QUEUED}:
-                self._tasks.update_run_status(
-                    session.task_id,
-                    RunStatus.RUNNING,
-                    event_type=TaskEventType.RUN_RESUMED,
-                )
+        self._require_session_binding(session)
+        if self._resumable_turn_ids:
+            raise ValueError("session already has an open durable turn")
+        run = self._tasks.get_task(session.task_id).run
+        if (
+            run is None
+            or run.run_id != session.run_id
+            or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
+        ):
+            raise InvalidTransitionError(
+                "run_turn requires a runnable Run; "
+                "a PAUSED or terminal Run must be resumed first"
+            )
         turn_id = TurnId(
             turn_id=f"turn-{uuid4()}",
             session_id=session.session_id,
@@ -337,8 +294,10 @@ class AgentLoop:
         text = user_input.strip()
         if not text:
             raise ValueError("user input must be non-empty")
-        self._history.append(
-            ProviderMessage(role=ProviderMessageRole.USER, content=text)
+        self._append_message(
+            session,
+            ProviderMessage(role=ProviderMessageRole.USER, content=text),
+            turn_id=turn_id.turn_id,
         )
         self._tasks.append_event(
             session.task_id,
@@ -350,7 +309,164 @@ class AgentLoop:
             },
             correlation_id=session.run_id,
         )
-        result = self._drive(session, turn_id)
+        self._resumable_turn_ids.add(turn_id.turn_id)
+        return self.resume_turn(session, turn_id)
+
+    def resume_turn(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
+        self._require_session_binding(session)
+        if (
+            turn_id.session_id != session.session_id
+            or turn_id.turn_id not in self._resumable_turn_ids
+        ):
+            raise ValueError("resume requires an exact durable started turn")
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        if projected.history != tuple(self._history):
+            raise InvalidTransitionError(
+                "resumed turn does not bind the restored session history"
+            )
+        if projected.pending_continuation is not None:
+            raise ValueError(
+                "pending approval must resume through resume_pending_approval"
+            )
+        unknown = self._tasks._unknown_session_action(
+            session.task_id,
+            session.session_id,
+        )
+        if unknown is not None:
+            if unknown["turn_id"] != turn_id.turn_id:
+                raise InvalidTransitionError(
+                    "unknown action does not bind the resumed turn"
+                )
+            unknown_steps = unknown["steps"]
+            unknown_tokens = unknown["total_tokens"]
+            if (
+                isinstance(unknown_steps, bool)
+                or not isinstance(unknown_steps, int)
+                or isinstance(unknown_tokens, bool)
+                or not isinstance(unknown_tokens, int)
+            ):
+                raise InvalidTransitionError(
+                    "unknown action has invalid durable counters"
+                )
+            return TurnResult(
+                turn_id=turn_id,
+                text="capability effect requires external reconciliation",
+                steps=unknown_steps,
+                stop_reason="unknown_requires_review",
+                total_tokens=unknown_tokens,
+            )
+        resolved = projected.resolved_continuation
+        if resolved is None:
+            result = self._drive(session, turn_id)
+        else:
+            run = self._tasks.get_task(session.task_id).run
+            if (
+                run is None
+                or run.run_id != session.run_id
+                or run.status is not RunStatus.RUNNING
+            ):
+                raise InvalidTransitionError(
+                    "resolved continuation requires an exact RUNNING Run; "
+                    "write RUN_RESUMED first"
+                )
+            result = self._drive_resolved_continuation(
+                session,
+                turn_id,
+                resolved,
+            )
+        self._complete_turn(session, turn_id, result)
+        return result
+
+    def resume_resolved_continuation(
+        self,
+        session: ChatSession,
+        *,
+        action_digest: str,
+        disposition: ApprovalDisposition,
+    ) -> TurnResult:
+        """Idempotently continue an already committed approval resolution."""
+
+        self._require_session_binding(session)
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        resolved = projected.resolved_continuation
+        if (
+            resolved is None
+            or resolved.source_action_digest != action_digest
+            or resolved.disposition is not disposition
+        ):
+            raise InvalidTransitionError(
+                "approval retry does not bind the resolved continuation"
+            )
+        return self.resume_turn(
+            session,
+            TurnId(
+                turn_id=resolved.turn_id,
+                session_id=session.session_id,
+            ),
+        )
+
+    def _drive_resolved_continuation(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        resolved: ProjectedResolvedContinuation,
+    ) -> TurnResult:
+        if (
+            resolved.turn_id != turn_id.turn_id
+            or resolved.assistant_message_index >= len(self._history)
+        ):
+            raise InvalidTransitionError(
+                "resolved continuation does not bind the resumed turn"
+            )
+        assistant = self._history[resolved.assistant_message_index]
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=call.tool_call_id,
+                capability_id=call.capability_id,
+                arguments_json=call.arguments_json,
+            )
+            for call in assistant.tool_calls
+        )
+        if resolved.next_proposal_index > len(proposals):
+            raise InvalidTransitionError("resolved continuation cursor is invalid")
+        return self._drive(
+            session,
+            turn_id,
+            steps=resolved.steps,
+            total_tokens=resolved.total_tokens,
+            seen_action_digests=dict(resolved.seen_action_digests),
+            continuation=(
+                proposals,
+                resolved.next_proposal_index,
+                resolved.assistant_message_index,
+            ),
+            continuation_checkpoint=resolved,
+        )
+
+    def _complete_turn(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        result: TurnResult,
+    ) -> None:
+        if result.stop_reason in {
+            "approval_required",
+            "unknown_requires_review",
+        }:
+            return
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        if projected.resumable_turn_id is None:
+            self._resumable_turn_ids.discard(turn_id.turn_id)
+            return
         self._assert_execution_fence("before_turn_commit")
         self._tasks.append_event(
             session.task_id,
@@ -364,56 +480,421 @@ class AgentLoop:
             },
             correlation_id=session.run_id,
         )
-        return result
+        self._resumable_turn_ids.remove(turn_id.turn_id)
 
-    def _drive(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
-        steps = 0
-        total_tokens = 0
+    def resume_pending_approval(
+        self,
+        session: ChatSession,
+        approval: ApprovalDecision,
+    ) -> TurnResult:
+        self._require_session_binding(session)
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        pending = projected.pending_continuation
+        if pending is None:
+            raise InvalidTransitionError("session has no pending approval")
+        if (
+            projected.history != tuple(self._history)
+            or projected.resumable_turn_id != pending.turn_id
+            or pending.turn_id not in self._resumable_turn_ids
+        ):
+            raise InvalidTransitionError(
+                "pending approval does not bind the restored session history"
+            )
+        if (
+            approval.action_digest != pending.action.action_digest()
+            or approval.tenant_id != pending.action.tenant_id
+            or approval.workspace_id != pending.action.workspace_id
+            or approval.disposition
+            not in {ApprovalDisposition.APPROVE, ApprovalDisposition.REJECT}
+        ):
+            raise InvalidTransitionError(
+                "approval decision does not bind the exact pending action"
+            )
+        if self._independent_approval:
+            # SELFDEV mode: the deciding actor must be an external operator,
+            # never the principal that proposed the action (main lineage).
+            if (
+                approval.actor_id == pending.action.principal_id
+                or approval.actor_role is not PrincipalRole.TENANT_ADMIN
+            ):
+                raise InvalidTransitionError(
+                    "approval decision is not independently authorized"
+                )
+        elif (
+            approval.actor_id != self._principal.principal_id
+            or approval.actor_role is not self._principal.role
+        ):
+            raise InvalidTransitionError(
+                "approval decision does not bind the exact pending action"
+            )
+        unknown = self._tasks._unknown_session_action(
+            session.task_id,
+            session.session_id,
+        )
+        if unknown is not None:
+            if (
+                unknown.get("turn_id") != pending.turn_id
+                or unknown.get("action_digest") != pending.action.action_digest()
+            ):
+                raise InvalidTransitionError(
+                    "unknown action does not bind the pending approval"
+                )
+            unknown_steps = unknown["steps"]
+            unknown_tokens = unknown["total_tokens"]
+            if (
+                isinstance(unknown_steps, bool)
+                or not isinstance(unknown_steps, int)
+                or isinstance(unknown_tokens, bool)
+                or not isinstance(unknown_tokens, int)
+            ):
+                raise InvalidTransitionError(
+                    "unknown action has invalid durable counters"
+                )
+            return TurnResult(
+                turn_id=TurnId(
+                    turn_id=pending.turn_id,
+                    session_id=session.session_id,
+                ),
+                text="capability effect requires external reconciliation",
+                steps=unknown_steps,
+                stop_reason="unknown_requires_review",
+                total_tokens=unknown_tokens,
+            )
+        self._validate_pending_runtime(
+            session,
+            pending,
+            require_current_c7=(approval.disposition is ApprovalDisposition.APPROVE),
+        )
+        current_run = self._tasks.get_task(session.task_id).run
+        if current_run is None:
+            raise InvalidTransitionError("pending approval requires an active Run")
+        run_was_paused = current_run.status.value == "PAUSED"
+        execution_lease = None
+        reconciled = None
+        if approval.disposition is ApprovalDisposition.APPROVE:
+            try:
+                reconciled = self._actions.reconcile_before_policy(
+                    pending.action,
+                    record_artifacts=False,
+                )
+            except CapabilityEffectUnknown as unknown:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is in progress or requires review"
+                ) from unknown
+            if reconciled is None:
+                try:
+                    execution_lease = self._sandbox.acquire_execution_lease(
+                        pending.action,
+                        self._execution_owner,
+                    )
+                except (ConcurrentWriteError, ExecutionLeaseConflict) as conflict:
+                    raise InvalidTransitionError(
+                        "APPROVE execution claim is still in progress"
+                    ) from conflict
+        try:
+            authority = self._tasks.record_or_reuse_session_approval(
+                session.task_id,
+                session.session_id,
+                pending.action,
+                approval,
+            )
+        except Exception:
+            if execution_lease is not None:
+                self._sandbox.release_execution_lease(execution_lease)
+            raise
+        bound_approval = authority.approval
+        if (
+            bound_approval.disposition is ApprovalDisposition.APPROVE
+            and reconciled is None
+            and execution_lease is None
+        ):
+            try:
+                reconciled = self._actions.reconcile_before_policy(
+                    pending.action,
+                    record_artifacts=False,
+                )
+            except CapabilityEffectUnknown as unknown:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is in progress or requires review"
+                ) from unknown
+            if reconciled is None:
+                raise InvalidTransitionError(
+                    "APPROVE execution claim is still in progress"
+                )
+        if bound_approval.disposition is ApprovalDisposition.REJECT:
+            tool_message = self._tool_message(
+                pending.proposal,
+                {
+                    "error": f"user rejected the proposed action: {bound_approval.reason}",
+                    "rejected": True,
+                },
+            )
+        elif reconciled is not None:
+            result = reconciled
+            tool_message = self._tool_message(
+                pending.proposal,
+                _truncate_json(result.output),
+            )
+        else:
+            if execution_lease is None:
+                raise InvalidTransitionError(
+                    "APPROVE execution requires current execution ownership"
+                )
+
+            def resume_dispatch() -> CapabilityResult:
+                return self._actions.execute(
+                    pending.action,
+                    self._principal,
+                    capability_spec=self._sandbox.specs().get(
+                        pending.action.capability_id
+                    ),
+                    approval=bound_approval,
+                    record_artifacts=False,
+                    execution_claim=execution_lease,
+                    execution_fence=self._assert_execution_fence,
+                )
+
+            try:
+                result = (
+                    self._effect_custody(
+                        pending.action.node_id,
+                        pending.action.action_digest(),
+                        resume_dispatch,
+                    )
+                    if self._effect_custody is not None
+                    else resume_dispatch()
+                )
+            except ResponsibilityLoopStaleFence:
+                raise
+            except CapabilityCorrectionBlocked as blocked:
+                self._sandbox.release_execution_lease(execution_lease)
+                self._tasks.pause_session_for_claim_correction(
+                    session.task_id,
+                    session.session_id,
+                    pending=pending,
+                    approval=bound_approval,
+                )
+                return TurnResult(
+                    turn_id=TurnId(
+                        turn_id=pending.turn_id,
+                        session_id=session.session_id,
+                    ),
+                    text=str(blocked),
+                    steps=pending.steps,
+                    stop_reason="correction_blocked",
+                    total_tokens=pending.total_tokens,
+                )
+            except ExecutionLeaseConflict as conflict:
+                self._sandbox.release_execution_lease(execution_lease)
+                raise InvalidTransitionError(
+                    "APPROVE execution ownership changed before reservation"
+                ) from conflict
+            except CapabilityEffectUnknown as unknown:
+                self._sandbox.release_execution_lease(execution_lease)
+                return self._pause_for_unknown(
+                    session,
+                    TurnId(
+                        turn_id=pending.turn_id,
+                        session_id=session.session_id,
+                    ),
+                    pending.proposal.proposal_id,
+                    unknown,
+                    steps=pending.steps,
+                    total_tokens=pending.total_tokens,
+                )
+            except Exception as exc:
+                self._sandbox.release_execution_lease(execution_lease)
+                tool_message = self._tool_message(
+                    pending.proposal,
+                    {"error": f"{type(exc).__name__}: {exc}"},
+                )
+            else:
+                self._sandbox.release_execution_lease(execution_lease)
+                tool_message = self._tool_message(
+                    pending.proposal,
+                    _truncate_json(result.output),
+                )
+        self._tasks.resolve_session_approval(
+            session.task_id,
+            session.session_id,
+            pending=pending,
+            approval=bound_approval,
+            tool_message=tool_message,
+        )
+        self._history.append(tool_message)
+        turn_id = TurnId(
+            turn_id=pending.turn_id,
+            session_id=session.session_id,
+        )
+        if run_was_paused and bound_approval.disposition is ApprovalDisposition.REJECT:
+            return TurnResult(
+                turn_id=turn_id,
+                text="action rejected; Run remains paused",
+                steps=pending.steps,
+                stop_reason="paused",
+                total_tokens=pending.total_tokens,
+            )
+        return self.resume_turn(session, turn_id)
+
+    def _validate_pending_runtime(
+        self,
+        session: ChatSession,
+        pending: ProjectedApprovalContinuation,
+        *,
+        require_current_c7: bool,
+    ) -> None:
+        aggregate = self._tasks.get_task(session.task_id)
+        run = aggregate.run
+        snapshot = aggregate.configuration_snapshot
+        if (
+            run is None
+            or snapshot is None
+            or (require_current_c7 and run.status.value != "WAITING_APPROVAL")
+            or (
+                not require_current_c7
+                and run.status.value not in {"WAITING_APPROVAL", "PAUSED"}
+            )
+            or run.run_id != session.run_id
+            or run.configuration_snapshot_id != pending.configuration_snapshot_id
+            or run.configuration_snapshot_digest
+            != pending.configuration_snapshot_digest
+            or snapshot.snapshot_id != pending.configuration_snapshot_id
+            or snapshot.snapshot_digest != pending.configuration_snapshot_digest
+            or snapshot.provider_profile.profile_id != pending.provider_profile_id
+            or snapshot.provider_profile_digest != pending.provider_profile_digest
+            or self._profile.profile_id != pending.provider_profile_id
+            or self._profile != snapshot.provider_profile
+        ):
+            raise InvalidTransitionError(
+                "pending approval configuration/provider binding mismatch"
+            )
+        if not require_current_c7:
+            return
+        current_epochs = self._correction.snapshot(
+            session.task_id,
+            session.run_id,
+            pending.action.capability_id,
+        )
+        if (
+            current_epochs != pending.action.observed_correction_epochs
+            or self._correction.halted(
+                session.task_id,
+                session.run_id,
+                pending.action.capability_id,
+            )
+        ):
+            raise InvalidTransitionError(
+                "pending approval C7 correction epochs are stale"
+            )
+
+    def _require_session_binding(self, session: ChatSession) -> None:
+        if session != self._session:
+            raise ValueError("chat session binding mismatch")
+
+    def _drive(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        *,
+        steps: int = 0,
+        total_tokens: int = 0,
+        seen_action_digests: dict[str, int] | None = None,
+        continuation: tuple[
+            tuple[ProviderToolProposal, ...],
+            int,
+            int,
+        ]
+        | None = None,
+        continuation_checkpoint: ProjectedResolvedContinuation | None = None,
+    ) -> TurnResult:
         final_text = ""
-        seen_action_digests: dict[str, int] = {}
+        seen_action_digests = dict(seen_action_digests or {})
         stop_reason = "max_steps"
         while steps < self._config.max_steps_per_turn:
-            if self._correction.halted(session.task_id, session.run_id, "provider"):
-                stop_reason = "correction_halted"
-                break
-            response = self._call_provider(session, turn_id, steps)
-            if isinstance(response, ProviderFailure):
-                stop_reason = f"provider_failure:{response.code.value}"
-                final_text = response.safe_message
-                break
-            steps += 1
-            total_tokens += response.usage.total_tokens
-            if total_tokens > self._config.max_turn_tokens:
-                stop_reason = "budget_exceeded"
-                break
-            tool_calls = tuple(
-                ProviderToolCall(
-                    tool_call_id=proposal.proposal_id,
-                    capability_id=proposal.capability_id,
-                    arguments_json=proposal.arguments_json,
+            if continuation is None:
+                if self._correction.halted(session.task_id, session.run_id, "provider"):
+                    stop_reason = "correction_halted"
+                    break
+                run = self._tasks.get_task(session.task_id).run
+                if (
+                    run is None
+                    or run.run_id != session.run_id
+                    or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
+                ):
+                    raise InvalidTransitionError(
+                        "provider invocation requires a runnable Run; "
+                        "a PAUSED or terminal Run must be resumed first"
+                    )
+                self._assert_execution_fence("before_provider")
+                response = self._call_provider(session, turn_id, steps)
+                if isinstance(response, ProviderFailure):
+                    stop_reason = f"provider_failure:{response.code.value}"
+                    final_text = response.safe_message
+                    break
+                steps += 1
+                total_tokens += response.usage.total_tokens
+                if total_tokens > self._config.max_turn_tokens:
+                    stop_reason = "budget_exceeded"
+                    break
+                tool_calls = tuple(
+                    ProviderToolCall(
+                        tool_call_id=proposal.proposal_id,
+                        capability_id=proposal.capability_id,
+                        arguments_json=proposal.arguments_json,
+                    )
+                    for proposal in response.tool_proposals
                 )
-                for proposal in response.tool_proposals
-            )
-            self._history.append(
-                ProviderMessage(
+                self._assert_execution_fence("before_provider_commit")
+                assistant_message_index = len(self._history)
+                assistant_message = ProviderMessage(
                     role=ProviderMessageRole.ASSISTANT,
                     content=response.text,
                     tool_calls=tool_calls,
                 )
-            )
-            if not response.tool_proposals:
-                stop_reason = "completed"
-                final_text = response.text
-                break
-            if self._durable_write_approval and len(response.tool_proposals) != 1:
-                stop_reason = "ambiguous_proposal"
-                final_text = (
-                    "durable SELFDEV requires exactly one tool proposal per response"
+                if not response.tool_proposals:
+                    stop_reason = "completed"
+                    final_text = response.text
+                    self._tasks.record_session_final_message_and_complete(
+                        session.task_id,
+                        session.session_id,
+                        turn_id=turn_id.turn_id,
+                        message=assistant_message,
+                        stop_reason=stop_reason,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                    )
+                    self._history.append(assistant_message)
+                    break
+                continuation_checkpoint = self._append_turn_progress(
+                    session,
+                    turn_id=turn_id.turn_id,
+                    message=assistant_message,
+                    continuation=continuation_checkpoint,
+                    assistant_message_index=assistant_message_index,
+                    next_proposal_index=0,
+                    steps=steps,
+                    total_tokens=total_tokens,
+                    seen_action_digests=seen_action_digests,
                 )
-                break
-            for index, proposal in enumerate(response.tool_proposals):
+                proposals = response.tool_proposals
+                start_index = 0
+            else:
+                proposals, start_index, assistant_message_index = continuation
+                continuation = None
+            replied_proposal_ids: set[str] = {
+                proposal.proposal_id for proposal in proposals[:start_index]
+            }
+            for index in range(start_index, len(proposals)):
+                proposal = proposals[index]
                 capability_id = proposal.capability_id
-                if capability_id not in self._allowed_capability_ids:
+                if capability_id not in CHAT_CAPABILITY_IDS:
+                    # Fail closed in every mode: never executable, not
+                    # approvable. The denial is recorded durably (E2) with
+                    # reason and digest before the turn stops.
+                    self._record_out_of_allowlist_denial(session, proposal)
                     stop_reason = "unauthorized_proposal"
                     final_text = (
                         f"provider proposed unauthorized capability {capability_id}"
@@ -428,11 +909,48 @@ class AgentLoop:
                         proposal,
                         seen_action_digests,
                     )
-                except _DurableApprovalPending:
-                    stop_reason = "waiting_approval"
-                    final_text = "external exact-action approval required"
-                    break
-                self._history.append(tool_message)
+                except CapabilityEffectUnknown as unknown:
+                    return self._pause_for_unknown(
+                        session,
+                        turn_id,
+                        proposal.proposal_id,
+                        unknown,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                    )
+                except ApprovalRequired as required:
+                    self._tasks.record_session_approval_pending(
+                        session.task_id,
+                        session.session_id,
+                        turn_id=turn_id.turn_id,
+                        action=required.action,
+                        proposal=proposal,
+                        preview=required.preview,
+                        assistant_message_index=assistant_message_index,
+                        proposal_index=index,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                        seen_action_digests=seen_action_digests,
+                    )
+                    return TurnResult(
+                        turn_id=turn_id,
+                        text="approval required",
+                        steps=steps,
+                        stop_reason="approval_required",
+                        total_tokens=total_tokens,
+                    )
+                continuation_checkpoint = self._append_turn_progress(
+                    session,
+                    turn_id=turn_id.turn_id,
+                    message=tool_message,
+                    continuation=continuation_checkpoint,
+                    assistant_message_index=assistant_message_index,
+                    next_proposal_index=index + 1,
+                    steps=steps,
+                    total_tokens=total_tokens,
+                    seen_action_digests=seen_action_digests,
+                )
+                replied_proposal_ids.add(proposal.proposal_id)
                 if seen_action_digests and max(seen_action_digests.values()) >= (
                     self._config.loop_detection_threshold
                 ):
@@ -442,8 +960,27 @@ class AgentLoop:
             if stop_reason in {
                 "unauthorized_proposal",
                 "loop_detected",
-                "waiting_approval",
             }:
+                # Never leave dangling ASSISTANT tool_calls in history: a real
+                # provider rejects tool_calls without matching TOOL replies
+                # (HTTP 400), which would make the session unrecoverable.
+                for proposal_index, proposal in enumerate(proposals):
+                    if proposal.proposal_id not in replied_proposal_ids:
+                        denial_message = self._tool_message(
+                            proposal,
+                            {"error": f"not executed: {stop_reason}"},
+                        )
+                        continuation_checkpoint = self._append_turn_progress(
+                            session,
+                            turn_id=turn_id.turn_id,
+                            message=denial_message,
+                            continuation=continuation_checkpoint,
+                            assistant_message_index=assistant_message_index,
+                            next_proposal_index=proposal_index + 1,
+                            steps=steps,
+                            total_tokens=total_tokens,
+                            seen_action_digests=seen_action_digests,
+                        )
                 break
         return TurnResult(
             turn_id=turn_id,
@@ -452,6 +989,135 @@ class AgentLoop:
             stop_reason=stop_reason,
             total_tokens=total_tokens,
         )
+
+    def _pause_for_unknown(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        proposal_id: str,
+        unknown: CapabilityEffectUnknown,
+        *,
+        steps: int,
+        total_tokens: int,
+    ) -> TurnResult:
+        self._tasks.pause_session_for_unknown_action(
+            session.task_id,
+            session.session_id,
+            turn_id=turn_id.turn_id,
+            proposal_id=proposal_id,
+            action=unknown.action,
+            steps=steps,
+            total_tokens=total_tokens,
+        )
+        return TurnResult(
+            turn_id=turn_id,
+            text=str(unknown),
+            steps=steps,
+            stop_reason="unknown_requires_review",
+            total_tokens=total_tokens,
+        )
+
+    def _append_message(
+        self,
+        session: ChatSession,
+        message: ProviderMessage,
+        *,
+        turn_id: str | None,
+    ) -> None:
+        index = len(self._history)
+        self._message_sink(session, index, message, turn_id)
+        self._history.append(message)
+
+    def _append_continuation_message(
+        self,
+        session: ChatSession,
+        *,
+        turn_id: str,
+        message: ProviderMessage,
+        continuation: ProjectedResolvedContinuation,
+        assistant_message_index: int,
+        next_proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> ProjectedResolvedContinuation:
+        self._tasks.record_session_continuation_message(
+            session.task_id,
+            session.session_id,
+            turn_id=turn_id,
+            message=message,
+            continuation=continuation,
+            assistant_message_index=assistant_message_index,
+            next_proposal_index=next_proposal_index,
+            steps=steps,
+            total_tokens=total_tokens,
+            seen_action_digests=seen_action_digests,
+        )
+        self._history.append(message)
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
+        advanced = projected.resolved_continuation
+        if advanced is None:
+            raise InvalidTransitionError(
+                "continuation checkpoint disappeared after durable append"
+            )
+        return advanced
+
+    def _append_turn_progress(
+        self,
+        session: ChatSession,
+        *,
+        turn_id: str,
+        message: ProviderMessage,
+        continuation: ProjectedResolvedContinuation | None,
+        assistant_message_index: int,
+        next_proposal_index: int,
+        steps: int,
+        total_tokens: int,
+        seen_action_digests: dict[str, int],
+    ) -> ProjectedResolvedContinuation | None:
+        if continuation is None:
+            self._append_message(session, message, turn_id=turn_id)
+            return None
+        return self._append_continuation_message(
+            session,
+            turn_id=turn_id,
+            message=message,
+            continuation=continuation,
+            assistant_message_index=assistant_message_index,
+            next_proposal_index=next_proposal_index,
+            steps=steps,
+            total_tokens=total_tokens,
+            seen_action_digests=seen_action_digests,
+        )
+
+    def _emit_text_delta(self, delta: str) -> None:
+        """Forward one transient provider chunk to the display sink.
+
+        Frozen (E1): chunks are transient display events, never durable
+        truth; a display-path failure must never fail the durable turn."""
+        sink = self._text_delta_sink
+        if sink is None or not delta:
+            return
+        try:
+            sink(delta)
+        except Exception:  # noqa: BLE001 - transient display path only
+            return
+
+    def _emit_reasoning_delta(self, delta: str) -> None:
+        """Forward one transient provider reasoning chunk (display-only).
+
+        Frozen (E1): reasoning is transient, never durable and never part of
+        the assistant message or evidence; a display failure is swallowed."""
+        sink = self._reasoning_delta_sink
+        if sink is None or not delta:
+            return
+        try:
+            sink(delta)
+        except Exception:  # noqa: BLE001 - transient display path only
+            return
 
     def _call_provider(
         self, session: ChatSession, turn_id: TurnId, step: int
@@ -486,9 +1152,7 @@ class AgentLoop:
             pre_correction_epochs = self._correction.snapshot(
                 session.task_id, session.run_id, "provider"
             )
-            if self._correction.halted(
-                session.task_id, session.run_id, "provider"
-            ):
+            if self._correction.halted(session.task_id, session.run_id, "provider"):
                 raise RunExecutionError("chat provider invocation is correction halted")
             request = ProviderRequest(
                 request_id=f"request-{uuid4()}",
@@ -496,17 +1160,15 @@ class AgentLoop:
                 run_id=session.run_id,
                 provider_profile_id=self._profile.profile_id,
                 messages=tuple(self._trimmed_history()),
-                allowed_capability_ids=self._allowed_capability_ids,
+                allowed_capability_ids=CHAT_CAPABILITY_IDS,
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
-            self._assert_execution_fence("before_provider")
-            if self._config.stream:
-                response = self._provider.complete_streaming(
-                    request, on_text_delta=self._on_text_delta
-                )
-            else:
-                response = self._provider.complete(request)
+            response = self._provider.complete_streaming(
+                request,
+                on_text_delta=self._emit_text_delta,
+                on_reasoning_delta=self._emit_reasoning_delta,
+            )
             if isinstance(response, ProviderFailure):
                 last_failure = response
                 if response.request_id != request.request_id:
@@ -518,8 +1180,7 @@ class AgentLoop:
                 break
             if (
                 response.request_id != request.request_id
-                or response.invocation_binding_digest
-                != invocation_binding_digest
+                or response.invocation_binding_digest != invocation_binding_digest
             ):
                 raise RunExecutionError(
                     "chat provider response invocation binding mismatch"
@@ -541,7 +1202,6 @@ class AgentLoop:
                     raise RunExecutionError(
                         "chat provider correction epoch changed during invocation"
                     )
-                self._assert_execution_fence("before_provider_commit")
                 node_id = f"{turn_id.turn_id}-step-{step + 1}"
                 receipt = build_provider_execution_receipt(
                     source_event_id=f"event-{uuid4()}",
@@ -554,9 +1214,7 @@ class AgentLoop:
                     invocation_binding_digest=invocation_binding_digest,
                     working_set_ref=WorkingSetRef(
                         status=BindingStatus.MISSING,
-                        gap_reason=(
-                            "terminal chat has no TrustedWorkingSet binding"
-                        ),
+                        gap_reason=("terminal chat has no TrustedWorkingSet binding"),
                     ),
                     pre_correction_epochs=pre_correction_epochs,
                     post_correction_epochs=post_correction_epochs,
@@ -571,240 +1229,6 @@ class AgentLoop:
         if last_failure is None:
             raise RunExecutionError("chat provider exhausted without a response")
         return last_failure
-
-    def _execute_proposal(
-        self,
-        session: ChatSession,
-        turn_id: str,
-        step: int,
-        index: int,
-        proposal: Any,
-        seen_action_digests: dict[str, int],
-    ) -> ProviderMessage:
-        capability_id = proposal.capability_id
-        try:
-            arguments = json.loads(proposal.arguments_json)
-            if not isinstance(arguments, dict):
-                raise ValueError("arguments must be an object")
-        except ValueError as exc:
-            return self._tool_message(
-                proposal, {"error": f"malformed arguments: {exc}"}
-            )
-        if (
-            self._durable_write_approval
-            and capability_id in {"workspace.edit", "workspace.apply_patch"}
-            and arguments.get("path") not in self._allowed_write_paths
-        ):
-            return self._tool_message(
-                proposal,
-                {"error": "SELFDEV action path is outside the persisted write set"},
-            )
-        risk_tier = ACTION_RISK_TIERS.get(capability_id, 1)
-        fingerprint = hashlib.sha256(
-            f"{capability_id}\n{proposal.arguments_json}".encode("utf-8")
-        ).hexdigest()
-        seen_action_digests[fingerprint] = seen_action_digests.get(fingerprint, 0) + 1
-        node_id = f"{turn_id}-step-{step}-action-{index}"
-        if self._durable_write_approval:
-            action_ordinal = 1 + sum(
-                event.event_type is TaskEventType.ACTION_PROPOSED
-                for event in self._tasks._event_store.read(session.task_id)
-            )
-            node_id = (
-                f"selfdev:{session.run_id}:action:{action_ordinal}"
-            )
-        action = self._actions.build_action(
-            task_id=session.task_id,
-            run_id=session.run_id,
-            node_id=node_id,
-            capability_id=capability_id,
-            principal=self._principal,
-            args=arguments,
-            expected=session.expected,
-            envelope_id=session.envelope_id,
-            risk_tier=risk_tier,
-            approval_requirement=(
-                "external_exact"
-                if self._durable_write_approval
-                and capability_id in {"workspace.edit", "workspace.apply_patch"}
-                else "policy"
-            ),
-        )
-        self._actions.record_action_proposed(
-            action,
-            provider_tool_call_id=proposal.proposal_id,
-            turn_id=turn_id,
-        )
-        approval = None
-        if risk_tier >= 2:
-            if self._durable_write_approval:
-                self._tasks.update_run_status(
-                    session.task_id,
-                    RunStatus.WAITING_APPROVAL,
-                    event_type=TaskEventType.APPROVAL_REQUESTED,
-                    active_node_id=action.node_id,
-                )
-                raise _DurableApprovalPending(action.action_digest())
-            if not self._gateway.confirm(action, _action_preview(action, arguments)):
-                return self._tool_message(
-                    proposal,
-                    {"error": "user rejected the proposed action", "rejected": True},
-                )
-            if risk_tier >= 3:
-                approval = self._build_approval(action)
-        try:
-            result = self._actions.execute(
-                action,
-                self._principal,
-                capability_spec=self._sandbox.specs().get(capability_id),
-                approval=approval,
-                record_artifacts=False,
-                execution_fence=self._execution_fence,
-                effect_custody=self._effect_custody,
-            )
-        except (ResponsibilityLoopEffectUnknown, ResponsibilityLoopStaleFence):
-            raise
-        except Exception as exc:
-            return self._tool_message(
-                proposal,
-                {"error": f"{type(exc).__name__}: {exc}"},
-            )
-        output = result.output
-        self._record_tool_completion(
-            action,
-            proposal.proposal_id,
-            output,
-        )
-        truncated = _truncate_json(output)
-        return self._tool_message(proposal, truncated)
-
-    def resume_after_approval(self, session: ChatSession) -> TurnResult:
-        if not self._durable_write_approval:
-            raise RunExecutionError(
-                "resume_after_approval requires durable write approval mode"
-            )
-        if len(self._history) == 1:
-            self.restore_history_from_task(session)
-        aggregate = self._tasks.get_task(session.task_id)
-        if (
-            aggregate.run is None
-            or aggregate.run.run_id != session.run_id
-            or aggregate.run.status is not RunStatus.WAITING_APPROVAL
-            or aggregate.approval is None
-        ):
-            raise RunExecutionError(
-                "durable AgentLoop has no externally approved pending action"
-            )
-        pending_payload: dict[str, Any] | None = None
-        for event in reversed(self._tasks._event_store.read(session.task_id)):
-            if event.event_type is TaskEventType.ACTION_PROPOSED:
-                pending_payload = event.decoded_payload()
-                break
-        if pending_payload is None or not isinstance(
-            pending_payload.get("action"), dict
-        ):
-            raise RunExecutionError("pending durable AgentLoop action is missing")
-        action = ActionContract.model_validate(pending_payload["action"])
-        approval = aggregate.approval
-        now = _session_now()
-        if (
-            approval.action_digest != action.action_digest()
-            or approval.actor_id == action.principal_id
-            or approval.actor_role.value != "TENANT_ADMIN"
-            or approval.expires_at <= now
-        ):
-            raise RunExecutionError(
-                "pending durable AgentLoop approval is invalid or non-independent"
-            )
-        tool_call_id = pending_payload.get("provider_tool_call_id")
-        turn_id_value = pending_payload.get("turn_id")
-        if not isinstance(tool_call_id, str) or not isinstance(turn_id_value, str):
-            raise RunExecutionError("pending AgentLoop proposal identity is missing")
-        if approval.disposition is ApprovalDisposition.REJECT:
-            self._tasks.update_run_status(
-                session.task_id,
-                RunStatus.RUNNING,
-                event_type=TaskEventType.RUN_RESUMED,
-            )
-            tool_message = ProviderMessage(
-                role=ProviderMessageRole.TOOL,
-                content=json.dumps(
-                    {"error": "external principal rejected the proposed action"}
-                ),
-                tool_call_id=tool_call_id,
-            )
-        else:
-            result = self._actions.execute(
-                action,
-                self._principal,
-                capability_spec=self._sandbox.specs().get(action.capability_id),
-                approval=approval,
-                record_artifacts=False,
-                execution_fence=self._execution_fence,
-                effect_custody=self._effect_custody,
-            )
-            self._record_tool_completion(action, tool_call_id, result.output)
-            self._tasks.update_run_status(
-                session.task_id,
-                RunStatus.RUNNING,
-                event_type=TaskEventType.RUN_RESUMED,
-            )
-            tool_message = ProviderMessage(
-                role=ProviderMessageRole.TOOL,
-                content=json.dumps(_truncate_json(result.output), default=str)[
-                    :_MAX_TOOL_RESULT_CHARS
-                ],
-                tool_call_id=tool_call_id,
-            )
-        self._history.append(tool_message)
-        turn_id = TurnId(turn_id=turn_id_value, session_id=session.session_id)
-        continued = self._drive(session, turn_id)
-        self._assert_execution_fence("before_turn_commit")
-        self._tasks.append_event(
-            session.task_id,
-            TaskEventType.SESSION_TURN_COMPLETED,
-            {
-                "turn_id": turn_id.turn_id,
-                "session_id": turn_id.session_id,
-                "stop_reason": continued.stop_reason,
-                "steps": continued.steps,
-                "total_tokens": continued.total_tokens,
-            },
-            correlation_id=session.run_id,
-        )
-        return continued
-
-    def continue_existing_turn(self, session: ChatSession) -> TurnResult:
-        """Continue a ledger-backed existing Task without adding a new user turn."""
-        if not self._durable_write_approval:
-            raise RunExecutionError(
-                "continue_existing_turn requires durable write approval mode"
-            )
-        self.restore_history_from_task(session)
-        last = self._history[-1]
-        if (
-            last.role is ProviderMessageRole.ASSISTANT
-            and not last.tool_calls
-        ):
-            return TurnResult(
-                turn_id=TurnId(
-                    turn_id=f"turn:selfdev:complete:{session.run_id}",
-                    session_id=session.session_id,
-                ),
-                text=last.content,
-                steps=0,
-                stop_reason="completed",
-                total_tokens=0,
-            )
-        if last.role not in {ProviderMessageRole.USER, ProviderMessageRole.TOOL}:
-            raise RunExecutionError(
-                "existing AgentLoop history cannot be continued safely"
-            )
-        turn_id = TurnId(
-            turn_id=f"turn:selfdev:continue:{uuid4()}",
-            session_id=session.session_id,
-        )
-        return self._drive(session, turn_id)
 
     def _record_tool_completion(
         self,
@@ -825,6 +1249,228 @@ class AgentLoop:
             correlation_id=action.run_id,
         )
 
+    def _execute_proposal(
+        self,
+        session: ChatSession,
+        turn_id: str,
+        step: int,
+        index: int,
+        proposal: Any,
+        seen_action_digests: dict[str, int],
+    ) -> ProviderMessage:
+        capability_id = proposal.capability_id
+        try:
+            arguments = json.loads(proposal.arguments_json)
+            if not isinstance(arguments, dict):
+                raise ValueError("arguments must be an object")
+        except ValueError as exc:
+            return self._tool_message(
+                proposal, {"error": f"malformed arguments: {exc}"}
+            )
+        risk_tier = ACTION_RISK_TIERS.get(capability_id, 1)
+        fingerprint = hashlib.sha256(
+            f"{capability_id}\n{proposal.arguments_json}".encode("utf-8")
+        ).hexdigest()
+        seen_action_digests[fingerprint] = seen_action_digests.get(fingerprint, 0) + 1
+        action = self._actions.build_action(
+            task_id=session.task_id,
+            run_id=session.run_id,
+            node_id=f"{turn_id}-step-{step}-action-{index}",
+            capability_id=capability_id,
+            principal=self._principal,
+            args=arguments,
+            expected=session.expected,
+            envelope_id=session.envelope_id,
+            risk_tier=risk_tier,
+            approval_requirement=(
+                "external_exact" if self._external_exact_approval else "policy"
+            ),
+        )
+        approval = None
+        gate = evaluate_permission_gate(
+            capability_id=capability_id,
+            mode=self._permission_mode,
+            mode_event_id=self._permission_mode_event_id,
+        )
+        if gate.outcome is PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST:
+            # Fail closed in every mode: never executable, not approvable.
+            # No ApprovalDecision, human or otherwise, can authorize it; the
+            # denial is recorded durably with reason and the action digest.
+            self._record_policy_verdict(
+                session,
+                action,
+                verdict="DENY",
+                basis="out_of_allowlist",
+                reason="capability is outside the frozen session allowlist",
+            )
+            return self._tool_message(
+                proposal,
+                {
+                    "error": "denied: capability is outside the allowlist",
+                    "denied": True,
+                },
+            )
+        if gate.outcome is PermissionGateOutcome.REQUIRE_CONFIRM:
+            confirmed = self._gateway.confirm(
+                action,
+                _action_preview(action, arguments),
+            )
+            self._actions.record_action_proposed(action)
+            if not confirmed:
+                self._record_denial(session, action)
+                return self._tool_message(
+                    proposal,
+                    {"error": "user rejected the proposed action", "rejected": True},
+                )
+            if gate.risk_tier >= 3:
+                approval = self._build_approval(action)
+        else:
+            self._actions.record_action_proposed(action)
+            if gate.outcome is PermissionGateOutcome.MODE_AUTO_ALLOW:
+                # Durable policy allowance with provenance — NEVER an
+                # ApprovalDecision(APPROVE): a permission mode is prior
+                # session policy, not per-action human approval.
+                self._record_policy_verdict(
+                    session,
+                    action,
+                    verdict="ALLOW",
+                    basis="permission_mode",
+                    reason=None,
+                    mode_event_id=gate.mode_event_id,
+                )
+        # Replay-before-dispatch: a sealed or reserved action is resolved
+        # through the durable outcome repository and never re-dispatched.
+        reconciled = self._actions.reconcile_before_policy(
+            action,
+            record_artifacts=False,
+        )
+        if reconciled is not None:
+            self._record_tool_completion(
+                action,
+                proposal.proposal_id,
+                reconciled.output,
+            )
+            return self._tool_message(
+                proposal,
+                _truncate_json(reconciled.output),
+            )
+        # ADR-0059: every production dispatch carries an execution claim
+        # bound to the durable run lease (founder P1).
+        execution_lease = self._sandbox.acquire_execution_lease(
+            action, self._execution_owner
+        )
+
+        def dispatch() -> CapabilityResult:
+            return self._actions.execute(
+                action,
+                self._principal,
+                capability_spec=self._sandbox.specs().get(capability_id),
+                approval=approval,
+                record_artifacts=False,
+                execution_claim=execution_lease,
+                execution_fence=self._assert_execution_fence,
+            )
+
+        try:
+            self._assert_execution_fence("before_tool_effect")
+            result = (
+                self._effect_custody(
+                    action.node_id,
+                    action.action_digest(),
+                    dispatch,
+                )
+                if self._effect_custody is not None
+                else dispatch()
+            )
+            self._assert_execution_fence("before_tool_effect_commit")
+        except CapabilityEffectUnknown:
+            raise
+        except ResponsibilityLoopStaleFence:
+            raise
+        except Exception as exc:
+            return self._tool_message(
+                proposal,
+                {"error": f"{type(exc).__name__}: {exc}"},
+            )
+        finally:
+            self._sandbox.release_execution_lease(execution_lease)
+        output = result.output
+        self._record_tool_completion(
+            action,
+            proposal.proposal_id,
+            output,
+        )
+        truncated = _truncate_json(output)
+        return self._tool_message(proposal, truncated)
+
+    def _record_out_of_allowlist_denial(
+        self, session: ChatSession, proposal: Any
+    ) -> None:
+        """E2: durably record a fail-closed denial for a provider proposal
+        whose capability is outside the frozen session allowlist. No Action is
+        built and no ApprovalDecision can ever authorize it."""
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.POLICY_VERDICT_RECORDED,
+            {
+                "verdict": "DENY",
+                "basis": "out_of_allowlist",
+                "mode_event_id": None,
+                "capability_id": proposal.capability_id,
+                "risk_tier": None,
+                "action_digest": hashlib.sha256(
+                    f"{proposal.capability_id}\n{proposal.arguments_json}".encode(
+                        "utf-8"
+                    )
+                ).hexdigest(),
+                "reason": "capability is outside the frozen session allowlist",
+            },
+        )
+
+    def _record_policy_verdict(
+        self,
+        session: ChatSession,
+        action: ActionContract,
+        *,
+        verdict: str,
+        basis: str | None,
+        reason: str | None,
+        mode_event_id: str | None = None,
+    ) -> None:
+        """E2 durable policy verdict: an auto-allowance is recorded with
+        provenance (basis=permission_mode + mode_event_id), never as an
+        ApprovalDecision; an out-of-allowlist denial is recorded with reason."""
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.POLICY_VERDICT_RECORDED,
+            {
+                "verdict": verdict,
+                "basis": basis,
+                "mode_event_id": mode_event_id,
+                "capability_id": action.capability_id,
+                "risk_tier": action.risk_tier,
+                "action_digest": action.action_digest(),
+                "reason": reason,
+            },
+        )
+
+    def _record_denial(self, session: ChatSession, action: ActionContract) -> None:
+        """Durably record that the principal declined this exact proposed action."""
+        now = _session_now()
+        denial = ApprovalDecision(
+            approval_id=f"approval-{uuid4()}",
+            tenant_id=action.tenant_id,
+            workspace_id=action.workspace_id,
+            action_digest=action.action_digest(),
+            actor_id=self._principal.principal_id,
+            actor_role=self._principal.role,
+            disposition=ApprovalDisposition.REJECT,
+            reason="interactive terminal denial",
+            decided_at=now,
+            expires_at=now + timedelta(minutes=5),
+        )
+        self._tasks.record_approval(session.task_id, denial)
+
     def _build_approval(self, action: ActionContract) -> ApprovalDecision:
         now = _session_now()
         return ApprovalDecision(
@@ -840,9 +1486,7 @@ class AgentLoop:
             expires_at=now + timedelta(minutes=5),
         )
 
-    def _tool_message(
-        self, proposal: Any, payload: dict[str, Any]
-    ) -> ProviderMessage:
+    def _tool_message(self, proposal: Any, payload: dict[str, Any]) -> ProviderMessage:
         return ProviderMessage(
             role=ProviderMessageRole.TOOL,
             content=json.dumps(payload, default=str)[:_MAX_TOOL_RESULT_CHARS],
@@ -864,8 +1508,7 @@ class AgentLoop:
             total -= len(history[cut].content)
             cut += 1
             while (
-                cut < len(history)
-                and history[cut].role is not ProviderMessageRole.USER
+                cut < len(history) and history[cut].role is not ProviderMessageRole.USER
             ):
                 total -= len(history[cut].content)
                 cut += 1
@@ -878,9 +1521,7 @@ def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:
         if action.capability_id == "workspace.edit":
             old = str(arguments.get("old_string", ""))
             new = str(arguments.get("new_string", ""))
-            return (
-                f"edit {path}\n--- old ---\n{old[:2000]}\n--- new ---\n{new[:2000]}"
-            )
+            return f"edit {path}\n--- old ---\n{old[:2000]}\n--- new ---\n{new[:2000]}"
         content = str(arguments.get("content", ""))
         return f"replace {path} ({len(content)} chars)\n{content[:2000]}"
     if action.capability_id in {"workspace.shell", "workspace.run_tests"}:
@@ -902,8 +1543,7 @@ def _provider_output(response: ProviderResponse) -> dict[str, object]:
     return {
         "text": response.text,
         "tool_proposals": [
-            proposal.model_dump(mode="json")
-            for proposal in response.tool_proposals
+            proposal.model_dump(mode="json") for proposal in response.tool_proposals
         ],
         "usage": response.usage.model_dump(mode="json"),
         "finish_reason": response.finish_reason,

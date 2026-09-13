@@ -7,7 +7,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Callable
+from typing import Any, Callable
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -124,10 +124,19 @@ class ProviderPort(ABC):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
-        """Default: non-streaming complete; subclasses may stream deltas."""
+        """Default: non-streaming complete; subclasses may stream deltas.
+
+        `on_reasoning_delta` (if a provider exposes transient reasoning) is
+        display-only and must never be merged into `ProviderResponse.text`.
+        """
         result = self.complete(request)
-        if on_text_delta is not None and isinstance(result, ProviderResponse) and result.text:
+        if (
+            on_text_delta is not None
+            and isinstance(result, ProviderResponse)
+            and result.text
+        ):
             on_text_delta(result.text)
         return result
 
@@ -169,8 +178,13 @@ class DeterministicProvider(ProviderPort):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
-    ) -> ProviderResponse:
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
         response = self.complete(request)
+        if isinstance(response, ProviderFailure):
+            # A failure is mode-independent: streaming must propagate it
+            # unchanged instead of touching response-only fields.
+            return response
         if on_text_delta is not None and response.text:
             chunk_size = 8
             for offset in range(0, len(response.text), chunk_size):
@@ -222,7 +236,9 @@ class DeterministicProvider(ProviderPort):
                     len(message.content.split()) for message in request.messages
                 )
                 + len(text.split()),
-                estimated_cost_usd=Decimal("0"),
+                # E3: no pricing source in the hermetic provider — cost is
+                # honestly UNKNOWN, never a pseudo-zero.
+                cost_status="UNKNOWN",
             ),
             finish_reason="stop",
             received_at=datetime.now(timezone.utc),
@@ -334,12 +350,14 @@ class OpenAICompatibleProvider(ProviderPort):
         request: ProviderRequest,
         *,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         return self._invoke(
             request,
             allowed_capability_ids=request.allowed_capability_ids,
             stream=True,
             on_text_delta=on_text_delta,
+            on_reasoning_delta=on_reasoning_delta,
         )
 
     def decide(
@@ -372,6 +390,7 @@ class OpenAICompatibleProvider(ProviderPort):
         allowed_capability_ids: tuple[str, ...],
         stream: bool = False,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         try:
             invocation = self._invocation_binding
@@ -418,6 +437,9 @@ class OpenAICompatibleProvider(ProviderPort):
                 body["tool_choice"] = "auto"
             if stream:
                 body["stream"] = True
+                # Ask the provider to emit a final usage chunk so the SSE
+                # path reports exact token counts like the JSON path (E3).
+                body["stream_options"] = {"include_usage": True}
             encoded = json.dumps(body).encode("utf-8")
             http_request = urllib.request.Request(
                 f"{base_url}{endpoint_path}",
@@ -437,6 +459,7 @@ class OpenAICompatibleProvider(ProviderPort):
                         response,
                         request=request,
                         on_text_delta=on_text_delta,
+                        on_reasoning_delta=on_reasoning_delta,
                     )
                 payload = json.loads(response.read().decode("utf-8"))
             choice = payload["choices"][0]
@@ -458,7 +481,9 @@ class OpenAICompatibleProvider(ProviderPort):
                     total_tokens=int(
                         usage.get("total_tokens", input_tokens + output_tokens)
                     ),
-                    estimated_cost_usd=Decimal("0"),
+                    # E3: token counts are exact from the provider payload;
+                    # cost has no pricing source here — UNKNOWN, never zero.
+                    cost_status="UNKNOWN",
                 ),
                 finish_reason=str(choice.get("finish_reason", "stop")),
                 received_at=datetime.now(timezone.utc),
@@ -514,9 +539,11 @@ class OpenAICompatibleProvider(ProviderPort):
         *,
         request: ProviderRequest | ProviderDecisionRequest,
         on_text_delta: Callable[[str], None] | None,
-    ) -> ProviderResponse:
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
         text_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
+        usage_payload: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
         readline = getattr(response, "readline", None)
@@ -540,8 +567,18 @@ class OpenAICompatibleProvider(ProviderPort):
             try:
                 payload = json.loads(data)
             except json.JSONDecodeError:
-                continue
+                return self._failure(
+                    request,
+                    ProviderErrorCode.MALFORMED,
+                    "provider response malformed: JSONDecodeError",
+                    False,
+                )
             response_id = str(payload.get("id") or response_id)
+            # The final usage block arrives in a frame whose choices list is
+            # empty, so it must be captured before the choices guard below.
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                usage_payload.update(usage)
             choices = payload.get("choices") or []
             if not choices:
                 continue
@@ -553,6 +590,11 @@ class OpenAICompatibleProvider(ProviderPort):
                 text_parts.append(str(content))
                 if on_text_delta is not None:
                     on_text_delta(str(content))
+            # Transient reasoning (DeepSeek `reasoning_content`): display-only,
+            # never appended to text_parts / the durable response.
+            reasoning = delta.get("reasoning_content")
+            if reasoning and on_reasoning_delta is not None:
+                on_reasoning_delta(str(reasoning))
             for tool_delta in delta.get("tool_calls") or []:
                 index = int(tool_delta.get("index", 0))
                 bucket = tool_calls.setdefault(
@@ -576,16 +618,24 @@ class OpenAICompatibleProvider(ProviderPort):
             if item["name"]
         )
         text_out = "".join(text_parts)
+        input_tokens = int(usage_payload.get("prompt_tokens") or 0)
+        output_tokens = int(usage_payload.get("completion_tokens") or 0)
+        total_tokens = int(usage_payload.get("total_tokens") or 0)
+        if total_tokens <= 0:
+            total_tokens = input_tokens + output_tokens
         return ProviderResponse(
             response_id=response_id,
             request_id=request.request_id,
             text=text_out,
             tool_proposals=proposals,
             usage=ProviderUsage(
-                input_tokens=0,
-                output_tokens=len(text_out.split()),
-                total_tokens=len(text_out.split()),
-                estimated_cost_usd=Decimal("0"),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                # E3: streamed frames carry usage counters (stream_options.
+                # include_usage) but still no pricing source — cost is
+                # UNKNOWN, never a pseudo-zero.
+                cost_status="UNKNOWN",
             ),
             finish_reason=finish_reason or "stop",
             received_at=datetime.now(timezone.utc),
