@@ -1,14 +1,26 @@
 {
   "name": "@agent-os/cli-ts",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
-  "description": "Spike: TypeScript + Ink TUI client over the Agent OS surface protocol v1.1 (goal-mode queue A#1). Python governance kernel untouched; this is a protocol client only.",
+  "description": "Agent OS terminal client (TypeScript + Ink) over the surface protocol v1.1. Python governance kernel untouched; protocol client only.",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md"
+  ],
   "bin": {
     "agent-os-ts": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build",
+    "pack:check": "npm pack --dry-run",
+    "version": "node -e \"console.log(require('./package.json').version)\"",
     "dev": "tsx src/cli.tsx",
     "dev:daemon": "uv run python scripts/dev_daemon.py",
     "doctor": "tsx src/cli.tsx doctor",
