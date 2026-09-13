@@ -9,7 +9,11 @@ from pydantic import Field
 from agent_os_contracts import Goal, ProposedGoal, content_digest
 from agent_os_contracts.common import ContractModel, NonEmptyStr, UtcDateTime
 
-from .errors import SituationalTrustDenied
+from .errors import (
+    ConcurrentWriteError,
+    InvalidTransitionError,
+    SituationalTrustDenied,
+)
 from .task_service import TaskService
 from .srl_ports import (
     ActivationAuthority,
@@ -33,6 +37,7 @@ class ActivationDenialReason(str, Enum):
     C7_CLEARANCE_MISSING = "C7_CLEARANCE_MISSING"
     C7_EPOCH_MISMATCH = "C7_EPOCH_MISMATCH"
     TASK_CREATION_REFUSED = "TASK_CREATION_REFUSED"
+    TASK_IDENTITY_CONFLICT = "TASK_IDENTITY_CONFLICT"
 
 
 class C7ClearanceRef(ContractModel):
@@ -150,11 +155,7 @@ class TrustedTaskActivationGate(TaskActivationPort):
             return rejected(ActivationDenialReason.AUTHORITY_NOT_RECOGNIZED)
 
         # 2. The authority must bind the exact proposal it claims to authorize.
-        if (
-            authority.source_proposed_goal_id != proposed_goal.proposal_goal_id
-            or authority.mandate_id == ""
-            or authority.standing_mission_id == ""
-        ):
+        if authority.source_proposed_goal_id != proposed_goal.proposal_goal_id:
             return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
 
         # 3. The producer of the assessment cannot also accept it (I-23).
@@ -177,6 +178,14 @@ class TrustedTaskActivationGate(TaskActivationPort):
             or mandate.workspace_id != proposed_goal.workspace_id
         ):
             return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
+        try:
+            mission = self._mandate_registry.current_ratified_mission(
+                authority.mandate_id
+            )
+        except SituationalTrustDenied:
+            return rejected(ActivationDenialReason.MANDATE_UNAVAILABLE)
+        if authority.standing_mission_id != mission.standing_mission_id:
+            return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
 
         # 5. ExpectedOutcome, Commitment and capability scope must be bound.
         requirements = self._requirements.resolve(proposed_goal, authority)
@@ -190,10 +199,17 @@ class TrustedTaskActivationGate(TaskActivationPort):
         if clearance.correction_epoch != mandate.correction_epoch:
             return rejected(ActivationDenialReason.C7_EPOCH_MISMATCH)
 
-        # 7. Only a trusted creation adapter may produce the real Task.
-        created = self._task_creation.create_task(
-            proposed_goal, authority, requirements, clearance
-        )
+        # 7. Only a trusted creation adapter may produce the real Task. Any
+        # spine refusal (identity conflict, concurrent write) must fail closed
+        # as a typed denial rather than propagate to the caller.
+        try:
+            created = self._task_creation.create_task(
+                proposed_goal, authority, requirements, clearance
+            )
+        except InvalidTransitionError:
+            return rejected(ActivationDenialReason.TASK_IDENTITY_CONFLICT)
+        except ConcurrentWriteError:
+            return rejected(ActivationDenialReason.TASK_CREATION_REFUSED)
         if created is None:
             return rejected(ActivationDenialReason.TASK_CREATION_REFUSED)
         return TaskActivationDecision(
@@ -228,9 +244,11 @@ class TaskServiceCreationAdapter:
     """TrustedTaskCreationPort over the real TaskService spine.
 
     Materializes a durable Task via ``TaskService.ensure_task`` keyed on the
-    ProposedGoal identity, so repeated activation of the same proposal is
-    idempotent. It does not commit, run, grant a capability or execute an
-    effect; those remain separate governed gates.
+    ProposedGoal identity. Re-activation is idempotent for an identical
+    (authority, requirements, clearance) tuple; a conflicting re-activation
+    raises, and the gate converts that into a typed
+    ``TASK_IDENTITY_CONFLICT`` denial. It does not commit, run, grant a
+    capability or execute an effect; those remain separate governed gates.
     """
 
     def __init__(self, task_service: TaskService) -> None:
@@ -257,6 +275,7 @@ class TaskServiceCreationAdapter:
                 f"commitment:{requirements.commitment_ref}",
                 f"authority:{authority.authority_id}",
                 f"c7-epoch:{clearance.correction_epoch}",
+                f"c7-clearance-digest:{clearance.clearance_digest}",
                 f"capability-scope:{','.join(requirements.capability_scope)}",
             ),
         )
@@ -264,6 +283,6 @@ class TaskServiceCreationAdapter:
             task_id,
             goal,
             event_id=f"event:srl-activate:{proposed_goal.proposal_goal_id}",
-            occurred_at=authority.authorized_at,
+            occurred_at=proposed_goal.created_at,
         )
         return CreatedTask(task_id=aggregate.task_id)

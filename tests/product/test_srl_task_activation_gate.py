@@ -471,3 +471,32 @@ def test_task_service_adapter_creates_durable_idempotent_task(
     assert first.task_id is not None
     assert first.task_id == second.task_id
     assert task_service.get_task(first.task_id).task_id == first.task_id
+
+
+def test_conflicting_authority_reactivation_fails_closed(
+    mandate_registry, goal, authority, now
+):
+    """F1: a different authority for the same goal must be denied, not raise."""
+    task_service = TaskService(event_store=InMemoryTaskEventStore())
+    competing = authority.model_copy(
+        update={
+            "authority_id": "auth-2",
+            "authority_instance_id": "authority-instance-2",
+            "authorization_digest": "sha256:auth-2",
+            "authorized_at": now + timedelta(seconds=30),
+        }
+    )
+    gate = TrustedTaskActivationGate(
+        authority_registry=_AuthorityRegistry([authority, competing]),
+        mandate_registry=mandate_registry,
+        requirements=_Requirements(_requirements()),
+        c7_clearance=_C7(_clearance()),
+        task_creation=TaskServiceCreationAdapter(task_service),
+    )
+    first = gate.activate(goal, authority)
+    conflict = gate.activate(goal, competing)
+    assert first.activated
+    assert not conflict.activated
+    assert ActivationDenialReason.TASK_IDENTITY_CONFLICT.value in (
+        conflict.rejection_reason or ""
+    )
