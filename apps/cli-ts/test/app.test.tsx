@@ -248,6 +248,30 @@ test("vim: normal mode must not swallow approval y/n", async () => {
   }
 });
 
+test("vim: word motion w then x edits at the word boundary", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  controller.vimMode = true;
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("ab cd");
+    await flush();
+    await view.stdin.write("\u001B"); // Esc -> normal
+    await flush();
+    await view.stdin.write("0"); // cursor to line start
+    await flush();
+    await view.stdin.write("w"); // cursor to start of "cd"
+    await flush();
+    await view.stdin.write("x"); // delete 'c'
+    await flush();
+    const frame = view.lastFrame() ?? "";
+    assert.match(frame, /ab d/);
+    assert.equal(frame.includes("ab cd"), false);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

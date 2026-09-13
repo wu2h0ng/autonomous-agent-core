@@ -14,6 +14,7 @@ import {
   isMultiline,
   lineCount,
   move,
+  moveWord,
   type ComposerState,
 } from "../src/composer.js";
 
@@ -66,4 +67,20 @@ test("move up/down preserves the column and clamps to shorter lines", () => {
 test("cursorLineCol reports zero-based line and column across lines", () => {
   assert.deepEqual(cursorLineCol(at("a\nbc\ndef", 5)), { line: 2, column: 0 });
   assert.deepEqual(cursorLineCol(at("", 0)), { line: 0, column: 0 });
+});
+
+test("moveWord: w/b/e across words and lines", () => {
+  const text = "hello world foo";
+  assert.equal(moveWord(at(text, 0), "forward").cursor, 6); // w -> "world"
+  assert.equal(moveWord(at(text, 6), "backward").cursor, 0); // b -> "hello"
+  assert.equal(moveWord(at(text, 0), "end").cursor, 4); // e -> end of "hello"
+  assert.equal(moveWord(at(text, 6), "end").cursor, 10); // e -> end of "world"
+  // end at/beyond the final word stays put
+  assert.equal(moveWord(at(text, 4), "forward").cursor, 6);
+  assert.equal(moveWord(at(text, text.length), "forward").cursor, text.length);
+  // newline is whitespace
+  assert.equal(moveWord(at("ab\ncd", 0), "forward").cursor, 3);
+  assert.equal(moveWord(at("ab\ncd", 4), "backward").cursor, 3);
+  // backward at the start is a no-op
+  assert.equal(moveWord(at(text, 0), "backward").cursor, 0);
 });

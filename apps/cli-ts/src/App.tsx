@@ -18,7 +18,7 @@ import type { ChatMessage, ToolCall, TuiController } from "./controller.js";
 import { formatToolDetail } from "./controller.js";
 import { filterCommands } from "./commands.js";
 import type { CommandSpec } from "./commands.js";
-import { backspace, deleteForward, insertNewline, insertText, isMultiline, move } from "./composer.js";
+import { backspace, deleteForward, insertNewline, insertText, isMultiline, move, moveWord } from "./composer.js";
 import type { ComposerState } from "./composer.js";
 import { Composer } from "./ComposerView.js";
 import { segmentPreview } from "./diff.js";
@@ -339,6 +339,18 @@ export function App({
         }
         if (keyInput === "0") {
           setComposer((current) => move(current, "home"));
+          return;
+        }
+        if (keyInput === "w") {
+          setComposer((current) => moveWord(current, "forward"));
+          return;
+        }
+        if (keyInput === "b") {
+          setComposer((current) => moveWord(current, "backward"));
+          return;
+        }
+        if (keyInput === "e") {
+          setComposer((current) => moveWord(current, "end"));
           return;
         }
         if (keyInput === "$") {
