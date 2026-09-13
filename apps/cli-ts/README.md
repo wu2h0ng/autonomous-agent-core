@@ -40,7 +40,9 @@ Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
 Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it, Ctrl-O
 toggles the tool detail panel. `y`/`n` answer approval cards; Esc issues a
-correction during a turn (Ctrl-C exits); Ctrl-L clears the view.
+correction during a turn (Ctrl-C exits); Ctrl-L clears the view. `/vim`
+enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
+and `dd`/`dw`/`cw` operators).
 
 ### Local state & notifications
 

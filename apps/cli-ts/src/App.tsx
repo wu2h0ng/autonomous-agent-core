@@ -18,7 +18,18 @@ import type { ChatMessage, ToolCall, TuiController } from "./controller.js";
 import { formatToolDetail } from "./controller.js";
 import { filterCommands } from "./commands.js";
 import type { CommandSpec } from "./commands.js";
-import { backspace, deleteForward, insertNewline, insertText, isMultiline, move, moveWord } from "./composer.js";
+import {
+  backspace,
+  deleteForward,
+  deleteLine,
+  deleteToLineEnd,
+  deleteWordForward,
+  insertNewline,
+  insertText,
+  isMultiline,
+  move,
+  moveWord,
+} from "./composer.js";
 import type { ComposerState } from "./composer.js";
 import { Composer } from "./ComposerView.js";
 import { segmentPreview } from "./diff.js";
@@ -140,6 +151,7 @@ export function App({
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [selectorQuery, setSelectorQuery] = useState("");
   const [vimInsert, setVimInsert] = useState(true);
+  const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
@@ -198,6 +210,10 @@ export function App({
   useEffect(() => {
     setVimInsert(true);
   }, [controller.vimMode]);
+
+  useEffect(() => {
+    setPendingOp(null);
+  }, [vimInsert, controller.vimMode]);
 
   // `/edit`: pull the last message out of the controller into the composer.
   useEffect(() => {
@@ -301,7 +317,33 @@ export function App({
         return;
       }
       if (!vimInsert) {
+        // A pending operator (d/c) consumes the next motion key.
+        if (pendingOp) {
+          const op = pendingOp;
+          setPendingOp(null);
+          const remove =
+            keyInput === "d"
+              ? deleteLine
+              : keyInput === "w"
+                ? deleteWordForward
+                : keyInput === "$"
+                  ? deleteToLineEnd
+                  : null;
+          if (remove) {
+            setComposer((current) => remove(current));
+            if (op === "c") setVimInsert(true);
+          }
+          return;
+        }
         if (key.escape) return;
+        if (keyInput === "d") {
+          setPendingOp("d");
+          return;
+        }
+        if (keyInput === "c") {
+          setPendingOp("c");
+          return;
+        }
         if (keyInput === "i") {
           setVimInsert(true);
           return;

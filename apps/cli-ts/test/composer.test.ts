@@ -9,6 +9,9 @@ import {
   backspace,
   cursorLineCol,
   deleteForward,
+  deleteLine,
+  deleteToLineEnd,
+  deleteWordForward,
   insertNewline,
   insertText,
   isMultiline,
@@ -89,4 +92,16 @@ test("moveWord: w/b/e across words and lines", () => {
   assert.equal(moveWord(at("ab\ncd", 4), "backward").cursor, 3);
   // backward at the start is a no-op
   assert.equal(moveWord(at(text, 0), "backward").cursor, 0);
+});
+
+test("vim operators: dw / d$ / dd", () => {
+  assert.equal(flat(deleteWordForward(at("hello world", 0))), "world@0");
+  assert.equal(flat(deleteWordForward(at("hello world", 6))), "hello @6");
+  assert.equal(flat(deleteToLineEnd(at("hello world", 5))), "hello@5");
+  // dd removes the whole line including its newline
+  assert.equal(flat(deleteLine(at("ab\ncd", 0))), "cd@0");
+  assert.equal(flat(deleteLine(at("ab\ncd", 3))), "ab@0"); // last line removes preceding newline
+  assert.equal(flat(deleteLine(at("only", 2))), "@0");
+  // no-op when the word motion cannot advance
+  assert.equal(flat(deleteWordForward(at("tail", 4))), "tail@4");
 });

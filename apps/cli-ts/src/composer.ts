@@ -167,3 +167,37 @@ export function moveWord(state: ComposerState, motion: WordMotion): ComposerStat
 export function isMultiline(state: ComposerState): boolean {
   return state.value.includes("\n");
 }
+
+/** Remove [start, end) and place the cursor at `start` (clamped). */
+function deleteRange(state: ComposerState, start: number, end: number): ComposerState {
+  if (end <= start) return state;
+  const value = state.value.slice(0, start) + state.value.slice(end);
+  return { value, cursor: clamp(start, value) };
+}
+
+/** vim `dw` — delete from the cursor to the start of the next word. */
+export function deleteWordForward(state: ComposerState): ComposerState {
+  const cursor = clamp(state.cursor, state.value);
+  return deleteRange(state, cursor, moveWord({ value: state.value, cursor }, "forward").cursor);
+}
+
+/** vim `d$` — delete from the cursor to the end of the line. */
+export function deleteToLineEnd(state: ComposerState): ComposerState {
+  const cursor = clamp(state.cursor, state.value);
+  return deleteRange(state, cursor, move({ value: state.value, cursor }, "end").cursor);
+}
+
+/** vim `dd` — delete the current logical line (with its newline). */
+export function deleteLine(state: ComposerState): ComposerState {
+  const value = state.value;
+  const cursor = clamp(state.cursor, value);
+  const start = value.lastIndexOf("\n", cursor - 1) + 1;
+  const end = value.indexOf("\n", cursor);
+  if (end !== -1) return deleteRange(state, start, end + 1);
+  if (start > 0) {
+    // last line: drop the preceding newline and land on the previous line start
+    const trimmed = value.slice(0, start - 1);
+    return { value: trimmed, cursor: trimmed.lastIndexOf("\n") + 1 };
+  }
+  return { value: "", cursor: 0 };
+}

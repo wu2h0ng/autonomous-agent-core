@@ -55,7 +55,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   {
     name: "/vim",
     argsHint: "",
-    description: "toggle vim keymap (Esc normal; i/a insert)",
+    description: "toggle vim keymap (Esc normal; i/a insert; dd/dw/cw operators)",
   },
   {
     name: "/doctor",
