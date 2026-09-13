@@ -18,6 +18,7 @@ import { SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
+import { writeFileSync } from "node:fs";
 import type {
   PermissionMode,
   SurfaceFileEntry,
@@ -196,6 +197,38 @@ export const MODE_ORDER: PermissionMode[] = [
   "ACCEPT_READ_ONLY",
   "ACCEPT_IN_WORKSPACE",
 ];
+
+/** Render the in-session transcript to Markdown (for `/export`). */
+export function renderTranscript(
+  messages: readonly ChatMessage[],
+  meta: { sessionId: string | null; mode: string; tokens: number; goal: string | null },
+): string {
+  const lines = [
+    "# Agent OS transcript",
+    "",
+    `session: ${meta.sessionId ?? "none"}`,
+    `mode: ${meta.mode}`,
+    `tokens: ${meta.tokens} (exact)`,
+    `cost: UNKNOWN (no pricing source)`,
+    `goal: ${meta.goal ?? "none"}`,
+    "",
+    "---",
+    "",
+  ];
+  for (const message of messages) {
+    if (message.panel) {
+      lines.push(`## ${message.panel.title}`, ...message.panel.lines, "");
+      continue;
+    }
+    if (message.tool) {
+      const result = message.tool.resultSummary ? ` — ${message.tool.resultSummary}` : "";
+      lines.push(`- tool [${message.tool.status}] ${message.tool.capabilityId} (${message.tool.argsSummary})${result}`, "");
+      continue;
+    }
+    lines.push(`**${message.role}**: ${message.content}`, "");
+  }
+  return lines.join("\n");
+}
 
 export interface ControllerDeps {
   clock?: () => number;
@@ -396,6 +429,9 @@ export class TuiController {
       case "/find":
         this.findCommand(rest.join(" ").trim());
         return true;
+      case "/export":
+        this.exportCommand(rest[0]);
+        return true;
       case "/edit":
         this.editCommand();
         return true;
@@ -468,6 +504,30 @@ export class TuiController {
     this.mode = updated.permission_mode;
     this.snapshot = updated;
     this.push({ role: "system", content: `permission mode → ${this.mode}` });
+  }
+
+  /** `/export [path]` — write the in-session transcript (0600, explicit path). */
+  private exportCommand(pathArg: string | undefined): void {
+    const stamp = new Date(this.clock()).toISOString().replace(/[:.]/g, "-");
+    const path = pathArg?.trim() ? pathArg.trim() : `agent-os-transcript-${stamp}.md`;
+    try {
+      writeFileSync(
+        path,
+        renderTranscript(this.messages, {
+          sessionId: this.sessionId,
+          mode: this.mode,
+          tokens: this.tokensTotal,
+          goal: this.goal,
+        }),
+        { encoding: "utf8", mode: 0o600 },
+      );
+      this.push({
+        role: "system",
+        content: `transcript exported to ${path} (0600; it may contain sensitive content)`,
+      });
+    } catch (cause) {
+      this.push({ role: "system", content: `export failed: ${(cause as Error).message}` });
+    }
   }
 
   /** `/find <query>` — search the in-session transcript (view only). */

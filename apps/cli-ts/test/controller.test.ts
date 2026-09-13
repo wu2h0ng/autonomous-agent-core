@@ -411,6 +411,29 @@ test("/retry and /edit: recall the last operator message", async () => {
   assert.equal(client.beginTexts.filter((text) => text === "do the thing").length, 2);
 });
 
+test("/export: writes the transcript to an explicit path (0600)", async () => {
+  const { mkdtempSync, readFileSync, statSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const controller = new TuiController(new FakeClient() as never);
+  const push = (controller as never as { push: (m: { role: "user"; content: string }) => void }).push.bind(controller);
+  push({ role: "user", content: "hello export" });
+
+  const dir = mkdtempSync(join(tmpdir(), "cli-ts-export-"));
+  const path = join(dir, "transcript.md");
+  await controller.submit(`/export ${path}`);
+
+  const text = readFileSync(path, "utf8");
+  assert.match(text, /# Agent OS transcript/);
+  assert.match(text, /hello export/);
+  assert.match(text, /cost: UNKNOWN/);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.match(controller.messages.at(-1)?.content ?? "", /transcript exported to/);
+
+  await controller.submit(`/export ${dir}/nope/deep.md`);
+  assert.match(controller.messages.at(-1)?.content ?? "", /export failed:/);
+});
+
 test("/find: searches the in-session transcript", async () => {
   const controller = new TuiController(new FakeClient() as never);
   const push = (controller as never as { push: (m: { role: "user" | "assistant"; content: string }) => void }).push.bind(controller);
