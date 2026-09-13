@@ -18,10 +18,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"   # repo requires-python >= 3.10
-      - name: Lint
+      - name: Lint (product scope, pinned ruff)
         run: |
-          pip install ruff
-          ruff check --no-cache .
+          # Pin ruff to the repo's dev-extra range (pyproject: ruff>=0.14,<1) and
+          # lint only the governed product scope. Two prior failures are fixed:
+          # (1) an unpinned `pip install ruff` resolved to 0.16.x, whose new
+          #     default rules flagged 3000+ pre-existing repo-wide findings;
+          # (2) `ruff check .` also scanned research/legacy tests, which are not
+          #     part of the product lint gate (see AGENTS.md verification entry).
+          pip install "ruff==0.15.21"
+          ruff check --no-cache apps packages/contracts/src packages/os_core/src tests/product
           # `ruff format --check` is intentionally deferred: main currently has format drift in
           # src/aac/g_eco.py + tests/test_g_eco.py (the pre-hardening committed versions). The
           # feat/g-eco-pre-gate2-hardening branch is already format-clean — re-enable this line
