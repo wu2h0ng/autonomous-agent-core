@@ -168,6 +168,9 @@ class SurfaceRoutes:
             if method == "POST" and parsed.path == "/v1/surface/sessions":
                 self._post_open_session(handler)
                 return
+            if method == "GET" and parsed.path == "/v1/surface/sessions":
+                self._get_sessions(handler, parsed)
+                return
             if method == "GET":
                 session_id = _match_surface_session_leaf(handler.path, "conflict")
                 if session_id is not None:
@@ -247,6 +250,22 @@ class SurfaceRoutes:
     def _get_session(self, handler: Any, session_id: str) -> None:
         handler._json(
             200, self._runtime.get_session(session_id).model_dump(mode="json")
+        )
+
+    def _get_sessions(self, handler: Any, parsed: Any) -> None:
+        from urllib.parse import parse_qs
+
+        query = parse_qs(parsed.query)
+        raw_limit = (query.get("limit") or ["20"])[0]
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 20
+        cursor_values = query.get("cursor")
+        cursor = cursor_values[0] if cursor_values else None
+        handler._json(
+            200,
+            self._runtime.list_sessions(limit, cursor).model_dump(mode="json"),
         )
 
     def _get_conflict(self, handler: Any, session_id: str) -> None:

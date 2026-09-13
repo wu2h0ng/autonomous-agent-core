@@ -24,6 +24,7 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceSessionListResponse,
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
     SurfaceSetPermissionModeCommand,
@@ -110,6 +111,9 @@ class SurfaceApplicationPort(Protocol):
     ) -> SurfaceSessionSnapshot: ...
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot: ...
+    def surface_sessions_listing(
+        self, limit: int, cursor: str | None
+    ) -> SurfaceSessionListResponse: ...
 
     def surface_event_batch(
         self, task_id: str, after_sequence: int
@@ -176,6 +180,16 @@ class SurfaceRuntime:
         if not session_id.strip():
             raise ValueError("session_id must be non-empty")
         return self._application.surface_session_snapshot(session_id)
+
+    def list_sessions(
+        self, limit: int = 20, cursor: str | None = None
+    ) -> SurfaceSessionListResponse:
+        """Read-only, bounded session listing (C2)."""
+        if not 1 <= limit <= 100:
+            raise ValueError("session list limit must be between 1 and 100")
+        if cursor is not None and not cursor.strip():
+            raise ValueError("session list cursor must be non-empty when present")
+        return self._application.surface_sessions_listing(limit, cursor)
 
     def run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):

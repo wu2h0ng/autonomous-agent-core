@@ -73,7 +73,9 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceSessionListResponse,
     SurfaceSessionSnapshot,
+    SurfaceSessionSummary,
     SurfaceSetPermissionModeCommand,
     SurfaceSessionStatus,
     SurfaceConflictProjection,
@@ -2219,6 +2221,68 @@ class AgentOSApplication:
         }:
             return SurfaceSessionStatus.CLOSED
         return SurfaceSessionStatus.ACTIVE
+
+    def surface_sessions_listing(
+        self, limit: int, cursor: str | None
+    ) -> SurfaceSessionListResponse:
+        """Read-only session listing: minimal fields, tenant/workspace scoped.
+
+        Uses only existing durable records (`list_task_ids` + `SESSION_OPENED`);
+        `updated_at` is the last durable event's `occurred_at` (not wall-clock).
+        Unprojectable sessions are omitted (fail-closed), never fabricated.
+        """
+        entries: list[SurfaceSessionSummary] = []
+        for task_id in self.store.list_task_ids():
+            events = tuple(self.store.read(task_id))
+            opened: dict[str, Any] | None = None
+            for event in events:
+                if event.event_type is not TaskEventType.SESSION_OPENED:
+                    continue
+                try:
+                    opened = event.decoded_payload()
+                except (TypeError, ValueError):
+                    opened = None
+                    break
+            if not isinstance(opened, dict) or not events:
+                continue
+            if opened.get("tenant_id") != self.principal.tenant_id:
+                continue
+            if opened.get("workspace_id") != self.principal.workspace_id:
+                continue
+            session_id = opened.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                continue
+            try:
+                projected = self.tasks.project_session(task_id, session_id)
+                aggregate = self.tasks.get_task(task_id)
+                run = aggregate.run
+                status = (
+                    self._surface_session_status(task_id, run, projected.closed)
+                    if run is not None
+                    else SurfaceSessionStatus.CLOSED
+                )
+            except Exception:
+                continue  # fail-closed: omit rather than fabricate
+            entries.append(
+                SurfaceSessionSummary(
+                    session_id=session_id,
+                    task_id=task_id,
+                    status=status,
+                    permission_mode=projected.permission_mode,
+                    message_count=projected.next_message_index,
+                    updated_at=events[-1].occurred_at,
+                )
+            )
+        entries.sort(key=lambda summary: summary.session_id)
+        if cursor is not None:
+            entries = [summary for summary in entries if summary.session_id > cursor]
+        page = tuple(entries[:limit])
+        next_cursor = page[-1].session_id if len(entries) > limit and page else None
+        return SurfaceSessionListResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            sessions=page,
+            next_cursor=next_cursor,
+        )
 
     def _surface_turn_response(
         self,
