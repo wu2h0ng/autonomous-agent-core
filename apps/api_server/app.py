@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from dataclasses import replace
 from threading import RLock
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -91,6 +92,8 @@ from agent_os_core import (
     SurfaceStreamGone,
     AgentLoop,
     AgentLoopConfig,
+    agents_markdown_system_section,
+    discover_agents_markdown,
     CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
@@ -179,6 +182,22 @@ from .mandate_active_perception import (
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentLoopConfig:
+    """Attach bounded workspace AGENTS.md context to the chat system prompt.
+
+    Fail-closed discovery (symlink or out-of-workspace -> None) is enforced by
+    `discover_agents_markdown`; this only injects prompt context and never
+    widens authority. Missing AGENTS.md is a no-op.
+    """
+    context = discover_agents_markdown(workspace)
+    if context is None:
+        return config
+    return replace(
+        config,
+        system_prompt=config.system_prompt + agents_markdown_system_section(context),
+    )
 
 
 class AgentOSApplication:
@@ -367,6 +386,7 @@ class AgentOSApplication:
             MandateActivePerceptionService | None
         ) = None
         self._mandate_steward: MandateSteward | None = None
+        self.workspace_root = Path(workspace).resolve()
         self.sandbox = DeveloperWorkspaceAdapter(
             workspace, idempotency_store=self.store
         )
@@ -1678,7 +1698,7 @@ class AgentOSApplication:
             envelope_id=f"envelope-{uuid4()}",
             expected=aggregate.expected_outcome,
         )
-        config = loop_config or AgentLoopConfig()
+        config = loop_config or _loop_config_with_agents(AgentLoopConfig(), self.workspace_root)
         self.tasks.open_session(
             session.ref,
             session.envelope_id,
