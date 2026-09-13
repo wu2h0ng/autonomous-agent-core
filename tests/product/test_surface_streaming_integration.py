@@ -75,13 +75,33 @@ class StreamingOnlyProvider(DeterministicProvider):
         raise RuntimeError("non-streaming complete() must not be used by AgentLoop")
 
     def complete_streaming(
-        self, request: ProviderRequest, *, on_text_delta: Any = None
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Any = None,
+        on_reasoning_delta: Any = None,
     ) -> Any:
         self.requests.append(request)
         response = self._response(request)
         if on_text_delta is not None and response.text:
             for offset in range(0, len(response.text), 4):
                 on_text_delta(response.text[offset : offset + 4])
+        return response
+
+
+class ReasoningProvider(DeterministicProvider):
+    """Emits transient reasoning (on_reasoning_delta) plus the answer text."""
+
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Any = None,
+        on_reasoning_delta: Any = None,
+    ) -> Any:
+        response = super().complete_streaming(request, on_text_delta=on_text_delta)
+        if on_reasoning_delta is not None:
+            on_reasoning_delta("secret-reasoning")
         return response
 
 
@@ -230,3 +250,31 @@ class TestStreamingFrames:
             payload = _payload(event)
             assert "delta" not in payload
             assert payload.get("frame_sequence") is None
+
+    def test_reasoning_frames_are_not_durable_task_events(self, tmp_path: Path) -> None:
+        app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+        app.provider = ReasoningProvider(
+            scripted=(("visible answer", ()),),
+            invocation_binding=app.provider.invocation_binding,
+        )
+        app.provider_configured = True
+        session, _ = app.open_chat_session("hi", DeferredApprovalGateway())
+        stream_id = app.subscribe_stream(session.session_id)
+        binding = SurfaceStreamBinding(
+            runtime_boot_id=app.runtime_boot_id, stream_id=stream_id
+        )
+        response = app.surface.begin_turn(
+            _begin_turn(app, session.session_id, "hello", key="key-r", binding=binding)
+        )
+        _wait_for_completion(app, session.task_id, response.turn_id)
+        frames = _frames_until_stream_end(
+            app, session.session_id, stream_id, response.turn_id
+        )
+        # reasoning is displayed...
+        assert any(f.kind is SurfaceStreamFrameKind.REASONING for f in frames)
+        assert any(f.kind is SurfaceStreamFrameKind.CHUNK for f in frames)
+        # ...but never durable.
+        for event in app.store.read(session.task_id):
+            blob = json.dumps(_payload(event))
+            assert "secret-reasoning" not in blob
+            assert '"reasoning"' not in blob

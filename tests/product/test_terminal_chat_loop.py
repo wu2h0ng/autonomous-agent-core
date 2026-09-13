@@ -1817,7 +1817,9 @@ class _FailingProvider:
             occurred_at=datetime.now(timezone.utc),
         )
 
-    def complete_streaming(self, request, *, on_text_delta=None):
+    def complete_streaming(
+        self, request, *, on_text_delta=None, on_reasoning_delta=None
+    ):
         return self.complete(request)
 
 
