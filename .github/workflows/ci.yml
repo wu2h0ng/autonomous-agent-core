@@ -33,8 +33,12 @@ jobs:
           # feat/g-eco-pre-gate2-hardening branch is already format-clean — re-enable this line
           # once that lands on main:
           # ruff format --check --no-cache .
-      - name: Tests (deterministic, stdlib only)
-        run: PYTHONPATH=src python -m unittest discover -s tests -p "test_*.py"
+      - name: Tests (deterministic)
+        run: |
+          # Most tests are stdlib-only, but tests/research/** imports pytest and
+          # is collected by unittest discovery, so pytest must be importable.
+          pip install pytest
+          PYTHONPATH=src python -m unittest discover -s tests -p "test_*.py"
 
   # --- ARM-AT-FREEZE (not active yet) -----------------------------------------------------------
   # prereg-verify: machine-enforce "no mechanism change after a preregistration freeze" (the
