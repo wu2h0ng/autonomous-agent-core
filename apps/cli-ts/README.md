@@ -26,7 +26,8 @@ npm run dev
 
 Inside the TUI: type a message and press Enter to stream a turn; `/help`
 lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/vim`,
-`/find`, `/export`, `/queue`, `/doctor`, `/retry`, `/edit`, `/clear`, `/resume`).
+`/keys`, `/find`, `/export`, `/queue`, `/doctor`, `/retry`, `/edit`, `/clear`,
+`/resume`).
 Messages sent while a turn is in flight are queued (shown in the footer) and
 run automatically when the turn ends; `/queue clear` discards them.
 `/goal <objective>` sets a persistent session objective (shown in the footer
@@ -40,7 +41,9 @@ Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
 Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it, Ctrl-O
 toggles the tool detail panel. `y`/`n` answer approval cards; Esc issues a
-correction during a turn (Ctrl-C exits); Ctrl-L clears the view.
+correction during a turn (Ctrl-C exits); Ctrl-L clears the view. `/vim`
+enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
+and `dd`/`dw`/`cw` operators).
 
 ### Local state & notifications
 

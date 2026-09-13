@@ -151,6 +151,10 @@ class FakeClient {
     { path: "fixture.txt", size: 12, mtime: "2026-09-11T00:00:00Z" },
     { path: "src/a.ts", size: 340, mtime: "2026-09-11T00:00:00Z" },
   ];
+  sessionsList: { session_id: string; task_id: string; status: string; permission_mode: string; message_count: number; updated_at: string }[] = [];
+  async listSessions() {
+    return this.sessionsList;
+  }
   async files(taskId: string) {
     assert.equal(taskId, "task:1");
     return this.filesList;
@@ -203,6 +207,26 @@ test("streaming turn: chunks assemble; durable completion adds exact tokens", as
   assert.equal(controller.tokensTotal, 42);
   assert.equal(controller.turns, 1);
   assert.equal(controller.status, "idle");
+});
+
+test("REASONING frames are transient and never part of the answer", async () => {
+  const client = new FakeClient();
+  client.streamScript = [
+    frame(1, "turn:1", "REASONING", "think-1"),
+    frame(2, "turn:1", "REASONING", "think-2"),
+    frame(3, "turn:1", "CHUNK", "answer"),
+    frame(4, "turn:1", "STREAM_END"),
+  ];
+  client.completedTokens = 1;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("q");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.reasoningText, "think-1think-2");
+  const assistant = controller.messages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content)
+    .join("");
+  assert.equal(assistant, "answer");
 });
 
 test("non-completed stop_reason surfaces verbatim (max_steps is not success)", async () => {
@@ -445,6 +469,15 @@ test("/export: writes the transcript to an explicit path (0600)", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /export failed:/);
 });
 
+test("/keys: renders the keymap card", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  await controller.submit("/keys");
+  const message = controller.messages.at(-1);
+  assert.equal(message?.panel?.title, "keyboard");
+  assert.ok(message?.panel?.lines.some((line) => line.includes("ctrl-r")));
+  assert.ok(message?.panel?.lines.some((line) => line.includes("ctrl-p")));
+});
+
 test("/find: searches the in-session transcript", async () => {
   const controller = new TuiController(new FakeClient() as never);
   const push = (controller as never as { push: (m: { role: "user" | "assistant"; content: string }) => void }).push.bind(controller);
@@ -478,6 +511,34 @@ test("/vim: toggles the vim keymap", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /vim keymap on/);
   await controller.submit("/vim");
   assert.equal(controller.vimMode, false);
+});
+
+test("/resume: prefers the server session list, falls back to local MRU", async () => {
+  const client = new FakeClient();
+  client.sessionsList = [
+    {
+      session_id: "session:server",
+      task_id: "task:server",
+      status: "ACTIVE",
+      permission_mode: "ASK",
+      message_count: 1,
+      updated_at: "2026-09-13T00:00:00Z",
+    },
+  ];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/resume");
+  const listed = controller.pendingSelector;
+  assert.equal(listed?.kind, "resume");
+  assert.deepEqual(listed?.items, ["session:server"]);
+  assert.equal(listed?.title, "sessions");
+
+  // empty server list -> local MRU fallback
+  const localOnly = new FakeClient();
+  const fallback = new TuiController(localOnly as never, { pollMs: 1 });
+  await fallback.submit("/resume seeded"); // records a recent session
+  await fallback.submit("/resume");
+  assert.equal(fallback.pendingSelector?.title, "recent sessions (local)");
+  assert.ok(fallback.pendingSelector?.items.includes("s:1"));
 });
 
 test("/theme /mode /resume selectors: open, choose, cancel", async () => {

@@ -18,7 +18,18 @@ import type { ChatMessage, ToolCall, TuiController } from "./controller.js";
 import { formatToolDetail } from "./controller.js";
 import { filterCommands } from "./commands.js";
 import type { CommandSpec } from "./commands.js";
-import { backspace, deleteForward, insertNewline, insertText, isMultiline, move, moveWord } from "./composer.js";
+import {
+  backspace,
+  deleteForward,
+  deleteLine,
+  deleteToLineEnd,
+  deleteWordForward,
+  insertNewline,
+  insertText,
+  isMultiline,
+  move,
+  moveWord,
+} from "./composer.js";
 import type { ComposerState } from "./composer.js";
 import { Composer } from "./ComposerView.js";
 import { segmentPreview } from "./diff.js";
@@ -140,6 +151,8 @@ export function App({
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [selectorQuery, setSelectorQuery] = useState("");
   const [vimInsert, setVimInsert] = useState(true);
+  const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
@@ -198,6 +211,10 @@ export function App({
   useEffect(() => {
     setVimInsert(true);
   }, [controller.vimMode]);
+
+  useEffect(() => {
+    setPendingOp(null);
+  }, [vimInsert, controller.vimMode]);
 
   // `/edit`: pull the last message out of the controller into the composer.
   useEffect(() => {
@@ -301,7 +318,33 @@ export function App({
         return;
       }
       if (!vimInsert) {
+        // A pending operator (d/c) consumes the next motion key.
+        if (pendingOp) {
+          const op = pendingOp;
+          setPendingOp(null);
+          const remove =
+            keyInput === "d"
+              ? deleteLine
+              : keyInput === "w"
+                ? deleteWordForward
+                : keyInput === "$"
+                  ? deleteToLineEnd
+                  : null;
+          if (remove) {
+            setComposer((current) => remove(current));
+            if (op === "c") setVimInsert(true);
+          }
+          return;
+        }
         if (key.escape) return;
+        if (keyInput === "d") {
+          setPendingOp("d");
+          return;
+        }
+        if (keyInput === "c") {
+          setPendingOp("c");
+          return;
+        }
         if (keyInput === "i") {
           setVimInsert(true);
           return;
@@ -389,6 +432,10 @@ export function App({
       setShowToolDetails((visible) => !visible);
       return;
     }
+    if (key.ctrl && keyInput === "t") {
+      setShowReasoning((visible) => !visible);
+      return;
+    }
     if (key.ctrl && keyInput === "g") {
       launchEditor();
       return;
@@ -399,6 +446,23 @@ export function App({
     }
     if (key.ctrl && keyInput === "e") {
       setComposer((current) => move(current, "end"));
+      return;
+    }
+    // Readline-style history (also works where Up/Down are intercepted).
+    if (key.ctrl && keyInput === "p") {
+      setComposer((current) => {
+        if (isMultiline(current)) return current;
+        const value = history.prev(current.value);
+        return { value, cursor: value.length };
+      });
+      return;
+    }
+    if (key.ctrl && keyInput === "n") {
+      setComposer((current) => {
+        if (isMultiline(current)) return current;
+        const value = history.next();
+        return { value, cursor: value.length };
+      });
       return;
     }
 
@@ -582,6 +646,16 @@ export function App({
           <Text dimColor>↑↓ move · type to filter · enter select · esc cancel</Text>
         </Box>
       )}
+      {showReasoning && controller.reasoningText ? (
+        <Text color={theme.notice} wrap="wrap">
+          🧠 {controller.reasoningText}
+        </Text>
+      ) : null}
+      {!showReasoning && controller.reasoningText ? (
+        <Text dimColor>
+          🧠 thinking ({controller.reasoningText.length} chars) · ctrl-t to show
+        </Text>
+      ) : null}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}
       {controller.status === "stalled" && (
         <Text color={theme.toolPending}>STALLED_PENDING_DURABLE_STATE — waiting for the durable record…</Text>

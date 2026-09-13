@@ -12,12 +12,12 @@
  *   embedded in error messages.
  */
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
-import {
+import { z } from "zod";import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
+  SurfaceSessionListResponseSchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
   SurfaceStreamFrameSchema,
@@ -31,6 +31,7 @@ import {
   type SurfaceEventBatch,
   type SurfaceFileEntry,
   type SurfaceSessionSnapshot,
+  type SurfaceSessionSummary,
   type SurfaceStreamBatch,
   type SurfaceStreamBinding,
   type SurfaceStreamFrame,
@@ -41,6 +42,10 @@ import {
 } from "./contracts.js";
 import { localHostname, type RuntimeDescriptor } from "./descriptor.js";
 import { parseSse } from "./sse.js";
+
+/** Frame kinds this client understands; unknown kinds are skipped on the
+ * stream for forward compatibility (ADR REASONING-TRANSIENT-FRAME). */
+const KNOWN_FRAME_KINDS = new Set(["CHUNK", "GAP", "STREAM_END", "REASONING"]);
 
 export class SurfaceClientError extends Error {}
 export class SurfaceProtocolMismatch extends SurfaceClientError {}
@@ -165,6 +170,14 @@ export class SurfaceClient {
     const snapshot = SurfaceSessionSnapshotSchema.parse(response);
     this.track(snapshot);
     return snapshot;
+  }
+
+  /** Read-only session listing (C2). Returns [] if the runtime has no
+   * sessions; throws on transport/protocol errors so callers can fall back. */
+  async listSessions(limit = 50): Promise<SurfaceSessionSummary[]> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    const response = await this.request("GET", `/v1/surface/sessions?${query.toString()}`);
+    return SurfaceSessionListResponseSchema.parse(response).sessions;
   }
 
   /** Subscription-first: mint a transient stream under the current daemon
@@ -342,7 +355,13 @@ export class SurfaceClient {
         const payload = JSON.parse(message.data) as { next_sequence: number };
         nextSequence = payload.next_sequence;
       } else if (message.data) {
-        frames.push(SurfaceStreamFrameSchema.parse(JSON.parse(message.data)));
+        const raw: unknown = JSON.parse(message.data);
+        const kind = (raw as { kind?: unknown } | null)?.kind;
+        // Forward-compat (ADR REASONING-TRANSIENT-FRAME): skip frame kinds this
+        // client does not know; a KNOWN kind still validates strictly below.
+        if (typeof kind === "string" && KNOWN_FRAME_KINDS.has(kind)) {
+          frames.push(SurfaceStreamFrameSchema.parse(raw));
+        }
       }
     }
     return SurfaceStreamBatchSchema.parse({

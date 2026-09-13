@@ -276,6 +276,9 @@ export class TuiController {
    * be a "next turn" queue, never a change to frozen TURN_IN_PROGRESS). One
    * turn is still in flight at a time; queued messages run on resolution. */
   private readonly queue: string[] = [];
+  /** Last turn's transient provider reasoning (display-only; never durable,
+   * never part of the assistant message). Reset at the start of each turn. */
+  reasoningText = "";
   lastError: string | null = null;
 
   private sessionId: string | null = null;
@@ -429,6 +432,9 @@ export class TuiController {
       case "/find":
         this.findCommand(rest.join(" ").trim());
         return true;
+      case "/keys":
+        this.push({ role: "system", content: "", panel: this.keysPanel() });
+        return true;
       case "/export":
         this.exportCommand(rest.join(" ").trim() || undefined);
         return true;
@@ -534,6 +540,20 @@ export class TuiController {
     } catch (cause) {
       this.push({ role: "system", content: `export failed: ${(cause as Error).message}` });
     }
+  }
+
+  /** `/keys` card — one place with the keymap (discoverability). */
+  private keysPanel(): MessagePanel {
+    return {
+      title: "keyboard",
+      lines: [
+        "enter submit · ctrl-j newline · ctrl-g $EDITOR",
+        "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
+        "ctrl-a/ctrl-e line start/end · ctrl-o tool transcript · ctrl-t thinking",
+        "esc correction · ctrl-c exit · ctrl-l clear view",
+        "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
+      ],
+    };
   }
 
   /** `/find <query>` — search the in-session transcript (view only). */
@@ -676,14 +696,23 @@ export class TuiController {
 
   private async resumeCommand(arg: string | undefined): Promise<void> {
     if (!arg) {
-      if (this.recentSessions.length === 0) {
-        this.push({ role: "system", content: "no recent sessions; usage: /resume <session-id>" });
+      let items: string[] = [];
+      try {
+        const listed = await this.client.listSessions();
+        items = listed.map((session) => session.session_id);
+      } catch {
+        items = [];
+      }
+      const fromLocal = items.length === 0;
+      if (fromLocal) items = [...this.recentSessions];
+      if (items.length === 0) {
+        this.push({ role: "system", content: "no sessions; usage: /resume <session-id>" });
         return;
       }
       this.pendingSelector = {
         kind: "resume",
-        title: "recent sessions (local, this client only)",
-        items: [...this.recentSessions],
+        title: fromLocal ? "recent sessions (local)" : "sessions",
+        items,
       };
       this.emit();
       return;
@@ -878,6 +907,7 @@ export class TuiController {
       }
       const binding = this.stream;
       const outgoing = this.goal ? `[session goal] ${this.goal}\n\n${text}` : text;
+      this.reasoningText = "";
       this.push({ role: "user", content: outgoing });
       this.status = "streaming";
       this.lastActivity = this.clock();
@@ -890,6 +920,10 @@ export class TuiController {
         this.lastActivity = this.clock();
         if (frame.kind === "CHUNK") {
           this.appendAssistant((frame.payload as { delta?: string }).delta ?? "");
+        } else if (frame.kind === "REASONING") {
+          // Transient reasoning: display-only, never appended to the answer.
+          this.reasoningText += (frame.payload as { delta?: string }).delta ?? "";
+          this.emit();
         } else if (frame.kind === "GAP") {
           const last = this.messages[this.messages.length - 1];
           if (last && last.role === "assistant") last.interrupted = true;

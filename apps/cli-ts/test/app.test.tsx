@@ -272,6 +272,40 @@ test("vim: word motion w then x edits at the word boundary", async () => {
   }
 });
 
+test("vim: dd deletes the line in normal mode", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  controller.vimMode = true;
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("remove me");
+    await flush();
+    await view.stdin.write("\u001B"); // normal
+    await flush();
+    await view.stdin.write("d");
+    await flush();
+    await view.stdin.write("d");
+    await flush();
+    const frame = view.lastFrame() ?? "";
+    assert.equal(frame.includes("remove me"), false);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("ctrl-p recalls input history", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} initialHistory={["previous prompt"]} />);
+  try {
+    await flush();
+    await view.stdin.write("\u0010"); // Ctrl-P
+    await flush();
+    assert.match(view.lastFrame() ?? "", /previous prompt/);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

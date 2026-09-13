@@ -48,6 +48,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "write the transcript to a file (0600; may contain sensitive content)",
   },
   {
+    name: "/keys",
+    argsHint: "",
+    description: "show the keymap",
+  },
+  {
     name: "/find",
     argsHint: "<query>",
     description: "search the in-session transcript (view only)",
@@ -55,7 +60,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   {
     name: "/vim",
     argsHint: "",
-    description: "toggle vim keymap (Esc normal; i/a insert)",
+    description: "toggle vim keymap (Esc normal; i/a insert; dd/dw/cw operators)",
   },
   {
     name: "/doctor",

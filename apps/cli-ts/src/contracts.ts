@@ -68,6 +68,23 @@ export const SurfaceSessionSnapshotSchema = z.object({
 });
 export type SurfaceSessionSnapshot = z.infer<typeof SurfaceSessionSnapshotSchema>;
 
+export const SurfaceSessionSummarySchema = z.object({
+  session_id: NonEmptyStr,
+  task_id: NonEmptyStr,
+  status: SurfaceSessionStatusSchema,
+  permission_mode: PermissionModeSchema.default("ASK"),
+  message_count: z.number().int().nonnegative(),
+  updated_at: NonEmptyStr,
+});
+export type SurfaceSessionSummary = z.infer<typeof SurfaceSessionSummarySchema>;
+
+export const SurfaceSessionListResponseSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  sessions: z.array(SurfaceSessionSummarySchema).default([]),
+  next_cursor: NonEmptyStr.nullable().optional(),
+});
+export type SurfaceSessionListResponse = z.infer<typeof SurfaceSessionListResponseSchema>;
+
 export const ProviderMessageSchema = z
   .object({
     role: z.enum(["SYSTEM", "USER", "ASSISTANT", "TOOL"]),
@@ -108,7 +125,7 @@ export type SurfaceStreamSubscription = z.infer<typeof SurfaceStreamSubscription
 
 export const SurfaceStreamFrameSchema = z
   .object({
-    kind: z.enum(["CHUNK", "GAP", "STREAM_END"]),
+    kind: z.enum(["CHUNK", "GAP", "STREAM_END", "REASONING"]),
     runtime_boot_id: NonEmptyStr,
     stream_id: NonEmptyStr,
     turn_id: NonEmptyStr.nullable().optional(),
