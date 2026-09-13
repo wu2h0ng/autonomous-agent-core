@@ -1,0 +1,12 @@
+{
+  "spec_version": 1,
+  "candidates_per_task": 20,
+  "candidate_tokens": 100,
+  "token_budget": 1000,
+  "matched_budget": 4000,
+  "gate_min_positive_delta": 0.8,
+  "gate_max_negative_regression": 0.0,
+  "gate_max_A2_miss": 0.0,
+  "positive": { "tasks": 40, "critical_id_rank": 18 },
+  "negative": { "tasks": 40, "critical_id_rank": 0 }
+}

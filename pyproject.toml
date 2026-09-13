@@ -68,6 +68,7 @@ include = [
     "tests/product_eval/test_terminal_agent_eval.py",
     "tests/product_eval/test_terminal_agent_eval_l1.py",
     "tests/product_eval/test_terminal_agent_eval_live.py",
+    "tests/product_eval/test_context_selection.py",
     "tests/research/r_srl_1",
 ]
 extraPaths = [

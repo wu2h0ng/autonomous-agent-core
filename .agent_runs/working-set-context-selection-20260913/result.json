@@ -1,0 +1,29 @@
+{
+  "arms": {
+    "A0": "scope_only",
+    "A1": "oracle_relevance",
+    "A2": "matched_full"
+  },
+  "gate": {
+    "A2_budget_only_positive": 0.0,
+    "negative_regression_A0_minus_A1": 0.0,
+    "positive_improvement_A0_minus_A1": 1.0
+  },
+  "note": "controlled discriminator; result is INVALID as evidence until an independently-authored held-out corpus is frozen and adjudicated",
+  "passed": true,
+  "spec_digest": "244273bcd337e06344efae8b809bb77075e98ccef5c9c2352cd9f92ad8dfef01",
+  "spec_path": "product_evals/terminal_agent_eval/manifests/context_selection_spec.json",
+  "status": "INVALID",
+  "strata": {
+    "negative": {
+      "A0_scope_only": 0.0,
+      "A1_oracle_relevance": 0.0,
+      "A2_matched_full": 0.0
+    },
+    "positive": {
+      "A0_scope_only": 1.0,
+      "A1_oracle_relevance": 0.0,
+      "A2_matched_full": 0.0
+    }
+  }
+}
