@@ -20,11 +20,13 @@ from agent_os_contracts import (
     StandingMission,
     content_digest,
 )
+from agent_os_core.event_store import InMemoryTaskEventStore
 from agent_os_core.srl_activation_gate import (
     ActivationDenialReason,
     C7ClearanceRef,
     CreatedTask,
     TaskRequirements,
+    TaskServiceCreationAdapter,
     TrustedTaskActivationGate,
 )
 from agent_os_core.srl_audit import InMemoryAuditLog
@@ -37,6 +39,7 @@ from agent_os_core.srl_outcome_acceptor import InMemoryOutcomeAcceptor
 from agent_os_core.srl_ports import ActivationAuthority
 from agent_os_core.srl_runtime import SrlRuntime
 from agent_os_core.srl_task_activation import InMemoryTaskActivation
+from agent_os_core.task_service import TaskService
 
 
 # ---------------------------------------------------------------------------
@@ -450,3 +453,21 @@ def test_runtime_default_port_remains_fail_closed(goal, authority, now):
     )
     result = runtime.activate_goal(goal, authority)
     assert not result.activated
+
+
+def test_task_service_adapter_creates_durable_idempotent_task(
+    mandate_registry, goal, authority
+):
+    task_service = TaskService(event_store=InMemoryTaskEventStore())
+    gate = _gate(
+        mandate_registry,
+        authority=authority,
+        creation=TaskServiceCreationAdapter(task_service),
+    )
+    first = gate.activate(goal, authority)
+    second = gate.activate(goal, authority)
+    assert first.activated
+    assert second.activated
+    assert first.task_id is not None
+    assert first.task_id == second.task_id
+    assert task_service.get_task(first.task_id).task_id == first.task_id

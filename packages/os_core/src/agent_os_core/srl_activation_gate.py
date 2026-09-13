@@ -6,10 +6,11 @@ from typing import Callable, Protocol
 
 from pydantic import Field
 
-from agent_os_contracts import ProposedGoal, content_digest
+from agent_os_contracts import Goal, ProposedGoal, content_digest
 from agent_os_contracts.common import ContractModel, NonEmptyStr, UtcDateTime
 
 from .errors import SituationalTrustDenied
+from .task_service import TaskService
 from .srl_ports import (
     ActivationAuthority,
     MandateRegistryPort,
@@ -221,3 +222,48 @@ class TrustedTaskActivationGate(TaskActivationPort):
             if constraint.startswith("assessor-instance:"):
                 return constraint.split(":", 1)[1]
         return None
+
+
+class TaskServiceCreationAdapter:
+    """TrustedTaskCreationPort over the real TaskService spine.
+
+    Materializes a durable Task via ``TaskService.ensure_task`` keyed on the
+    ProposedGoal identity, so repeated activation of the same proposal is
+    idempotent. It does not commit, run, grant a capability or execute an
+    effect; those remain separate governed gates.
+    """
+
+    def __init__(self, task_service: TaskService) -> None:
+        self._task_service = task_service
+
+    def create_task(
+        self,
+        proposed_goal: ProposedGoal,
+        authority: ActivationAuthority,
+        requirements: TaskRequirements,
+        clearance: C7ClearanceRef,
+    ) -> CreatedTask | None:
+        task_id = f"task:srl:{proposed_goal.proposal_goal_id}"
+        goal = Goal(
+            goal_id=proposed_goal.proposal_goal_id,
+            tenant_id=proposed_goal.tenant_id,
+            workspace_id=proposed_goal.workspace_id,
+            created_by=proposed_goal.created_by,
+            created_at=proposed_goal.created_at,
+            statement=proposed_goal.statement,
+            constraints=proposed_goal.constraints
+            + (
+                f"expected-outcome:{requirements.expected_outcome_ref}",
+                f"commitment:{requirements.commitment_ref}",
+                f"authority:{authority.authority_id}",
+                f"c7-epoch:{clearance.correction_epoch}",
+                f"capability-scope:{','.join(requirements.capability_scope)}",
+            ),
+        )
+        aggregate = self._task_service.ensure_task(
+            task_id,
+            goal,
+            event_id=f"event:srl-activate:{proposed_goal.proposal_goal_id}",
+            occurred_at=authority.authorized_at,
+        )
+        return CreatedTask(task_id=aggregate.task_id)
