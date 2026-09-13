@@ -2232,6 +2232,7 @@ class AgentOSApplication:
         Unprojectable sessions are omitted (fail-closed), never fabricated.
         """
         entries: list[SurfaceSessionSummary] = []
+        seen_sessions: set[str] = set()
         for task_id in self.store.list_task_ids():
             events = tuple(self.store.read(task_id))
             opened: dict[str, Any] | None = None
@@ -2252,17 +2253,18 @@ class AgentOSApplication:
             session_id = opened.get("session_id")
             if not isinstance(session_id, str) or not session_id:
                 continue
+            if session_id in seen_sessions:
+                continue
             try:
                 projected = self.tasks.project_session(task_id, session_id)
                 aggregate = self.tasks.get_task(task_id)
                 run = aggregate.run
-                status = (
-                    self._surface_session_status(task_id, run, projected.closed)
-                    if run is not None
-                    else SurfaceSessionStatus.CLOSED
-                )
+                if run is None:
+                    continue  # no Run -> not a live enumerable session (fail-closed)
+                status = self._surface_session_status(task_id, run, projected.closed)
             except Exception:
                 continue  # fail-closed: omit rather than fabricate
+            seen_sessions.add(session_id)
             entries.append(
                 SurfaceSessionSummary(
                     session_id=session_id,

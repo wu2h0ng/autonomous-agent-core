@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
-from agent_os_core import AutoApproveGateway, DeterministicProvider
+import pytest
+from agent_os_contracts import PrincipalIdentity, PrincipalRole
+from agent_os_core import AutoApproveGateway, DeterministicProvider, SurfaceRuntime
 
 from apps.api_server.app import AgentOSApplication
 
@@ -18,8 +21,10 @@ FORBIDDEN = (
 )
 
 
-def _app(root: Path) -> AgentOSApplication:
-    app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
+def _app(root: Path, principal: PrincipalIdentity | None = None) -> AgentOSApplication:
+    app = AgentOSApplication(
+        database=root / "agent-os.sqlite3", workspace=root, principal=principal
+    )
     app.provider = DeterministicProvider(
         scripted=(("hi", ()),),
         invocation_binding=app.provider.invocation_binding,
@@ -42,13 +47,34 @@ def test_sessions_listing_minimal_bounded_and_no_leak(tmp_path: Path) -> None:
     assert summary.status.value == "ACTIVE"
     assert summary.permission_mode == "ASK"
     assert summary.message_count >= 0
-    assert summary.updated_at is not None
+    # updated_at must be the LAST DURABLE EVENT time, not wall-clock (a
+    # wall-clock implementation fails this discrimination).
+    assert summary.updated_at == app.store.read(summary.task_id)[-1].occurred_at
 
     # no-leak: the serialized payload carries none of the sensitive fields
-    dumped = response.model_dump(mode="json")
-    text = str(dumped)
+    text = str(response.model_dump(mode="json"))
     for forbidden in FORBIDDEN:
         assert forbidden not in text, f"leaked field: {forbidden}"
+
+
+def test_sessions_listing_is_tenant_workspace_scoped(tmp_path: Path) -> None:
+    owner = _app(tmp_path)
+    owner.open_chat_session("owned", AutoApproveGateway())
+    assert len(owner.surface_sessions_listing(10, None).sessions) == 1
+
+    # a different tenant/workspace on the same database sees nothing
+    now = datetime.now(timezone.utc)
+    other = _app(
+        tmp_path,
+        PrincipalIdentity(
+            principal_id="user:other",
+            tenant_id="tenant:other",
+            workspace_id="workspace:other",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=now,
+        ),
+    )
+    assert other.surface_sessions_listing(10, None).sessions == ()
 
 
 def test_sessions_listing_pagination_cursor(tmp_path: Path) -> None:
@@ -64,6 +90,14 @@ def test_sessions_listing_pagination_cursor(tmp_path: Path) -> None:
     page2 = app.surface_sessions_listing(2, page1.next_cursor)
     assert len(page2.sessions) == 1
     assert page2.next_cursor is None
-    # pages are disjoint and cover all sessions
     seen = {s.session_id for s in page1.sessions} | {s.session_id for s in page2.sessions}
     assert len(seen) == 3
+
+
+def test_surface_runtime_session_list_bounds(tmp_path: Path) -> None:
+    runtime = SurfaceRuntime(_app(tmp_path))
+    with pytest.raises(ValueError):
+        runtime.list_sessions(0)
+    with pytest.raises(ValueError):
+        runtime.list_sessions(101)
+    assert runtime.list_sessions(1).sessions == ()
