@@ -18,7 +18,7 @@ import { SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
-import { writeFileSync } from "node:fs";
+import { chmodSync, statSync, writeFileSync } from "node:fs";
 import type {
   PermissionMode,
   SurfaceFileEntry,
@@ -430,7 +430,7 @@ export class TuiController {
         this.findCommand(rest.join(" ").trim());
         return true;
       case "/export":
-        this.exportCommand(rest[0]);
+        this.exportCommand(rest.join(" ").trim() || undefined);
         return true;
       case "/edit":
         this.editCommand();
@@ -521,6 +521,12 @@ export class TuiController {
         }),
         { encoding: "utf8", mode: 0o600 },
       );
+      // `mode` only applies on create; a pre-existing file keeps its mode.
+      // Enforce 0600 and verify before promising it to the operator.
+      chmodSync(path, 0o600);
+      if ((statSync(path).mode & 0o777) !== 0o600) {
+        throw new Error("could not set 0600 on the exported file");
+      }
       this.push({
         role: "system",
         content: `transcript exported to ${path} (0600; it may contain sensitive content)`,

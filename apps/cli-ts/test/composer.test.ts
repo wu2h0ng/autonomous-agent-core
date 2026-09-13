@@ -75,6 +75,12 @@ test("moveWord: w/b/e across words and lines", () => {
   assert.equal(moveWord(at(text, 6), "backward").cursor, 0); // b -> "hello"
   assert.equal(moveWord(at(text, 0), "end").cursor, 4); // e -> end of "hello"
   assert.equal(moveWord(at(text, 6), "end").cursor, 10); // e -> end of "world"
+  // already at a word end: e advances to the NEXT word's end (not stuck)
+  assert.equal(moveWord(at(text, 4), "end").cursor, 10);
+  assert.equal(moveWord(at(text, 10), "end").cursor, 14);
+  assert.equal(moveWord(at(text, 14), "end").cursor, 14); // stays at the final word end
+  // astral glyphs never land mid-surrogate
+  assert.equal(moveWord(at("😀 hi", 0), "end").cursor, 4);
   // end at/beyond the final word stays put
   assert.equal(moveWord(at(text, 4), "forward").cursor, 6);
   assert.equal(moveWord(at(text, text.length), "forward").cursor, text.length);

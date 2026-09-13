@@ -412,7 +412,7 @@ test("/retry and /edit: recall the last operator message", async () => {
 });
 
 test("/export: writes the transcript to an explicit path (0600)", async () => {
-  const { mkdtempSync, readFileSync, statSync } = await import("node:fs");
+  const { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const controller = new TuiController(new FakeClient() as never);
@@ -430,6 +430,17 @@ test("/export: writes the transcript to an explicit path (0600)", async () => {
   assert.equal(statSync(path).mode & 0o777, 0o600);
   assert.match(controller.messages.at(-1)?.content ?? "", /transcript exported to/);
 
+  // a pre-existing looser-mode file must be tightened to 0600
+  const loose = join(dir, "loose.md");
+  writeFileSync(loose, "old", { mode: 0o644 });
+  await controller.submit(`/export ${loose}`);
+  assert.equal(statSync(loose).mode & 0o777, 0o600);
+
+  // a path containing spaces is preserved (not truncated at the first token)
+  const spaced = join(dir, "a b.md");
+  await controller.submit(`/export ${spaced}`);
+  assert.ok(existsSync(spaced));
+
   await controller.submit(`/export ${dir}/nope/deep.md`);
   assert.match(controller.messages.at(-1)?.content ?? "", /export failed:/);
 });
@@ -445,6 +456,12 @@ test("/find: searches the in-session transcript", async () => {
   assert.match(listing, /2 match\(es\) for "world"/);
   assert.match(listing, /#1/);
   assert.match(listing, /#2/);
+
+  // case-insensitive (the count includes the earlier /find listing message too)
+  await controller.submit("/find WORLD");
+  const upper = controller.messages.at(-1)?.content ?? "";
+  assert.match(upper, /match\(es\) for "WORLD"/);
+  assert.match(upper, /#1/);
 
   await controller.submit("/find zzz");
   assert.match(controller.messages.at(-1)?.content ?? "", /no transcript matches for "zzz"/);

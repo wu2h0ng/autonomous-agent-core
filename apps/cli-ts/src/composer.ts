@@ -128,34 +128,40 @@ export function lineCount(value: string): number {
   return value.split("\n").length;
 }
 
-function isWordChar(char: string | undefined): boolean {
-  return char !== undefined && !/\s/.test(char);
-}
-
 export type WordMotion = "forward" | "backward" | "end";
 
-/** Vim-style word motions over the whole buffer (newlines count as space). */
+/** Vim-style word motions over the whole buffer (newlines count as space).
+ * Code-point aware: the cursor always lands on a grapheme boundary. */
 export function moveWord(state: ComposerState, motion: WordMotion): ComposerState {
   const value = state.value;
   const cursor = clamp(state.cursor, value);
+  const isWord = (index: number): boolean =>
+    index >= 0 && index < value.length && !/\s/.test(value[index] as string);
+  const forward = (index: number): number => index + glyphAt(value, index);
+  const backward = (index: number): number => index - glyphBefore(value, index);
+
   if (motion === "forward") {
     let i = cursor;
-    while (i < value.length && isWordChar(value[i])) i += 1;
-    while (i < value.length && !isWordChar(value[i])) i += 1;
+    while (i < value.length && isWord(i)) i = forward(i);
+    while (i < value.length && !isWord(i)) i = forward(i);
     return { value, cursor: i };
   }
   if (motion === "backward") {
-    let i = cursor - 1;
-    while (i >= 0 && !isWordChar(value[i])) i -= 1;
-    while (i >= 0 && isWordChar(value[i])) i -= 1;
-    return { value, cursor: i + 1 };
+    let i = cursor;
+    do {
+      i = backward(i);
+    } while (i > 0 && !isWord(i));
+    if (!isWord(i)) return { value, cursor };
+    while (i > 0 && isWord(backward(i))) i = backward(i);
+    return { value, cursor: i };
   }
-  // end: skip non-word chars, then move to the last char of the word
+  // end: end of current word if not already there, else end of the next word
   let i = cursor;
-  while (i < value.length && !isWordChar(value[i])) i += 1;
+  if (isWord(i) && !isWord(forward(i))) i = forward(i);
+  while (i < value.length && !isWord(i)) i = forward(i);
   if (i >= value.length) return { value, cursor };
-  while (i < value.length && isWordChar(value[i])) i += 1;
-  return { value, cursor: i - 1 };
+  while (i < value.length && isWord(i)) i = forward(i);
+  return { value, cursor: Math.max(cursor, backward(i)) };
 }
 
 export function isMultiline(state: ComposerState): boolean {

@@ -178,7 +178,13 @@ def run_tui(desc: Path, rows: int, cols: int, body) -> None:
     finally:
         if proc.poll() is None:
             proc.terminate()
-            proc.wait(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Never let cleanup mask the real AssertionError (it must not
+                # escape as TimeoutExpired, or the phase retry is defeated).
+                proc.kill()
+                proc.wait(timeout=5)
 
 
 def phase1(master: int) -> None:
