@@ -28,6 +28,141 @@ from agent_os_core import (
     ExecutionLease,
 )
 
+# OS-SANDBOX-0: execution isolation is an OS-level confinement below the
+# permit/approval spine. It never substitutes for approval and is never an
+# input to the policy kernel (design docs live in the portfolio repo at
+# docs/agent-cli/CP-AB-OS-SANDBOX-0-*.md and OS-SANDBOX-0-RESULT-*.md).
+EXECUTION_ISOLATION_TRUSTED_WORKSPACE = "trusted_workspace_only"
+EXECUTION_ISOLATION_SANDBOXED = "sandboxed"
+_EXECUTION_ISOLATION_VALUES = (
+    EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
+    EXECUTION_ISOLATION_SANDBOXED,
+)
+
+# Read prefixes denied even though file-read* is otherwise broad, then
+# selectively re-allowed for the workspace and runtime interpreter.
+_DENIED_READ_PREFIXES = (
+    "/Users",
+    "/Volumes",
+    "/Network",
+    "/private/tmp",
+    "/private/var/folders",
+)
+
+
+def _sandbox_read_roots(root: Path) -> tuple[Path, ...]:
+    """Interpreter/runtime/tooling roots the shell needs to read to run.
+
+    Mirrors the SELFDEV verifier profile (:1180): workspace, active + base
+    interpreter prefixes, site-packages and PATH directories, so allowlisted
+    ``pytest``/``git``/``ruff`` can resolve and execute. Roots that would
+    re-open the denied read surface (the filesystem root, the home directory,
+    or an ancestor of a denied read prefix) are dropped, except the workspace
+    itself.
+    """
+
+    overbroad: set[Path] = {Path("/")}
+    for probe in (Path.home(), *(Path(value) for value in _DENIED_READ_PREFIXES)):
+        try:
+            resolved_probe = probe.resolve()
+        except OSError:
+            resolved_probe = probe
+        overbroad.add(resolved_probe)
+        overbroad.update(resolved_probe.parents)
+
+    roots: list[Path] = [root]
+    for candidate in (sys.prefix, sys.base_prefix):
+        if candidate:
+            roots.append(Path(candidate))
+    roots.append(Path(sys.executable).resolve().parent.parent)
+    for entry in sys.path:
+        if entry.endswith("site-packages"):
+            roots.append(Path(entry))
+    for raw in os.environ.get("PATH", "").split(os.pathsep):
+        if not raw:
+            continue
+        candidate = Path(raw)
+        if candidate.is_dir():
+            roots.append(candidate)
+    resolved_roots: list[Path] = []
+    for candidate in roots:
+        try:
+            value = candidate.resolve()
+        except OSError:
+            continue
+        if value != root.resolve() and value in overbroad:
+            continue
+        if value not in resolved_roots:
+            resolved_roots.append(value)
+    return tuple(resolved_roots)
+
+
+def _assert_seatbelt_paths(paths: tuple[str, ...]) -> None:
+    """Reject profile path interpolation that could break/inject the S-expression."""
+
+    for value in paths:
+        if '"' in value or "\\" in value or "\n" in value:
+            raise CapabilityDenied("sandboxed execution path contains unsafe characters")
+
+
+def _workspace_seatbelt_profile(
+    root: Path,
+    sandbox_root: Path,
+    sandbox_tmp: Path,
+) -> str:
+    """Build the Seatbelt profile for a sandboxed shell/test run.
+
+    Emission order is fixed and later-rules-override (Seatbelt semantics):
+    deny default + network, then broad read with /Users|/Volumes|/Network|
+    /private/{tmp,var/folders} denied, then re-allow workspace + runtime, then
+    confine writes to the workspace and the redirected HOME/TMPDIR. The rule
+    digest is computed over this exact text (with only the volatile sandbox
+    root normalised), so it binds the real workspace and runtime read set.
+    """
+
+    workspace = str(root)
+    sandbox = str(sandbox_root)
+    tmp = str(sandbox_tmp)
+    read_roots = tuple(str(value) for value in _sandbox_read_roots(root))
+    _assert_seatbelt_paths((workspace, sandbox, tmp, *read_roots))
+    reads = "".join(f' (subpath "{value}")' for value in read_roots)
+    denied = " ".join(f'(subpath "{prefix}")' for prefix in _DENIED_READ_PREFIXES)
+    return "\n".join(
+        (
+            "(version 1)",
+            "(deny default)",
+            "(allow process*)",
+            "(allow sysctl-read)",
+            "(deny network*)",
+            '(deny process-exec* (literal "/usr/bin/sudo"))',
+            "(allow file-read*)",
+            f"(deny file-read* {denied})",
+            f'(allow file-read* (subpath "{workspace}") (subpath "{sandbox}"){reads})',
+            (
+                "(allow file-write* "
+                f'(subpath "{workspace}") '
+                f'(subpath "{sandbox}") '
+                f'(subpath "{tmp}") '
+                '(literal "/dev/null") '
+                '(literal "/dev/stdout") '
+                '(literal "/dev/stderr") '
+                '(literal "/dev/dtracehelper"))'
+            ),
+        )
+    )
+
+
+def _profile_digest(profile: str, sandbox_root: Path) -> str:
+    """Hash the dispatched profile with only the volatile sandbox root masked.
+
+    Binds the executed workspace root, runtime read set and rule order while
+    staying stable across runs (each run uses a fresh temp sandbox root).
+    """
+
+    return _sha256(
+        profile.replace(str(sandbox_root), "__SANDBOX_ROOT__").encode("utf-8")
+    )
+
 
 class DeveloperWorkspaceAdapter:
     """Allowlisted repository capabilities on a disposable, path-confined workspace."""
@@ -38,6 +173,7 @@ class DeveloperWorkspaceAdapter:
         artifacts: str | Path | None = None,
         idempotency_store: object | None = None,
         shell_allowlist: tuple[str, ...] | None = None,
+        execution_isolation: str = EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
     ) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -49,9 +185,21 @@ class DeveloperWorkspaceAdapter:
             if shell_allowlist is not None
             else ("pytest", "python -m pytest", "python3 -m pytest")
         )
+        self.set_execution_isolation(execution_isolation)
 
     def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None:
         self._shell_allowlist = tuple(allowlist)
+
+    def set_execution_isolation(self, isolation: str) -> None:
+        if isolation not in _EXECUTION_ISOLATION_VALUES:
+            raise ValueError(
+                "execution_isolation must be one of "
+                + ", ".join(_EXECUTION_ISOLATION_VALUES)
+            )
+        self._execution_isolation = isolation
+
+    def execution_isolation(self) -> str:
+        return self._execution_isolation
 
     def outcomes(self) -> DurableActionOutcomeRepository | None:
         """Durable reservation/outcome repository (ADR-0059 connector contract)."""
@@ -990,20 +1138,74 @@ class DeveloperWorkspaceAdapter:
             return False
         return resolved != self.artifacts and self.artifacts not in resolved.parents
 
+    def _execute_confined(
+        self,
+        argv: list[str],
+        timeout: int,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
+        """Run ``argv`` inside the configured execution isolation.
+
+        ``trusted_workspace_only`` (default) preserves the prior in-process
+        behaviour. ``sandboxed`` wraps the command in the OS filesystem
+        sandbox; if the OS sandbox is unavailable it fails closed with
+        ``CapabilityDenied`` (never silently falls back to the weaker mode).
+        """
+
+        if self._execution_isolation == EXECUTION_ISOLATION_TRUSTED_WORKSPACE:
+            result = subprocess.run(
+                argv,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=_subprocess_env(),
+            )
+            return result, {
+                "execution_isolation": EXECUTION_ISOLATION_TRUSTED_WORKSPACE
+            }
+        if sys.platform != "darwin":
+            raise CapabilityDenied(
+                "sandboxed execution isolation is only available on macOS"
+            )
+        sandbox_exec = shutil.which("sandbox-exec")
+        if sandbox_exec is None:
+            raise CapabilityDenied(
+                "sandboxed execution isolation requires an OS filesystem sandbox"
+            )
+        with tempfile.TemporaryDirectory(prefix="agent-os-shell-sandbox-") as raw:
+            sandbox_root = Path(raw).resolve()
+            sandbox_tmp = sandbox_root / "tmp"
+            sandbox_home = sandbox_root / "home"
+            sandbox_tmp.mkdir()
+            sandbox_home.mkdir()
+            profile = _workspace_seatbelt_profile(self.root, sandbox_root, sandbox_tmp)
+            profile_digest = _profile_digest(profile, sandbox_root)
+            environment = _subprocess_env()
+            environment["HOME"] = str(sandbox_home)
+            environment["TMPDIR"] = str(sandbox_tmp)
+            environment["TEMP"] = str(sandbox_tmp)
+            environment["TMP"] = str(sandbox_tmp)
+            result = subprocess.run(
+                [sandbox_exec, "-p", profile, *argv],
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=environment,
+            )
+            return result, {
+                "execution_isolation": EXECUTION_ISOLATION_SANDBOXED,
+                "sandbox_profile_sha256": profile_digest,
+            }
+
     def _shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = " ".join(str(args.get("command", "")).split())
         if command not in self._shell_allowlist:
             raise CapabilityDenied("command is not in the shell allowlist")
         timeout = min(int(str(args.get("timeout_seconds", 120))), 300)
-        result = subprocess.run(
-            command.split(),
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env=_subprocess_env(),
-        )
+        result, isolation = self._execute_confined(command.split(), timeout)
         report = {
             "schema_version": "shell-report.v1",
             "action_key_sha256": _sha256(action_key.encode("utf-8")),
@@ -1011,6 +1213,7 @@ class DeveloperWorkspaceAdapter:
             "exit_code": result.returncode,
             "stdout": result.stdout,
             "stderr": result.stderr,
+            **isolation,
         }
         output = _canonical_json_bytes(report)
         digest = _sha256(output)
@@ -1034,22 +1237,26 @@ class DeveloperWorkspaceAdapter:
         snapshot = args.get("selfdev_verification_snapshot")
         verifier_bindings: list[dict[str, str]] | None = None
         verifier_argv: list[str] | None = None
+        isolation: dict[str, object] | None = None
         if isinstance(snapshot, dict):
-            result, verifier_bindings, verifier_argv = self._run_selfdev_tests_in_mirror(
+            (
+                result,
+                verifier_bindings,
+                verifier_argv,
+                selfdev_profile_digest,
+            ) = self._run_selfdev_tests_in_mirror(
                 command,
                 timeout,
                 snapshot,
             )
+            # The SELFDEV verifier always runs inside the Seatbelt mirror; record
+            # that isolation mode even though it is not the workspace profile.
+            isolation = {
+                "execution_isolation": EXECUTION_ISOLATION_SANDBOXED,
+                "sandbox_profile_sha256": selfdev_profile_digest,
+            }
         else:
-            result = subprocess.run(
-                command.split(),
-                cwd=self.root,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                env=_subprocess_env(),
-            )
+            result, isolation = self._execute_confined(command.split(), timeout)
         report = {
             "schema_version": "test-report.v1",
             "action_key_sha256": _sha256(action_key.encode("utf-8")),
@@ -1058,6 +1265,8 @@ class DeveloperWorkspaceAdapter:
             "stdout": result.stdout,
             "stderr": result.stderr,
         }
+        if isolation is not None:
+            report.update(isolation)
         if verifier_bindings is not None and verifier_argv is not None:
             report["verifier_bindings"] = verifier_bindings
             report["verifier_binding_digest"] = content_digest(
@@ -1084,6 +1293,7 @@ class DeveloperWorkspaceAdapter:
         subprocess.CompletedProcess[str],
         list[dict[str, str]],
         list[str],
+        str,
     ]:
         expected_head = str(snapshot.get("repository_head", ""))
         if set(snapshot) != {
@@ -1294,7 +1504,12 @@ class DeveloperWorkspaceAdapter:
                 check=False,
                 env=environment,
             )
-            return result, verifier_bindings, [str(value) for value in argv]
+            return (
+                result,
+                verifier_bindings,
+                [str(value) for value in argv],
+                _profile_digest(profile, verification_root),
+            )
 
 
 def _normalize_todos(args: dict[str, object]) -> list[dict[str, str]]:
