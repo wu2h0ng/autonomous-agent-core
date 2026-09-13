@@ -121,6 +121,27 @@ class SurfaceSessionSnapshot(ContractModel):
     updated_at: UtcDateTime
 
 
+class SurfaceSessionSummary(ContractModel):
+    """Read-only, minimal session projection for `/resume` listing.
+
+    Deliberately excludes statement, envelope id, expected outcome, tokens and
+    credentials: the list endpoint must never leak session content or secrets.
+    """
+
+    session_id: NonEmptyStr
+    task_id: NonEmptyStr
+    status: SurfaceSessionStatus
+    permission_mode: PermissionMode = "ASK"
+    message_count: int = Field(ge=0)
+    updated_at: UtcDateTime
+
+
+class SurfaceSessionListResponse(ContractModel):
+    protocol_version: Literal["1.1"]
+    sessions: tuple[SurfaceSessionSummary, ...] = ()
+    next_cursor: NonEmptyStr | None = None
+
+
 class SurfaceTurnResponse(ContractModel):
     protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot
