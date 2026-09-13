@@ -35,10 +35,11 @@ jobs:
           # ruff format --check --no-cache .
       - name: Tests (deterministic)
         run: |
-          # Most tests are stdlib-only, but tests/research/** imports pytest and
-          # is collected by unittest discovery, so pytest must be importable.
-          pip install pytest
-          PYTHONPATH=src python -m unittest discover -s tests -p "test_*.py"
+          # Most tests are stdlib-only, but tests/research/** imports pytest,
+          # pyyaml and the workspace contracts package, so provide them in the
+          # standalone checkout (pydantic pin mirrors packages/contracts).
+          pip install pytest pyyaml "pydantic>=2.13,<3"
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m unittest discover -s tests -p "test_*.py"
 
   # --- ARM-AT-FREEZE (not active yet) -----------------------------------------------------------
   # prereg-verify: machine-enforce "no mechanism change after a preregistration freeze" (the
