@@ -693,14 +693,23 @@ export class TuiController {
 
   private async resumeCommand(arg: string | undefined): Promise<void> {
     if (!arg) {
-      if (this.recentSessions.length === 0) {
-        this.push({ role: "system", content: "no recent sessions; usage: /resume <session-id>" });
+      let items: string[] = [];
+      try {
+        const listed = await this.client.listSessions();
+        items = listed.map((session) => session.session_id);
+      } catch {
+        items = [];
+      }
+      const fromLocal = items.length === 0;
+      if (fromLocal) items = [...this.recentSessions];
+      if (items.length === 0) {
+        this.push({ role: "system", content: "no sessions; usage: /resume <session-id>" });
         return;
       }
       this.pendingSelector = {
         kind: "resume",
-        title: "recent sessions (local, this client only)",
-        items: [...this.recentSessions],
+        title: fromLocal ? "recent sessions (local)" : "sessions",
+        items,
       };
       this.emit();
       return;

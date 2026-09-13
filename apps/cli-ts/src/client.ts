@@ -18,6 +18,7 @@ import {
   SurfaceBeginTurnResponseSchema,
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
+  SurfaceSessionListResponseSchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
   SurfaceStreamFrameSchema,
@@ -31,6 +32,7 @@ import {
   type SurfaceEventBatch,
   type SurfaceFileEntry,
   type SurfaceSessionSnapshot,
+  type SurfaceSessionSummary,
   type SurfaceStreamBatch,
   type SurfaceStreamBinding,
   type SurfaceStreamFrame,
@@ -165,6 +167,14 @@ export class SurfaceClient {
     const snapshot = SurfaceSessionSnapshotSchema.parse(response);
     this.track(snapshot);
     return snapshot;
+  }
+
+  /** Read-only session listing (C2). Returns [] if the runtime has no
+   * sessions; throws on transport/protocol errors so callers can fall back. */
+  async listSessions(limit = 50): Promise<SurfaceSessionSummary[]> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    const response = await this.request("GET", `/v1/surface/sessions?${query.toString()}`);
+    return SurfaceSessionListResponseSchema.parse(response).sessions;
   }
 
   /** Subscription-first: mint a transient stream under the current daemon

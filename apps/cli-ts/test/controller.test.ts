@@ -151,6 +151,10 @@ class FakeClient {
     { path: "fixture.txt", size: 12, mtime: "2026-09-11T00:00:00Z" },
     { path: "src/a.ts", size: 340, mtime: "2026-09-11T00:00:00Z" },
   ];
+  sessionsList: { session_id: string; task_id: string; status: string; permission_mode: string; message_count: number; updated_at: string }[] = [];
+  async listSessions() {
+    return this.sessionsList;
+  }
   async files(taskId: string) {
     assert.equal(taskId, "task:1");
     return this.filesList;
@@ -487,6 +491,34 @@ test("/vim: toggles the vim keymap", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /vim keymap on/);
   await controller.submit("/vim");
   assert.equal(controller.vimMode, false);
+});
+
+test("/resume: prefers the server session list, falls back to local MRU", async () => {
+  const client = new FakeClient();
+  client.sessionsList = [
+    {
+      session_id: "session:server",
+      task_id: "task:server",
+      status: "ACTIVE",
+      permission_mode: "ASK",
+      message_count: 1,
+      updated_at: "2026-09-13T00:00:00Z",
+    },
+  ];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/resume");
+  const listed = controller.pendingSelector;
+  assert.equal(listed?.kind, "resume");
+  assert.deepEqual(listed?.items, ["session:server"]);
+  assert.equal(listed?.title, "sessions");
+
+  // empty server list -> local MRU fallback
+  const localOnly = new FakeClient();
+  const fallback = new TuiController(localOnly as never, { pollMs: 1 });
+  await fallback.submit("/resume seeded"); // records a recent session
+  await fallback.submit("/resume");
+  assert.equal(fallback.pendingSelector?.title, "recent sessions (local)");
+  assert.ok(fallback.pendingSelector?.items.includes("s:1"));
 });
 
 test("/theme /mode /resume selectors: open, choose, cancel", async () => {
