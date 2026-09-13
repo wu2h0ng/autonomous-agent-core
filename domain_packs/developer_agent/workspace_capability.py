@@ -138,14 +138,16 @@ def _workspace_seatbelt_profile(
             "(allow file-read*)",
             f"(deny file-read* {denied})",
             f'(allow file-read* (subpath "{workspace}") (subpath "{sandbox}"){reads})',
-            "(allow file-write* "
-            f'(subpath "{workspace}") '
-            f'(subpath "{sandbox}") '
-            f'(subpath "{tmp}") '
-            '(literal "/dev/null") '
-            '(literal "/dev/stdout") '
-            '(literal "/dev/stderr") '
-            '(literal "/dev/dtracehelper"))',
+            (
+                "(allow file-write* "
+                f'(subpath "{workspace}") '
+                f'(subpath "{sandbox}") '
+                f'(subpath "{tmp}") '
+                '(literal "/dev/null") '
+                '(literal "/dev/stdout") '
+                '(literal "/dev/stderr") '
+                '(literal "/dev/dtracehelper"))'
+            ),
         )
     )
 

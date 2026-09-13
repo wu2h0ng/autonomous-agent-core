@@ -25,11 +25,10 @@ from .workspace_collaboration import (
 WorkspaceSandbox = DeveloperWorkspaceAdapter
 
 __all__ = [
-    "DeveloperRepositoryPatchProfile",
-    "DeveloperWorkspaceAdapter",
     "EXECUTION_ISOLATION_SANDBOXED",
     "EXECUTION_ISOLATION_TRUSTED_WORKSPACE",
-    "WorkspaceSandbox",
+    "DeveloperRepositoryPatchProfile",
+    "DeveloperWorkspaceAdapter",
     "SQLiteWorkspaceCommitFence",
     "WorkspaceCollaborationPreflight",
     "WorkspaceCommitFence",
@@ -38,6 +37,7 @@ __all__ = [
     "WorkspaceEventProducer",
     "WorkspaceEventSequenceConflict",
     "WorkspaceFenceUnavailable",
+    "WorkspaceSandbox",
     "build_batch",
     "manifest",
 ]
