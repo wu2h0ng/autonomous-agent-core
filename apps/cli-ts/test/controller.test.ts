@@ -411,6 +411,65 @@ test("/retry and /edit: recall the last operator message", async () => {
   assert.equal(client.beginTexts.filter((text) => text === "do the thing").length, 2);
 });
 
+test("/export: writes the transcript to an explicit path (0600)", async () => {
+  const { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const controller = new TuiController(new FakeClient() as never);
+  const push = (controller as never as { push: (m: { role: "user"; content: string }) => void }).push.bind(controller);
+  push({ role: "user", content: "hello export" });
+
+  const dir = mkdtempSync(join(tmpdir(), "cli-ts-export-"));
+  const path = join(dir, "transcript.md");
+  await controller.submit(`/export ${path}`);
+
+  const text = readFileSync(path, "utf8");
+  assert.match(text, /# Agent OS transcript/);
+  assert.match(text, /hello export/);
+  assert.match(text, /cost: UNKNOWN/);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.match(controller.messages.at(-1)?.content ?? "", /transcript exported to/);
+
+  // a pre-existing looser-mode file must be tightened to 0600
+  const loose = join(dir, "loose.md");
+  writeFileSync(loose, "old", { mode: 0o644 });
+  await controller.submit(`/export ${loose}`);
+  assert.equal(statSync(loose).mode & 0o777, 0o600);
+
+  // a path containing spaces is preserved (not truncated at the first token)
+  const spaced = join(dir, "a b.md");
+  await controller.submit(`/export ${spaced}`);
+  assert.ok(existsSync(spaced));
+
+  await controller.submit(`/export ${dir}/nope/deep.md`);
+  assert.match(controller.messages.at(-1)?.content ?? "", /export failed:/);
+});
+
+test("/find: searches the in-session transcript", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const push = (controller as never as { push: (m: { role: "user" | "assistant"; content: string }) => void }).push.bind(controller);
+  push({ role: "user", content: "hello world" });
+  push({ role: "assistant", content: "the world is round" });
+
+  await controller.submit("/find world");
+  const listing = controller.messages.at(-1)?.content ?? "";
+  assert.match(listing, /2 match\(es\) for "world"/);
+  assert.match(listing, /#1/);
+  assert.match(listing, /#2/);
+
+  // case-insensitive (the count includes the earlier /find listing message too)
+  await controller.submit("/find WORLD");
+  const upper = controller.messages.at(-1)?.content ?? "";
+  assert.match(upper, /match\(es\) for "WORLD"/);
+  assert.match(upper, /#1/);
+
+  await controller.submit("/find zzz");
+  assert.match(controller.messages.at(-1)?.content ?? "", /no transcript matches for "zzz"/);
+
+  await controller.submit("/find");
+  assert.match(controller.messages.at(-1)?.content ?? "", /usage: \/find/);
+});
+
 test("/vim: toggles the vim keymap", async () => {
   const controller = new TuiController(new FakeClient() as never);
   assert.equal(controller.vimMode, false);

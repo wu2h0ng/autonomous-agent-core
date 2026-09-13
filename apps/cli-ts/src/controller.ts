@@ -18,6 +18,7 @@ import { SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
+import { chmodSync, statSync, writeFileSync } from "node:fs";
 import type {
   PermissionMode,
   SurfaceFileEntry,
@@ -102,6 +103,31 @@ export interface MessagePanel {
   lines: string[];
 }
 
+export interface SearchHit {
+  index: number;
+  text: string;
+}
+
+/** Case-insensitive transcript search over message text, panels and tools. */
+export function searchMessages(messages: readonly ChatMessage[], query: string): SearchHit[] {
+  const needle = query.toLowerCase();
+  if (!needle) return [];
+  const hits: SearchHit[] = [];
+  messages.forEach((message, position) => {
+    const haystack = [
+      message.content,
+      message.panel ? [message.panel.title, ...message.panel.lines].join("\n") : "",
+      message.tool
+        ? `${message.tool.capabilityId} ${message.tool.argsSummary} ${message.tool.resultSummary ?? ""}`
+        : "",
+    ].join("\n");
+    if (!haystack.toLowerCase().includes(needle)) return;
+    const line = haystack.split("\n").find((entry) => entry.toLowerCase().includes(needle)) ?? haystack;
+    hits.push({ index: position + 1, text: line.length > 80 ? `${line.slice(0, 80)}…` : line });
+  });
+  return hits;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -171,6 +197,38 @@ export const MODE_ORDER: PermissionMode[] = [
   "ACCEPT_READ_ONLY",
   "ACCEPT_IN_WORKSPACE",
 ];
+
+/** Render the in-session transcript to Markdown (for `/export`). */
+export function renderTranscript(
+  messages: readonly ChatMessage[],
+  meta: { sessionId: string | null; mode: string; tokens: number; goal: string | null },
+): string {
+  const lines = [
+    "# Agent OS transcript",
+    "",
+    `session: ${meta.sessionId ?? "none"}`,
+    `mode: ${meta.mode}`,
+    `tokens: ${meta.tokens} (exact)`,
+    `cost: UNKNOWN (no pricing source)`,
+    `goal: ${meta.goal ?? "none"}`,
+    "",
+    "---",
+    "",
+  ];
+  for (const message of messages) {
+    if (message.panel) {
+      lines.push(`## ${message.panel.title}`, ...message.panel.lines, "");
+      continue;
+    }
+    if (message.tool) {
+      const result = message.tool.resultSummary ? ` — ${message.tool.resultSummary}` : "";
+      lines.push(`- tool [${message.tool.status}] ${message.tool.capabilityId} (${message.tool.argsSummary})${result}`, "");
+      continue;
+    }
+    lines.push(`**${message.role}**: ${message.content}`, "");
+  }
+  return lines.join("\n");
+}
 
 export interface ControllerDeps {
   clock?: () => number;
@@ -368,6 +426,12 @@ export class TuiController {
       case "/retry":
         await this.retryCommand();
         return true;
+      case "/find":
+        this.findCommand(rest.join(" ").trim());
+        return true;
+      case "/export":
+        this.exportCommand(rest.join(" ").trim() || undefined);
+        return true;
       case "/edit":
         this.editCommand();
         return true;
@@ -440,6 +504,55 @@ export class TuiController {
     this.mode = updated.permission_mode;
     this.snapshot = updated;
     this.push({ role: "system", content: `permission mode → ${this.mode}` });
+  }
+
+  /** `/export [path]` — write the in-session transcript (0600, explicit path). */
+  private exportCommand(pathArg: string | undefined): void {
+    const stamp = new Date(this.clock()).toISOString().replace(/[:.]/g, "-");
+    const path = pathArg?.trim() ? pathArg.trim() : `agent-os-transcript-${stamp}.md`;
+    try {
+      writeFileSync(
+        path,
+        renderTranscript(this.messages, {
+          sessionId: this.sessionId,
+          mode: this.mode,
+          tokens: this.tokensTotal,
+          goal: this.goal,
+        }),
+        { encoding: "utf8", mode: 0o600 },
+      );
+      // `mode` only applies on create; a pre-existing file keeps its mode.
+      // Enforce 0600 and verify before promising it to the operator.
+      chmodSync(path, 0o600);
+      if ((statSync(path).mode & 0o777) !== 0o600) {
+        throw new Error("could not set 0600 on the exported file");
+      }
+      this.push({
+        role: "system",
+        content: `transcript exported to ${path} (0600; it may contain sensitive content)`,
+      });
+    } catch (cause) {
+      this.push({ role: "system", content: `export failed: ${(cause as Error).message}` });
+    }
+  }
+
+  /** `/find <query>` — search the in-session transcript (view only). */
+  private findCommand(query: string): void {
+    if (!query) {
+      this.push({ role: "system", content: "usage: /find <query>" });
+      return;
+    }
+    const hits = searchMessages(this.messages, query);
+    if (hits.length === 0) {
+      this.push({ role: "system", content: `no transcript matches for "${query}"` });
+      return;
+    }
+    this.push({
+      role: "system",
+      content:
+        `${hits.length} match(es) for "${query}":\n` +
+        hits.map((hit) => `  #${hit.index}  ${hit.text}`).join("\n"),
+    });
   }
 
   /** `/retry` — re-submit the last operator message as a fresh governed turn. */

@@ -43,6 +43,16 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "show or switch the render theme",
   },
   {
+    name: "/export",
+    argsHint: "[path]",
+    description: "write the transcript to a file (0600; may contain sensitive content)",
+  },
+  {
+    name: "/find",
+    argsHint: "<query>",
+    description: "search the in-session transcript (view only)",
+  },
+  {
     name: "/vim",
     argsHint: "",
     description: "toggle vim keymap (Esc normal; i/a insert)",
