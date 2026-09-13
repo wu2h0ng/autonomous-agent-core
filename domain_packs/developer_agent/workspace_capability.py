@@ -1298,9 +1298,9 @@ class DeveloperWorkspaceAdapter:
 
 
 def _normalize_todos(args: dict[str, object]) -> list[dict[str, str]]:
-    if set(args) != {"todos"} or not isinstance(args.get("todos"), list):
+    raw = args.get("todos")
+    if set(args) != {"todos"} or not isinstance(raw, list):
         raise CapabilityDenied("todos must be an array")
-    raw = args["todos"]
     if len(raw) > 100:
         raise CapabilityDenied("todos cannot exceed 100 items")
     result: list[dict[str, str]] = []

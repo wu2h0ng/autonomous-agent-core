@@ -53,7 +53,7 @@ def test_tier1_consistency_across_gate_chat_grant_provider_adapter(tmp_path) -> 
     assert CHAT_GRANT_MAX_RISK_TIERS[TODO_CAPABILITY] == 1
     schema = provider_module._WORKSPACE_TOOL_PARAMETERS[TODO_CAPABILITY]
     assert schema["type"] == "object"
-    assert "todos" in schema["required"]
+    assert "todos" in cast("list[str]", schema["required"])
     adapter = DeveloperWorkspaceAdapter(tmp_path)
     spec = adapter.specs()[TODO_CAPABILITY]
     assert spec.risk_tier == 1
