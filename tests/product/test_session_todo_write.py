@@ -15,7 +15,10 @@ Design under test (CP-AB-SESSION-TODO-WRITE-2026-09-11):
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
+from agent_os_contracts import PermissionMode
 
 from agent_os_core.agent_loop import CHAT_CAPABILITY_IDS, CHAT_GRANT_MAX_RISK_TIERS
 from agent_os_core.capability import CapabilityDenied
@@ -28,11 +31,17 @@ from agent_os_core import provider as provider_module
 from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 
 TODO_CAPABILITY = "session.todo_write"
-ALL_MODES = ("ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE")
+ALL_MODES: tuple[PermissionMode, ...] = ("ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE")
 
 
 def _todos(*items: tuple[str, str, str]) -> list[dict[str, str]]:
     return [{"id": i, "content": c, "status": s} for i, c, s in items]
+
+
+def _dispatch(
+    adapter: DeveloperWorkspaceAdapter, args: dict[str, object], key: str
+) -> dict[str, Any]:
+    return cast("dict[str, Any]", adapter._dispatch(TODO_CAPABILITY, args, key))
 
 
 # --- C1: tier consistency locked across all registration surfaces ---------
@@ -55,7 +64,7 @@ def test_tier1_consistency_across_gate_chat_grant_provider_adapter(tmp_path) -> 
 
 
 @pytest.mark.parametrize("mode", ALL_MODES)
-def test_todo_write_auto_pass_in_every_mode(mode: str) -> None:
+def test_todo_write_auto_pass_in_every_mode(mode: PermissionMode) -> None:
     decision = evaluate_permission_gate(
         capability_id=TODO_CAPABILITY, mode=mode, mode_event_id=None
     )
@@ -67,7 +76,7 @@ def test_todo_write_auto_pass_in_every_mode(mode: str) -> None:
 
 
 @pytest.mark.parametrize("mode", ALL_MODES)
-def test_unregistered_session_capability_fail_closed(mode: str) -> None:
+def test_unregistered_session_capability_fail_closed(mode: PermissionMode) -> None:
     decision = evaluate_permission_gate(
         capability_id="session.delete", mode=mode, mode_event_id=None
     )
@@ -80,7 +89,7 @@ def test_unregistered_session_capability_fail_closed(mode: str) -> None:
 def test_dispatch_normalizes_and_returns_full_list(tmp_path) -> None:
     adapter = DeveloperWorkspaceAdapter(tmp_path)
     todos = _todos(("a", " write tests ", "pending"), ("b", "run them", "done"))
-    output = adapter._dispatch(TODO_CAPABILITY, {"todos": todos}, "key:1")
+    output = _dispatch(adapter, {"todos": todos}, "key:1")
     assert output["ok"] is True
     assert output["count"] == 2
     assert output["todos"][0]["content"] == "write tests"  # trimmed
@@ -89,7 +98,7 @@ def test_dispatch_normalizes_and_returns_full_list(tmp_path) -> None:
 
 def test_dispatch_empty_list_is_legal_clear(tmp_path) -> None:
     adapter = DeveloperWorkspaceAdapter(tmp_path)
-    output = adapter._dispatch(TODO_CAPABILITY, {"todos": []}, "key:2")
+    output = _dispatch(adapter, {"todos": []}, "key:2")
     assert output == {"ok": True, "todos": [], "count": 0}
 
 
@@ -98,6 +107,8 @@ def test_dispatch_empty_list_is_legal_clear(tmp_path) -> None:
     (
         [{"content": "x", "status": "pending"}],  # missing id
         [{"id": "a", "content": "x"}],  # missing status
+        [{"id": "  ", "content": "x", "status": "pending"}],  # blank id
+        [{"id": "a", "content": "   ", "status": "pending"}],  # blank content
         [{"id": "a", "content": "x", "status": "doing"}],  # illegal status
         _todos(("a", "x", "pending"), ("a", "y", "done")),  # duplicate id
         _todos(*[(f"t{i}", f"task {i}", "pending") for i in range(101)]),  # >100
@@ -116,11 +127,11 @@ def test_bypass_detector_output_must_reflect_input(tmp_path) -> None:
     """An executor swapped for a constant-return stub FAILS this test: two
     different writes must yield two different, input-derived outputs."""
     adapter = DeveloperWorkspaceAdapter(tmp_path)
-    first = adapter._dispatch(
-        TODO_CAPABILITY, {"todos": _todos(("a", "alpha", "pending"))}, "key:4"
+    first = _dispatch(
+        adapter, {"todos": _todos(("a", "alpha", "pending"))}, "key:4"
     )
-    second = adapter._dispatch(
-        TODO_CAPABILITY,
+    second = _dispatch(
+        adapter,
         {"todos": _todos(("b", "beta", "in_progress"), ("c", "gamma", "done"))},
         "key:5",
     )
