@@ -443,6 +443,23 @@ export function App({
       setComposer((current) => move(current, "end"));
       return;
     }
+    // Readline-style history (also works where Up/Down are intercepted).
+    if (key.ctrl && keyInput === "p") {
+      setComposer((current) => {
+        if (isMultiline(current)) return current;
+        const value = history.prev(current.value);
+        return { value, cursor: value.length };
+      });
+      return;
+    }
+    if (key.ctrl && keyInput === "n") {
+      setComposer((current) => {
+        if (isMultiline(current)) return current;
+        const value = history.next();
+        return { value, cursor: value.length };
+      });
+      return;
+    }
 
     // Multi-character input is a paste (terminal keypresses are single
     // chars). Insert it verbatim, normalizing CR/CRLF to LF — otherwise a

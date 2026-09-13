@@ -445,6 +445,15 @@ test("/export: writes the transcript to an explicit path (0600)", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /export failed:/);
 });
 
+test("/keys: renders the keymap card", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  await controller.submit("/keys");
+  const message = controller.messages.at(-1);
+  assert.equal(message?.panel?.title, "keyboard");
+  assert.ok(message?.panel?.lines.some((line) => line.includes("ctrl-r")));
+  assert.ok(message?.panel?.lines.some((line) => line.includes("ctrl-p")));
+});
+
 test("/find: searches the in-session transcript", async () => {
   const controller = new TuiController(new FakeClient() as never);
   const push = (controller as never as { push: (m: { role: "user" | "assistant"; content: string }) => void }).push.bind(controller);

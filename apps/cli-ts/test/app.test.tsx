@@ -293,6 +293,19 @@ test("vim: dd deletes the line in normal mode", async () => {
   }
 });
 
+test("ctrl-p recalls input history", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} initialHistory={["previous prompt"]} />);
+  try {
+    await flush();
+    await view.stdin.write("\u0010"); // Ctrl-P
+    await flush();
+    assert.match(view.lastFrame() ?? "", /previous prompt/);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval: y approves and never leaks into the composer", async () => {
   const controller = new TuiController(new FakeClient() as never);
   let approvals = 0;

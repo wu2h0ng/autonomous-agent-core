@@ -48,6 +48,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "write the transcript to a file (0600; may contain sensitive content)",
   },
   {
+    name: "/keys",
+    argsHint: "",
+    description: "show the keymap",
+  },
+  {
     name: "/find",
     argsHint: "<query>",
     description: "search the in-session transcript (view only)",

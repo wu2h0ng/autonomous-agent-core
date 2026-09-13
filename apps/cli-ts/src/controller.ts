@@ -429,6 +429,9 @@ export class TuiController {
       case "/find":
         this.findCommand(rest.join(" ").trim());
         return true;
+      case "/keys":
+        this.push({ role: "system", content: "", panel: this.keysPanel() });
+        return true;
       case "/export":
         this.exportCommand(rest.join(" ").trim() || undefined);
         return true;
@@ -534,6 +537,20 @@ export class TuiController {
     } catch (cause) {
       this.push({ role: "system", content: `export failed: ${(cause as Error).message}` });
     }
+  }
+
+  /** `/keys` card — one place with the keymap (discoverability). */
+  private keysPanel(): MessagePanel {
+    return {
+      title: "keyboard",
+      lines: [
+        "enter submit · ctrl-j newline · ctrl-g $EDITOR",
+        "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
+        "ctrl-a/ctrl-e line start/end · ctrl-o tool transcript",
+        "esc correction · ctrl-c exit · ctrl-l clear view",
+        "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
+      ],
+    };
   }
 
   /** `/find <query>` — search the in-session transcript (view only). */
