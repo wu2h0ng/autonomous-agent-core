@@ -247,6 +247,7 @@ CLI, any autonomy property, security certification, migration, push, merge or re
 ## 13. M2 update (2026-09-11, rev 10) — Frozen E1/E2/E3 Execution Contracts
 
 > Status: **REVISED_2026-09-11_REV10 / RESUBMISSION_PENDING_CTO_GATE_9 / NO_IMPLEMENTATION_AUTHORITY**
+> Post-acceptance (2026-09-14): **ACCEPTED_GATE_9** — landed `df4f6ef1`; terminal line merged via PR #13 `ecc82b13`; see `docs/product/GATE9-ACCEPTANCE-TERMINAL-CODING-AGENT-M2-2026-09-14.md`. The pending marker above is retained as gate history.
 > Gate history: gate 1 `REVISE_TO_SPEC` (D1 facts, D3 numbering); rev 2 corrected
 > against the checkout; rev 3 adopted the reconcile finding (Wave 1 built on
 > `b05d29b8`) but over-claimed it ("zero substrate change", streaming/cost ready);

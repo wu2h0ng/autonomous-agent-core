@@ -3,6 +3,7 @@
 > Date: 2026-09-11 (revision 10, after CTO gate 8 `REVISE_TO_SPEC`)
 > Track: Product
 > Status: **REVISED_2026-09-11_REV10 / RESUBMISSION_PENDING_CTO_GATE_9 / NO_IMPLEMENTATION_AUTHORITY / NO_RELEASE_AUTHORITY**
+> Post-acceptance (2026-09-14): **ACCEPTED_GATE_9** — landed `df4f6ef1` (commit msg "CTO gate 9 ACCEPT"); terminal line merged via PR #13 `ecc82b13`; see `docs/product/GATE9-ACCEPTANCE-TERMINAL-CODING-AGENT-M2-2026-09-14.md`. The pending marker above is retained as gate history.
 > Gate history: gate 1 (facts, numbering) → rev 2; reconcile finding → rev 3;
 > gate 2 (substrate truth: streaming unwired, no mode surface, fake cost) → rev 4;
 > gate 3 (three P1 execution-contract ambiguities) → rev 5 froze all three;
