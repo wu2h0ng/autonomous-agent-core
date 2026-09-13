@@ -145,6 +145,30 @@ def test_sandbox_profile_digest_is_stable(tmp_path: Path) -> None:
     _, second = sandbox._execute_confined(["/bin/echo", "two"], 10)
     assert first["sandbox_profile_sha256"] == second["sandbox_profile_sha256"]
 
+    other_root = tmp_path.parent / "other-workspace"
+    other_root.mkdir()
+    other = WorkspaceSandbox(
+        other_root, execution_isolation=EXECUTION_ISOLATION_SANDBOXED
+    )
+    _, third = other._execute_confined(["/bin/echo", "three"], 10)
+    assert third["sandbox_profile_sha256"] != first["sandbox_profile_sha256"]
+
+
+def test_shell_sandboxed_fails_closed_when_os_sandbox_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sandbox = WorkspaceSandbox(
+        tmp_path,
+        shell_allowlist=("pytest",),
+        execution_isolation=EXECUTION_ISOLATION_SANDBOXED,
+    )
+    monkeypatch.setattr(
+        "domain_packs.developer_agent.workspace_capability.shutil.which",
+        lambda _name: None,
+    )
+    with pytest.raises(CapabilityDenied, match="OS filesystem sandbox"):
+        sandbox._shell({"command": "pytest"}, "action:shell")
+
 
 def test_shell_report_records_isolation_evidence(tmp_path: Path) -> None:
     sandbox = WorkspaceSandbox(
