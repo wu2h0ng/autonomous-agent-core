@@ -45,7 +45,12 @@ def discover_agents_markdown(
         resolved.relative_to(root)
     except ValueError:
         return None
-    raw = path.read_text(encoding="utf-8")
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # Fail closed: an unreadable or non-UTF-8 AGENTS.md is ignored, never
+        # allowed to abort session open.
+        return None
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     truncated = len(raw) > max_chars
     content = raw[:max_chars] if truncated else raw
