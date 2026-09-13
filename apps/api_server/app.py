@@ -93,6 +93,7 @@ from agent_os_core import (
     AgentLoop,
     AgentLoopConfig,
     agents_markdown_system_section,
+    apply_trusted_shell_profile,
     discover_agents_markdown,
     CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
@@ -182,6 +183,10 @@ from .mandate_active_perception import (
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentLoopConfig:
@@ -307,6 +312,7 @@ class AgentOSApplication:
         data_agent_query_database: str | Path | None = None,
         data_agent_query_grant: CapabilityGrant | None = None,
         observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
+        trusted_shell_profile: bool | None = None,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -390,6 +396,13 @@ class AgentOSApplication:
         self.sandbox = DeveloperWorkspaceAdapter(
             workspace, idempotency_store=self.store
         )
+        # M2 (opt-in, mainstream-aligned): the trusted shell profile broadens
+        # the shell allowlist, so it is OFF unless explicitly requested (ctor
+        # flag) or opted in via env. Never implicit.
+        if trusted_shell_profile if trusted_shell_profile is not None else _env_truthy(
+            "AGENT_OS_TRUSTED_SHELL_PROFILE"
+        ):
+            apply_trusted_shell_profile(self.sandbox)
         self.workspace_fence = (
             WorkspaceCommitFence()
             if str(database) == ":memory:"
