@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from agent_os_core.capability import CapabilityDenied
 
+from agent_os_core.capability import CapabilityDenied
 from apps.api_server.app import AgentOSApplication
 from domain_packs.developer_agent import (
     EXECUTION_ISOLATION_SANDBOXED,
