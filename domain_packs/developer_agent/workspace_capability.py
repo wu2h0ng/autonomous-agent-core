@@ -145,6 +145,9 @@ class DeveloperWorkspaceAdapter:
         if capability_id == "workspace.run_tests":
             self._preflight_run_tests(args)
             return
+        if capability_id == "session.todo_write":
+            _normalize_todos(args)
+            return
         if capability_id == "artifact.write":
             return
         raise CapabilityDenied(f"capability is not registered: {capability_id}")
@@ -324,6 +327,16 @@ class DeveloperWorkspaceAdapter:
             created_at=at,
         )
         specs = {
+            "session.todo_write": CapabilitySpec(
+                capability_id="session.todo_write",
+                version="1",
+                display_name="Replace session todo list",
+                side_effect_guarantee=SideEffectGuarantee.TRANSACTIONAL_INTERNAL,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **common,
+            ),
             "workspace.read": CapabilitySpec(
                 capability_id="workspace.read",
                 version="1",
@@ -451,6 +464,12 @@ class DeveloperWorkspaceAdapter:
             return self._compensate_patch(args)
         if capability_id == "workspace.run_tests":
             return self._run_tests(args, action_key)
+        if capability_id == "session.todo_write":
+            # Session scratchpad: no physical effect. Durable truth is the
+            # PROPOSED/RECEIPT event chain; the output is the normalized
+            # full-replace list (GC-SESSION-TODO-WRITE).
+            todos = _normalize_todos(args)
+            return {"ok": True, "todos": todos, "count": len(todos)}
         if capability_id == "artifact.write":
             content = str(args.get("content", "")).encode("utf-8")
             digest = _sha256(content)
@@ -1276,6 +1295,35 @@ class DeveloperWorkspaceAdapter:
                 env=environment,
             )
             return result, verifier_bindings, [str(value) for value in argv]
+
+
+def _normalize_todos(args: dict[str, object]) -> list[dict[str, str]]:
+    if set(args) != {"todos"} or not isinstance(args.get("todos"), list):
+        raise CapabilityDenied("todos must be an array")
+    raw = args["todos"]
+    if len(raw) > 100:
+        raise CapabilityDenied("todos cannot exceed 100 items")
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"id", "content", "status"}:
+            raise CapabilityDenied("each todo requires id, content, and status")
+        identifier = item["id"]
+        content = item["content"]
+        status = item["status"]
+        if not isinstance(identifier, str) or not isinstance(content, str):
+            raise CapabilityDenied("todo id and content must be strings")
+        identifier = identifier.strip()
+        content = content.strip()
+        if not identifier or not content:
+            raise CapabilityDenied("todo id and content cannot be blank")
+        if status not in ("pending", "in_progress", "done"):
+            raise CapabilityDenied("invalid todo status")
+        if identifier in seen:
+            raise CapabilityDenied("todo ids must be unique")
+        seen.add(identifier)
+        result.append({"id": identifier, "content": content, "status": status})
+    return result
 
 
 def _sha256(value: bytes) -> str:

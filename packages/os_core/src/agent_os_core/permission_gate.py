@@ -21,6 +21,7 @@ ACTION_RISK_TIERS: dict[str, int] = {
     "workspace.read": 1,
     "workspace.search": 1,
     "workspace.run_tests": 1,
+    "session.todo_write": 1,
     "workspace.edit": 2,
     "workspace.apply_patch": 2,
     "workspace.shell": 3,

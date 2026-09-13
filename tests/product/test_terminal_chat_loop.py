@@ -1430,6 +1430,7 @@ def test_chat_session_seals_configuration_and_receipts_provider_calls(
     ]
     assert len(envelope_events) == 1
     assert set(envelope_events[0]["envelope"]["allowed_capability_ids"]) == {
+        "session.todo_write",
         "workspace.read",
         "workspace.search",
         "workspace.edit",

@@ -68,6 +68,7 @@ CHAT_CAPABILITY_IDS: tuple[str, ...] = (
     "workspace.apply_patch",
     "workspace.run_tests",
     "workspace.shell",
+    "session.todo_write",
 )
 
 # Action risk tiers live in permission_gate (frozen allowlist, E2); tier >= 3
@@ -81,6 +82,7 @@ CHAT_GRANT_MAX_RISK_TIERS: dict[str, int] = {
     "workspace.read": 1,
     "workspace.search": 1,
     "workspace.run_tests": 1,
+    "session.todo_write": 1,
     "workspace.edit": 2,
     "workspace.apply_patch": 2,
     "workspace.shell": 3,
@@ -93,7 +95,9 @@ _SYSTEM_PROMPT = (
     "workspace.read to inspect before editing. Use workspace.edit for precise "
     "string replacements and workspace.apply_patch only for full-file "
     "replacement or new files. Run tests with workspace.run_tests after "
-    "edits. If a tool result reports an error, adjust and retry with "
+    "edits. For multi-step work, maintain a structured task list with "
+    "session.todo_write (full-replace semantics: submit the complete list "
+    "every call). If a tool result reports an error, adjust and retry with "
     "corrected arguments instead of repeating the identical call."
 )
 
