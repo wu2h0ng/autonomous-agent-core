@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task_id": "l1-fix-helper",
+      "input": "Read src/core.py, find the failing helper and fix it.",
+      "verify_command": [
+        "python",
+        "-c",
+        "import pathlib; assert pathlib.Path('fixed.txt').read_text().strip()=='done'"
+      ],
+      "expected_outcome": "outcome:l1-fix-helper",
+      "file_digests": [
+        [
+          "src/core.py",
+          "0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      ]
+    },
+    {
+      "task_id": "l1-add-test",
+      "input": "Add a regression test for the fixed helper.",
+      "verify_command": [
+        "python",
+        "-c",
+        "import pathlib; assert 'test_' in pathlib.Path('tests/test_core.py').read_text()"
+      ],
+      "expected_outcome": "outcome:l1-add-test",
+      "file_digests": [
+        [
+          "tests/test_core.py",
+          "0000000000000000000000000000000000000000000000000000000000000000"
+        ]
+      ]
+    }
+  ],
+  "manifest_sha256": "419a083887c28b3bdfd226fbb48958fa9ea5689a5b9895d45fb7bebbe9e2c339"
+}

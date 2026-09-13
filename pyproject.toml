@@ -59,11 +59,15 @@ include = [
     "packages/contracts/src",
     "packages/os_core/src",
     "product_evals/srl_e2e_falsifier",
+    "product_evals/terminal_agent_eval",
     "tests/product",
     "tests/product_eval/test_srl_e2e_contracts.py",
     "tests/product_eval/test_srl_e2e_harness.py",
     "tests/product_eval/test_srl_docker_exec.py",
     "tests/product_eval/test_srl_e2e_falsifier_docker_exec_wiring.py",
+    "tests/product_eval/test_terminal_agent_eval.py",
+    "tests/product_eval/test_terminal_agent_eval_l1.py",
+    "tests/product_eval/test_terminal_agent_eval_live.py",
     "tests/research/r_srl_1",
 ]
 extraPaths = [
