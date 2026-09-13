@@ -75,12 +75,19 @@ class OutcomeAcceptanceResult(ContractModel):
 
 
 class ActivationAuthority(ContractModel):
-    """External authority record required to promote a ProposedGoal to a Task."""
+    """External authority record required to promote a ProposedGoal to a Task.
+
+    ``producer_instance_id`` is the trusted identity of the instance that
+    produced the source assessment. It travels inside this digest-verified
+    record, so I-23 (producer != acceptor) cannot be defeated by mutating
+    caller-supplied goal constraints.
+    """
 
     authority_id: NonEmptyStr
     mandate_id: NonEmptyStr
     standing_mission_id: NonEmptyStr
     authority_instance_id: NonEmptyStr
+    producer_instance_id: NonEmptyStr
     source_assessment_id: NonEmptyStr
     source_proposed_goal_id: NonEmptyStr
     authorization_digest: NonEmptyStr

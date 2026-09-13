@@ -408,6 +408,7 @@ def test_i14_no_capability_grant_from_srl_organ():
         mandate_id="mandate-1",
         standing_mission_id="mission-1",
         authority_instance_id="authority-1",
+        producer_instance_id="assessor-instance-1",
         source_assessment_id="a-1",
         source_proposed_goal_id="goal-1",
         authorization_digest="sha256:auth",
@@ -436,6 +437,7 @@ def test_p0_allow_activation_flag_cannot_accept_caller_minted_authority(now):
         mandate_id="mandate-1",
         standing_mission_id="mission-1",
         authority_instance_id="authority-instance-1",
+        producer_instance_id="assessor-instance-1",
         source_assessment_id="assessment:event-1",
         source_proposed_goal_id=goal.proposal_goal_id,
         authorization_digest="arbitrary-nonempty-digest",
@@ -468,6 +470,7 @@ def test_p0_runtime_rejects_mismatched_authority_without_producer_metadata(
         mandate_id="wrong-mandate",
         standing_mission_id="wrong-mission",
         authority_instance_id="assessor-instance-1",
+        producer_instance_id="assessor-instance-1",
         source_assessment_id="wrong-assessment",
         source_proposed_goal_id="wrong-goal",
         authorization_digest="arbitrary-nonempty-digest",
@@ -477,8 +480,9 @@ def test_p0_runtime_rejects_mismatched_authority_without_producer_metadata(
     result = runtime.activate_goal(goal_without_producer, mismatched_authority)
 
     assert not result.activated
-    # I-23 now fails closed when producer identity is absent.
-    assert "producer identity unavailable" in (result.rejection_reason or "")
+    # I-23 is evaluated from the trusted authority record, independent of the
+    # (here absent) caller-supplied goal metadata.
+    assert "I-23" in (result.rejection_reason or "")
 
 
 def test_i15_untrusted_outcome_rejected(make_runtime, mandate, standing_mission, now):
@@ -712,6 +716,7 @@ def test_i23_same_instance_cannot_propose_and_accept(
         mandate_id=event.mandate_id,
         standing_mission_id="mission-1",
         authority_instance_id=assessor_instance.instance_id,
+        producer_instance_id=assessor_instance.instance_id,
         source_assessment_id=assessment.assessment_id,
         source_proposed_goal_id=proposed_goal.proposal_goal_id,
         authorization_digest="sha256:auth",

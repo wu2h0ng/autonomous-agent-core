@@ -172,14 +172,16 @@ class TrustedTaskActivationGate(TaskActivationPort):
         ):
             return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
 
-        # 3. The producer of the assessment cannot also accept it (I-23).
-        # The producer identity is required; its absence fails closed.
-        producer_instance_id = self._goal_constraint(
-            proposed_goal, "assessor-instance:"
-        )
-        if not producer_instance_id:
+        # 3. The goal's producer reference must match the trusted authority's
+        # producer identity (absence fails closed).
+        goal_producer = self._goal_constraint(proposed_goal, "assessor-instance:")
+        if not goal_producer:
             return rejected(ActivationDenialReason.PRODUCER_IDENTITY_UNAVAILABLE)
-        if authority.authority_instance_id == producer_instance_id:
+        if goal_producer != authority.producer_instance_id:
+            return rejected(ActivationDenialReason.AUTHORITY_BINDING_MISMATCH)
+        # I-23 from the digest-verified authority record, so it cannot be
+        # defeated by mutating caller-supplied goal constraints.
+        if authority.authority_instance_id == authority.producer_instance_id:
             return rejected(ActivationDenialReason.SAME_INSTANCE_PROPOSE_AND_ACCEPT)
 
         # 4. The Mandate must be currently active and scope-matched.

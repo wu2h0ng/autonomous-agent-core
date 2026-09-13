@@ -313,20 +313,10 @@ class SrlRuntime:
         that produced the source assessment (I-23). The default M0 port remains
         fail-closed; a trusted gate may activate through the authority spine.
         """
-        # I-23: producer cannot be acceptor. The producer identity is required;
-        # its absence fails closed (it is caller-strippable metadata).
-        producer_instance_id = self._extract_producer_instance_id(proposed_goal)
-        if producer_instance_id is None:
-            self._record_transition(
-                "ACTIVATION_REJECTED",
-                proposed_goal.proposal_goal_id,
-                "producer identity unavailable",
-            )
-            return TaskActivationResult(
-                activated=False,
-                rejection_reason="I-23: producer identity unavailable",
-            )
-        if authority.authority_instance_id == producer_instance_id:
+        # I-23: producer cannot be acceptor. The producer identity comes from
+        # the digest-verified authority record, not caller-mutable goal
+        # constraints.
+        if authority.authority_instance_id == authority.producer_instance_id:
             self._record_transition(
                 "ACTIVATION_REJECTED",
                 proposed_goal.proposal_goal_id,
@@ -439,15 +429,3 @@ class SrlRuntime:
             provenance=(f"runtime:{self._runtime_instance.instance_id}",),
         )
         self._audit.record(transition)
-
-    @staticmethod
-    def _extract_producer_instance_id(proposed_goal: ProposedGoal) -> str | None:
-        """Extract the assessment producer instance id from proposal constraints.
-
-        An empty/whitespace value is treated as absent so I-23 fails closed.
-        """
-        for constraint in proposed_goal.constraints:
-            if constraint.startswith("assessor-instance:"):
-                value = constraint.split(":", 1)[1].strip()
-                return value or None
-        return None

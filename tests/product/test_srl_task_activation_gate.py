@@ -174,6 +174,7 @@ def authority(now):
         mandate_id="mandate-1",
         standing_mission_id="mission-1",
         authority_instance_id="authority-instance-1",
+        producer_instance_id="assessor-instance-1",
         source_assessment_id="assessment:event-1",
         source_proposed_goal_id="goal-1",
         authorization_digest="sha256:auth",
@@ -323,6 +324,7 @@ def test_gate_rejects_same_instance_producer_and_acceptor(
         mandate_id="mandate-1",
         standing_mission_id="mission-1",
         authority_instance_id="assessor-instance-1",
+        producer_instance_id="assessor-instance-1",
         source_assessment_id="assessment:event-1",
         source_proposed_goal_id="goal-1",
         authorization_digest="sha256:auth",
@@ -344,6 +346,7 @@ def test_gate_rejects_authority_goal_binding_mismatch(
         mandate_id="mandate-1",
         standing_mission_id="mission-1",
         authority_instance_id="authority-instance-1",
+        producer_instance_id="assessor-instance-1",
         source_assessment_id="assessment:event-1",
         source_proposed_goal_id="other-goal",
         authorization_digest="sha256:auth",
@@ -490,6 +493,24 @@ def test_gate_rejects_empty_producer_value(mandate_registry, goal, authority):
     )
 
 
+def test_gate_rejects_forged_goal_producer(mandate_registry, goal, authority):
+    forged = goal.model_copy(
+        update={
+            "constraints": tuple(
+                "assessor-instance:other-instance"
+                if c.startswith("assessor-instance:")
+                else c
+                for c in goal.constraints
+            )
+        }
+    )
+    result = _gate(mandate_registry, authority=authority).activate(forged, authority)
+    assert not result.activated
+    assert ActivationDenialReason.AUTHORITY_BINDING_MISMATCH.value in (
+        result.rejection_reason or ""
+    )
+
+
 def test_gate_rejects_cross_mandate_authority(mandate_registry, goal, authority, now):
     cross = authority.model_copy(update={"mandate_id": "mandate-2"})
     result = _gate(mandate_registry, authority=cross).activate(goal, cross)
@@ -586,7 +607,9 @@ def test_runtime_rejects_empty_producer_value(mandate_registry, goal, authority,
     )
     result = runtime.activate_goal(empty, authority)
     assert not result.activated
-    assert "producer identity unavailable" in (result.rejection_reason or "")
+    assert ActivationDenialReason.PRODUCER_IDENTITY_UNAVAILABLE.value in (
+        result.rejection_reason or ""
+    )
 
 
 def test_task_service_adapter_creates_durable_idempotent_task(
