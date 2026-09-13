@@ -3,6 +3,7 @@
 > Date: 2026-09-11 (revision 10, after CTO gate 8 `REVISE_TO_SPEC`)
 > Track: Product
 > Status: **SPECIFIED_ONLY / RESUBMISSION_PENDING_CTO_GATE_9**
+> Post-acceptance (2026-09-14): **ACCEPTED_GATE_9** — landed `df4f6ef1`; terminal line merged via PR #13 `ecc82b13`; see `docs/product/GATE9-ACCEPTANCE-TERMINAL-CODING-AGENT-M2-2026-09-14.md`. The pending marker above is retained as gate history.
 > Goal Card: `docs/product/GC-TERMINAL-CODING-AGENT-M2-2026-09-11.md` (rev 10)
 > Architecture Brief: `docs/architecture/T-P-CORE-TERMINAL-CODING-AGENT-ARCHITECTURE.md` (§13, rev 10)
 > Base sequencing (re-frozen at gate 5): gate 9 accepts rev 10 → in a temporary
