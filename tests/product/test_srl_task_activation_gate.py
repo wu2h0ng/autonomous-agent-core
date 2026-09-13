@@ -474,6 +474,22 @@ def test_gate_rejects_stripped_producer_identity(mandate_registry, goal, authori
     )
 
 
+def test_gate_rejects_empty_producer_value(mandate_registry, goal, authority):
+    empty = goal.model_copy(
+        update={
+            "constraints": tuple(
+                "assessor-instance:" if c.startswith("assessor-instance:") else c
+                for c in goal.constraints
+            )
+        }
+    )
+    result = _gate(mandate_registry, authority=authority).activate(empty, authority)
+    assert not result.activated
+    assert ActivationDenialReason.PRODUCER_IDENTITY_UNAVAILABLE.value in (
+        result.rejection_reason or ""
+    )
+
+
 def test_gate_rejects_cross_mandate_authority(mandate_registry, goal, authority, now):
     cross = authority.model_copy(update={"mandate_id": "mandate-2"})
     result = _gate(mandate_registry, authority=cross).activate(goal, cross)
@@ -538,6 +554,39 @@ def test_gate_rejects_unavailable_mandate(goal, authority):
     assert ActivationDenialReason.MANDATE_UNAVAILABLE.value in (
         result.rejection_reason or ""
     )
+
+
+def test_runtime_rejects_empty_producer_value(mandate_registry, goal, authority, now):
+    empty = goal.model_copy(
+        update={
+            "constraints": tuple(
+                "assessor-instance:" if c.startswith("assessor-instance:") else c
+                for c in goal.constraints
+            )
+        }
+    )
+    runtime = SrlRuntime(
+        event_ledger=InMemoryEventLedger(),
+        mandate_registry=mandate_registry,
+        assessor_port=_NoopAssessor(),
+        goal_formation=SrlGoalFormation(),
+        budget_enforcement=InMemoryBudgetLedger(),
+        help_dispatch=InMemoryHelpDispatch(),
+        task_activation=_gate(mandate_registry, authority=authority),
+        outcome_acceptor=InMemoryOutcomeAcceptor(),
+        audit_port=InMemoryAuditLog(),
+        runtime_instance_ref=AgentInstanceRef(
+            instance_id="runtime-instance-1",
+            implementation_id="agent-os-core",
+            implementation_version="m1",
+            tenant_id="t-1",
+            workspace_id="w-1",
+            created_at=now,
+        ),
+    )
+    result = runtime.activate_goal(empty, authority)
+    assert not result.activated
+    assert "producer identity unavailable" in (result.rejection_reason or "")
 
 
 def test_task_service_adapter_creates_durable_idempotent_task(

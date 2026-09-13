@@ -177,7 +177,7 @@ class TrustedTaskActivationGate(TaskActivationPort):
         producer_instance_id = self._goal_constraint(
             proposed_goal, "assessor-instance:"
         )
-        if producer_instance_id is None:
+        if not producer_instance_id:
             return rejected(ActivationDenialReason.PRODUCER_IDENTITY_UNAVAILABLE)
         if authority.authority_instance_id == producer_instance_id:
             return rejected(ActivationDenialReason.SAME_INSTANCE_PROPOSE_AND_ACCEPT)
@@ -252,7 +252,9 @@ class TrustedTaskActivationGate(TaskActivationPort):
     def _goal_constraint(proposed_goal: ProposedGoal, prefix: str) -> str | None:
         for constraint in proposed_goal.constraints:
             if constraint.startswith(prefix):
-                return constraint[len(prefix):]
+                value = constraint[len(prefix):].strip()
+                # An empty/whitespace value is treated as absent (fail closed).
+                return value or None
         return None
 
 

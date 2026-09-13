@@ -442,8 +442,12 @@ class SrlRuntime:
 
     @staticmethod
     def _extract_producer_instance_id(proposed_goal: ProposedGoal) -> str | None:
-        """Extract the assessment producer instance id from proposal constraints."""
+        """Extract the assessment producer instance id from proposal constraints.
+
+        An empty/whitespace value is treated as absent so I-23 fails closed.
+        """
         for constraint in proposed_goal.constraints:
             if constraint.startswith("assessor-instance:"):
-                return constraint.split(":", 1)[1]
+                value = constraint.split(":", 1)[1].strip()
+                return value or None
         return None
