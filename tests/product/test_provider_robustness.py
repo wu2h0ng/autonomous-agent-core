@@ -207,3 +207,66 @@ def test_max_tokens_is_sent_in_the_openai_body(monkeypatch) -> None:  # type: ig
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_non_finite_pricing_is_ignored(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    pricing = tmp_path / "nan-pricing.json"
+    pricing.write_text(
+        '{"models": {"stub-model": {"input_per_1k_usd": NaN, '
+        '"output_per_1k_usd": 1.0, "source": "x"}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENT_OS_PRICING_FILE", str(pricing))
+    result = _provider(monkeypatch, _stub()).complete(_request())
+    assert isinstance(result, ProviderResponse), result
+    assert result.usage.cost_status == "UNKNOWN"
+
+
+def test_env_zero_disables_retries(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ROBUSTNESS_TEST_KEY", _SECRET)
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MAX_RETRIES", "0")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_RETRY_BASE_SECONDS", "0")
+    provider = OpenAICompatibleProvider(
+        base_url=_stub(),
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+    )
+    assert provider._max_retries == 0  # type: ignore[attr-defined]
+    assert provider._retry_base_seconds == 0.0  # type: ignore[attr-defined]
+
+
+def test_stream_is_not_retried_after_a_delta(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from agent_os_contracts import ProviderErrorCode, ProviderFailure
+
+    attempts = {"count": 0}
+    provider = _provider(
+        monkeypatch, _stub(), max_retries=3, retry_base_seconds=0.0
+    )
+
+    def _fake_invoke(  # type: ignore[no-untyped-def]
+        request,
+        *,
+        allowed_capability_ids,
+        stream=False,
+        on_text_delta=None,
+        on_reasoning_delta=None,
+    ):
+        attempts["count"] += 1
+        if on_text_delta is not None:
+            on_text_delta("partial")
+        return ProviderFailure(
+            failure_id=f"f:{attempts['count']}",
+            request_id=request.request_id,
+            code=ProviderErrorCode.UNAVAILABLE,
+            retryable=True,
+            safe_message="boom",
+            occurred_at=datetime.now(timezone.utc),
+        )
+
+    monkeypatch.setattr(provider, "_invoke", _fake_invoke)
+    deltas: list[str] = []
+    result = provider.complete_streaming(_request(), on_text_delta=deltas.append)
+    assert not isinstance(result, ProviderResponse)
+    assert attempts["count"] == 1
+    assert deltas == ["partial"]

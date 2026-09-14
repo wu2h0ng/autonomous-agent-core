@@ -978,6 +978,8 @@ class AgentOSApplication:
         max_tokens = (
             int(raw_max_tokens) if raw_max_tokens not in (None, "") else None
         )
+        if max_tokens is not None and max_tokens < 1:
+            raise ValueError("max_tokens must be >= 1")
         parsed = urlparse(base_url)
         local_http = parsed.scheme == "http" and parsed.hostname in {
             "127.0.0.1",

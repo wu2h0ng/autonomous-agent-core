@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import urllib.error
@@ -172,7 +173,12 @@ def load_pricing_table() -> dict[str, dict[str, object]]:
             output_value = float(output_rate)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             continue
-        if input_value < 0 or output_value < 0:
+        if (
+            not math.isfinite(input_value)
+            or not math.isfinite(output_value)
+            or input_value < 0
+            or output_value < 0
+        ):
             continue
         table[str(model_id)] = {
             "input": input_value,
@@ -377,11 +383,12 @@ class OpenAICompatibleProvider(ProviderPort):
                 )
             )
         )
-        resolved_max_tokens = (
-            max_tokens
-            if max_tokens is not None
-            else _optional_int_env("AGENT_OS_PROVIDER_MAX_TOKENS")
-        )
+        env_max_tokens = _optional_int_env("AGENT_OS_PROVIDER_MAX_TOKENS")
+        resolved_max_tokens = max_tokens if max_tokens is not None else env_max_tokens
+        if resolved_max_tokens is not None and resolved_max_tokens < 1:
+            resolved_max_tokens = None
+        env_max_retries = _optional_int_env("AGENT_OS_PROVIDER_MAX_RETRIES")
+        env_retry_base = _optional_float_env("AGENT_OS_PROVIDER_RETRY_BASE_SECONDS")
         self._base_url = normalized_base_url
         self._model = model
         self._credential = credential
@@ -389,15 +396,21 @@ class OpenAICompatibleProvider(ProviderPort):
         self._timeout_seconds = timeout_seconds
         self._temperature = resolved_temperature
         self._max_tokens = resolved_max_tokens
+        # Explicit 0 must be honored (disable retries / zero backoff); only an
+        # absent value falls back to the default.
         self._max_retries = (
             max_retries
             if max_retries is not None
-            else _optional_int_env("AGENT_OS_PROVIDER_MAX_RETRIES") or 2
+            else env_max_retries
+            if env_max_retries is not None
+            else 2
         )
         self._retry_base_seconds = (
             retry_base_seconds
             if retry_base_seconds is not None
-            else _optional_float_env("AGENT_OS_PROVIDER_RETRY_BASE_SECONDS") or 0.5
+            else env_retry_base
+            if env_retry_base is not None
+            else 0.5
         )
         self._pricing = load_pricing_table()
         self._opener = opener or urllib.request.urlopen
@@ -663,7 +676,7 @@ class OpenAICompatibleProvider(ProviderPort):
                 "provider invocation binding unavailable",
                 False,
             )
-        return self._invoke(request, allowed_capability_ids=())
+        return self._invoke_with_retry(request, allowed_capability_ids=())
 
     def _invoke(
         self,
@@ -732,6 +745,8 @@ class OpenAICompatibleProvider(ProviderPort):
                 code = ProviderErrorCode.AUTHENTICATION_FAILED
             elif exc.code == 429:
                 code = ProviderErrorCode.RATE_LIMITED
+            elif exc.code in {408, 425}:
+                code = ProviderErrorCode.UNAVAILABLE
             elif 400 <= exc.code < 500:
                 # Other 4xx (bad request/not found/unprocessable) are client
                 # errors: retrying cannot help.
