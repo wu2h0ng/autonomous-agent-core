@@ -216,7 +216,7 @@ test("vim: Esc to normal swallows navigation keys; i returns to insert", async (
     await flush();
     await view.stdin.write("j"); // normal-mode motion, must not insert
     await flush();
-    assert.equal((view.lastFrame() ?? "").includes("j"), false);
+    assert.equal((view.lastFrame() ?? "").includes("abj"), false);
     await view.stdin.write("i"); // back to insert
     await flush();
     await view.stdin.write("Z");
@@ -331,4 +331,23 @@ test("approval: y approves and never leaks into the composer", async () => {
   } finally {
     view.unmount();
   }
+});
+
+test("home screen and header render before the first turn", () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(
+    <App
+      controller={controller}
+      workspace="/tmp/demo-workspace"
+      provider="openai-compatible"
+      model="deepseek-chat"
+    />,
+  );
+  const frame = view.lastFrame() ?? "";
+  assert.match(frame, /agent-os/);
+  assert.match(frame, /AGENT OS/);
+  assert.match(frame, /Quick start/);
+  assert.match(frame, /deepseek-chat/);
+  assert.match(frame, /demo-workspace/);
+  view.unmount();
 });

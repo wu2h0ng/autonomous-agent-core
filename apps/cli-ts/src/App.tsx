@@ -12,7 +12,10 @@
  * completion. Ink's single-line TextInput is no longer used.
  */
 import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { execFileSync } from "node:child_process";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Header, HomeView } from "./HomeView.js";
+import { agentVersion } from "./version.js";
 import type { Key } from "ink";
 import type { ChatMessage, ToolCall, TuiController } from "./controller.js";
 import { formatToolDetail } from "./controller.js";
@@ -134,10 +137,16 @@ export function App({
   controller,
   initialHistory = [],
   onHistoryChange,
+  workspace = process.cwd(),
+  provider = null,
+  model = null,
 }: {
   controller: TuiController;
   initialHistory?: readonly string[];
   onHistoryChange?: (entries: string[]) => void;
+  workspace?: string;
+  provider?: string | null;
+  model?: string | null;
 }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -576,6 +585,7 @@ export function App({
   });
 
   const theme = resolveTheme(controller.themeName);
+  const branch = useMemo(() => gitBranch(workspace), [workspace]);
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const selectorVisible = controller.pendingSelector
@@ -591,8 +601,28 @@ export function App({
   const todoPanel = controller.todoPanel;
   const toolMessages = controller.messages.filter((message) => message.tool).slice(-5);
 
+  const showHome = finalized.length === 0 && active.length === 0;
+
   return (
     <Box flexDirection="column">
+      <Header
+        workspace={workspace}
+        branch={branch}
+        mode={controller.mode}
+        version={APP_VERSION}
+        theme={theme}
+      />
+      {showHome ? (
+        <HomeView
+          workspace={workspace}
+          branch={branch}
+          version={APP_VERSION}
+          provider={provider}
+          model={model}
+          theme={theme}
+          narrow={layout.narrow}
+        />
+      ) : null}
       <Static items={finalized}>
         {(message, index) => <MessageView key={index} message={message} finalized theme={theme} />}
       </Static>
@@ -754,14 +784,21 @@ export function App({
           {`🎯 goal · ${controller.goal} · (/goal clear to unset)`}
         </Text>
       )}
-      <Composer
-        state={composer}
-        placeholder={PLACEHOLDER}
-        theme={theme}
-        modeLabel={controller.vimMode ? (vimInsert ? "[I]" : "[N]") : undefined}
-      />
+      <Box
+        borderStyle="round"
+        borderColor={theme.border}
+        paddingX={1}
+        marginTop={1}
+      >
+        <Composer
+          state={composer}
+          placeholder={PLACEHOLDER}
+          theme={theme}
+          modeLabel={controller.vimMode ? (vimInsert ? "[I]" : "[N]") : undefined}
+        />
+      </Box>
       <Text color={theme.footer} wrap="truncate-end">
-        {`[${controller.mode}]`}
+        {`❯ ${controller.mode}`}
         {controller.queuedCount > 0 ? ` · ${controller.queuedCount} queued` : ""}
         {layout.footerFields && snapshot
           ? ` tokens ${controller.tokensTotal} · cost UNKNOWN · events ${snapshot.event_sequence}`
@@ -775,4 +812,21 @@ export function App({
       </Text>
     </Box>
   );
+}
+
+const APP_VERSION = agentVersion();
+
+/** Best-effort current git branch for the header/home panel. */
+function gitBranch(workspace: string): string | null {
+  try {
+    const out = execFileSync(
+      "git",
+      ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    const branch = out.trim();
+    return branch && branch !== "HEAD" ? branch : null;
+  } catch {
+    return null;
+  }
 }

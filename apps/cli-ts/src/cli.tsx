@@ -138,9 +138,22 @@ async function main(): Promise<void> {
   });
   process.on("exit", persist); // last-resort synchronous flush
 
+  let providerLabel: string | null = null;
+  let modelLabel: string | null = null;
+  try {
+    const status = await client.providerStatus();
+    providerLabel = status.provider_id ?? null;
+    modelLabel = status.model_id ?? null;
+  } catch {
+    // header falls back to "not configured"
+  }
+
   render(
     React.createElement(App, {
       controller,
+      workspace: process.cwd(),
+      provider: providerLabel,
+      model: modelLabel,
       initialHistory: state.history,
       onHistoryChange: (entries: string[]) => {
         historyEntries = entries;
