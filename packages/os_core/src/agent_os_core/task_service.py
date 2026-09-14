@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -54,6 +55,10 @@ from .errors import (
 )
 from .event_store import TaskEventStore
 from .governance import CorrectionGuard
+from .outcome_evaluators import (
+    OutcomeEvaluatorRegistry,
+    default_registry,
+)
 from .session_projection import (
     ProjectedApprovalContinuation,
     ProjectedResolvedContinuation,
@@ -70,11 +75,6 @@ Clock = Callable[[], datetime]
 ArtifactReader = Callable[[str], bytes | None]
 
 
-PYTEST_EVALUATOR_IDENTITY = ("pytest", "1")
-PYTEST_EVIDENCE_REQUIREMENTS = ("test-report",)
-PYTEST_FAILURE_SEMANTICS = frozenset(
-    {"non-zero exit", "test command exits non-zero", "tests fail"}
-)
 PROTECTED_TRUTH_EVENTS = frozenset(
     {
         TaskEventType.ACTION_RECEIPT_RECORDED,
@@ -189,20 +189,11 @@ def _approval_resolution_payload(
 
 
 def expected_outcome_contract_error(expected: ExpectedOutcome) -> str | None:
-    if (
-        expected.evaluator_type,
-        expected.evaluator_version,
-    ) != PYTEST_EVALUATOR_IDENTITY:
-        return "unsupported evaluator"
-    if tuple(expected.evidence_requirements) != PYTEST_EVIDENCE_REQUIREMENTS:
-        return "unsupported evidence requirements"
-    if (
-        not expected.failure_semantics
-        or len(set(expected.failure_semantics)) != len(expected.failure_semantics)
-        or not set(expected.failure_semantics).issubset(PYTEST_FAILURE_SEMANTICS)
-    ):
-        return "unsupported failure semantics"
-    return None
+    """Backward-compatible contract validation using a pytest-only default registry.
+
+    Prefer TaskService.contract_error() which uses the bound registry.
+    """
+    return default_registry().contract_error(expected)
 
 
 def _default_id_factory(kind: str) -> str:
@@ -221,6 +212,7 @@ class TaskService:
         id_factory: IdFactory = _default_id_factory,
         clock: Clock = _utc_now,
         artifact_reader: ArtifactReader | None = None,
+        evaluator_registry: OutcomeEvaluatorRegistry | None = None,
     ) -> None:
         self._event_store = event_store
         self._id_factory = id_factory
@@ -228,6 +220,56 @@ class TaskService:
         self._artifact_reader = artifact_reader
         self._correction_reader: CorrectionGuard | None = None
         self._runtime_writer_token = object()
+        self._evaluator_registry = evaluator_registry or default_registry()
+
+    def bind_evaluator_registry(
+        self, registry: OutcomeEvaluatorRegistry
+    ) -> None:
+        self._evaluator_registry = registry
+
+    @property
+    def evaluator_registry(self) -> OutcomeEvaluatorRegistry:
+        return self._evaluator_registry
+
+    def register_predicate_evaluator(
+        self,
+        predicate_store: Any,
+        *,
+        judge_checker: Any | None = None,
+    ) -> None:
+        """Register PredicateConjunctionEvaluator with the runtime registry.
+
+        The evidence accessor factory builds a RuntimeEvidenceAccessor from
+        the durable event store + artifact reader at evaluation time.
+        """
+        from .predicate_evaluator import PredicateConjunctionEvaluator
+        from .runtime_evidence_accessor import RuntimeEvidenceAccessor
+
+        event_store = self._event_store
+        artifact_reader = self._artifact_reader
+
+        def accessor_factory(
+            task_id: str,
+            run_id: str,
+            tenant_id: str,
+            workspace_id: str,
+            evidence_refs: tuple[str, ...],
+        ) -> Any:
+            aggregate = self.get_task(task_id)
+            return RuntimeEvidenceAccessor(
+                task_id=task_id,
+                run_id=run_id,
+                aggregate=aggregate,
+                event_store=event_store,
+                artifact_reader=artifact_reader,
+            )
+
+        evaluator = PredicateConjunctionEvaluator(
+            predicate_store,
+            accessor_factory=accessor_factory,
+            judge_checker=judge_checker,
+        )
+        self._evaluator_registry.register(evaluator)
 
     def bind_artifact_reader(self, artifact_reader: ArtifactReader) -> None:
         self._artifact_reader = artifact_reader
@@ -440,23 +482,20 @@ class TaskService:
             or run is None
         ):
             return outcome
-        report = self.validated_test_report(task_id, run.run_id)
-        score = outcome.score
-        evidence_is_current = (
-            report is not None
-            and report.exit_code == 0
-            and set(report.artifact_ids).issubset(outcome.evidence_refs)
-            and score is not None
-            and score == 1.0
-            and score >= expected.threshold
-            and expected.frozen_at <= report.completed_at <= outcome.observed_at
-            and expected.frozen_at
-            <= outcome.observed_at
-            <= expected.frozen_at
-            + timedelta(seconds=expected.observation_window_seconds)
-        )
-        if evidence_is_current:
-            return outcome
+        evaluator = self._evaluator_registry.get(expected.evaluator_type)
+        if evaluator is not None:
+            try:
+                evaluator.verify_verified_recording(
+                    expected,
+                    outcome,
+                    report_resolver=self.validated_test_report,
+                    now=self._clock(),
+                )
+                return outcome
+            except InvalidTransitionError:
+                pass
+        # Unknown evaluator or failed re-verification: fail closed to UNRESOLVED
+        # rather than projecting a stale/historical VERIFIED outcome.
         return ObservedOutcome(
             observed_outcome_id=f"current-{outcome.observed_outcome_id}",
             expected_outcome_id=outcome.expected_outcome_id,
@@ -2741,7 +2780,7 @@ class TaskService:
             or outcome.evaluator_version != expected.evaluator_version
         ):
             raise InvalidTransitionError("outcome scope or evaluator binding mismatch")
-        contract_error = expected_outcome_contract_error(expected)
+        contract_error = self._evaluator_registry.contract_error(expected)
         if contract_error is not None:
             if not (
                 outcome.status is OutcomeStatus.INVALID
@@ -2750,15 +2789,10 @@ class TaskService:
             ):
                 raise InvalidTransitionError(contract_error)
         if outcome.status is OutcomeStatus.VERIFIED:
-            score = outcome.score
-            if score is None or score != 1.0:
-                raise InvalidTransitionError(
-                    "verified outcome score does not match the trusted pytest score"
-                )
-            if score < expected.threshold:
-                raise InvalidTransitionError(
-                    "verified outcome score is below frozen threshold"
-                )
+            evaluator = self._evaluator_registry.get(expected.evaluator_type)
+            if evaluator is None:
+                raise InvalidTransitionError("unsupported evaluator")
+            # Generic time-window checks (evaluator-agnostic)
             now = self._clock()
             if outcome.observed_at > now:
                 raise InvalidTransitionError(
@@ -2779,27 +2813,13 @@ class TaskService:
                 raise InvalidTransitionError(
                     "verified outcome is outside the frozen observation window"
                 )
-            report = self.validated_test_report(task_id, aggregate.run.run_id)
-            if report is None:
-                raise InvalidTransitionError(
-                    "verified outcome lacks durable test-report evidence"
-                )
-            if not set(report.artifact_ids).issubset(outcome.evidence_refs):
-                raise InvalidTransitionError(
-                    "verified outcome evidence does not match durable test report"
-                )
-            if report.exit_code != 0:
-                raise InvalidTransitionError(
-                    "verified outcome is bound to a failing test report"
-                )
-            if report.completed_at < expected.frozen_at:
-                raise InvalidTransitionError(
-                    "verified test report predates frozen contract"
-                )
-            if report.completed_at > outcome.observed_at:
-                raise InvalidTransitionError(
-                    "verified outcome predates its durable test report"
-                )
+            # Evaluator-specific evidence verification
+            evaluator.verify_verified_recording(
+                expected,
+                outcome,
+                report_resolver=self.validated_test_report,
+                now=now,
+            )
         guarded_append = getattr(self._event_store, "append_guarded", None)
         if callable(guarded_append) and correction_epochs is not None:
             draft = TaskEventDraft.build(

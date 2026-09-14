@@ -54,11 +54,15 @@ from .errors import (
 )
 from .execution_profile import ExecutionProfileError, ExecutionProfilePort
 from .governance import CorrectionReadPort, PolicyInput, PolicyKernel
+from .outcome_evaluators import (
+    OutcomeEvaluatorRegistry,
+    PytestOutcomeEvaluator,
+    default_registry,
+)
 from .provider import ProviderPort
 from .task_service import (
     TaskService,
     ValidatedTestReport,
-    expected_outcome_contract_error,
 )
 
 EffectCustodyPort = Callable[
@@ -76,7 +80,12 @@ def _strict_exit_code(output: object) -> int | None:
     return value
 
 class DeterministicOutcomeEvaluator:
-    """Evaluator consumes tool evidence, never provider narration."""
+    """Facade over an OutcomeEvaluatorRegistry.
+
+    Preserves the legacy constructor signature (evidence_resolver + clock)
+    and delegates to registered evaluators by expected.evaluator_type.
+    The pytest evaluator is registered by default.
+    """
 
     def __init__(
         self,
@@ -85,9 +94,25 @@ class DeterministicOutcomeEvaluator:
         ) = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        registry: OutcomeEvaluatorRegistry | None = None,
     ) -> None:
-        self._evidence_resolver = evidence_resolver
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        if registry is not None:
+            self._registry = registry
+            existing = registry.get(PytestOutcomeEvaluator.evaluator_type)
+            if existing is None or (
+                isinstance(existing, PytestOutcomeEvaluator)
+                and existing.evidence_resolver is None
+            ):
+                registry.register(
+                    PytestOutcomeEvaluator(evidence_resolver=evidence_resolver)
+                )
+        else:
+            self._registry = default_registry(evidence_resolver=evidence_resolver)
+
+    @property
+    def registry(self) -> OutcomeEvaluatorRegistry:
+        return self._registry
 
     def evaluate(
         self,
@@ -102,83 +127,15 @@ class DeterministicOutcomeEvaluator:
         now: datetime | None = None,
     ) -> ObservedOutcome:
         observed = now or self._clock()
-        gaps: list[str] = []
-        status: OutcomeStatus
-        score: float | None = None
-
-        if (
-            task_id != expected.task_id
-            or tenant_id != expected.tenant_id
-            or workspace_id != expected.workspace_id
-        ):
-            status = OutcomeStatus.INVALID
-            gaps.append("expected outcome scope mismatch")
-        elif expected_outcome_contract_error(expected) == "unsupported evaluator":
-            status = OutcomeStatus.INVALID
-            gaps.append("unsupported evaluator")
-        elif (
-            expected_outcome_contract_error(expected)
-            == "unsupported evidence requirements"
-        ):
-            status = OutcomeStatus.INVALID
-            gaps.append("unsupported evidence requirements")
-        elif expected_outcome_contract_error(expected) is not None:
-            status = OutcomeStatus.INVALID
-            gaps.append("unsupported failure semantics")
-        elif observed < expected.frozen_at:
-            status = OutcomeStatus.INVALID
-            gaps.append("observation predates frozen contract")
-        elif observed > expected.frozen_at + timedelta(
-            seconds=expected.observation_window_seconds
-        ):
-            status = OutcomeStatus.UNRESOLVED
-            gaps.append("observation window expired")
-        elif not any(ref.startswith("artifact:") for ref in evidence_refs):
-            status = OutcomeStatus.UNRESOLVED
-            gaps.append("missing required evidence: test-report")
-        elif self._evidence_resolver is None:
-            status = OutcomeStatus.UNRESOLVED
-            gaps.append("test-report evidence is not bound to the durable event chain")
-        elif (
-            report := self._evidence_resolver(task_id, run_id)
-        ) is None or not set(report.artifact_ids).issubset(evidence_refs):
-            status = OutcomeStatus.UNRESOLVED
-            gaps.append("test-report evidence is not bound to the durable event chain")
-        elif report.completed_at < expected.frozen_at:
-            status = OutcomeStatus.INVALID
-            gaps.append("test report predates frozen contract")
-        elif test_exit_code is None:
-            status = OutcomeStatus.UNRESOLVED
-            gaps.append("missing pytest exit code")
-        elif test_exit_code != report.exit_code:
-            status = OutcomeStatus.INVALID
-            gaps.append("pytest exit code does not match durable test report")
-        else:
-            score = 1.0 if report.exit_code == 0 else 0.0
-            if report.exit_code != 0:
-                status = OutcomeStatus.NOT_MET
-                gaps.extend(expected.failure_semantics)
-            elif score < expected.threshold:
-                status = OutcomeStatus.NOT_MET
-                gaps.append("frozen threshold not met")
-            else:
-                status = OutcomeStatus.VERIFIED
-
-        return ObservedOutcome(
-            observed_outcome_id=f"observed-{uuid4()}",
-            expected_outcome_id=expected.expected_outcome_id,
+        return self._registry.evaluate(
+            expected,
             task_id=task_id,
             run_id=run_id,
             tenant_id=tenant_id,
             workspace_id=workspace_id,
-            evaluator_type=expected.evaluator_type,
-            evaluator_version=expected.evaluator_version,
-            status=status,
-            score=score,
-            confidence=1.0,
             evidence_refs=evidence_refs,
-            unresolved_gaps=tuple(gaps),
-            observed_at=observed,
+            test_exit_code=test_exit_code,
+            now=observed,
         )
 
 
@@ -223,6 +180,7 @@ class RunCoordinator:
         self.evaluator = evaluator or DeterministicOutcomeEvaluator(
             task_service.validated_test_report,
             clock=task_service.now,
+            registry=task_service.evaluator_registry,
         )
 
     def run(
