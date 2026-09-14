@@ -4,7 +4,7 @@
 import React from "react";
 import { render } from "ink";
 import { SurfaceClient } from "./client.js";
-import { loadRuntimeDescriptor } from "./descriptor.js";
+import type { RuntimeDescriptor } from "./descriptor.js";
 import { TuiController } from "./controller.js";
 import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
 import { renderDoctorText, runDoctor } from "./doctor.js";
@@ -42,16 +42,48 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args[0] === "provider") {
-    const { runProviderCommand } = await import("./provider-command.js");
-    process.exitCode = await runProviderCommand({
+  if (args[0] === "daemon") {
+    const { runDaemonCommand } = await import("./daemon-command.js");
+    process.exitCode = await runDaemonCommand({
       descriptorPath,
       args: args.slice(1),
     });
     return;
   }
 
-  const descriptor = await loadRuntimeDescriptor(descriptorPath);
+  // Mainstream behavior: typing the product name is enough. Attach to a healthy
+  // daemon, or start one in the background (inheriting this process's env, so a
+  // provider key exported in the shell flows through). `--no-daemon` /
+  // AGENT_OS_NO_AUTOSTART=1 opt out.
+  const { defaultDaemonPaths, ensureDaemon } = await import("./daemon.js");
+  const noAutostart =
+    args.includes("--no-daemon") || process.env.AGENT_OS_NO_AUTOSTART === "1";
+  const paths = defaultDaemonPaths();
+  let descriptor: RuntimeDescriptor;
+  try {
+    descriptor = (
+      await ensureDaemon({
+        descriptorPath: descriptorPath ?? paths.descriptorPath,
+        workspace: paths.workspace,
+        database: paths.database,
+        autoStart: !noAutostart,
+      })
+    ).descriptor;
+  } catch (cause) {
+    console.error(`agent-os-ts: ${(cause as Error).message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (args[0] === "provider") {
+    const { runProviderCommand } = await import("./provider-command.js");
+    process.exitCode = await runProviderCommand({
+      descriptorPath: descriptorPath ?? paths.descriptorPath,
+      args: args.slice(1),
+    });
+    return;
+  }
+
   const client = new SurfaceClient(descriptor);
 
   if (printPrompt !== undefined) {
