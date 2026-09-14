@@ -6,6 +6,7 @@ endpoint class. This path does not alter permit/approval or C7.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import urllib.error
 import urllib.request
@@ -82,6 +83,13 @@ def _clean_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in list(_PROVIDER_READ_ENV_PREFIXES):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("AGENT_OS_RUNTIME_PROVIDER_KEY", raising=False)
+    yield
+    for name in [
+        key
+        for key in os.environ
+        if key.startswith("AGENT_OS_RUNTIME_PROVIDER_KEY_")
+    ]:
+        os.environ.pop(name, None)
 
 
 def _app(root: Path) -> AgentOSApplication:
@@ -242,6 +250,90 @@ def test_http_provider_routes(tmp_path: Path, stub_provider: str) -> None:
         with pytest.raises(urllib.error.HTTPError) as excinfo:
             urllib.request.urlopen(unauth)
         assert excinfo.value.code == 401
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_failed_reconfigure_preserves_active_provider(
+    tmp_path: Path, stub_provider: str
+) -> None:
+    app = _app(tmp_path)
+    runtime = SurfaceRuntime(app)
+    runtime.configure_provider(_command(app, stub_provider))
+    active = app.provider
+    active_resolver_key = app._active_provider_resolver_key
+    assert active_resolver_key and os.environ.get(active_resolver_key) == _SECRET
+
+    # A failed reconfigure must not clobber the live provider's credential.
+    with pytest.raises(ConnectionError):
+        runtime.configure_provider(_command(app, "http://127.0.0.1:1"))
+
+    assert app.provider is active
+    assert runtime.provider_status().configured is True
+    assert os.environ.get(active_resolver_key) == _SECRET
+
+
+def test_endpoint_with_embedded_credentials_is_rejected(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    runtime = SurfaceRuntime(app)
+    with pytest.raises(ValueError, match="must not embed credentials"):
+        runtime.configure_provider(
+            _command(app, "https://user:pass@example.com/v1")
+        )
+    assert runtime.provider_status().configured is False
+
+
+def test_http_provider_validation_error_never_echoes_credential(
+    tmp_path: Path, stub_provider: str
+) -> None:
+    app = _app(tmp_path)
+    token = "test-local-token"
+    handler = type(
+        "TestProviderEchoHandler",
+        (Handler,),
+        {
+            "application": app,
+            "local_token": token,
+            "surface_routes": __import__(
+                "apps.api_server.surface_routes", fromlist=["SurfaceRoutes"]
+            ).SurfaceRoutes(app.surface, token),
+        },
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        body = _command(app, stub_provider).model_dump(mode="json")
+        body["api_key"] = [_SECRET]  # wrong type triggers a ValidationError
+        request = urllib.request.Request(
+            f"{base}/v1/surface/provider",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
+            },
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(request)
+        error_body = excinfo.value.read().decode("utf-8")
+        assert _SECRET not in error_body
+        assert "input_value" not in error_body
+
+        unauth_post = urllib.request.Request(
+            f"{base}/v1/surface/provider",
+            data=json.dumps(
+                _command(app, stub_provider).model_dump(mode="json")
+            ).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as unauth:
+            urllib.request.urlopen(unauth_post)
+        assert unauth.value.code == 401
     finally:
         server.shutdown()
         server.server_close()

@@ -556,7 +556,8 @@ export class TuiController {
     }
   }
 
-  private async modeCommand(arg: string | undefined): Promise<void> {    if (arg) {
+  private async modeCommand(arg: string | undefined): Promise<void> {
+    if (arg) {
       const mode = arg.toUpperCase();
       if (!(MODE_ORDER as string[]).includes(mode)) {
         this.push({ role: "system", content: `invalid mode ${arg}; expected ${MODE_ORDER.join(" | ")}` });

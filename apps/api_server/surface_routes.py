@@ -262,7 +262,13 @@ class SurfaceRoutes:
 
     def _post_provider(self, handler: Any) -> None:
         body = handler._body()
-        command = SurfaceProviderConfigureCommand.model_validate(body)
+        try:
+            command = SurfaceProviderConfigureCommand.model_validate(body)
+        except ValidationError as exc:
+            # Never echo the request body: it carries the credential value.
+            raise SurfaceProtocolError(
+                "provider command payload is invalid"
+            ) from exc
         self._require_protocol_header(handler)
         handler._json(
             200,
