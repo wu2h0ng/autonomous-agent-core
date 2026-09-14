@@ -27,7 +27,7 @@ _RECORDED: list[dict[str, Any]] = []
 
 
 class _StubAnthropicHandler(BaseHTTPRequestHandler):
-    def log_message(self, *args: object) -> None:  # noqa: ANN002
+    def log_message(self, format: str, *args: object) -> None:  # noqa: ANN002
         return
 
     def do_POST(self) -> None:  # noqa: N802

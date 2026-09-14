@@ -137,6 +137,7 @@ from agent_os_core import (
     TaskService,
     EnvCredentialBroker,
     AnthropicMessagesProvider,
+    GeminiGenerativeProvider,
     OpenAICompatibleProvider,
     build_recovery_snapshot,
     PromotionPolicyRegistry,
@@ -181,7 +182,7 @@ from domain_packs.data_agent.situated import DataAgentSituatedRuntime
 
 from .provider_settings import (
     DEFAULT_CREDENTIAL_ENV,
-    KeychainCredentialStore,
+    default_credential_store,
     load_provider_config,
     resolve_provider_key,
     save_provider_config,
@@ -536,11 +537,7 @@ class AgentOSApplication:
             request_timeout_seconds=self.provider_profile.request_timeout_seconds,
             temperature=Decimal("0"),
         )
-        provider_class = (
-            AnthropicMessagesProvider
-            if live_endpoint_class == "anthropic-messages"
-            else OpenAICompatibleProvider
-        )
+        provider_class = self._provider_class_for(live_endpoint_class)
         self.provider = (
             provider_class(
                 base_url=live_base_url,
@@ -829,6 +826,14 @@ class AgentOSApplication:
         return self.workspace_status()
 
     @staticmethod
+    def _provider_class_for(endpoint_class: str):
+        if endpoint_class == "anthropic-messages":
+            return AnthropicMessagesProvider
+        if endpoint_class == "google-generative":
+            return GeminiGenerativeProvider
+        return OpenAICompatibleProvider
+
+    @staticmethod
     def _normalize_provider_base_url(value: str | None) -> str | None:
         if value is None:
             return None
@@ -838,6 +843,9 @@ class AgentOSApplication:
         for suffix in ("/chat/completions", "/v1/messages"):
             if base.endswith(suffix):
                 base = base[: -len(suffix)]
+        gemini_marker = "/v1beta/models/"
+        if gemini_marker in base:
+            base = base[: base.index(gemini_marker)]
         return base or None
 
     @classmethod
@@ -863,10 +871,12 @@ class AgentOSApplication:
             "openai": "OPENAI",
             "anthropic": "ANTHROPIC",
             "deepseek": "DEEPSEEK",
+            "gemini": "GEMINI",
         }.get(profile)
-        profile_endpoint_class = "anthropic-messages" if profile == "anthropic" else (
-            "openai-compatible" if profile_prefix is not None else None
-        )
+        profile_endpoint_class = {
+            "anthropic": "anthropic-messages",
+            "gemini": "google-generative",
+        }.get(profile, "openai-compatible" if profile_prefix is not None else None)
 
         profile_base = None
         profile_model = ""
@@ -889,7 +899,6 @@ class AgentOSApplication:
 
         live_base_url = explicit_base or profile_base or legacy_base
         live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
-        credential_key = explicit_key_env or profile_key_env or "OPENAI_API_KEY"
         explicit_endpoint_class = (
             os.environ.get("AGENT_OS_PROVIDER_ENDPOINT_CLASS") or ""
         ).strip()
@@ -898,10 +907,19 @@ class AgentOSApplication:
             or profile_endpoint_class
             or "openai-compatible"
         )
-        if live_endpoint_class not in {"openai-compatible", "anthropic-messages"}:
+        default_key_env = {
+            "anthropic-messages": "ANTHROPIC_API_KEY",
+            "google-generative": "GEMINI_API_KEY",
+        }.get(live_endpoint_class, "OPENAI_API_KEY")
+        credential_key = explicit_key_env or profile_key_env or default_key_env
+        if live_endpoint_class not in {
+            "openai-compatible",
+            "anthropic-messages",
+            "google-generative",
+        }:
             raise ValueError(
-                "unsupported endpoint_class: expected openai-compatible or "
-                "anthropic-messages"
+                "unsupported endpoint_class: expected openai-compatible, "
+                "anthropic-messages or google-generative"
             )
         return live_base_url, live_model, credential_key, live_endpoint_class
 
@@ -926,14 +944,21 @@ class AgentOSApplication:
         for suffix in ("/chat/completions", "/v1/messages"):
             if base_url.endswith(suffix):
                 base_url = base_url[: -len(suffix)]
+        gemini_marker = "/v1beta/models/"
+        if gemini_marker in base_url:
+            base_url = base_url[: base_url.index(gemini_marker)]
         model = str(payload.get("model", "")).strip()
         endpoint_class = str(
             payload.get("endpoint_class", "openai-compatible")
         ).strip()
-        if endpoint_class not in {"openai-compatible", "anthropic-messages"}:
+        if endpoint_class not in {
+            "openai-compatible",
+            "anthropic-messages",
+            "google-generative",
+        }:
             raise ValueError(
-                "unsupported endpoint_class: expected openai-compatible or "
-                "anthropic-messages"
+                "unsupported endpoint_class: expected openai-compatible, "
+                "anthropic-messages or google-generative"
             )
         model_revision_digest = payload.get("model_revision_digest")
         if model_revision_digest is not None and (
@@ -993,11 +1018,7 @@ class AgentOSApplication:
                     request_timeout_seconds=60,
                     created_at=now,
                 )
-                provider_class = (
-                    AnthropicMessagesProvider
-                    if endpoint_class == "anthropic-messages"
-                    else OpenAICompatibleProvider
-                )
+                provider_class = self._provider_class_for(endpoint_class)
                 provider = provider_class(
                     base_url=base_url,
                     model=model,
@@ -1059,7 +1080,7 @@ class AgentOSApplication:
                         "credential_env": credential_env,
                     }
                 )
-                KeychainCredentialStore().store(DEFAULT_CREDENTIAL_ENV, api_key)
+                default_credential_store().store(DEFAULT_CREDENTIAL_ENV, api_key)
             except Exception:
                 # Persistence is convenience only; the live provider is already
                 # committed. Never fail the configure on a store error.

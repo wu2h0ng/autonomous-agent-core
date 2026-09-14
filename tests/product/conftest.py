@@ -31,19 +31,12 @@ def _hermetic_provider_persistence(tmp_path, monkeypatch):
 
     configure_provider persists the non-secret config and stores the key in the
     OS keychain; tests must never touch either the developer's real keychain or
-    ``~/.agent-os/provider.json``. Tests that exercise persistence override this
-    with their own tmp config path.
+    ``~/.agent-os/provider.json``. The config path is redirected to tmp and the
+    keychain is disabled via AGENT_OS_DISABLE_KEYCHAIN (the credential-store
+    classes stay real so their own tests can exercise them).
     """
-
-    from apps.api_server.provider_settings import KeychainCredentialStore
 
     monkeypatch.setenv(
         "AGENT_OS_PROVIDER_CONFIG", str(tmp_path / "provider.json")
     )
-    monkeypatch.setattr(KeychainCredentialStore, "available", lambda self: False)
-    monkeypatch.setattr(
-        KeychainCredentialStore, "store", lambda self, account, secret: False
-    )
-    monkeypatch.setattr(
-        KeychainCredentialStore, "load", lambda self, account: None
-    )
+    monkeypatch.setenv("AGENT_OS_DISABLE_KEYCHAIN", "1")

@@ -82,6 +82,7 @@ from .governance import (
 from .provider import (
     AnthropicMessagesProvider,
     CredentialUnavailable,
+    GeminiGenerativeProvider,
     DeterministicProvider,
     EnvCredentialBroker,
     OpenAICompatibleProvider,
@@ -417,6 +418,7 @@ __all__ = [
     "DeterministicProvider",
     "EnvCredentialBroker",
     "AnthropicMessagesProvider",
+    "GeminiGenerativeProvider",
     "OpenAICompatibleProvider",
     "ProviderPort",
     "EventEnvelopeAdapter",

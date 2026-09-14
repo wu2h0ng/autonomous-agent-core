@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,7 @@ _CHAT_RESPONSE = {
 
 
 class _StubHandler(BaseHTTPRequestHandler):
-    def log_message(self, *args: object) -> None:  # noqa: ANN002
+    def log_message(self, format: str, *args: object) -> None:  # noqa: ANN002
         return
 
     def do_POST(self) -> None:  # noqa: N802
@@ -42,7 +43,7 @@ class _StubHandler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def stub_provider() -> str:
+def stub_provider() -> Iterator[str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), _StubHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
@@ -167,9 +168,6 @@ def test_startup_autoload_does_not_repersist(
         raise AssertionError("autoload must not re-persist")
 
     monkeypatch.setattr(app_module, "save_provider_config", _boom)
-    monkeypatch.setattr(
-        app_module.KeychainCredentialStore, "store", _boom
-    )
     app = app_module.AgentOSApplication(
         database=tmp_path / "a.sqlite3", workspace=tmp_path
     )

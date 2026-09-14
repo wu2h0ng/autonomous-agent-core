@@ -25,6 +25,12 @@ product-test = [
 tui = [
     "textual==6.9.0",
 ]
+# Optional OS-keychain backend for the terminal provider credential store
+# (no argv exposure). Without it the runtime falls back to the `security` CLI
+# and then to the environment.
+keyring = [
+    "keyring>=24,<26",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
