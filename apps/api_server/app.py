@@ -136,6 +136,7 @@ from agent_os_core import (
     SituationalTrustResolver,
     TaskService,
     EnvCredentialBroker,
+    AnthropicMessagesProvider,
     OpenAICompatibleProvider,
     build_recovery_snapshot,
     PromotionPolicyRegistry,
@@ -482,7 +483,9 @@ class AgentOSApplication:
                 pipeline=pipeline,
                 capability_spec=connector.specs()[DATA_QUERY_CAPABILITY_ID],
             )
-        live_base_url, live_model, credential_key = self._resolve_live_provider_env()
+        live_base_url, live_model, credential_key, live_endpoint_class = (
+            self._resolve_live_provider_env()
+        )
         live_model_revision_digest = os.environ.get(
             "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
         )
@@ -491,7 +494,7 @@ class AgentOSApplication:
             owner_principal_id=self.principal.principal_id,
             tenant_id=self.principal.tenant_id,
             workspace_id=self.principal.workspace_id,
-            provider_id="openai-compatible",
+            provider_id=live_endpoint_class,
             resolver_key=credential_key,
             scopes=("chat",),
             status=CredentialStatus.ACTIVE,
@@ -501,10 +504,10 @@ class AgentOSApplication:
         built_in_profile_created_at = datetime(1970, 1, 1, tzinfo=timezone.utc)
         self.provider_profile = ProviderProfile(
             profile_id="provider-profile:default",
-            provider_id="openai-compatible" if live_base_url else "deterministic",
+            provider_id=live_endpoint_class if live_base_url else "deterministic",
             model_id=live_model if live_base_url else "deterministic-v1",
             model_revision_digest=live_model_revision_digest,
-            endpoint_class="openai-compatible" if live_base_url else "test",
+            endpoint_class=live_endpoint_class if live_base_url else "test",
             credential_ref_id=credential_ref.credential_ref_id,
             capabilities=("chat",),
             max_context_tokens=16_000,
@@ -526,8 +529,13 @@ class AgentOSApplication:
             request_timeout_seconds=self.provider_profile.request_timeout_seconds,
             temperature=Decimal("0"),
         )
+        provider_class = (
+            AnthropicMessagesProvider
+            if live_endpoint_class == "anthropic-messages"
+            else OpenAICompatibleProvider
+        )
         self.provider = (
-            OpenAICompatibleProvider(
+            provider_class(
                 base_url=live_base_url,
                 model=live_model,
                 credential=credential_ref,
@@ -821,7 +829,7 @@ class AgentOSApplication:
         return base or None
 
     @classmethod
-    def _resolve_live_provider_env(cls) -> tuple[str | None, str, str]:
+    def _resolve_live_provider_env(cls) -> tuple[str | None, str, str, str]:
         """Resolve live provider base_url, model, and credential env var name.
 
         Precedence:
@@ -844,6 +852,9 @@ class AgentOSApplication:
             "anthropic": "ANTHROPIC",
             "deepseek": "DEEPSEEK",
         }.get(profile)
+        profile_endpoint_class = "anthropic-messages" if profile == "anthropic" else (
+            "openai-compatible" if profile_prefix is not None else None
+        )
 
         profile_base = None
         profile_model = ""
@@ -867,7 +878,15 @@ class AgentOSApplication:
         live_base_url = explicit_base or profile_base or legacy_base
         live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
         credential_key = explicit_key_env or profile_key_env or "OPENAI_API_KEY"
-        return live_base_url, live_model, credential_key
+        explicit_endpoint_class = (
+            os.environ.get("AGENT_OS_PROVIDER_ENDPOINT_CLASS") or ""
+        ).strip()
+        live_endpoint_class = (
+            explicit_endpoint_class
+            or profile_endpoint_class
+            or "openai-compatible"
+        )
+        return live_base_url, live_model, credential_key, live_endpoint_class
 
     def provider_status(self) -> dict[str, Any]:
         return {
@@ -887,9 +906,10 @@ class AgentOSApplication:
         endpoint_class = str(
             payload.get("endpoint_class", "openai-compatible")
         ).strip()
-        if endpoint_class != "openai-compatible":
+        if endpoint_class not in {"openai-compatible", "anthropic-messages"}:
             raise ValueError(
-                "unsupported endpoint_class: only openai-compatible is supported"
+                "unsupported endpoint_class: expected openai-compatible or "
+                "anthropic-messages"
             )
         model_revision_digest = payload.get("model_revision_digest")
         if model_revision_digest is not None and (
@@ -930,7 +950,7 @@ class AgentOSApplication:
                     owner_principal_id=self.principal.principal_id,
                     tenant_id=self.principal.tenant_id,
                     workspace_id=self.principal.workspace_id,
-                    provider_id="openai-compatible",
+                    provider_id=endpoint_class,
                     resolver_key=resolver_key,
                     scopes=("chat",),
                     status=CredentialStatus.ACTIVE,
@@ -939,17 +959,22 @@ class AgentOSApplication:
                 )
                 profile = ProviderProfile(
                     profile_id=f"provider-profile:{uuid4()}",
-                    provider_id="openai-compatible",
+                    provider_id=endpoint_class,
                     model_id=model,
                     model_revision_digest=model_revision_digest,
-                    endpoint_class="openai-compatible",
+                    endpoint_class=endpoint_class,
                     credential_ref_id=credential.credential_ref_id,
                     capabilities=("chat", "tool-calls"),
                     max_context_tokens=16_000,
                     request_timeout_seconds=60,
                     created_at=now,
                 )
-                provider = OpenAICompatibleProvider(
+                provider_class = (
+                    AnthropicMessagesProvider
+                    if endpoint_class == "anthropic-messages"
+                    else OpenAICompatibleProvider
+                )
+                provider = provider_class(
                     base_url=base_url,
                     model=model,
                     credential=credential,

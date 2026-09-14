@@ -1,8 +1,9 @@
 # GC + CP/AB — Provider 兼容扩展 + 终端内添加 Provider（rev 1）
 
 - **日期**：2026-09-14
-- **状态**：`SLICE_1_IMPLEMENTED_LOCAL / AWAITING_INDEPENDENT_REVIEW / SLICE_2_DEFERRED`
-- **Founder 决策（2026-09-14）**：批准 **Slice 1 先行**（终端加 provider）；凭证仅内存 env resolver（key 不落盘），已确认。
+- **状态**：`SLICE_1_MERGED_PR22_FCBE6EF9 / SLICE_2_ANTHROPIC_IMPLEMENTED_LOCAL / AWAITING_INDEPENDENT_REVIEW / SLICE_2_GEMINI_DEFERRED`
+- **Founder 决策（2026-09-14）**：批准 **Slice 1 先行**（终端加 provider）；凭证仅内存 env resolver（key 不落盘），已确认。Slice 1 已合并 PR #22（`fcbe6ef9`）。
+- **Slice 2（Anthropic 原生）as-built**：新增 `AnthropicMessagesProvider`（`POST {base_url}/v1/messages`，头 `x-api-key` + `anthropic-version`，system/messages/tools/tool_use/tool_result 映射，usage 精确、cost UNKNOWN）；`OpenAICompatibleProvider` 抽出三个传输钩子（`_request_body`/`_transport_headers`/`_parse_completion`）+ `DEFAULT_ENDPOINT_PATH`/`EXPECTED_ENDPOINT_CLASS`/`ADAPTER_KIND` 作为 seam，invocation-binding/credential/failure 机制共用；选择面 `AGENT_OS_PROVIDER_ENDPOINT_CLASS` 或 profile `anthropic`；`configure_provider` 现支持 `endpoint_class ∈ {openai-compatible, anthropic-messages}`。**流式未实现**：Anthropic `complete_streaming` 回退为单次 complete（一条 delta），诚实标注。Gemini（`google-generative`）仍 fail-closed 未实现。
 - **Track**：Product（高风险：provider/凭证路径 + 新增网络出口 + 终端交互面）
 - **基座**：`main @ 404724b8`（OS-SANDBOX-0 与 CI 修复已并入）
 
