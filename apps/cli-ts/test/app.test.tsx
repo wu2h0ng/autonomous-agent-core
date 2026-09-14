@@ -424,3 +424,64 @@ test("approval: empty comment + Enter does not approve", async () => {
     view.unmount();
   }
 });
+
+test("approval card renders the durable identity line (tier · node · requested)", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const internals = controller as never as { status: string; snapshot: unknown };
+  internals.status = "awaiting_approval";
+  internals.snapshot = {
+    ...SNAPSHOT,
+    status: "WAITING_APPROVAL",
+    pending_approval: {
+      action_digest: "d".repeat(64),
+      capability_id: "workspace.edit",
+      proposal_id: "p:1",
+      preview: "edit f.txt",
+      requested_at: "2026-09-14T00:00:00Z",
+    },
+  };
+  controller.pendingApproval = {
+    capabilityId: "workspace.edit",
+    riskTier: 3,
+    nodeId: "node:1",
+    requestedAt: "2026-09-14T00:00:00Z",
+    actionDigest: "d".repeat(64),
+  };
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    const frame = view.lastFrame() ?? "";
+    // the card line comes from the durable payload only — nothing is invented
+    assert.match(frame, /risk tier 3 · node node:1 · requested 2026-09-14T00:00:00Z/);
+    assert.match(frame, new RegExp(`digest ${"d".repeat(16)}`));
+  } finally {
+    view.unmount();
+  }
+});
+
+test("approval card omits the identity line entirely when nothing was captured", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const internals = controller as never as { status: string; snapshot: unknown };
+  internals.status = "awaiting_approval";
+  internals.snapshot = {
+    ...SNAPSHOT,
+    status: "WAITING_APPROVAL",
+    pending_approval: {
+      action_digest: "d".repeat(64),
+      capability_id: "workspace.edit",
+      proposal_id: "p:1",
+      preview: "edit f.txt",
+      requested_at: "2026-09-14T00:00:00Z",
+    },
+  };
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    const frame = view.lastFrame() ?? "";
+    assert.match(frame, /approval required/);
+    assert.equal(frame.includes("risk tier"), false, "no tier line without durable data");
+    assert.equal(frame.includes("requested "), false);
+  } finally {
+    view.unmount();
+  }
+});
