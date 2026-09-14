@@ -116,7 +116,7 @@ class SurfaceProviderStatus(ContractModel):
     credential_ref_id: NonEmptyStr | None = None
     base_url: NonEmptyStr | None = None
     persisted: bool = False
-    key_source: NonEmptyStr | None = None
+    key_source: Literal["keychain", "env", "none"] | None = None
 
 
 class SurfaceProviderClearCommand(ContractModel):

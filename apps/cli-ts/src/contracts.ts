@@ -257,7 +257,7 @@ export const SurfaceProviderStatusSchema = z.object({
   credential_ref_id: NonEmptyStr.nullable().optional(),
   base_url: NonEmptyStr.nullable().optional(),
   persisted: z.boolean().optional(),
-  key_source: NonEmptyStr.nullable().optional(),
+  key_source: z.enum(["keychain", "env", "none"]).nullable().optional(),
 });
 export type SurfaceProviderStatus = z.infer<typeof SurfaceProviderStatusSchema>;
 

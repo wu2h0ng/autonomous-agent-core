@@ -746,3 +746,20 @@ test("/provider set without an env key never echoes or stores a key", async () =
   );
   assert.ok(!JSON.stringify(controller.messages).includes("sk-"));
 });
+
+test("/provider set reads the key from env and never echoes it into the transcript", async () => {
+  const sentinel = "sk-test-do-not-echo-123";
+  const client = new FakeClient();
+  const controller = new TuiController(client as never);
+  const previous = process.env.AGENT_OS_PROVIDER_KEY;
+  process.env.AGENT_OS_PROVIDER_KEY = sentinel;
+  try {
+    await controller.submit("/provider set https://api.example.com/v1 m");
+  } finally {
+    if (previous === undefined) delete process.env.AGENT_OS_PROVIDER_KEY;
+    else process.env.AGENT_OS_PROVIDER_KEY = previous;
+  }
+  // The key was present and used, yet must not appear in the transcript.
+  assert.equal(client.configureCalls, 1);
+  assert.ok(!JSON.stringify(controller.messages).includes(sentinel));
+});
