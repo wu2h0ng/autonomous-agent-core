@@ -797,10 +797,8 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
 
     Reuses the shared invocation-binding, credential and failure machinery from
     ``OpenAICompatibleProvider`` and overrides only the transport hooks. Token
-    streaming is not implemented for this native protocol yet: ``complete_streaming``
-    falls back to a single-shot ``complete`` (the terminal renders the full text
-    at turn end) rather than mis-parsing a foreign SSE dialect. Cost remains
-    UNKNOWN (no pricing source); token counts are exact.
+    streaming is native via ``_parse_sse_stream`` (the Messages SSE dialect);
+    cost remains UNKNOWN (no pricing source), token counts are exact.
     """
 
     DEFAULT_ENDPOINT_PATH = "/v1/messages"
@@ -975,6 +973,12 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                         index, {"id": "", "name": "", "arguments": ""}
                     )
                     bucket["arguments"] += str(delta.get("partial_json", ""))
+                elif delta.get("type") == "thinking_delta":
+                    # Transient reasoning is display-only and never merged into
+                    # the durable response text.
+                    thinking = str(delta.get("thinking", ""))
+                    if thinking and on_reasoning_delta is not None:
+                        on_reasoning_delta(thinking)
             elif event_type == "message_delta":
                 delta = payload.get("delta") or {}
                 if delta.get("stop_reason"):
@@ -1068,8 +1072,8 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
 
     ``POST {base_url}/v1beta/models/{model}:generateContent`` with an
     ``x-goog-api-key`` header. Reuses the shared invocation/credential/failure
-    machinery. Streaming is not implemented (complete_streaming falls back to a
-    single-shot complete); token usage is exact, cost UNKNOWN.
+    machinery. Token streaming is native via ``_parse_sse_stream``
+    (``streamGenerateContent?alt=sse``); token usage is exact, cost UNKNOWN.
     """
 
     DEFAULT_ENDPOINT_PATH = "/v1beta/models"
@@ -1159,7 +1163,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         text = "".join(
             str(part.get("text", ""))
             for part in parts
-            if isinstance(part, dict) and "text" in part
+            if isinstance(part, dict)
+            and "text" in part
+            and not part.get("thought")
         )
         proposals: list[ProviderToolProposal] = []
         for part in parts:
@@ -1265,9 +1271,15 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
                     continue
                 text = part.get("text")
                 if text:
-                    text_parts.append(str(text))
-                    if on_text_delta is not None:
-                        on_text_delta(str(text))
+                    if part.get("thought"):
+                        # Transient reasoning (thought) is display-only; never
+                        # merged into the durable response text.
+                        if on_reasoning_delta is not None:
+                            on_reasoning_delta(str(text))
+                    else:
+                        text_parts.append(str(text))
+                        if on_text_delta is not None:
+                            on_text_delta(str(text))
                 call = part.get("functionCall")
                 if isinstance(call, dict):
                     proposals.append(
