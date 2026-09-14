@@ -94,3 +94,21 @@
 - 退出条件：命令 + 测试 + 无协议变更（复用 v1.1）；CI 绿。
 
 **2b 行为差异登记（非逐位等价，F3）**：cli-ts 的 `session correct` 的 reason 可省略（缺省 `operator correction`），pause/resume 额外接受自定义 reason；Python `session-correct` 的 reason 为 argparse 必填，`session-pause/-resume` 只接受 session-id。属有意扩展；2f 删除 Python 时按此登记，不视为 parity 缺口。
+
+## 9. Stage 2c — work/run 与 agent-status/-answer/-correct/-resume（2026-09-15，处置：API-only）
+
+**Founder 决策（选项 B）**：治理/管理操作**不进终端**；终端只保留 **agent 循环（交互 + headless）** 与 **配置/会话命令**（对齐主流 Claude Code / Codex / opencode / Gemini CLI）。因此 2c **不新增 cli-ts 命令**，surface 协议 **v1.1 不变**。
+
+**实现位置**：这些操作在内核 `agent_os_core/responsibility_surface.py`（`run_responsibility_work` / `responsibility_status_payload` / `answer_responsibility_help` / `correct_responsibility_work`）；`apps/cli/__main__.py` 只是 in-process 包装，删除 A 不会移除能力。
+
+**既有 HTTP 管理覆盖（apps/api_server/server.py）**：
+| 操作 | HTTP 端点 | 状态 |
+|---|---|---|
+| status（责任视图） | `GET /v1/mandates/{id}/responsibility-view` | ✅ |
+| answer（答复 help request） | `GET/POST /v1/mandates/{id}/outcome-portfolio/help-requests[:respond]` | ✅ |
+| run（受监督工作循环，`--max-cycles`） | — | ❌ 无 HTTP 端点 |
+| correct（operator 纠正） | — | ❌ 无 HTTP 端点 |
+
+**结论 / pre-2f 门**：2f 删除 A 前，`run` / `correct` 必须在 HTTP 管理 API 上有端点（或明确 **park 为 daemon-only**），否则它们在产品上只剩进程内可达。→ **需 founder 决策**：补管理端点 vs park。
+
+**测试迁移**：A 的 CLI 测试（`agent-run/-status/-answer/-correct`）覆盖改由 **HTTP API 层测试**保持（非 cli-ts，因终端不实现管理面）。
