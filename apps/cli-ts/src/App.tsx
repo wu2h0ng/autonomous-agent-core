@@ -968,7 +968,9 @@ export function App({
             <Text dimColor>
               {diffEntrySet.tooLarge > 0
                 ? `${diffEntrySet.tooLarge} edit diff(s) are too large to render — the tool viewer has the arguments (esc closes)`
-                : "no diffs yet — approval previews and edit tool calls appear here (esc closes)"}
+                : diffEntrySet.dropped > 0
+                  ? `${diffEntrySet.dropped} older diff(s) not shown (esc closes)`
+                  : "no diffs yet — approval previews and edit tool calls appear here (esc closes)"}
             </Text>
           )}
         </Box>

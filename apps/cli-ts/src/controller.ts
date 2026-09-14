@@ -62,7 +62,7 @@ export interface ToolCall {
   receiptStatus?: string;
 }
 
-/** Approval identity captured from the durable SESSION_APPROVAL_PENDING
+/** Durable approval identity captured from the SESSION_APPROVAL_PENDING
  * payload — the card shows what the kernel actually recorded, not a guess. */
 export interface PendingApprovalInfo {
   capabilityId: string;
@@ -70,6 +70,9 @@ export interface PendingApprovalInfo {
   riskTier?: number;
   nodeId?: string;
   requestedAt?: string;
+  /** Kernel action digest — the binding used to keep/drop this identity when
+   * a snapshot is adopted (serialisation-independent). */
+  actionDigest?: string;
 }
 
 /** Human duration for tool cards: ms under a second, then one decimal. */
@@ -989,15 +992,15 @@ export class TuiController {
     // action keeps it: the identity is captured from the durable pending
     // event, and adoptSnapshot runs on that very resolution path
     // (awaitDurableResolution), so clearing it here would erase the tier/node
-    // before the card ever renders. The binding is the kernel's own
-    // (capability + requested_at) within one session — a digest we never saw
-    // must never be described by another action's tier/node.
+    // before the card ever renders. The binding is the kernel's action digest
+    // — the same value the snapshot exposes — within one session; a digest we
+    // never saw must never be described by another action's tier/node.
     const pending = snapshot.pending_approval;
     const sameAction =
       previousSessionId === snapshot.session.session_id &&
       pending != null &&
-      pending.capability_id === this.pendingApproval?.capabilityId &&
-      pending.requested_at === this.pendingApproval?.requestedAt;
+      this.pendingApproval?.actionDigest !== undefined &&
+      pending.action_digest === this.pendingApproval.actionDigest;
     if (!sameAction) this.pendingApproval = null;
     this.pendingPreview = pending?.preview ?? null;
     this.recentSessions = [
@@ -1206,10 +1209,7 @@ export class TuiController {
         // (older kernels) are accepted for back-compat.
         if (typeof payload["turn_id"] === "string" && payload["turn_id"] !== this.turnId) continue;
         this.pendingPreview = String(payload["preview"] ?? "");
-        this.pendingApproval = this.approvalInfoFromAction(
-          payload["action"],
-          payload["requested_at"],
-        );
+        this.pendingApproval = this.approvalInfoFromPayload(payload);
         this.status = "awaiting_approval";
         this.finalizeAll();
       } else if (event.event_type === "ACTION_PROPOSED") {
@@ -1221,8 +1221,12 @@ export class TuiController {
   }
 
   /** Durable approval identity from the SESSION_APPROVAL_PENDING payload;
-   * null when the payload carries no action (never guessed). */
-  private approvalInfoFromAction(action: unknown, requestedAt: unknown): PendingApprovalInfo | null {
+   * null when the payload carries no action (never guessed). `action_digest`
+   * is the kernel's own action identity — the same value the snapshot exposes
+   * as `pending_approval.action_digest` — so the card can be bound to it
+   * without depending on timestamp serialisation. */
+  private approvalInfoFromPayload(payload: Record<string, unknown>): PendingApprovalInfo | null {
+    const action = payload["action"];
     if (!action || typeof action !== "object") return null;
     const record = action as Record<string, unknown>;
     const capabilityId = record["capability_id"];
@@ -1230,12 +1234,15 @@ export class TuiController {
     const actionId = record["action_id"];
     const riskTier = record["risk_tier"];
     const nodeId = record["node_id"];
+    const requestedAt = payload["requested_at"];
+    const actionDigest = payload["action_digest"];
     return {
       capabilityId,
       ...(typeof actionId === "string" && actionId ? { actionId } : {}),
       ...(typeof riskTier === "number" ? { riskTier } : {}),
       ...(typeof nodeId === "string" && nodeId ? { nodeId } : {}),
       ...(typeof requestedAt === "string" && requestedAt ? { requestedAt } : {}),
+      ...(typeof actionDigest === "string" && actionDigest ? { actionDigest } : {}),
     };
   }
 
