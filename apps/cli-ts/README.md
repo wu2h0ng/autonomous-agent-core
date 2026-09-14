@@ -54,11 +54,11 @@ approval preview and every edit diff in the session: syntax-highlighted,
 scrollable (`↑↓`, `Ctrl-D/U`), hunk jumps (`n`/`p`) and `[`/`]` to switch
 diffs. Both viewers are bounded and say so when they truncate.
 
-Approval cards show the pending capability, the risk tier and node recorded
-in the durable event, and the digest the approval binds to; `y` approves,
-`n` rejects, `c` opens comment mode (Enter approves with the typed comment as
-the durable reason, Esc cancels) and `Ctrl-A` opens the full diff. Esc never
-approves or rejects.
+Approval cards show the pending capability, the risk tier, node and request
+time recorded in the durable event, and the digest the approval binds to; `y`
+approves, `n` rejects, `c` opens comment mode (Enter approves with the typed
+comment as the durable reason, Esc cancels) and `Ctrl-A` opens the full diff.
+Esc never approves or rejects.
 
 `/theme` accepts `default`, `ansi`, `mono` and `inherit` — `inherit` sets no
 colours at all and follows the terminal's own theme. In `default`/`ansi` the
@@ -83,7 +83,7 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 135 unit tests; `npm run build` type-checks.
+`npm test` runs the 137 unit tests; `npm run build` type-checks.
 
 ## Other entry points
 
