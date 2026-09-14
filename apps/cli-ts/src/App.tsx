@@ -36,6 +36,7 @@ import { segmentPreview } from "./diff.js";
 import {
   collectDiffEntries,
   editArgsToDiff,
+  editDiffTooLarge,
   editPathFromArgs,
   hunkStarts,
   previewToDiff,
@@ -130,11 +131,9 @@ function MessageView({
           ? theme.toolDone
           : theme.toolFailed;
     const duration = tool.durationMs === undefined ? "" : ` · ${formatDuration(tool.durationMs)}`;
-    const tier = tool.riskTier !== undefined && tool.riskTier >= 3 ? ` · tier ${tool.riskTier}` : "";
     return (
       <Text {...paint(color)}>
         {TOOL_ICON[tool.status]} {tool.capabilityId}({tool.argsSummary}){duration}
-        {tier}
       </Text>
     );
   }
@@ -280,9 +279,13 @@ export function App({
     // durable reason (the protocol's `reason` field), never a plain message.
     if (approvalComment) {
       const comment = composer.value.trim();
+      // An empty comment must not approve: the banner says "Enter approves
+      // with it", and a bare Enter is exactly the accidental approval this
+      // mode exists to avoid. Esc cancels; y approves without a comment.
+      if (!comment) return;
       setApprovalComment(false);
       setComposer(EMPTY);
-      void controller.approve(comment || undefined).catch(() => undefined);
+      void controller.approve(comment).catch(() => undefined);
       return;
     }
     let value = composer.value;
@@ -306,8 +309,9 @@ export function App({
   const toolCalls = controller.messages.filter((message) => message.tool);
   const pendingPreview = controller.currentSnapshot?.pending_approval?.preview ?? null;
   // The diff viewer's model is only built while it is open (an LCS diff per
-  // edit tool is not free), and it is bounded in entries and lines.
-  const diffEntries =
+  // edit tool is not free), and it is bounded in entries and lines. The
+  // counts below are what the viewer is not showing.
+  const diffEntrySet =
     overlay?.kind === "diff"
       ? collectDiffEntries(
           controller.messages,
@@ -319,7 +323,8 @@ export function App({
             : null,
           { maxEntries: DIFF_MAX_ENTRIES, maxLines: DIFF_MAX_LINES },
         )
-      : [];
+      : { entries: [], dropped: 0 };
+  const diffEntries = diffEntrySet.entries;
 
   useInput((keyInput, key) => {
     const selector = controller.pendingSelector;
@@ -725,9 +730,11 @@ export function App({
 
     if (handleGlobalKey(controller, keyInput, key)) return;
 
-    if (controller.status === "awaiting_approval") {
+    if (controller.status === "awaiting_approval" && !approvalComment) {
       // Approve/reject/comment consume the key: the character must not also
       // leak into the composer (it would be submitted on the next Enter).
+      // While comment mode is ON this whole block is skipped, so a comment
+      // containing "y"/"n"/"c" can never decide anything by itself.
       if (keyInput === "y") {
         void controller.approve().catch(() => undefined);
         return;
@@ -738,7 +745,7 @@ export function App({
       }
       // [c] opens comment mode: Enter approves WITH the typed comment as the
       // durable reason, Esc cancels (never a silent always-allow).
-      if (keyInput === "c" && !approvalComment) {
+      if (keyInput === "c") {
         setApprovalComment(true);
         setComposer(EMPTY);
         return;
@@ -788,8 +795,9 @@ export function App({
     ),
   );
   const toolWindow = toolCalls.slice(toolWindowStart, toolWindowStart + TOOL_LIST_WINDOW);
-  const selectedTool = toolCalls[selectedToolIndex]?.tool;
+  const selectedTool = overlay?.kind === "tools" ? toolCalls[selectedToolIndex]?.tool : undefined;
   const selectedToolDiff = selectedTool ? editArgsToDiff(selectedTool.argsJson) : null;
+  const selectedToolDiffTooLarge = selectedTool ? editDiffTooLarge(selectedTool.argsJson) : false;
   const selectedToolPath = selectedTool ? editPathFromArgs(selectedTool.argsJson) : null;
   const selectedToolLang = selectedToolPath ? languageForPath(selectedToolPath) : undefined;
 
@@ -873,6 +881,12 @@ export function App({
                     : line.text}
                 </Text>
               ))}
+              {selectedToolDiffTooLarge ? (
+                <Text dimColor>
+                  (diff not rendered: this edit is too large to diff safely — the arguments above are
+                  complete)
+                </Text>
+              ) : null}
               {selectedToolDiff && selectedToolDiff.length > TOOL_DIFF_PREVIEW_LINES ? (
                 <Text dimColor>
                   … ({selectedToolDiff.length - TOOL_DIFF_PREVIEW_LINES} more diff lines; /diff opens the full
@@ -891,6 +905,7 @@ export function App({
               <Text bold {...paint(theme.accent)} wrap="truncate-end">
                 diff {diffEntryIndex + 1}/{diffEntries.length} · {diffEntry.title}
                 {diffEntry.truncated ? " · truncated" : ""}
+                {diffEntrySet.dropped > 0 ? ` · ${diffEntrySet.dropped} older diff(s) not shown` : ""}
                 {diffHunks.length > 0
                   ? ` · hunk ${Math.max(1, diffHunks.filter((start) => start <= diffOffset).length)}/${diffHunks.length}`
                   : ""}
@@ -1077,7 +1092,8 @@ export function App({
       )}
       {approvalComment && (
         <Text {...paint(theme.approvalTitle)}>
-          approval comment — Enter approves with it (recorded in the durable approval) · Esc cancels
+          approval comment — type it, then Enter approves with it (recorded in the durable approval) · Esc
+          cancels
         </Text>
       )}
       {controller.goal && (
