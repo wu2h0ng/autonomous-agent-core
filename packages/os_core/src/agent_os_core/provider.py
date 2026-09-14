@@ -1172,18 +1172,24 @@ def _gemini_schema(value: object) -> object:
     """Project an OpenAI-style JSON schema onto the Gemini Schema subset.
 
     Gemini rejects unknown keys (e.g. ``additionalProperties``, ``minLength``),
-    so only the supported subset is forwarded.
+    so only the supported subset is forwarded. ``properties`` is special: its
+    keys are user attribute names (not schema keywords) and must be preserved
+    while each property's value is projected as a schema.
     """
 
-    if isinstance(value, dict):
-        return {
-            key: _gemini_schema(item)
-            for key, item in value.items()
-            if key in _GEMINI_SCHEMA_KEYS
-        }
     if isinstance(value, list):
         return [_gemini_schema(item) for item in value]
-    return value
+    if not isinstance(value, dict):
+        return value
+    projected: dict[str, object] = {}
+    for key, item in value.items():
+        if key == "properties" and isinstance(item, dict):
+            projected["properties"] = {
+                name: _gemini_schema(schema) for name, schema in item.items()
+            }
+        elif key in _GEMINI_SCHEMA_KEYS:
+            projected[key] = _gemini_schema(item)
+    return projected
 
 
 def _gemini_tool(capability_id: str) -> dict[str, object]:

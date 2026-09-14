@@ -163,6 +163,10 @@ def test_gemini_request_and_response_mapping(monkeypatch) -> None:  # type: igno
     assert body["contents"][1]["parts"][0]["functionCall"]["name"] == "workspace__read"
     assert body["contents"][2]["parts"][0]["functionResponse"]["name"] == "workspace__read"
     assert body["tools"][0]["functionDeclarations"][0]["name"] == "workspace__read"
+    parameters = body["tools"][0]["functionDeclarations"][0]["parameters"]
+    assert parameters["properties"], "property names must survive projection"
+    assert "additionalProperties" not in parameters
+    assert "required" not in parameters or parameters["required"]
 
 
 def test_gemini_missing_credential_is_a_failure(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -264,3 +268,32 @@ def test_default_store_prefers_keyring(monkeypatch) -> None:  # type: ignore[no-
     assert store_obj.load("account") == _SECRET
     store_obj.delete("account")
     assert store_obj.load("account") is None
+
+
+def test_gemini_unmatched_tool_result_fails_closed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("GEMINI_TEST_KEY", _SECRET)
+    provider = GeminiGenerativeProvider(
+        base_url=_stub(),
+        model="gemini-1.5-pro",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+    )
+    request = ProviderRequest(
+        request_id="req:orphan",
+        task_id="task:1",
+        run_id="run:1",
+        provider_profile_id="provider-profile:default",
+        messages=(
+            ProviderMessage(role=ProviderMessageRole.USER, content="hi"),
+            ProviderMessage(
+                role=ProviderMessageRole.TOOL,
+                content="orphan",
+                tool_call_id="call_missing",
+            ),
+        ),
+        timeout_seconds=30,
+        created_at=datetime.now(timezone.utc),
+    )
+    result = provider.complete(request)
+    assert not isinstance(result, ProviderResponse)
+    assert result.code.value == "MALFORMED"
