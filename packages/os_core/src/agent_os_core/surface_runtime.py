@@ -219,21 +219,16 @@ class SurfaceRuntime:
         return self._application.surface_context_status(session_id)
 
     def explain_action(self, command: SurfaceExplainCommand) -> SurfaceExplainResponse:
-        """Ctrl-E explanation: idempotent, principal-scoped, read-only.
+        """Ctrl-E explanation: principal-scoped, read-only, explicitly NOT
+        persisted.
 
-        No state changes and no durable writes: the narrow provider decision is
-        display-only (`durable=false`). Explaining a pending approval happens
-        during an uncommitted turn by construction, so the app-level guard is
-        "a turn is uncommitted AND no approval is pending for it".
+        Nothing is stored — not even an idempotency record: the explanation is
+        display-only and must never become durable (E1), so it must not ride in
+        the idempotency table either. A repeated press is a new explicit
+        operator action and asks the provider again.
         """
         with self._session_lock(command.session_id):
-            return self._idempotent(
-                scope=f"surface:explain:{command.session_id}",
-                key=command.idempotency_key,
-                command=command,
-                response_type=SurfaceExplainResponse,
-                operation=lambda: self._explain_once(command),
-            )
+            return self._explain_once(command)
 
     def _explain_once(self, command: SurfaceExplainCommand) -> SurfaceExplainResponse:
         self._require_protocol(command.protocol_version)

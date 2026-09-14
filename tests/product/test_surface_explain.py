@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ import pytest
 
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
+    ApprovalDecision,
+    ApprovalDisposition,
     ProviderErrorCode,
     ProviderFailure,
     ProviderToolProposal,
@@ -31,6 +34,7 @@ from agent_os_core import (
     ChatSession,
     DeferredApprovalGateway,
     DeterministicProvider,
+    InvalidTransitionError,
     SurfaceScopeError,
     SurfaceRuntime,
 )
@@ -191,28 +195,7 @@ def test_explain_discards_an_authority_shaped_answer(tmp_path: Path) -> None:
     assert app.store.read(session.task_id) == before
 
 
-def test_explain_maps_a_provider_failure(tmp_path: Path) -> None:
-    app = _app(tmp_path)
-    session, _, digest = _pending_session(app)
-    runtime = SurfaceRuntime(app)
-
-    class FailingProvider(DeterministicProvider):
-        def decide(self, request: Any) -> ProviderFailure:
-            return ProviderFailure(
-                failure_id="failure:1",
-                request_id=request.request_id,
-                code=ProviderErrorCode.TIMEOUT,
-                retryable=True,
-                safe_message="timed out",
-                occurred_at=datetime.now(timezone.utc),
-            )
-
-    app.provider = FailingProvider(invocation_binding=app.provider.invocation_binding)
-    with pytest.raises(ValueError, match="provider call failed"):
-        runtime.explain_action(_command(app, session.session_id, digest))
-
-
-def test_explain_is_scoped_and_idempotent(tmp_path: Path) -> None:
+def test_explain_is_scoped_and_never_persisted(tmp_path: Path) -> None:
     app = _app(tmp_path)
     session, _, digest = _pending_session(app)
     runtime = SurfaceRuntime(app)
@@ -228,10 +211,119 @@ def test_explain_is_scoped_and_idempotent(tmp_path: Path) -> None:
     with pytest.raises(SurfaceScopeError):
         runtime.explain_action(foreign)
 
-    command = _command(app, session.session_id, digest)
-    first = runtime.explain_action(command)
-    second = runtime.explain_action(command)
-    assert second.model_dump(mode="json") == first.model_dump(mode="json")
+    response = runtime.explain_action(_command(app, session.session_id, digest))
+    assert response.text == EXPLANATION
+    # display-only means NOT persisted: no idempotency record, and the text
+    # never reaches the durable database file (E1: transient is not durable)
+    scope = f"surface:explain:{session.session_id}"
+    assert app.surface_idempotency_record(scope, "explain-1") is None
+    assert EXPLANATION.encode("utf-8") not in (tmp_path / "agent-os.sqlite3").read_bytes()
+    # a repeated press is a new explicit operator action: the provider is asked
+    # again and nothing is replayed from a stored record
+    provider = app.provider
+    assert isinstance(provider, DeterministicProvider)
+    again = runtime.explain_action(_command(app, session.session_id, digest))
+    assert len(provider.decision_requests) == 2
+    assert again.text == provider.text  # the scripted queue is exhausted
+
+
+def test_explain_is_dropped_when_the_approval_resolves_mid_call(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    session, loop, digest = _pending_session(app)
+    runtime = SurfaceRuntime(app)
+
+    class ResolvingProvider(DeterministicProvider):
+        def decide(self, request: Any) -> Any:
+            # the operator decides while the provider is still thinking
+            decided_at = datetime.now(timezone.utc)
+            loop.resume_pending_approval(
+                session,
+                ApprovalDecision(
+                    approval_id="approval:race",
+                    tenant_id=session.ref.tenant_id,
+                    workspace_id=session.ref.workspace_id,
+                    action_digest=digest,
+                    disposition=ApprovalDisposition.APPROVE,
+                    reason="approved during explain",
+                    actor_id=app.principal.principal_id,
+                    actor_role=app.principal.role,
+                    decided_at=decided_at,
+                    expires_at=decided_at + timedelta(minutes=5),
+                ),
+            )
+            return super().decide(request)
+
+    app.provider = ResolvingProvider(
+        scripted=((EXPLANATION, ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    with pytest.raises(InvalidTransitionError, match="stale"):
+        runtime.explain_action(_command(app, session.session_id, digest))
+
+
+def test_explain_refuses_while_a_turn_has_no_pending_approval(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    gate = threading.Event()
+
+    class SlowProvider(DeterministicProvider):
+        def complete(self, request: Any) -> Any:
+            gate.wait(timeout=5)
+            return super().complete(request)
+
+    app.provider = SlowProvider(
+        text="done", invocation_binding=app.provider.invocation_binding
+    )
+    session, loop = app.open_chat_session("in flight", DeferredApprovalGateway())
+    thread = threading.Thread(target=lambda: loop.run_turn(session, "slow"), daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            projected = app.tasks.project_session(session.task_id, session.session_id)
+            if projected.resumable_turn_id is not None:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("the in-flight turn never became durable")
+        with pytest.raises(InvalidTransitionError, match="uncommitted turn"):
+            SurfaceRuntime(app).explain_action(
+                _command(app, session.session_id, "digest:any")
+            )
+    finally:
+        gate.set()
+        thread.join(timeout=5)
+
+
+def test_explain_keeps_the_provider_failure_typed(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    session, _, digest = _pending_session(app)
+    runtime = SurfaceRuntime(app)
+
+    def failing(code: ProviderErrorCode) -> type[DeterministicProvider]:
+        class _Failing(DeterministicProvider):
+            def decide(self, request: Any) -> ProviderFailure:
+                return ProviderFailure(
+                    failure_id="failure:1",
+                    request_id=request.request_id,
+                    code=code,
+                    retryable=code is ProviderErrorCode.TIMEOUT,
+                    safe_message="timed out",
+                    occurred_at=datetime.now(timezone.utc),
+                )
+
+        return _Failing
+
+    app.provider = failing(ProviderErrorCode.TIMEOUT)(
+        invocation_binding=app.provider.invocation_binding
+    )
+    with pytest.raises(RuntimeError, match="retryable=True"):
+        runtime.explain_action(_command(app, session.session_id, digest))
+
+    app.provider = failing(ProviderErrorCode.REFUSED)(
+        invocation_binding=app.provider.invocation_binding
+    )
+    with pytest.raises(ValueError, match="retryable=False"):
+        runtime.explain_action(_command(app, session.session_id, digest))
 
 
 def test_explain_route_requires_bearer_and_returns_the_explanation(

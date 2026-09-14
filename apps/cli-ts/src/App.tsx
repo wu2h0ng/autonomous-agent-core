@@ -1090,7 +1090,8 @@ export function App({
             )}
             {controller.explainText && (
               <Text {...paint(theme.thinking)} wrap="wrap">
-                🧠 {controller.explainText}
+                🧠 model output · display-only · not an approval basis{'\n'}
+                {controller.explainText}
               </Text>
             )}
             <Text {...paint(theme.approvalTitle)}>

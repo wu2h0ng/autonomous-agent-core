@@ -2740,7 +2740,10 @@ class AgentOSApplication:
             raise ValueError("explain requires a pending approval")
         if pending.action.action_digest() != command.action_digest:
             raise ValueError("explain digest does not match the pending action")
-        binding = self.provider.invocation_binding
+        try:
+            binding = self.provider.invocation_binding
+        except RuntimeError as exc:  # unbound provider: typed, never a crash
+            raise ValueError(f"provider binding is unavailable: {exc}") from exc
         live_profile = binding.provider_profile
         if (
             pending.provider_profile_id != live_profile.profile_id
@@ -2772,12 +2775,30 @@ class AgentOSApplication:
         )
         response = self.provider.decide(request)
         if isinstance(response, ProviderFailure):
-            raise ValueError(f"explain provider call failed: {response.code.value}")
+            # keep the typed information: a retryable provider outage is a 503,
+            # a non-retryable refusal/malformation is a client-visible 422
+            detail = f"{response.code.value} (retryable={response.retryable})"
+            if response.retryable:
+                raise RuntimeError(f"explain provider temporarily unavailable: {detail}")
+            raise ValueError(f"explain provider call failed: {detail}")
         if response.request_id != request.request_id or response.tool_proposals:
             # an authority-shaped answer is discarded whole, never truncated
             raise ValueError("explain provider response was authority-shaped")
         if response.invocation_binding_digest != binding.digest():
             raise ValueError("explain provider response binding mismatch")
+        # Stale guard (GC §2 S2): the pending action may have been resolved or
+        # replaced while the provider was thinking. The explanation is only
+        # valid while that exact digest is still pending; otherwise it is
+        # dropped whole and nothing is returned.
+        after = self.tasks.project_session(task_id, command.session_id)
+        pending_after = after.pending_continuation
+        if (
+            pending_after is None
+            or pending_after.action.action_digest() != command.action_digest
+        ):
+            raise InvalidTransitionError(
+                "explain result is stale: the pending approval changed or resolved"
+            )
         text = response.text
         return SurfaceExplainResponse(
             session_id=command.session_id,
