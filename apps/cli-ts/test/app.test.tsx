@@ -454,16 +454,21 @@ test("approval: comment mode never decides on y/n inside the comment; Enter send
     await flush();
     assert.match(view.lastFrame() ?? "", /approval comment/);
 
-    // A comment full of decision letters must never decide anything.
-    await view.stdin.write("no, use the read-only path");
+    // A comment full of decision letters must never decide anything — type it
+    // one key at a time, exactly like a human (a multi-char write is a paste
+    // and takes a different code path).
+    const comment = "no, use the read-only path";
+    for (const character of comment) {
+      await view.stdin.write(character);
+    }
     await flush();
     assert.deepEqual(decisions, []);
     assert.match(view.lastFrame() ?? "", /use the read-only path/);
 
-    // An empty comment must not approve either (bare Enter).
+    // Enter sends the whole comment as the durable reason.
     await view.stdin.write("\r");
     await flush();
-    assert.deepEqual(decisions, ["APPROVE:no, use the read-only path"]);
+    assert.deepEqual(decisions, [`APPROVE:${comment}`]);
   } finally {
     view.unmount();
   }

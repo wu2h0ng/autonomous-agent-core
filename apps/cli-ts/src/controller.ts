@@ -977,21 +977,28 @@ export class TuiController {
   }
 
   private adoptSnapshot(snapshot: SurfaceSessionSnapshot): void {
+    const previousSessionId = this.sessionId;
     this.snapshot = snapshot;
     this.sessionId = snapshot.session.session_id;
     this.taskId = snapshot.session.task_id;
     this.mode = snapshot.permission_mode;
     this.stream = null;
     this.filesCache = null;
-    // A resolved approval or a different session never inherits the previous
-    // approval identity. The SAME still-pending action keeps it: the identity
-    // is captured from the durable pending event, and adoptSnapshot runs on
-    // that very resolution path (awaitDurableResolution), so clearing it here
-    // would erase the tier/node before the card ever renders.
+    // A resolved approval, a different session, or a different pending action
+    // never inherits the previous approval identity. The SAME still-pending
+    // action keeps it: the identity is captured from the durable pending
+    // event, and adoptSnapshot runs on that very resolution path
+    // (awaitDurableResolution), so clearing it here would erase the tier/node
+    // before the card ever renders. The binding is the kernel's own
+    // (capability + requested_at) within one session — a digest we never saw
+    // must never be described by another action's tier/node.
     const pending = snapshot.pending_approval;
-    if (!pending || pending.capability_id !== this.pendingApproval?.capabilityId) {
-      this.pendingApproval = null;
-    }
+    const sameAction =
+      previousSessionId === snapshot.session.session_id &&
+      pending != null &&
+      pending.capability_id === this.pendingApproval?.capabilityId &&
+      pending.requested_at === this.pendingApproval?.requestedAt;
+    if (!sameAction) this.pendingApproval = null;
     this.pendingPreview = pending?.preview ?? null;
     this.recentSessions = [
       snapshot.session.session_id,
