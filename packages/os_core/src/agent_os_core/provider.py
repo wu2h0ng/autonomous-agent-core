@@ -834,6 +834,10 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         allowed_capability_ids: tuple[str, ...],
         stream: bool,
     ) -> dict[str, object]:
+        if stream:
+            # Streaming for the native Anthropic SSE dialect is not implemented
+            # yet; fail closed rather than emit an OpenAI-shaped stream request.
+            raise ValueError("anthropic streaming is not implemented")
         system_parts = [
             str(message.content)
             for message in request.messages
@@ -850,7 +854,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         }
         if system_parts:
             body["system"] = "\n\n".join(system_parts)
-        if temperature:
+        if temperature is not None:
             body["temperature"] = temperature
         if allowed_capability_ids:
             body["tools"] = [

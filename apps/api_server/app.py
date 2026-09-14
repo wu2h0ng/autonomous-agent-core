@@ -824,8 +824,9 @@ class AgentOSApplication:
         base = value.strip().rstrip("/")
         if not base:
             return None
-        if base.endswith("/chat/completions"):
-            base = base[: -len("/chat/completions")]
+        for suffix in ("/chat/completions", "/v1/messages"):
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
         return base or None
 
     @classmethod
@@ -886,6 +887,11 @@ class AgentOSApplication:
             or profile_endpoint_class
             or "openai-compatible"
         )
+        if live_endpoint_class not in {"openai-compatible", "anthropic-messages"}:
+            raise ValueError(
+                "unsupported endpoint_class: expected openai-compatible or "
+                "anthropic-messages"
+            )
         return live_base_url, live_model, credential_key, live_endpoint_class
 
     def provider_status(self) -> dict[str, Any]:
@@ -900,8 +906,9 @@ class AgentOSApplication:
 
     def configure_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
         base_url = str(payload.get("base_url", "")).rstrip("/")
-        if base_url.endswith("/chat/completions"):
-            base_url = base_url.removesuffix("/chat/completions")
+        for suffix in ("/chat/completions", "/v1/messages"):
+            if base_url.endswith(suffix):
+                base_url = base_url[: -len(suffix)]
         model = str(payload.get("model", "")).strip()
         endpoint_class = str(
             payload.get("endpoint_class", "openai-compatible")

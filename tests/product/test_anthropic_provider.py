@@ -258,3 +258,17 @@ def test_surface_configure_selects_anthropic_adapter(tmp_path: Path, monkeypatch
     assert status.endpoint_class == "anthropic-messages"
     assert isinstance(app.provider, AnthropicMessagesProvider)
     assert app._active_provider_resolver_key is not None
+
+
+def test_anthropic_explicit_zero_temperature_is_kept(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ANTHROPIC_TEST_KEY", _SECRET)
+    _RECORDED.clear()
+    provider = AnthropicMessagesProvider(
+        base_url=_stub(),
+        model="claude-sonnet-4",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        temperature=0.0,
+    )
+    provider.complete(_request())
+    assert _RECORDED[-1]["body"]["temperature"] == 0.0
