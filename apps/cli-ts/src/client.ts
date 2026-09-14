@@ -17,6 +17,7 @@ import { z } from "zod";import {
   SurfaceBeginTurnResponseSchema,
   SurfaceContextStatusSchema,
   SurfaceEventBatchSchema,
+  SurfaceCompactResponseSchema,
   SurfaceExplainResponseSchema,
   SurfaceForkResponseSchema,
   SurfaceFileEntrySchema,
@@ -33,6 +34,7 @@ import { z } from "zod";import {
   type SurfaceBeginTurnResponse,
   type SurfaceClientRef,
   type SurfaceContextStatus,
+  type SurfaceCompactResponse,
   type SurfaceEventBatch,
   type SurfaceExplainResponse,
   type SurfaceForkResponse,
@@ -237,6 +239,31 @@ export class SurfaceClient {
       `/v1/surface/sessions/${sessionId}/context`,
     );
     return this.unwrap(response, "context", SurfaceContextStatusSchema);
+  }
+
+  /** S4: replace the request view with one durable summary (raw history kept). */
+  async compactSession(sessionId: string): Promise<SurfaceCompactResponse> {
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/compact`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        expected_event_sequence: this.sequence(sessionId),
+        idempotency_key: `cli-ts-compact:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const compaction = this.unwrap(
+      response,
+      "compaction",
+      SurfaceCompactResponseSchema,
+    );
+    // the compaction appends a durable event: re-sync the tracked sequence so
+    // the next sequence-exact command is not rejected as stale
+    await this.getSession(sessionId);
+    return compaction;
   }
 
   /** S3: fork the parent session into a fresh child (parent read-only). */

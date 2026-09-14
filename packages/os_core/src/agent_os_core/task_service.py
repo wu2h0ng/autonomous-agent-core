@@ -85,6 +85,7 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.SESSION_APPROVAL_RESOLVED,
         TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
         TaskEventType.SESSION_FORKED,
+        TaskEventType.SESSION_CONTEXT_COMPACTED,
     }
 )
 
@@ -761,6 +762,76 @@ class TaskService:
                 return
         raise InvalidTransitionError(
             "imported turns require this session's fork record"
+        )
+
+    def record_session_context_compacted(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        summary: str,
+        summary_digest: str,
+        replaced_to_message_index: int,
+        before_chars: int,
+        after_chars: int,
+        provider_profile_id: str,
+    ) -> TaskAggregate:
+        """Typed writer for the protected SESSION_CONTEXT_COMPACTED record.
+
+        Requires quiescence: no open turn and no pending approval. The raw
+        history is never rewritten — this record only changes the request view.
+        """
+
+        if not summary.strip():
+            raise ValueError("compaction summary must be non-empty")
+        if not summary_digest.strip() or not provider_profile_id.strip():
+            raise ValueError("compaction digests must be non-empty")
+        if (
+            isinstance(replaced_to_message_index, bool)
+            or replaced_to_message_index < 0
+            or before_chars < 0
+            or after_chars < 0
+        ):
+            raise ValueError("compaction counts must be non-negative")
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if projected.closed:
+            raise InvalidTransitionError("cannot compact a closed session")
+        if projected.compaction is not None:
+            raise InvalidTransitionError("session already has a compaction record")
+        if projected.resumable_turn_id is not None:
+            raise InvalidTransitionError(
+                "cannot compact a session with an open turn"
+            )
+        if projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "cannot compact a session with a pending approval"
+            )
+        if not 0 <= replaced_to_message_index < projected.next_message_index:
+            raise InvalidTransitionError("compaction boundary is out of range")
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_CONTEXT_COMPACTED,
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "run_id": projected.ref.run_id,
+                "tenant_id": projected.ref.tenant_id,
+                "workspace_id": projected.ref.workspace_id,
+                "summary": summary,
+                "summary_digest": summary_digest,
+                "replaced_to_message_index": replaced_to_message_index,
+                "before_chars": before_chars,
+                "after_chars": after_chars,
+                "provider_profile_id": provider_profile_id,
+            },
+            correlation_id=session_id,
+            writer_token=self._runtime_writer_token,
         )
 
     def record_imported_session_turn_start(

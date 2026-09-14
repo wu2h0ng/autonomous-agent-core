@@ -262,6 +262,7 @@ class AgentLoop:
         session: ChatSession,
         config: AgentLoopConfig | None = None,
         initial_history: tuple[ProviderMessage, ...] | None = None,
+        next_message_index: int | None = None,
         message_sink: Callable[[ChatSession, int, ProviderMessage, str | None], None],
         resumable_turn_ids: tuple[str, ...] = (),
         execution_fence: Callable[[str], None] | None = None,
@@ -308,6 +309,15 @@ class AgentLoop:
                 "agent loop history requires exactly one leading frozen system prompt"
             )
         self._history = list(history)
+        # Durable message index bookkeeping is explicit: after a context
+        # compaction the in-memory request view is SHORTER than the durable
+        # history, so `len(self._history)` must never be used as an index.
+        durable_next = len(history) if next_message_index is None else next_message_index
+        if isinstance(durable_next, bool) or durable_next < len(history):
+            raise ValueError(
+                "next_message_index must cover the supplied history"
+            )
+        self._next_message_index = durable_next
         self._message_sink = message_sink
         self._resumable_turn_ids = set(resumable_turn_ids)
         self._execution_owner = f"surface-runtime:{uuid4()}"
@@ -378,7 +388,7 @@ class AgentLoop:
             session.task_id,
             session.session_id,
         )
-        if projected.history != tuple(self._history):
+        if projected.context_view != tuple(self._history):
             raise InvalidTransitionError(
                 "resumed turn does not bind the restored session history"
             )
@@ -472,14 +482,18 @@ class AgentLoop:
         turn_id: TurnId,
         resolved: ProjectedResolvedContinuation,
     ) -> TurnResult:
+        projected = self._tasks.project_session(
+            session.task_id,
+            session.session_id,
+        )
         if (
             resolved.turn_id != turn_id.turn_id
-            or resolved.assistant_message_index >= len(self._history)
+            or resolved.assistant_message_index >= len(projected.history)
         ):
             raise InvalidTransitionError(
                 "resolved continuation does not bind the resumed turn"
             )
-        assistant = self._history[resolved.assistant_message_index]
+        assistant = projected.history[resolved.assistant_message_index]
         proposals = tuple(
             ProviderToolProposal(
                 proposal_id=call.tool_call_id,
@@ -551,7 +565,7 @@ class AgentLoop:
         if pending is None:
             raise InvalidTransitionError("session has no pending approval")
         if (
-            projected.history != tuple(self._history)
+            projected.context_view != tuple(self._history)
             or projected.resumable_turn_id != pending.turn_id
             or pending.turn_id not in self._resumable_turn_ids
         ):
@@ -780,6 +794,7 @@ class AgentLoop:
             tool_message=tool_message,
         )
         self._history.append(tool_message)
+        self._next_message_index += 1
         turn_id = TurnId(
             turn_id=pending.turn_id,
             session_id=session.session_id,
@@ -903,7 +918,7 @@ class AgentLoop:
                     for proposal in response.tool_proposals
                 )
                 self._assert_execution_fence("before_provider_commit")
-                assistant_message_index = len(self._history)
+                assistant_message_index = self._next_message_index
                 assistant_message = ProviderMessage(
                     role=ProviderMessageRole.ASSISTANT,
                     content=response.text,
@@ -922,6 +937,7 @@ class AgentLoop:
                         total_tokens=total_tokens,
                     )
                     self._history.append(assistant_message)
+                    self._next_message_index += 1
                     break
                 continuation_checkpoint = self._append_turn_progress(
                     session,
@@ -1079,9 +1095,10 @@ class AgentLoop:
         *,
         turn_id: str | None,
     ) -> None:
-        index = len(self._history)
+        index = self._next_message_index
         self._message_sink(session, index, message, turn_id)
         self._history.append(message)
+        self._next_message_index += 1
 
     def _append_continuation_message(
         self,
@@ -1109,6 +1126,7 @@ class AgentLoop:
             seen_action_digests=seen_action_digests,
         )
         self._history.append(message)
+        self._next_message_index += 1
         projected = self._tasks.project_session(
             session.task_id,
             session.session_id,

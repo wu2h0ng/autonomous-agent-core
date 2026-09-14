@@ -449,6 +449,7 @@ class TaskAggregate:
             TaskEventType.SESSION_TURN_COMPLETED,
             TaskEventType.SESSION_OPENED,
             TaskEventType.SESSION_FORKED,
+            TaskEventType.SESSION_CONTEXT_COMPACTED,
             TaskEventType.SESSION_MESSAGE_RECORDED,
             TaskEventType.SESSION_APPROVAL_PENDING,
             TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,

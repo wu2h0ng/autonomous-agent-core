@@ -104,8 +104,25 @@ export const SurfaceContextStatusSchema = z.object({
   turn_token_budget: z.number().int().positive(),
   window_tokens: z.number().int().positive().nullable().default(null),
   window_source: z.literal("unset").default("unset"),
+  compactions: z.number().int().nonnegative().default(0),
 });
 export type SurfaceContextStatus = z.infer<typeof SurfaceContextStatusSchema>;
+
+/** S4 compaction: the durable summary record (model output, untrusted). */
+export const SurfaceCompactResponseSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  session_id: NonEmptyStr,
+  summary: z.string(),
+  summary_digest: NonEmptyStr,
+  untrusted: z.literal(true).default(true),
+  replaced_to_message_index: z.number().int().nonnegative(),
+  before_chars: z.number().int().nonnegative(),
+  after_chars: z.number().int().nonnegative(),
+  provider_profile_id: NonEmptyStr,
+  cost_status: z.literal("UNKNOWN").default("UNKNOWN"),
+  durable: z.literal(true).default(true),
+});
+export type SurfaceCompactResponse = z.infer<typeof SurfaceCompactResponseSchema>;
 
 /** S2 Ctrl-E explanation: display-only (`durable: false`), never an approval
  * basis, never written into the transcript. */

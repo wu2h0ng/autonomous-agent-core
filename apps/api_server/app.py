@@ -85,6 +85,8 @@ from agent_os_contracts import (
     SurfaceSessionStatus,
     SurfaceConflictProjection,
     SurfaceContextStatus,
+    SurfaceCompactCommand,
+    SurfaceCompactResponse,
     SurfaceExplainCommand,
     SurfaceExplainResponse,
     SurfaceForkCommand,
@@ -162,6 +164,7 @@ from agent_os_core import (
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.session_projection import SessionLoopConfig
+from agent_os_core.session_projection import COMPACTION_SUMMARY_PREFIX
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import (
     EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
@@ -235,6 +238,17 @@ _EXPLAIN_SYSTEM_PROMPT = (
     "You explain one governed action to the operator. Say what the action "
     "does, why the agent proposed it and its risk level. Never execute "
     "anything, never propose tools and never ask for approval."
+)
+
+# S4 compaction: one narrow, read-only summary call. The summary is context
+# material (model output, untrusted) and the raw history is never rewritten.
+_COMPACT_TIMEOUT_SECONDS = 60
+_COMPACT_MAX_INPUT_CHARS = 20_000
+_COMPACT_MAX_SUMMARY_CHARS = 4_000
+_COMPACT_SYSTEM_PROMPT = (
+    "Summarise the conversation so far for your own future context. Keep "
+    "decisions, concrete file/command facts, constraints and open questions. "
+    "Never invent facts, never propose tools and never ask for approval."
 )
 
 
@@ -2092,7 +2106,8 @@ class AgentOSApplication:
             gateway=gateway,
             session=session,
             config=config,
-            initial_history=projected.history,
+            initial_history=projected.context_view,
+            next_message_index=projected.next_message_index,
             message_sink=self._record_chat_message,
             resumable_turn_ids=resumable_turn_ids,
             collaboration_preflight=self.collaboration_preflight,
@@ -2676,7 +2691,7 @@ class AgentOSApplication:
             # same response shape as a missing session)
             raise SurfaceSessionNotFound(f"session {session_id} not found")
         view = trimmed_history_view(
-            projected.history, projected.loop_config.max_context_chars
+            projected.context_view, projected.loop_config.max_context_chars
         )
         history_chars = sum(len(message.content) for message in projected.history)
         events = self.store.read(task_id)
@@ -2708,6 +2723,7 @@ class AgentOSApplication:
             dropped_turns=view.dropped_turns,
             total_tokens=total_tokens,
             turn_token_budget=projected.loop_config.max_turn_tokens,
+            compactions=1 if projected.compaction is not None else 0,
         )
 
     def surface_explain_action(
@@ -2916,6 +2932,112 @@ class AgentOSApplication:
             imported_turns=len(blocks),
             imported_messages=index - 1,
             imported_history_digest=imported_history_digest,
+        )
+
+    def surface_compact_session(
+        self, command: SurfaceCompactCommand
+    ) -> SurfaceCompactResponse:
+        """S4 compact: replace the request view with one model summary.
+
+        The compaction is a durable, auditable record; the raw history is
+        never rewritten, so the original text stays readable in the event
+        stream. The summary call goes through the narrow decision channel
+        (no tools) and a failure leaves no event behind.
+        """
+
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before compacting a session"
+            )
+        task_id = self.surface_task_for_session(command.session_id)
+        projected = self.tasks.project_session(task_id, command.session_id)
+        if (
+            projected.ref.tenant_id != self.principal.tenant_id
+            or projected.ref.workspace_id != self.principal.workspace_id
+        ):
+            raise SurfaceSessionNotFound(f"session {command.session_id} not found")
+        if projected.closed:
+            raise InvalidTransitionError("cannot compact a closed session")
+        if projected.resumable_turn_id is not None:
+            raise InvalidTransitionError(
+                "cannot compact a session with an open turn"
+            )
+        if projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "cannot compact a session with a pending approval"
+            )
+        if projected.compaction is not None:
+            raise InvalidTransitionError("session already has a compaction record")
+        if projected.next_message_index <= 1:
+            raise ValueError("nothing to compact yet")
+        try:
+            binding = self.provider.invocation_binding
+        except RuntimeError as exc:  # unbound provider: typed, never a crash
+            raise ValueError(f"provider binding is unavailable: {exc}") from exc
+        boundary = projected.next_message_index - 1
+        transcript = "\n".join(
+            f"{message.role.value}: {message.content}"
+            for message in projected.history[1:]
+        )
+        request = ProviderDecisionRequest(
+            request_id=(
+                f"provider-decision:compact:{command.session_id}:"
+                f"{projected.next_message_index}"
+            ),
+            decision_kind="CONTEXT_COMPACTION",
+            provider_profile_id=binding.provider_profile.profile_id,
+            expected_invocation_binding_digest=binding.digest(),
+            messages=(
+                ProviderMessage(
+                    role=ProviderMessageRole.SYSTEM,
+                    content=_COMPACT_SYSTEM_PROMPT,
+                ),
+                ProviderMessage(
+                    role=ProviderMessageRole.USER,
+                    content=transcript[-_COMPACT_MAX_INPUT_CHARS:],
+                ),
+            ),
+            timeout_seconds=_COMPACT_TIMEOUT_SECONDS,
+            created_at=self._clock(),
+        )
+        response = self.provider.decide(request)
+        if isinstance(response, ProviderFailure):
+            detail = f"{response.code.value} (retryable={response.retryable})"
+            if response.retryable:
+                raise RuntimeError(f"compact provider temporarily unavailable: {detail}")
+            raise ValueError(f"compact provider call failed: {detail}")
+        if response.request_id != request.request_id or response.tool_proposals:
+            raise ValueError("compact provider response was authority-shaped")
+        if response.invocation_binding_digest != binding.digest():
+            raise ValueError("compact provider response binding mismatch")
+        summary = response.text.strip()[:_COMPACT_MAX_SUMMARY_CHARS]
+        if not summary:
+            raise ValueError("compact provider returned an empty summary")
+        before_chars = sum(len(message.content) for message in projected.history)
+        after_chars = (
+            len(projected.history[0].content)
+            + len(COMPACTION_SUMMARY_PREFIX)
+            + len(summary)
+        )
+        summary_digest = content_digest({"summary": summary})
+        self.tasks.record_session_context_compacted(
+            task_id,
+            session_id=command.session_id,
+            summary=summary,
+            summary_digest=summary_digest,
+            replaced_to_message_index=boundary,
+            before_chars=before_chars,
+            after_chars=after_chars,
+            provider_profile_id=binding.provider_profile.profile_id,
+        )
+        return SurfaceCompactResponse(
+            session_id=command.session_id,
+            summary=summary,
+            summary_digest=summary_digest,
+            replaced_to_message_index=boundary,
+            before_chars=before_chars,
+            after_chars=after_chars,
+            provider_profile_id=binding.provider_profile.profile_id,
         )
 
     def _close_truncated_child(self, child: ChatSession) -> None:

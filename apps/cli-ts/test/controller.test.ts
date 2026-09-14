@@ -1046,6 +1046,52 @@ test("/context without a session never calls the kernel", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /no session yet/);
 });
 
+test("/compact prints the untrusted summary and the char delta", async () => {
+  const client = {
+    async compactSession(sessionId: string) {
+      assert.equal(sessionId, "s:1");
+      return {
+        protocol_version: "1.1",
+        session_id: "s:1",
+        summary: "Earlier: two edits were applied.",
+        summary_digest: "digest:sum",
+        untrusted: true,
+        replaced_to_message_index: 4,
+        before_chars: 900,
+        after_chars: 300,
+        provider_profile_id: "provider-profile:default",
+        cost_status: "UNKNOWN",
+        durable: true,
+      };
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { sessionId: string }).sessionId = "s:1";
+  await controller.submit("/compact");
+  const content = controller.messages.at(-1)?.content ?? "";
+  assert.match(content, /chars 900 → 300/);
+  assert.match(content, /raw transcript kept/);
+  assert.match(content, /untrusted, not an approval basis/);
+  assert.match(content, /two edits were applied/);
+});
+
+test("/compact refuses while an approval is pending", async () => {
+  let calls = 0;
+  const client = {
+    async compactSession() {
+      calls += 1;
+      return {};
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as { sessionId: string; status: string };
+  internals.sessionId = "s:1";
+  internals.status = "awaiting_approval";
+  await controller.submit("/compact");
+  assert.equal(calls, 0);
+  assert.match(controller.messages.at(-1)?.content ?? "", /cannot compact while a turn is in flight/);
+});
+
 test("/fork adopts the child session and reports the import honestly", async () => {
   const client = {
     async forkSession(parentSessionId: string) {

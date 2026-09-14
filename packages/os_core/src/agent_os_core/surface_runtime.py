@@ -22,6 +22,8 @@ from agent_os_contracts import (
     SurfaceBeginTurnResponse,
     SurfaceClientRef,
     SurfaceContextStatus,
+    SurfaceCompactCommand,
+    SurfaceCompactResponse,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceExplainCommand,
@@ -51,6 +53,7 @@ ResponseT = TypeVar(
     SurfaceBeginTurnResponse,
     SurfaceExplainResponse,
     SurfaceForkResponse,
+    SurfaceCompactResponse,
 )
 
 
@@ -136,6 +139,9 @@ class SurfaceApplicationPort(Protocol):
     ) -> SurfaceSessionListResponse: ...
     def surface_context_status(self, session_id: str) -> SurfaceContextStatus: ...
     def surface_fork_session(self, command: SurfaceForkCommand) -> SurfaceForkResponse: ...
+    def surface_compact_session(
+        self, command: SurfaceCompactCommand
+    ) -> SurfaceCompactResponse: ...
     def surface_explain_action(
         self, command: SurfaceExplainCommand
     ) -> SurfaceExplainResponse: ...
@@ -262,6 +268,25 @@ class SurfaceRuntime:
         self._require_sequence(parent_task_id, command.expected_event_sequence)
         self._require_open_session(command.parent_session_id)
         return self._application.surface_fork_session(command)
+
+    def compact_session(self, command: SurfaceCompactCommand) -> SurfaceCompactResponse:
+        """S4 compact: idempotent, principal-scoped, sequence-exact."""
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:compact:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceCompactResponse,
+                operation=lambda: self._compact_once(command),
+            )
+
+    def _compact_once(self, command: SurfaceCompactCommand) -> SurfaceCompactResponse:
+        self._require_protocol(command.protocol_version)
+        task_id = self._application.surface_task_for_session(command.session_id)
+        self._require_principal_scope(command.client)
+        self._require_sequence(task_id, command.expected_event_sequence)
+        self._require_open_session(command.session_id)
+        return self._application.surface_compact_session(command)
 
     def run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):

@@ -217,6 +217,7 @@ class SurfaceContextStatus(ContractModel):
     turn_token_budget: int = Field(ge=1)
     window_tokens: int | None = Field(default=None, ge=1)
     window_source: Literal["unset"] = "unset"
+    compactions: int = Field(ge=0, default=0)
 
 
 class SurfaceExplainCommand(ContractModel):
@@ -279,6 +280,38 @@ class SurfaceForkResponse(ContractModel):
     imported_turns: int = Field(ge=0)
     imported_messages: int = Field(ge=0)
     imported_history_digest: NonEmptyStr
+
+
+class SurfaceCompactCommand(ContractModel):
+    """S4: replace the request view of one quiescent session with a summary."""
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    expected_event_sequence: int = Field(ge=0)
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceCompactResponse(ContractModel):
+    """The durable compaction record, including the summary for review.
+
+    The summary is model output (`untrusted: true`): it is context material,
+    never an approval or policy basis, and the raw history remains readable in
+    the durable event stream.
+    """
+
+    protocol_version: Literal["1.1"] = "1.1"
+    session_id: NonEmptyStr
+    summary: str
+    summary_digest: NonEmptyStr
+    untrusted: Literal[True] = True
+    replaced_to_message_index: int = Field(ge=0)
+    before_chars: int = Field(ge=0)
+    after_chars: int = Field(ge=0)
+    provider_profile_id: NonEmptyStr
+    cost_status: Literal["UNKNOWN"] = "UNKNOWN"
+    durable: Literal[True] = True
 
 
 class SurfaceTurnResponse(ContractModel):

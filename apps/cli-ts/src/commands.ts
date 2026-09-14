@@ -31,6 +31,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "fork this session into a fresh child (parent untouched)",
   },
   {
+    name: "/compact",
+    argsHint: "",
+    description: "summarise the history into the request view (raw history kept; prints the summary)",
+  },
+  {
     name: "/provider",
     argsHint: "[set <base-url> <model> [endpoint-class]]",
     description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",

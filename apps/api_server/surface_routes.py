@@ -25,6 +25,7 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceExplainCommand,
     SurfaceForkCommand,
+    SurfaceCompactCommand,
     SurfaceOpenSessionCommand,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
@@ -236,6 +237,10 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._post_fork(handler, session_id)
                     return
+                session_id = _match_surface_session_leaf(handler.path, "compact")
+                if session_id is not None:
+                    self._post_compact(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "turns")
                 if session_id is not None:
                     self._post_turn(handler, session_id)
@@ -433,6 +438,19 @@ class SurfaceRoutes:
         handler._json(
             200,
             {"fork": self._runtime.fork_session(command).model_dump(mode="json")},
+        )
+
+    def _post_compact(self, handler: Any, session_id: str) -> None:
+        body = handler._body()
+        command = SurfaceCompactCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "compact command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {"compaction": self._runtime.compact_session(command).model_dump(mode="json")},
         )
 
     def _post_approval(self, handler: Any, session_id: str) -> None:

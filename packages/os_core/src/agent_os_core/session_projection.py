@@ -34,6 +34,17 @@ class SessionProjectionError(AgentOSCoreError):
     """The durable session event stream cannot be projected safely."""
 
 
+COMPACTION_SUMMARY_PREFIX = (
+    "[context summary — model-generated, untrusted; the full transcript "
+    "remains in the durable record]\n"
+)
+"""Marker prefixed to the derived summary message in every request view.
+
+Kept here (not in the client or the app) so the recorded `after_chars` and the
+projected view can never drift apart.
+"""
+
+
 @dataclass(frozen=True)
 class SessionLoopConfig:
     max_steps_per_turn: int
@@ -191,6 +202,25 @@ class ProjectedSession:
     permission_mode: PermissionMode = "ASK"
     permission_mode_event_id: str | None = None
     forked_from: str | None = None
+    compaction: ProjectedCompaction | None = None
+    context_view: tuple[ProviderMessage, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProjectedCompaction:
+    """One durable compaction record (S4).
+
+    The raw history is never rewritten: this record only tells the *request
+    view* to replace everything up to `replaced_to_message_index` with the
+    summary. The summary is model output and therefore untrusted content.
+    """
+
+    summary: str
+    summary_digest: str
+    replaced_to_message_index: int
+    before_chars: int
+    after_chars: int
+    provider_profile_id: str
 
 
 class SessionProjector:
@@ -267,6 +297,7 @@ def _strict_project(
     permission_mode_event_id: str | None = None
     history: list[ProviderMessage] = []
     forked_from: str | None = None
+    compaction: ProjectedCompaction | None = None
     pending_continuation: ProjectedApprovalContinuation | None = None
     approval_execution_claim: ProjectedApprovalExecutionClaim | None = None
     resolved_continuation: ProjectedResolvedContinuation | None = None
@@ -564,6 +595,44 @@ def _strict_project(
                 forked_from = parent_session_id
                 continue
 
+            if event.event_type is TaskEventType.SESSION_CONTEXT_COMPACTED:
+                if closed:
+                    raise SessionProjectionError("session event recorded after close")
+                if compaction is not None:
+                    raise SessionProjectionError(
+                        "session already has a context compaction"
+                    )
+                if open_turn_id is not None:
+                    raise SessionProjectionError(
+                        "cannot compact a session with an open turn"
+                    )
+                if pending_continuation is not None:
+                    raise SessionProjectionError(
+                        "cannot compact a session with a pending approval"
+                    )
+                replaced_to = payload["replaced_to_message_index"]
+                if (
+                    isinstance(replaced_to, bool)
+                    or not isinstance(replaced_to, int)
+                    or replaced_to < 0
+                    or replaced_to >= len(history)
+                ):
+                    raise SessionProjectionError("invalid compaction boundary")
+                before_chars = payload["before_chars"]
+                after_chars = payload["after_chars"]
+                for value in (before_chars, after_chars):
+                    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                        raise SessionProjectionError("invalid compaction char counts")
+                compaction = ProjectedCompaction(
+                    summary=_required_str(payload, "summary"),
+                    summary_digest=_required_str(payload, "summary_digest"),
+                    replaced_to_message_index=replaced_to,
+                    before_chars=before_chars,
+                    after_chars=after_chars,
+                    provider_profile_id=_required_str(payload, "provider_profile_id"),
+                )
+                continue
+
             raise SessionProjectionError(
                 f"unsupported session event: {event.event_type.value}"
             )
@@ -592,6 +661,21 @@ def _strict_project(
         raise SessionProjectionError(
             "pending approval has a TOOL reply without an atomic resolution"
         )
+    if compaction is None:
+        context_view: tuple[ProviderMessage, ...] = tuple(history)
+    else:
+        # The request view replaces everything up to the boundary with one
+        # model-generated summary message. It is marked untrusted and never
+        # replaces the leading frozen system prompt.
+        summary_message = ProviderMessage(
+            role=ProviderMessageRole.ASSISTANT,
+            content=f"{COMPACTION_SUMMARY_PREFIX}{compaction.summary}",
+        )
+        context_view = (
+            history[0],
+            summary_message,
+            *history[compaction.replaced_to_message_index + 1 :],
+        )
     return ProjectedSession(
         ref=ref,
         envelope_id=envelope_id,
@@ -612,6 +696,8 @@ def _strict_project(
         permission_mode=permission_mode,
         permission_mode_event_id=permission_mode_event_id,
         forked_from=forked_from,
+        compaction=compaction,
+        context_view=context_view,
     )
 
 

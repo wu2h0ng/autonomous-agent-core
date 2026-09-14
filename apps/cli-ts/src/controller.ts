@@ -466,6 +466,9 @@ export class TuiController {
       case "/fork":
         await this.forkCommand();
         return true;
+      case "/compact":
+        await this.compactCommand();
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -565,6 +568,37 @@ export class TuiController {
     };
   }
 
+  /** `/compact` — replace the request view with one model summary (S4).
+   * Durable and auditable; the raw history stays readable, and the summary is
+   * printed in full for review because it is untrusted model output. */
+  private async compactCommand(): Promise<void> {
+    if (!this.sessionId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    if (this.canStartTurn()) {
+      // quiescent: no turn in flight and no pending approval
+    } else {
+      this.push({
+        role: "system",
+        content: "cannot compact while a turn is in flight (resolve it first)",
+      });
+      return;
+    }
+    try {
+      const compaction = await this.client.compactSession(this.sessionId);
+      this.push({
+        role: "system",
+        content:
+          `history compacted (chars ${compaction.before_chars} → ${compaction.after_chars}; ` +
+          `boundary ${compaction.replaced_to_message_index}) — raw transcript kept; ` +
+          `model-generated summary (untrusted, not an approval basis):\n${compaction.summary}`,
+      });
+    } catch (cause) {
+      this.push({ role: "system", content: `compact failed: ${(cause as Error).message}` });
+    }
+  }
+
   /** `/fork` — derive a fresh child session from this one (S3). The child
    * carries the imported history and becomes the attached session; the parent
    * is never written, and the child starts in ASK with no auto mode. */
@@ -617,6 +651,9 @@ export class TuiController {
             `messages ${status.message_count} · turns ${status.turns}`,
             `chars    ${status.used_chars} / ${status.budget_chars} ${contextBarText(status.used_chars, status.budget_chars)} (what the next request sends)`,
             `history  ${status.history_chars} chars stored before trimming`,
+            status.compactions > 0
+              ? `compact  ${status.compactions} compaction(s) already replace the oldest history in this request view`
+              : "compact  none (the request view is the raw history, possibly trimmed below)",
             status.dropped_turns > 0
               ? `dropped  ${status.dropped_turns} oldest turn block(s) would be cut from the next request`
               : "dropped  none (the whole history fits the request budget)",

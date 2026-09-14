@@ -174,6 +174,45 @@ test("explainAction posts the exact digest and unwraps the explanation envelope"
   );
 });
 
+test("compactSession posts the sequence binding and unwraps the compaction envelope", async () => {
+  await withServer(
+    (req) => {
+      if (req.method === "GET") {
+        // the client re-syncs its tracked sequence after a compaction
+        assert.match(req.url, /^\/v1\/surface\/sessions\/s:1$/);
+        return { status: 200, json: snapshot("s:1", 9) };
+      }
+      assert.equal(req.method, "POST");
+      assert.equal(req.url, "/v1/surface/sessions/s:1/compact");
+      const command = JSON.parse(req.body ?? "{}");
+      assert.equal(command.session_id, "s:1");
+      return {
+        status: 200,
+        json: {
+          compaction: {
+            protocol_version: "1.1",
+            session_id: "s:1",
+            summary: "Earlier: two edits.",
+            summary_digest: "digest:sum",
+            untrusted: true,
+            replaced_to_message_index: 4,
+            before_chars: 900,
+            after_chars: 300,
+            provider_profile_id: "provider-profile:default",
+            cost_status: "UNKNOWN",
+            durable: true,
+          },
+        },
+      };
+    },
+    async (client) => {
+      const compaction = await client.compactSession("s:1");
+      assert.equal(compaction.after_chars, 300);
+      assert.equal(compaction.untrusted, true);
+    },
+  );
+});
+
 test("forkSession posts the parent binding and unwraps the fork envelope", async () => {
   await withServer(
     (req) => {
