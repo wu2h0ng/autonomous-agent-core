@@ -468,8 +468,8 @@ research_ledger:
 active_work:
   - id: "TERMINAL-CODING-AGENT-M2-MAIN-INTEGRATED"
     track: "product"
-    status: "PR_13_MERGED_MAIN_AT_ECC82B13 / SUPPORTED_PATH_DECISION_ACTIVE_2026_09_13 / C_EQ_CLI_TS / A_EQ_HEADLESS / B_EQ_FROZEN_REFERENCE / NOT_RELEASED"
-    purpose: "Record the terminal coding-agent line convergence onto main and the supported-path decision: cli-ts (TS/Ink) is the unique supported interactive terminal chat UI; A (agent_cli.py) is the non-interactive/headless entry; B (textual tui_app.py) is frozen reference + protocol pilot. Merged on the line: M2 substrate (E1 stream lifecycle, E2 permission-mode gate, E3 usage v2), the cli-ts client, EVAL-0, the read-only sessions-list endpoint (C2), and transient REASONING frames."
+    status: "PR_13_MERGED_MAIN_AT_ECC82B13 / SUPPORTED_PATH_DECISION_ACTIVE_2026_09_13 / C_EQ_CLI_TS / A_EQ_HEADLESS / B_DELETED_2026_09_15 / NOT_RELEASED"
+    purpose: "Record the terminal coding-agent line convergence onto main and the supported-path decision: cli-ts (TS/Ink) is the unique supported interactive terminal chat UI; A (agent_cli.py) is the non-interactive/headless entry; B (textual tui_app.py) was the frozen reference + protocol pilot and was DELETED 2026-09-15 (founder option c Stage 1); the Python agent/agent-os console scripts were removed and the npm agentos/agent-os bins are the entry. Merged on the line: M2 substrate (E1 stream lifecycle, E2 permission-mode gate, E3 usage v2), the cli-ts client, EVAL-0, the read-only sessions-list endpoint (C2), and transient REASONING frames."
     evidence: "PR #13 merged into main at ecc82b13 (174 commits ahead of e2564ecb, 0 behind). cli-ts: 116 unit tests + e2e ALL PASS. Kernel surface/reasoning/sessions subsets green. Live DeepSeek deepseek-reasoner reasoning end-to-end (19 REASONING frames; answer 391; reasoning never durable)."
     boundary: "Beyond the founder-authorized PR #13 merge, no push/release, no OS sandbox, no packaging/distribution, no Alpha/Autonomy(S,E,O,V,T)/parity claim."
     source:

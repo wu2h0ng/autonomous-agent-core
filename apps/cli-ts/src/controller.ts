@@ -1,6 +1,6 @@
 /**
  * Ink-free TUI controller — all interaction logic, zero rendering imports.
- * Mirrors apps/cli/tui_controller.py semantics (M2 frozen):
+ * Mirrors the former Python TUI controller semantics (path B, deleted 2026-09-15):
  *
  * - subscription-first, one in-flight turn (TURN_IN_PROGRESS is server-side;
  *   the controller never submits while a turn is uncommitted);
