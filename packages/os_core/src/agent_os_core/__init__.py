@@ -64,6 +64,15 @@ from .evaluator_authority import (
 )
 from .persistence import SQLiteTaskEventStore
 from .postgres import PostgresTaskEventStore
+from .c7_receipt import (
+    C7AuthorityHalted,
+    C7AuthorityUnavailable,
+    C7EpochReplay,
+    C7ReceiptError,
+    C7ReceiptIssuer,
+    C7ReceiptScopeMismatch,
+    C7ReceiptVerifier,
+)
 from .governance import (
     POLICY_KERNEL_V1_DIGEST,
     POLICY_KERNEL_V1_SPEC,
@@ -405,6 +414,13 @@ __all__ = [
     "WaitExpiredError",
     "CorrectionAdminPort",
     "CorrectionAdminView",
+    "C7AuthorityHalted",
+    "C7AuthorityUnavailable",
+    "C7EpochReplay",
+    "C7ReceiptError",
+    "C7ReceiptIssuer",
+    "C7ReceiptScopeMismatch",
+    "C7ReceiptVerifier",
     "CorrectionAuthority",
     "CorrectionGuard",
     "CorrectionReadPort",

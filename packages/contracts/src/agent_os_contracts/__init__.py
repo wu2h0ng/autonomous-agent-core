@@ -36,6 +36,7 @@ from .candidate import (
     procedure_candidate_digest,
     rollback_receipt_digest,
 )
+from .c7_receipt import C7ClearanceReceipt
 from .common import (
     ContractModel,
     NonEmptyStr,
@@ -430,6 +431,7 @@ __all__ = [
     "DomainPriorArtifact",
     "DomainPriorBinding",
     "DomainPriorSelector",
+    "C7ClearanceReceipt",
     "CorrectionEpochVector",
     "CorrectionScope",
     "CorrectionSnapshot",
