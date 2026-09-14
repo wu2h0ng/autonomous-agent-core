@@ -90,6 +90,20 @@ def test_scope_mismatch_fails_closed() -> None:
         C7ReceiptVerifier(authority).verify(receipt, expected_task_id="task-2")
 
 
+def test_cross_tenant_receipt_rejected() -> None:
+    authority = CorrectionAuthority()
+    receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
+    with pytest.raises(C7ReceiptScopeMismatch):
+        C7ReceiptVerifier(authority).verify(receipt, expected_tenant_id="tenant:2")
+
+
+def test_cross_workspace_receipt_rejected() -> None:
+    authority = CorrectionAuthority()
+    receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
+    with pytest.raises(C7ReceiptScopeMismatch):
+        C7ReceiptVerifier(authority).verify(receipt, expected_workspace_id="ws:2")
+
+
 def test_write_tamper_is_rejected_on_load() -> None:
     authority = CorrectionAuthority()
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")

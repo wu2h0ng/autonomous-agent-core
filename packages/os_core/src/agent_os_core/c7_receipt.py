@@ -113,10 +113,19 @@ class C7ReceiptVerifier:
         self,
         receipt: C7ClearanceReceipt,
         *,
+        expected_tenant_id: str | None = None,
+        expected_workspace_id: str | None = None,
         expected_task_id: str | None = None,
         expected_run_id: str | None = None,
         expected_capability_id: str | None = None,
     ) -> None:
+        if expected_tenant_id is not None and receipt.tenant_id != expected_tenant_id:
+            raise C7ReceiptScopeMismatch("receipt tenant scope mismatch")
+        if (
+            expected_workspace_id is not None
+            and receipt.workspace_id != expected_workspace_id
+        ):
+            raise C7ReceiptScopeMismatch("receipt workspace scope mismatch")
         if expected_task_id is not None and receipt.task_id != expected_task_id:
             raise C7ReceiptScopeMismatch("receipt task scope mismatch")
         if expected_run_id is not None and receipt.run_id != expected_run_id:
