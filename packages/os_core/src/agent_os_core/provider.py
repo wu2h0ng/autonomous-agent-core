@@ -435,6 +435,7 @@ class OpenAICompatibleProvider(ProviderPort):
         self,
         invocation: ProviderInvocationBinding | None,
         model_id: str,
+        stream: bool = False,
     ) -> str:
         """Path after ``base_url``; native protocols may embed the model id."""
         if invocation is not None:
@@ -530,7 +531,7 @@ class OpenAICompatibleProvider(ProviderPort):
                 else self._temperature
             )
             base_url = invocation.base_url if invocation is not None else self._base_url
-            endpoint_path = self._endpoint_path(invocation, model_id)
+            endpoint_path = self._endpoint_path(invocation, model_id, stream)
             runtime_timeout_seconds = (
                 invocation.request_timeout_seconds
                 if invocation is not None
@@ -796,10 +797,8 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
 
     Reuses the shared invocation-binding, credential and failure machinery from
     ``OpenAICompatibleProvider`` and overrides only the transport hooks. Token
-    streaming is not implemented for this native protocol yet: ``complete_streaming``
-    falls back to a single-shot ``complete`` (the terminal renders the full text
-    at turn end) rather than mis-parsing a foreign SSE dialect. Cost remains
-    UNKNOWN (no pricing source); token counts are exact.
+    streaming is native via ``_parse_sse_stream`` (the Messages SSE dialect);
+    cost remains UNKNOWN (no pricing source), token counts are exact.
     """
 
     DEFAULT_ENDPOINT_PATH = "/v1/messages"
@@ -815,22 +814,6 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
             "Content-Type": "application/json",
         }
 
-    def complete_streaming(
-        self,
-        request: ProviderRequest,
-        *,
-        on_text_delta: Callable[[str], None] | None = None,
-        on_reasoning_delta: Callable[[str], None] | None = None,
-    ) -> ProviderResponse | ProviderFailure:
-        result = self.complete(request)
-        if (
-            on_text_delta is not None
-            and isinstance(result, ProviderResponse)
-            and result.text
-        ):
-            on_text_delta(result.text)
-        return result
-
     def _request_body(
         self,
         request: ProviderRequest | ProviderDecisionRequest,
@@ -840,10 +823,6 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         allowed_capability_ids: tuple[str, ...],
         stream: bool,
     ) -> dict[str, object]:
-        if stream:
-            # Streaming for the native Anthropic SSE dialect is not implemented
-            # yet; fail closed rather than emit an OpenAI-shaped stream request.
-            raise ValueError("anthropic streaming is not implemented")
         system_parts = [
             str(message.content)
             for message in request.messages
@@ -858,6 +837,8 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                 if message.role is not ProviderMessageRole.SYSTEM
             ],
         }
+        if stream:
+            body["stream"] = True
         if system_parts:
             body["system"] = "\n\n".join(system_parts)
         if temperature is not None:
@@ -907,6 +888,124 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                 total_tokens=input_tokens + output_tokens,
                 # E3: exact tokens from the provider payload; no pricing source
                 # here — cost is UNKNOWN, never zero.
+                cost_status="UNKNOWN",
+            ),
+            finish_reason=finish_reason,
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
+        )
+
+    def _parse_sse_stream(
+        self,
+        response: object,
+        *,
+        request: ProviderRequest | ProviderDecisionRequest,
+        on_text_delta: Callable[[str], None] | None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        """Parse the Anthropic Messages SSE dialect into one response.
+
+        Handles message_start / content_block_start / content_block_delta
+        (text_delta + input_json_delta) / message_delta. Text deltas are streamed
+        to ``on_text_delta``; tool inputs are accumulated and normalized.
+        """
+
+        text_parts: list[str] = []
+        blocks: dict[int, dict[str, str]] = {}
+        usage: dict[str, Any] = {}
+        response_id = f"response-{uuid4()}"
+        finish_reason = "stop"
+        readline = getattr(response, "readline", None)
+        while True:
+            raw_line = readline() if callable(readline) else b""
+            if raw_line in (b"", ""):
+                break
+            line = (
+                raw_line.decode("utf-8")
+                if isinstance(raw_line, bytes)
+                else str(raw_line)
+            ).strip()
+            if not line or line.startswith("event:") or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data:
+                continue
+            try:
+                payload = json.loads(data)
+            except json.JSONDecodeError:
+                return self._failure(
+                    request,
+                    ProviderErrorCode.MALFORMED,
+                    "provider response malformed: JSONDecodeError",
+                    False,
+                )
+            event_type = payload.get("type")
+            if event_type == "message_start":
+                message = payload.get("message") or {}
+                response_id = str(message.get("id") or response_id)
+                start_usage = message.get("usage")
+                if isinstance(start_usage, dict):
+                    usage.update(start_usage)
+            elif event_type == "content_block_start":
+                index = int(payload.get("index", 0))
+                block = payload.get("content_block") or {}
+                if block.get("type") == "tool_use":
+                    blocks[index] = {
+                        "id": str(block.get("id", "")),
+                        "name": str(block.get("name", "")),
+                        "arguments": "",
+                    }
+            elif event_type == "content_block_delta":
+                index = int(payload.get("index", 0))
+                delta = payload.get("delta") or {}
+                if delta.get("type") == "text_delta":
+                    text = str(delta.get("text", ""))
+                    if text:
+                        text_parts.append(text)
+                        if on_text_delta is not None:
+                            on_text_delta(text)
+                elif delta.get("type") == "input_json_delta":
+                    bucket = blocks.setdefault(
+                        index, {"id": "", "name": "", "arguments": ""}
+                    )
+                    bucket["arguments"] += str(delta.get("partial_json", ""))
+                elif delta.get("type") == "thinking_delta":
+                    # Transient reasoning is display-only and never merged into
+                    # the durable response text.
+                    thinking = str(delta.get("thinking", ""))
+                    if thinking and on_reasoning_delta is not None:
+                        on_reasoning_delta(thinking)
+            elif event_type == "message_delta":
+                delta = payload.get("delta") or {}
+                if delta.get("stop_reason"):
+                    finish_reason = str(delta["stop_reason"])
+                delta_usage = payload.get("usage")
+                if isinstance(delta_usage, dict):
+                    usage.update(delta_usage)
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=item["id"] or f"proposal-{uuid4()}",
+                capability_id=item["name"].replace("__", "."),
+                arguments_json=item["arguments"] or "{}",
+            )
+            for _, item in sorted(blocks.items())
+            if item["name"]
+        )
+        input_tokens = int(usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        return ProviderResponse(
+            response_id=response_id,
+            request_id=request.request_id,
+            text="".join(text_parts),
+            tool_proposals=proposals,
+            usage=ProviderUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
                 cost_status="UNKNOWN",
             ),
             finish_reason=finish_reason,
@@ -973,8 +1072,8 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
 
     ``POST {base_url}/v1beta/models/{model}:generateContent`` with an
     ``x-goog-api-key`` header. Reuses the shared invocation/credential/failure
-    machinery. Streaming is not implemented (complete_streaming falls back to a
-    single-shot complete); token usage is exact, cost UNKNOWN.
+    machinery. Token streaming is native via ``_parse_sse_stream``
+    (``streamGenerateContent?alt=sse``); token usage is exact, cost UNKNOWN.
     """
 
     DEFAULT_ENDPOINT_PATH = "/v1beta/models"
@@ -991,27 +1090,14 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         self,
         invocation: ProviderInvocationBinding | None,
         model_id: str,
+        stream: bool = False,
     ) -> str:
         # The model id is embedded in the path; it is not carried by the
         # invocation binding, so it must always be built here (otherwise a
-        # provider_profile would yield a model-less path).
-        return f"/v1beta/models/{model_id}:generateContent"
-
-    def complete_streaming(
-        self,
-        request: ProviderRequest,
-        *,
-        on_text_delta: Callable[[str], None] | None = None,
-        on_reasoning_delta: Callable[[str], None] | None = None,
-    ) -> ProviderResponse | ProviderFailure:
-        result = self.complete(request)
-        if (
-            on_text_delta is not None
-            and isinstance(result, ProviderResponse)
-            and result.text
-        ):
-            on_text_delta(result.text)
-        return result
+        # provider_profile would yield a model-less path). Streaming uses
+        # streamGenerateContent with SSE (alt=sse).
+        method = "streamGenerateContent?alt=sse" if stream else "generateContent"
+        return f"/v1beta/models/{model_id}:{method}"
 
     def _request_body(
         self,
@@ -1022,10 +1108,6 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         allowed_capability_ids: tuple[str, ...],
         stream: bool,
     ) -> dict[str, object]:
-        if stream:
-            # Streaming for the native Gemini dialect is not implemented yet;
-            # fail closed rather than emit a non-streaming request as if streamed.
-            raise ValueError("gemini streaming is not implemented")
         system_parts = [
             str(message.content)
             for message in request.messages
@@ -1081,7 +1163,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         text = "".join(
             str(part.get("text", ""))
             for part in parts
-            if isinstance(part, dict) and "text" in part
+            if isinstance(part, dict)
+            and "text" in part
+            and not part.get("thought")
         )
         proposals: list[ProviderToolProposal] = []
         for part in parts:
@@ -1116,6 +1200,113 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
                 cost_status="UNKNOWN",
             ),
             finish_reason=str(raw_finish).lower() if raw_finish else "stop",
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
+        )
+
+    def _parse_sse_stream(
+        self,
+        response: object,
+        *,
+        request: ProviderRequest | ProviderDecisionRequest,
+        on_text_delta: Callable[[str], None] | None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        """Parse the Gemini ``streamGenerateContent`` SSE dialect.
+
+        With ``alt=sse`` each ``data:`` line is a GenerateContentResponse chunk;
+        text parts are streamed, functionCalls are mapped, usageMetadata is
+        accumulated and the model's finishReason is taken from the last chunk.
+        """
+
+        text_parts: list[str] = []
+        proposals: list[ProviderToolProposal] = []
+        usage: dict[str, Any] = {}
+        response_id = f"response-{uuid4()}"
+        finish_reason = "stop"
+        readline = getattr(response, "readline", None)
+        while True:
+            raw_line = readline() if callable(readline) else b""
+            if raw_line in (b"", ""):
+                break
+            line = (
+                raw_line.decode("utf-8")
+                if isinstance(raw_line, bytes)
+                else str(raw_line)
+            ).strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                payload = json.loads(data)
+            except json.JSONDecodeError:
+                return self._failure(
+                    request,
+                    ProviderErrorCode.MALFORMED,
+                    "provider response malformed: JSONDecodeError",
+                    False,
+                )
+            response_id = str(payload.get("responseId") or response_id)
+            chunk_usage = payload.get("usageMetadata")
+            if isinstance(chunk_usage, dict):
+                usage.update(chunk_usage)
+            candidates = payload.get("candidates")
+            if not isinstance(candidates, list) or not candidates:
+                continue
+            candidate = candidates[0]
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("finishReason"):
+                finish_reason = str(candidate["finishReason"]).lower()
+            content = candidate.get("content") or {}
+            parts = content.get("parts") if isinstance(content, dict) else None
+            for part in parts or []:
+                if not isinstance(part, dict):
+                    continue
+                text = part.get("text")
+                if text:
+                    if part.get("thought"):
+                        # Transient reasoning (thought) is display-only; never
+                        # merged into the durable response text.
+                        if on_reasoning_delta is not None:
+                            on_reasoning_delta(str(text))
+                    else:
+                        text_parts.append(str(text))
+                        if on_text_delta is not None:
+                            on_text_delta(str(text))
+                call = part.get("functionCall")
+                if isinstance(call, dict):
+                    proposals.append(
+                        ProviderToolProposal(
+                            proposal_id=f"proposal-{uuid4()}",
+                            capability_id=str(call.get("name", "")).replace(
+                                "__", "."
+                            ),
+                            arguments_json=json.dumps(call.get("args", {})),
+                        )
+                    )
+        input_tokens = int(usage.get("promptTokenCount") or 0)
+        output_tokens = int(usage.get("candidatesTokenCount") or 0)
+        return ProviderResponse(
+            response_id=response_id,
+            request_id=request.request_id,
+            text="".join(text_parts),
+            tool_proposals=tuple(proposals),
+            usage=ProviderUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=int(
+                    usage.get("totalTokenCount") or (input_tokens + output_tokens)
+                ),
+                cost_status="UNKNOWN",
+            ),
+            finish_reason=finish_reason,
             received_at=datetime.now(timezone.utc),
             invocation_binding_digest=(
                 self._invocation_binding.digest()
