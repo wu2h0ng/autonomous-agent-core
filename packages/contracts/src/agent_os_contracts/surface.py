@@ -100,6 +100,39 @@ class SurfaceSetPermissionModeCommand(ContractModel):
     requested_at: UtcDateTime
 
 
+class SurfaceProviderStatus(ContractModel):
+    """Redacted live provider configuration for the terminal.
+
+    Never carries the credential value: only the non-secret profile metadata and
+    the opaque ``credential_ref_id``.
+    """
+
+    protocol_version: Literal["1.1"] = "1.1"  # pyright: ignore[reportIncompatibleVariableOverride]
+    configured: bool
+    provider_id: NonEmptyStr | None = None
+    model_id: NonEmptyStr | None = None
+    endpoint_class: NonEmptyStr | None = None
+    credential_ref_id: NonEmptyStr | None = None
+    base_url: NonEmptyStr | None = None
+
+
+class SurfaceProviderConfigureCommand(ContractModel):
+    """Operator-issued provider configuration over the surface protocol.
+
+    ``api_key`` is a transient credential: the runtime keeps it in an
+    environment-backed in-memory resolver for the process lifetime and never
+    persists it to the database, state files, artifacts or logs.
+    """
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
+    base_url: NonEmptyStr
+    model: NonEmptyStr
+    api_key: NonEmptyStr
+    endpoint_class: NonEmptyStr = "openai-compatible"
+    temperature: float | None = None
+
+
 class PendingSurfaceApproval(ContractModel):
     action_digest: NonEmptyStr
     capability_id: NonEmptyStr

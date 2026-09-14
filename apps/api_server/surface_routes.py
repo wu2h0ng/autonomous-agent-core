@@ -24,6 +24,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceCorrectionCommand,
     SurfaceOpenSessionCommand,
+    SurfaceProviderConfigureCommand,
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
@@ -171,6 +172,9 @@ class SurfaceRoutes:
             if method == "GET" and parsed.path == "/v1/surface/sessions":
                 self._get_sessions(handler, parsed)
                 return
+            if method == "GET" and parsed.path == "/v1/surface/provider":
+                self._get_provider(handler)
+                return
             if method == "GET":
                 session_id = _match_surface_session_leaf(handler.path, "conflict")
                 if session_id is not None:
@@ -198,6 +202,9 @@ class SurfaceRoutes:
                 if task_id is not None:
                     self._get_overview(handler, task_id)
                     return
+            if method == "POST" and parsed.path == "/v1/surface/provider":
+                self._post_provider(handler)
+                return
             if method == "POST":
                 session_id = _match_surface_session_leaf(handler.path, "streams")
                 if session_id is not None:
@@ -245,6 +252,25 @@ class SurfaceRoutes:
         handler._json(
             200,
             {"snapshot": self._runtime.open_session(command).model_dump(mode="json")},
+        )
+
+    def _get_provider(self, handler: Any) -> None:
+        handler._json(
+            200,
+            {"provider": self._runtime.provider_status().model_dump(mode="json")},
+        )
+
+    def _post_provider(self, handler: Any) -> None:
+        body = handler._body()
+        command = SurfaceProviderConfigureCommand.model_validate(body)
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {
+                "provider": self._runtime.configure_provider(command).model_dump(
+                    mode="json"
+                )
+            },
         )
 
     def _get_session(self, handler: Any, session_id: str) -> None:

@@ -74,6 +74,8 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProviderConfigureCommand,
+    SurfaceProviderStatus,
     SurfaceSessionListResponse,
     SurfaceSessionSnapshot,
     SurfaceSessionSummary,
@@ -878,6 +880,13 @@ class AgentOSApplication:
         if base_url.endswith("/chat/completions"):
             base_url = base_url.removesuffix("/chat/completions")
         model = str(payload.get("model", "")).strip()
+        endpoint_class = str(
+            payload.get("endpoint_class", "openai-compatible")
+        ).strip()
+        if endpoint_class != "openai-compatible":
+            raise ValueError(
+                "unsupported endpoint_class: only openai-compatible is supported"
+            )
         model_revision_digest = payload.get("model_revision_digest")
         if model_revision_digest is not None and (
             not isinstance(model_revision_digest, str)
@@ -2237,6 +2246,50 @@ class AgentOSApplication:
             },
         )
         return self.surface_session_snapshot(command.session_id)
+
+    def surface_provider_status(self) -> SurfaceProviderStatus:
+        """Redacted live provider configuration (never the credential value)."""
+
+        if not self.provider_configured:
+            return SurfaceProviderStatus(configured=False)
+        status = self.provider_status()
+        provider = self.provider
+        base_url = (
+            provider.base_url
+            if isinstance(provider, OpenAICompatibleProvider)
+            else None
+        )
+        return SurfaceProviderStatus(
+            configured=True,
+            provider_id=str(status["provider_id"]),
+            model_id=str(status["model_id"]),
+            endpoint_class=str(status["endpoint_class"]),
+            credential_ref_id=str(status["credential_ref_id"]),
+            base_url=base_url,
+        )
+
+    def surface_configure_provider(
+        self, command: SurfaceProviderConfigureCommand
+    ) -> SurfaceProviderStatus:
+        """Operator-issued live provider configuration (surface protocol).
+
+        Delegates to the existing ``configure_provider`` connection test. The
+        credential is transient (in-memory env resolver, never persisted) and
+        this path does not alter any capability's permit/approval or C7.
+        """
+
+        self.configure_provider(
+            {
+                "base_url": command.base_url,
+                "model": command.model,
+                "api_key": command.api_key,
+                "endpoint_class": command.endpoint_class,
+                "temperature": command.temperature
+                if command.temperature is not None
+                else 1.0,
+            }
+        )
+        return self.surface_provider_status()
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
         if not session_id.strip():
