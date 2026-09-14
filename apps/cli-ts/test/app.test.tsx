@@ -216,7 +216,7 @@ test("vim: Esc to normal swallows navigation keys; i returns to insert", async (
     await flush();
     await view.stdin.write("j"); // normal-mode motion, must not insert
     await flush();
-    assert.equal((view.lastFrame() ?? "").includes("j"), false);
+    assert.equal((view.lastFrame() ?? "").includes("abj"), false);
     await view.stdin.write("i"); // back to insert
     await flush();
     await view.stdin.write("Z");
@@ -328,6 +328,39 @@ test("approval: y approves and never leaks into the composer", async () => {
     await view.stdin.write("\r");
     await flush();
     assert.deepEqual(submitted, [], "the 'y' keystroke must not become a submitted prompt");
+  } finally {
+    view.unmount();
+  }
+});
+
+test("home screen and header render before the first turn", () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(
+    <App
+      controller={controller}
+      workspace="/tmp/demo-workspace"
+      provider="openai-compatible"
+      model="deepseek-chat"
+    />,
+  );
+  const frame = view.lastFrame() ?? "";
+  assert.match(frame, /agent-os/);
+  assert.match(frame, /AGENT OS/);
+  assert.match(frame, /Quick start/);
+  assert.match(frame, /deepseek-chat/);
+  assert.match(frame, /demo-workspace/);
+  view.unmount();
+});
+
+test("home panel disappears after the first message", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} workspace="/tmp/demo-workspace" />);
+  try {
+    await flush();
+    assert.match(view.lastFrame() ?? "", /Quick start/);
+    await controller.submit("/status"); // pushes a message without a live turn
+    await flush();
+    assert.doesNotMatch(view.lastFrame() ?? "", /Quick start/);
   } finally {
     view.unmount();
   }

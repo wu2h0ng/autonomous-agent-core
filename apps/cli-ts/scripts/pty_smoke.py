@@ -207,7 +207,7 @@ def phase2(master: int) -> None:
 
     type_keys(master, "hi")
     os.write(master, b"\r")
-    out = drain(master, TURN_TIMEOUT, until="deterministic")
+    out = drain(master, TURN_TIMEOUT, until="流式")
     text = strip(out)
     assert "deterministic" in text, "narrow terminal: no streamed reply"
     assert "流式" in text, "narrow terminal: CJK reply corrupted"
