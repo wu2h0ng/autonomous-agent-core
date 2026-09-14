@@ -843,6 +843,9 @@ class AgentOSApplication:
         for suffix in ("/chat/completions", "/v1/messages"):
             if base.endswith(suffix):
                 base = base[: -len(suffix)]
+        gemini_marker = "/v1beta/models/"
+        if gemini_marker in base:
+            base = base[: base.index(gemini_marker)]
         return base or None
 
     @classmethod
@@ -896,7 +899,6 @@ class AgentOSApplication:
 
         live_base_url = explicit_base or profile_base or legacy_base
         live_model = explicit_model or profile_model or legacy_model or "gpt-4o-mini"
-        credential_key = explicit_key_env or profile_key_env or "OPENAI_API_KEY"
         explicit_endpoint_class = (
             os.environ.get("AGENT_OS_PROVIDER_ENDPOINT_CLASS") or ""
         ).strip()
@@ -905,6 +907,11 @@ class AgentOSApplication:
             or profile_endpoint_class
             or "openai-compatible"
         )
+        default_key_env = {
+            "anthropic-messages": "ANTHROPIC_API_KEY",
+            "google-generative": "GEMINI_API_KEY",
+        }.get(live_endpoint_class, "OPENAI_API_KEY")
+        credential_key = explicit_key_env or profile_key_env or default_key_env
         if live_endpoint_class not in {
             "openai-compatible",
             "anthropic-messages",
@@ -937,6 +944,9 @@ class AgentOSApplication:
         for suffix in ("/chat/completions", "/v1/messages"):
             if base_url.endswith(suffix):
                 base_url = base_url[: -len(suffix)]
+        gemini_marker = "/v1beta/models/"
+        if gemini_marker in base_url:
+            base_url = base_url[: base_url.index(gemini_marker)]
         model = str(payload.get("model", "")).strip()
         endpoint_class = str(
             payload.get("endpoint_class", "openai-compatible")

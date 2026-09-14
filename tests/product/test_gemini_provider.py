@@ -161,7 +161,7 @@ def test_gemini_request_and_response_mapping(monkeypatch) -> None:  # type: igno
     assert body["contents"][0] == {"role": "user", "parts": [{"text": "hi"}]}
     assert body["contents"][1]["role"] == "model"
     assert body["contents"][1]["parts"][0]["functionCall"]["name"] == "workspace__read"
-    assert body["contents"][2]["parts"][0]["functionResponse"]["name"] == "workspace.read"
+    assert body["contents"][2]["parts"][0]["functionResponse"]["name"] == "workspace__read"
     assert body["tools"][0]["functionDeclarations"][0]["name"] == "workspace__read"
 
 
@@ -182,6 +182,7 @@ def test_surface_configure_selects_gemini_adapter(
     tmp_path: Path, monkeypatch
 ) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("GEMINI_TEST_KEY", _SECRET)
+    _RECORDED.clear()
     from agent_os_contracts import (
         SURFACE_PROTOCOL_VERSION,
         SurfaceClientRef,
@@ -215,6 +216,9 @@ def test_surface_configure_selects_gemini_adapter(
     status = SurfaceRuntime(app).configure_provider(command)
     assert status.endpoint_class == "google-generative"
     assert isinstance(app.provider, GeminiGenerativeProvider)
+    # The configured runtime (which carries a provider_profile) must still hit
+    # the model-scoped path -- this is the F1 regression guard.
+    assert _RECORDED[-1]["path"] == "/v1beta/models/gemini-1.5-pro:generateContent"
 
 
 def test_default_store_prefers_keyring(monkeypatch) -> None:  # type: ignore[no-untyped-def]

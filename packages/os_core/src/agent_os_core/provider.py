@@ -992,8 +992,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         invocation: ProviderInvocationBinding | None,
         model_id: str,
     ) -> str:
-        if invocation is not None:
-            return invocation.endpoint_path
+        # The model id is embedded in the path; it is not carried by the
+        # invocation binding, so it must always be built here (otherwise a
+        # provider_profile would yield a model-less path).
         return f"/v1beta/models/{model_id}:generateContent"
 
     def complete_streaming(
@@ -1031,7 +1032,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             if message.role is ProviderMessageRole.SYSTEM
         ]
         tool_names = {
-            str(tool_call.tool_call_id): str(tool_call.capability_id)
+            str(tool_call.tool_call_id): str(tool_call.capability_id).replace(
+                ".", "__"
+            )
             for message in request.messages
             if message.role is ProviderMessageRole.ASSISTANT
             for tool_call in message.tool_calls
@@ -1127,7 +1130,11 @@ def _gemini_content(
     tool_names: dict[str, str],
 ) -> dict[str, object]:
     if message.role is ProviderMessageRole.TOOL:
-        name = tool_names.get(str(message.tool_call_id), str(message.tool_call_id))
+        name = tool_names.get(str(message.tool_call_id))
+        if name is None:
+            # A tool result with no matching declared function cannot be mapped
+            # onto a valid Gemini functionResponse; fail closed as malformed.
+            raise ValueError("gemini tool result has no matching function call")
         return {
             "role": "user",
             "parts": [
@@ -1156,11 +1163,34 @@ def _gemini_content(
     return {"role": "user", "parts": [{"text": message.content}]}
 
 
+_GEMINI_SCHEMA_KEYS = frozenset(
+    {"type", "description", "enum", "items", "properties", "required", "nullable", "format"}
+)
+
+
+def _gemini_schema(value: object) -> object:
+    """Project an OpenAI-style JSON schema onto the Gemini Schema subset.
+
+    Gemini rejects unknown keys (e.g. ``additionalProperties``, ``minLength``),
+    so only the supported subset is forwarded.
+    """
+
+    if isinstance(value, dict):
+        return {
+            key: _gemini_schema(item)
+            for key, item in value.items()
+            if key in _GEMINI_SCHEMA_KEYS
+        }
+    if isinstance(value, list):
+        return [_gemini_schema(item) for item in value]
+    return value
+
+
 def _gemini_tool(capability_id: str) -> dict[str, object]:
     definition = _tool_definition(capability_id)
     function = definition["function"]  # type: ignore[index]
     return {
         "name": function["name"],  # type: ignore[index]
         "description": function.get("description", ""),  # type: ignore[union-attr]
-        "parameters": function["parameters"],  # type: ignore[index]
+        "parameters": _gemini_schema(function["parameters"]),  # type: ignore[index]
     }

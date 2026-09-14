@@ -179,8 +179,8 @@ class KeyringCredentialStore:
     @staticmethod
     def _keyring_module():  # noqa: ANN205
         try:
-            import keyring
-            from keyring.backends.fail import Keyring as _FailKeyring
+            import keyring  # pyright: ignore[reportMissingImports]
+            from keyring.backends.fail import Keyring as _FailKeyring  # pyright: ignore[reportMissingImports]
         except Exception:
             return None
         try:
