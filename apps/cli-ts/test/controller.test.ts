@@ -61,6 +61,37 @@ class FakeClient {
   async openSession() {
     return snapshot();
   }
+  providerStatusCalls = 0;
+  clearCalls = 0;
+  configureCalls = 0;
+  providerStatusResult: Record<string, unknown> = {
+    protocol_version: "1.1",
+    configured: false,
+    persisted: false,
+    key_source: null,
+  };
+  async providerStatus() {
+    this.providerStatusCalls += 1;
+    return this.providerStatusResult;
+  }
+  async configureProvider() {
+    this.configureCalls += 1;
+    return {
+      protocol_version: "1.1",
+      configured: true,
+      persisted: true,
+      key_source: "env",
+    };
+  }
+  async clearProvider() {
+    this.clearCalls += 1;
+    return {
+      protocol_version: "1.1",
+      configured: true,
+      persisted: false,
+      key_source: "env",
+    };
+  }
   async getSession() {
     this.getSessionCalls += 1;
     return snapshot({
@@ -666,4 +697,69 @@ test("input queue: a submit while an approval is pending is queued, never a conc
   await controller.submit("later");
   assert.equal(controller.queuedCount, 1);
   assert.deepEqual(client.beginTexts, []);
+});
+
+test("/provider shows persistence + key source; /provider clear removes it", async () => {
+  const client = new FakeClient();
+  client.providerStatusResult = {
+    protocol_version: "1.1",
+    configured: true,
+    model_id: "deepseek-chat",
+    endpoint_class: "openai-compatible",
+    base_url: "https://api.deepseek.com/v1",
+    credential_ref_id: "credential:local:1",
+    persisted: true,
+    key_source: "keychain",
+  };
+  const controller = new TuiController(client as never);
+  await controller.submit("/provider");
+  const panel = controller.messages.at(-1)?.panel;
+  const text = [panel?.title, ...(panel?.lines ?? [])].join("\n");
+  assert.match(text, /persisted\s+yes/);
+  assert.match(text, /key_source keychain/);
+  assert.match(text, /model\s+deepseek-chat/);
+  // No secret is present anywhere in the transcript.
+  assert.ok(!JSON.stringify(controller.messages).includes("sk-"));
+
+  await controller.submit("/provider clear");
+  assert.equal(client.clearCalls, 1);
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /provider config \+ stored key removed/,
+  );
+});
+
+test("/provider set without an env key never echoes or stores a key", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never);
+  const previous = process.env.AGENT_OS_PROVIDER_KEY;
+  delete process.env.AGENT_OS_PROVIDER_KEY;
+  try {
+    await controller.submit("/provider set https://api.example.com/v1 m");
+  } finally {
+    if (previous !== undefined) process.env.AGENT_OS_PROVIDER_KEY = previous;
+  }
+  assert.equal(client.configureCalls, 0);
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /AGENT_OS_PROVIDER_KEY is not set/,
+  );
+  assert.ok(!JSON.stringify(controller.messages).includes("sk-"));
+});
+
+test("/provider set reads the key from env and never echoes it into the transcript", async () => {
+  const sentinel = "sk-test-do-not-echo-123";
+  const client = new FakeClient();
+  const controller = new TuiController(client as never);
+  const previous = process.env.AGENT_OS_PROVIDER_KEY;
+  process.env.AGENT_OS_PROVIDER_KEY = sentinel;
+  try {
+    await controller.submit("/provider set https://api.example.com/v1 m");
+  } finally {
+    if (previous === undefined) delete process.env.AGENT_OS_PROVIDER_KEY;
+    else process.env.AGENT_OS_PROVIDER_KEY = previous;
+  }
+  // The key was present and used, yet must not appear in the transcript.
+  assert.equal(client.configureCalls, 1);
+  assert.ok(!JSON.stringify(controller.messages).includes(sentinel));
 });

@@ -250,6 +250,36 @@ def test_http_provider_routes(tmp_path: Path, stub_provider: str) -> None:
         with pytest.raises(urllib.error.HTTPError) as excinfo:
             urllib.request.urlopen(unauth)
         assert excinfo.value.code == 401
+
+        clear_req = urllib.request.Request(
+            f"{base}/v1/surface/provider/clear",
+            data=json.dumps(
+                {
+                    "protocol_version": SURFACE_PROTOCOL_VERSION,
+                    "client": _client(app).model_dump(mode="json"),
+                }
+            ).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
+            },
+        )
+        with urllib.request.urlopen(clear_req) as response:
+            cleared = json.loads(response.read())
+            assert response.status == 200
+            assert cleared["provider"]["persisted"] is False
+
+        unauth_clear = urllib.request.Request(
+            f"{base}/v1/surface/provider/clear",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as unauth:
+            urllib.request.urlopen(unauth_clear)
+        assert unauth.value.code == 401
     finally:
         server.shutdown()
         server.server_close()
@@ -337,3 +367,56 @@ def test_http_provider_validation_error_never_echoes_credential(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_status_reports_persistence_and_clear_removes_it(
+    tmp_path: Path, stub_provider: str
+) -> None:
+    from agent_os_contracts import SurfaceProviderClearCommand
+
+    app = _app(tmp_path)
+    runtime = SurfaceRuntime(app)
+    runtime.configure_provider(_command(app, stub_provider))
+
+    status = runtime.provider_status()
+    assert status.persisted is True
+    # keychain disabled (conftest) and no env key -> no key source
+    assert status.key_source in {"none", "env"}
+    assert _SECRET not in status.model_dump_json()
+
+    cleared = runtime.clear_provider(
+        SurfaceProviderClearCommand(
+            protocol_version=SURFACE_PROTOCOL_VERSION, client=_client(app)
+        )
+    )
+    assert cleared.persisted is False
+    assert not (tmp_path / "provider.json").exists()
+
+
+def test_clear_deletes_the_stored_credential(
+    tmp_path: Path, stub_provider: str, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from agent_os_contracts import SurfaceProviderClearCommand
+
+    import apps.api_server.app as app_module
+    from apps.api_server.provider_settings import DEFAULT_CREDENTIAL_ENV
+
+    deleted: list[str] = []
+
+    class _RecordingStore:
+        def delete(self, account: str) -> None:
+            deleted.append(account)
+
+    monkeypatch.setattr(
+        app_module, "default_credential_store", lambda: _RecordingStore()
+    )
+    app = _app(tmp_path)
+    runtime = SurfaceRuntime(app)
+    runtime.configure_provider(_command(app, stub_provider))
+    cleared = runtime.clear_provider(
+        SurfaceProviderClearCommand(
+            protocol_version=SURFACE_PROTOCOL_VERSION, client=_client(app)
+        )
+    )
+    assert deleted == [DEFAULT_CREDENTIAL_ENV]
+    assert cleared.persisted is False

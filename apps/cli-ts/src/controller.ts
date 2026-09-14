@@ -493,8 +493,24 @@ export class TuiController {
    * state or the transcript). */
   private async providerCommand(rest: string[]): Promise<void> {
     try {
-      if (rest[0]?.toLowerCase() !== "set") {
+      const sub = rest[0]?.toLowerCase();
+      if (sub === "clear") {
+        const status = await this.client.clearProvider();
+        this.push({
+          role: "system",
+          content:
+            `provider config + stored key removed (persisted=${status.persisted}); ` +
+            "the running daemon keeps its current provider until restart",
+        });
+        this.emit();
+        return;
+      }
+      if (sub !== "set") {
         const status = await this.client.providerStatus();
+        const provenance = [
+          `persisted  ${status.persisted ? "yes" : "no"}`,
+          `key_source ${status.key_source ?? "none"}`,
+        ];
         this.push({
           role: "system",
           content: "",
@@ -507,9 +523,11 @@ export class TuiController {
                   `endpoint   ${status.endpoint_class ?? "?"}`,
                   `base_url   ${status.base_url ?? "?"}`,
                   `credential ${status.credential_ref_id ?? "?"}`,
+                  ...provenance,
                 ]
               : [
                   "status     not configured",
+                  ...provenance,
                   "usage      /provider set <base-url> <model> [endpoint-class]",
                   "(export AGENT_OS_PROVIDER_KEY in the CLI environment first)",
                 ],
