@@ -6,7 +6,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { cursorLineCol, type ComposerState } from "./composer.js";
-import type { ThemeColors } from "./theme.js";
+import { paint, type ThemeColors } from "./theme.js";
 
 function cursorGlyph(line: string, column: number): string {
   const codePoint = line.codePointAt(column);
@@ -24,12 +24,12 @@ export function Composer({
   theme: ThemeColors;
   modeLabel?: string | undefined;
 }) {
-  const label = modeLabel ? <Text color={theme.notice}>{modeLabel} </Text> : null;
+  const label = modeLabel ? <Text {...paint(theme.notice)}>{modeLabel} </Text> : null;
   if (state.value.length === 0) {
     return (
       <Text>
         {label}
-        <Text color={theme.toolDone}>{"› "}</Text>
+        <Text {...paint(theme.toolDone)}>{"› "}</Text>
         <Text inverse> </Text>
         {placeholder ? <Text dimColor>{` ${placeholder}`}</Text> : null}
       </Text>

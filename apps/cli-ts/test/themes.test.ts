@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   DEFAULT_THEME_NAME,
   nextTheme,
+  paint,
   resolveTheme,
   THEMES,
   themeNames,
@@ -30,4 +31,18 @@ test("nextTheme cycles deterministically", () => {
   assert.equal(nextTheme(names[1] as string), names[2]);
   assert.equal(nextTheme(names[names.length - 1] as string), names[0]);
   assert.equal(nextTheme("unknown"), names[0]); // unknown -> first theme
+});
+
+test("inherit theme is terminal-native: every token is undefined", () => {
+  const inherit = THEMES["inherit"] as unknown as Record<string, string | undefined>;
+  assert.ok(themeNames().includes("inherit"));
+  assert.equal(resolveTheme("inherit"), inherit);
+  for (const [token, value] of Object.entries(inherit)) {
+    assert.equal(value, undefined, `inherit.${token} must not set a colour`);
+  }
+});
+
+test("paint: a token paints, undefined means terminal default (no colour prop)", () => {
+  assert.deepEqual(paint("cyan"), { color: "cyan" });
+  assert.deepEqual(paint(undefined), {});
 });

@@ -667,3 +667,58 @@ test("input queue: a submit while an approval is pending is queued, never a conc
   assert.equal(controller.queuedCount, 1);
   assert.deepEqual(client.beginTexts, []);
 });
+
+test("/tools and /diff request the overlay exactly once (App consumes it)", async () => {
+  const controller = new TuiController(new FakeClient() as never, { pollMs: 1 });
+  assert.equal(controller.hasPendingOverlay, false);
+  await controller.submit("/tools");
+  assert.equal(controller.hasPendingOverlay, true);
+  assert.equal(controller.consumePendingOverlay(), "tools");
+  assert.equal(controller.hasPendingOverlay, false);
+  assert.equal(controller.consumePendingOverlay(), null);
+  await controller.submit("/diff");
+  assert.equal(controller.consumePendingOverlay(), "diff");
+});
+
+test("approval decisions carry the operator comment as the durable reason", async () => {
+  const reasons: string[] = [];
+  const client = {
+    async getSession() {
+      return snapshot({
+        status: "WAITING_APPROVAL",
+        pending_approval: {
+          action_digest: "digest-abc",
+          capability_id: "workspace.edit",
+          proposal_id: "p:1",
+          preview: "edit f.txt",
+          requested_at: new Date().toISOString(),
+        },
+      });
+    },
+    async decideApproval(_sid: string, _digest: string, disposition: string, reason: string) {
+      reasons.push(`${disposition}:${reason}`);
+      return {
+        protocol_version: "1.1",
+        snapshot: snapshot(),
+        turn_id: "turn:1",
+        text: "",
+        steps: [],
+        stop_reason: "completed",
+        total_tokens: 0,
+      };
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as { status: string; sessionId: string };
+  internals.status = "awaiting_approval";
+  internals.sessionId = "s:1";
+  await controller.approve("looks safe");
+  assert.equal(controller.pendingApproval, null, "a resolved approval drops its identity");
+  internals.status = "awaiting_approval";
+  internals.sessionId = "s:1";
+  await controller.reject();
+  assert.deepEqual(reasons, [
+    "APPROVE:approve via cli-ts: looks safe",
+    "REJECT:reject via cli-ts",
+  ]);
+});

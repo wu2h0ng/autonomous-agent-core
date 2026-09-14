@@ -26,8 +26,8 @@ npm run dev
 
 Inside the TUI: type a message and press Enter to stream a turn; `/help`
 lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/vim`,
-`/keys`, `/find`, `/export`, `/queue`, `/doctor`, `/retry`, `/edit`, `/clear`,
-`/resume`).
+`/keys`, `/find`, `/tools`, `/diff`, `/export`, `/queue`, `/doctor`,
+`/retry`, `/edit`, `/clear`, `/resume`).
 Messages sent while a turn is in flight are queued (shown in the footer) and
 run automatically when the turn ends; `/queue clear` discards them.
 `/goal <objective>` sets a persistent session objective (shown in the footer
@@ -39,11 +39,29 @@ and `/edit` loads it into the composer. `@` completes workspace file paths
 (Tab inserts).
 Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
-Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it, Ctrl-O
-toggles the tool detail panel. `y`/`n` answer approval cards; Esc issues a
-correction during a turn (Ctrl-C exits); Ctrl-L clears the view. `/vim`
+Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it. `/vim`
 enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
 and `dd`/`dw`/`cw` operators).
+
+### Tool calls, diffs and approvals
+
+`Ctrl-O` (or `/tools`) opens the tool-call viewer: every projected tool call
+with its durable state — capability, args, receipt status, risk tier, node
+and duration when the durable events carry them — plus the argument detail
+and a diff preview for edit calls (`↑↓` select, `Esc` closes). `/diff` (or
+`Ctrl-A` while an approval is pending) opens the diff viewer over the pending
+approval preview and every edit diff in the session: syntax-highlighted,
+scrollable (`↑↓`, `Ctrl-D/U`), hunk jumps (`n`/`p`) and `[`/`]` to switch
+diffs. Both viewers are bounded and say so when they truncate.
+
+Approval cards show the pending capability, the risk tier and node recorded
+in the durable event, and the digest the approval binds to; `y` approves,
+`n` rejects, `c` opens comment mode (Enter approves with the typed comment as
+the durable reason, Esc cancels) and `Ctrl-A` opens the full diff. Esc never
+approves or rejects.
+
+`/theme` accepts `default`, `ansi`, `mono` and `inherit` — `inherit` sets no
+colours at all and follows the terminal's own theme.
 
 ### Local state & notifications
 
@@ -62,7 +80,7 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 100 unit tests; `npm run build` type-checks.
+`npm test` runs the 131 unit tests; `npm run build` type-checks.
 
 ## Other entry points
 

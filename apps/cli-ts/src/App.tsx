@@ -15,7 +15,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import type { Key } from "ink";
 import type { ChatMessage, ToolCall, TuiController } from "./controller.js";
-import { formatToolDetail } from "./controller.js";
+import { formatDuration, formatToolDetail } from "./controller.js";
 import { filterCommands } from "./commands.js";
 import type { CommandSpec } from "./commands.js";
 import {
@@ -33,7 +33,13 @@ import {
 import type { ComposerState } from "./composer.js";
 import { Composer } from "./ComposerView.js";
 import { segmentPreview } from "./diff.js";
-import { previewToDiff } from "./diffview.js";
+import {
+  collectDiffEntries,
+  editArgsToDiff,
+  editPathFromArgs,
+  hunkStarts,
+  previewToDiff,
+} from "./diffview.js";
 import { openExternalEditor } from "./editor.js";
 import { InputHistory } from "./history.js";
 import { handleGlobalKey } from "./keys.js";
@@ -43,17 +49,30 @@ import { activeMention, applyMention, filterMentions } from "./mentions.js";
 import { filterSelectorItems } from "./selector.js";
 import { attentionFor, attentionSequence } from "./attention.js";
 import { highlightCode, languageForPath } from "./highlight.js";
-import { resolveTheme } from "./theme.js";
+import { paint, resolveTheme } from "./theme.js";
 import type { ThemeColors } from "./theme.js";
 
 const EMPTY: ComposerState = { value: "", cursor: 0 };
 const PLACEHOLDER = "Tell the agent what to do… (Ctrl-J newline · Ctrl-G editor)";
+const COMMENT_PLACEHOLDER = "approval comment — Enter approves with it · Esc cancels";
 
 const TOOL_ICON: Record<ToolCall["status"], string> = {
   pending: "⏵",
   done: "✓",
   failed: "✗",
 };
+
+/** Overlay bounds: the dynamic area never becomes unbounded scrollback. */
+const TOOL_LIST_WINDOW = 10;
+const TOOL_ARG_MAX_LINES = 20;
+const TOOL_DIFF_PREVIEW_LINES = 40;
+const DIFF_MAX_ENTRIES = 20;
+const DIFF_MAX_LINES = 400;
+
+/** Modal overlay state (tool-call viewer / diff viewer). */
+type Overlay =
+  | { kind: "tools"; index: number }
+  | { kind: "diff"; entry: number; offset: number };
 
 function isPrintable(input: string, key: Key): boolean {
   if (!input) return false;
@@ -91,11 +110,11 @@ function MessageView({
   if (message.panel) {
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={theme.accent}>
-        <Text bold color={theme.accent}>
+        <Text bold {...paint(theme.accent)}>
           {message.panel.title}
         </Text>
         {message.panel.lines.map((line, index) => (
-          <Text key={index} color={theme.notice}>
+          <Text key={index} {...paint(theme.notice)}>
             {line}
           </Text>
         ))}
@@ -110,9 +129,12 @@ function MessageView({
         : tool.status === "done"
           ? theme.toolDone
           : theme.toolFailed;
+    const duration = tool.durationMs === undefined ? "" : ` · ${formatDuration(tool.durationMs)}`;
+    const tier = tool.riskTier !== undefined && tool.riskTier >= 3 ? ` · tier ${tool.riskTier}` : "";
     return (
-      <Text color={color}>
-        {TOOL_ICON[tool.status]} {tool.capabilityId}({tool.argsSummary})
+      <Text {...paint(color)}>
+        {TOOL_ICON[tool.status]} {tool.capabilityId}({tool.argsSummary}){duration}
+        {tier}
       </Text>
     );
   }
@@ -122,7 +144,7 @@ function MessageView({
   const body =
     message.role === "assistant" && finalized ? renderMarkdown(message.content) : message.content;
   return (
-    <Text wrap="wrap" color={color}>
+    <Text wrap="wrap" {...paint(color)}>
       {prefix}
       {body}
       {message.interrupted ? " [interrupted]" : ""}
@@ -145,7 +167,7 @@ export function App({
   const [composer, setComposer] = useState<ComposerState>(EMPTY);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [selected, setSelected] = useState(0);
-  const [showToolDetails, setShowToolDetails] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay | null>(null);
   const [searchMode, setSearchMode] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
@@ -153,6 +175,7 @@ export function App({
   const [vimInsert, setVimInsert] = useState(true);
   const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [approvalComment, setApprovalComment] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
@@ -222,6 +245,22 @@ export function App({
     if (text !== null) setComposer({ value: text, cursor: text.length });
   }, [controller.hasPendingComposer, controller]);
 
+  // `/tools` and `/diff` ask the view to open an overlay (one-shot request).
+  useEffect(() => {
+    const request = controller.consumePendingOverlay();
+    if (request === "tools") {
+      const count = controller.messages.filter((message) => message.tool).length;
+      setOverlay({ kind: "tools", index: Math.max(0, count - 1) });
+    } else if (request === "diff") {
+      setOverlay({ kind: "diff", entry: 0, offset: 0 });
+    }
+  }, [controller.hasPendingOverlay, controller]);
+
+  // A resolved approval closes comment mode (the card is gone).
+  useEffect(() => {
+    if (controller.status !== "awaiting_approval") setApprovalComment(false);
+  }, [controller.status]);
+
   useEffect(() => {
     if (!mention) return;
     let cancelled = false;
@@ -237,6 +276,15 @@ export function App({
   }, [mention?.query, controller]);
 
   const submit = () => {
+    // Approval comment mode: Enter approves with the typed comment as the
+    // durable reason (the protocol's `reason` field), never a plain message.
+    if (approvalComment) {
+      const comment = composer.value.trim();
+      setApprovalComment(false);
+      setComposer(EMPTY);
+      void controller.approve(comment || undefined).catch(() => undefined);
+      return;
+    }
     let value = composer.value;
     if (palette.length > 0) {
       const chosen = palette[selected] ?? palette[0];
@@ -254,6 +302,24 @@ export function App({
     const result = openExternalEditor(composer.value);
     if (result?.changed) setComposer({ value: result.text, cursor: result.text.length });
   };
+
+  const toolCalls = controller.messages.filter((message) => message.tool);
+  const pendingPreview = controller.currentSnapshot?.pending_approval?.preview ?? null;
+  // The diff viewer's model is only built while it is open (an LCS diff per
+  // edit tool is not free), and it is bounded in entries and lines.
+  const diffEntries =
+    overlay?.kind === "diff"
+      ? collectDiffEntries(
+          controller.messages,
+          pendingPreview
+            ? {
+                title: `approval · ${controller.pendingApproval?.capabilityId ?? "preview"}`,
+                preview: pendingPreview,
+              }
+            : null,
+          { maxEntries: DIFF_MAX_ENTRIES, maxLines: DIFF_MAX_LINES },
+        )
+      : [];
 
   useInput((keyInput, key) => {
     const selector = controller.pendingSelector;
@@ -276,6 +342,103 @@ export function App({
         if (pick !== undefined) controller.chooseSelector(pick);
       } else if (isPrintable(keyInput, key)) {
         setSelectorQuery((query) => query + keyInput);
+      }
+      return;
+    }
+
+    // Overlays are modal: while one is open it owns the keys (Esc closes),
+    // so a stray y/n can never decide an approval behind the viewer.
+    if (overlay) {
+      if (key.escape) {
+        setOverlay(null);
+        return;
+      }
+      if (overlay.kind === "tools") {
+        if (key.ctrl && keyInput === "o") {
+          setOverlay(null);
+          return;
+        }
+        if (key.upArrow || keyInput === "k") {
+          setOverlay((current) =>
+            current?.kind === "tools"
+              ? { ...current, index: Math.max(0, current.index - 1) }
+              : current,
+          );
+          return;
+        }
+        if (key.downArrow || keyInput === "j") {
+          setOverlay((current) =>
+            current?.kind === "tools"
+              ? {
+                  ...current,
+                  index: Math.min(Math.max(0, toolCalls.length - 1), current.index + 1),
+                }
+              : current,
+          );
+          return;
+        }
+        return;
+      }
+      const entryIndex = Math.min(overlay.entry, Math.max(0, diffEntries.length - 1));
+      const entry = diffEntries[entryIndex];
+      const total = entry ? entry.lines.length : 0;
+      const hunks = entry ? hunkStarts(entry.lines) : [];
+      const page = Math.max(4, Math.min(20, (stdout?.rows ?? 24) - 8));
+      const scrollTo = (offset: number): void =>
+        setOverlay((current) =>
+          current?.kind === "diff"
+            ? { ...current, offset: Math.max(0, Math.min(Math.max(0, total - 1), offset)) }
+            : current,
+        );
+      if (key.upArrow || keyInput === "k") {
+        scrollTo(overlay.offset - 1);
+        return;
+      }
+      if (key.downArrow || keyInput === "j") {
+        scrollTo(overlay.offset + 1);
+        return;
+      }
+      if (key.ctrl && keyInput === "d") {
+        scrollTo(overlay.offset + page);
+        return;
+      }
+      if (key.ctrl && keyInput === "u") {
+        scrollTo(overlay.offset - page);
+        return;
+      }
+      if (keyInput === "g") {
+        scrollTo(0);
+        return;
+      }
+      if (keyInput === "G") {
+        scrollTo(total - page);
+        return;
+      }
+      if (keyInput === "n") {
+        const next = hunks.find((start) => start > overlay.offset);
+        if (next !== undefined) scrollTo(next);
+        return;
+      }
+      if (keyInput === "p") {
+        const previous = [...hunks].reverse().find((start) => start < overlay.offset);
+        if (previous !== undefined) scrollTo(previous);
+        return;
+      }
+      if (keyInput === "]" || key.tab) {
+        if (diffEntries.length > 0) {
+          setOverlay({ kind: "diff", entry: (entryIndex + 1) % diffEntries.length, offset: 0 });
+        }
+        return;
+      }
+      if (keyInput === "[") {
+        if (diffEntries.length > 0) {
+          setOverlay({
+            kind: "diff",
+            entry: (entryIndex - 1 + diffEntries.length) % diffEntries.length,
+            offset: 0,
+          });
+        }
+        return;
       }
       return;
     }
@@ -428,8 +591,19 @@ export function App({
       setComposer(EMPTY);
       return;
     }
+    // Comment mode owns Esc (cancel) while it is on — the key never falls
+    // through to the global handler (which would treat it as a correction).
+    if (approvalComment && key.escape) {
+      setApprovalComment(false);
+      setComposer(EMPTY);
+      return;
+    }
     if (key.ctrl && keyInput === "o") {
-      setShowToolDetails((visible) => !visible);
+      setOverlay((current) =>
+        current?.kind === "tools"
+          ? null
+          : { kind: "tools", index: Math.max(0, toolCalls.length - 1) },
+      );
       return;
     }
     if (key.ctrl && keyInput === "t") {
@@ -441,6 +615,12 @@ export function App({
       return;
     }
     if (key.ctrl && keyInput === "a") {
+      // Codex-style: while an approval is pending Ctrl-A opens the full diff
+      // view; otherwise it stays the readline line-start key.
+      if (controller.status === "awaiting_approval" && !approvalComment) {
+        setOverlay({ kind: "diff", entry: 0, offset: 0 });
+        return;
+      }
       setComposer((current) => move(current, "home"));
       return;
     }
@@ -546,14 +726,21 @@ export function App({
     if (handleGlobalKey(controller, keyInput, key)) return;
 
     if (controller.status === "awaiting_approval") {
-      // Approve/reject consume the key: the character must not also leak
-      // into the composer (it would be submitted on the next Enter).
+      // Approve/reject/comment consume the key: the character must not also
+      // leak into the composer (it would be submitted on the next Enter).
       if (keyInput === "y") {
         void controller.approve().catch(() => undefined);
         return;
       }
       if (keyInput === "n") {
         void controller.reject().catch(() => undefined);
+        return;
+      }
+      // [c] opens comment mode: Enter approves WITH the typed comment as the
+      // durable reason, Esc cancels (never a silent always-allow).
+      if (keyInput === "c" && !approvalComment) {
+        setApprovalComment(true);
+        setComposer(EMPTY);
         return;
       }
     }
@@ -589,7 +776,31 @@ export function App({
   const finalized = controller.messages.slice(0, controller.finalizedIndex);
   const active = controller.messages.slice(controller.finalizedIndex);
   const todoPanel = controller.todoPanel;
-  const toolMessages = controller.messages.filter((message) => message.tool).slice(-5);
+
+  // Tool viewer window (bounded rows around the selected call).
+  const selectedToolIndex =
+    overlay?.kind === "tools" ? Math.min(overlay.index, Math.max(0, toolCalls.length - 1)) : 0;
+  const toolWindowStart = Math.max(
+    0,
+    Math.min(
+      selectedToolIndex - Math.floor(TOOL_LIST_WINDOW / 2),
+      Math.max(0, toolCalls.length - TOOL_LIST_WINDOW),
+    ),
+  );
+  const toolWindow = toolCalls.slice(toolWindowStart, toolWindowStart + TOOL_LIST_WINDOW);
+  const selectedTool = toolCalls[selectedToolIndex]?.tool;
+  const selectedToolDiff = selectedTool ? editArgsToDiff(selectedTool.argsJson) : null;
+  const selectedToolPath = selectedTool ? editPathFromArgs(selectedTool.argsJson) : null;
+  const selectedToolLang = selectedToolPath ? languageForPath(selectedToolPath) : undefined;
+
+  // Diff viewer window.
+  const diffEntryIndex =
+    overlay?.kind === "diff" ? Math.min(overlay.entry, Math.max(0, diffEntries.length - 1)) : 0;
+  const diffEntry = diffEntries[diffEntryIndex];
+  const diffOffset = overlay?.kind === "diff" ? overlay.offset : 0;
+  const diffPage = Math.max(4, Math.min(20, (stdout?.rows ?? 24) - 8));
+  const diffWindow = diffEntry ? diffEntry.lines.slice(diffOffset, diffOffset + diffPage) : [];
+  const diffHunks = diffEntry ? hunkStarts(diffEntry.lines) : [];
 
   return (
     <Box flexDirection="column">
@@ -608,36 +819,127 @@ export function App({
           ))}
         </Box>
       )}
-      {showToolDetails && toolMessages.length > 0 && (
+      {overlay?.kind === "tools" && (
         <Box flexDirection="column" borderStyle="round" borderColor={theme.border}>
-          <Text bold color={theme.accent}>
-            tool transcript (last {toolMessages.length})
+          <Text bold {...paint(theme.accent)}>
+            tool calls {toolCalls.length} · selected {toolCalls.length === 0 ? 0 : selectedToolIndex + 1}
+            {toolCalls.length > TOOL_LIST_WINDOW
+              ? ` (showing ${toolWindowStart + 1}–${toolWindowStart + toolWindow.length})`
+              : ""}
           </Text>
-          {toolMessages.map((message) => {
+          {toolCalls.length === 0 && <Text dimColor>no tool calls yet</Text>}
+          {toolWindow.map((message, index) => {
             const tool = message.tool as ToolCall;
+            const absolute = toolWindowStart + index;
+            const statusColor =
+              tool.status === "pending"
+                ? theme.toolPending
+                : tool.status === "done"
+                  ? theme.toolDone
+                  : theme.toolFailed;
+            const duration = tool.durationMs === undefined ? "" : ` · ${formatDuration(tool.durationMs)}`;
             return (
-              <Box key={tool.actionId} flexDirection="column" marginBottom={1}>
-                <Text color={theme.accent}>
-                  {TOOL_ICON[tool.status]} {tool.capabilityId} · {tool.argsSummary}
-                </Text>
-                {formatToolDetail(tool).map((line, index) => (
-                  <Text key={index} color={theme.notice}>
-                    {line}
-                  </Text>
-                ))}
-              </Box>
+              <Text
+                key={tool.actionId}
+                {...paint(absolute === selectedToolIndex ? theme.paletteSelected : statusColor)}
+              >
+                {absolute === selectedToolIndex ? "› " : "  "}
+                {TOOL_ICON[tool.status]} {tool.capabilityId}({tool.argsSummary}){duration}
+              </Text>
             );
           })}
+          {selectedTool && (
+            <Box flexDirection="column" marginTop={1}>
+              {formatToolDetail(selectedTool, { maxArgLines: TOOL_ARG_MAX_LINES }).map((line, index) => (
+                <Text key={index} {...paint(theme.notice)}>
+                  {line}
+                </Text>
+              ))}
+              {selectedToolDiff?.slice(0, TOOL_DIFF_PREVIEW_LINES).map((line, index) => (
+                <Text
+                  key={`diff-${index}`}
+                  wrap="wrap"
+                  {...paint(
+                    line.kind === "del"
+                      ? theme.diffDel
+                      : line.kind === "add"
+                        ? theme.diffAdd
+                        : theme.diffContext,
+                  )}
+                >
+                  {line.kind === "del" ? "- " : line.kind === "add" ? "+ " : "  "}
+                  {selectedToolLang && line.kind !== "context"
+                    ? highlightCode(line.text, selectedToolLang)
+                    : line.text}
+                </Text>
+              ))}
+              {selectedToolDiff && selectedToolDiff.length > TOOL_DIFF_PREVIEW_LINES ? (
+                <Text dimColor>
+                  … ({selectedToolDiff.length - TOOL_DIFF_PREVIEW_LINES} more diff lines; /diff opens the full
+                  view)
+                </Text>
+              ) : null}
+            </Box>
+          )}
+          <Text dimColor>↑↓ select · ctrl-o/esc close · /diff opens the full diff view</Text>
+        </Box>
+      )}
+      {overlay?.kind === "diff" && (
+        <Box flexDirection="column" borderStyle="round" borderColor={theme.border}>
+          {diffEntry ? (
+            <>
+              <Text bold {...paint(theme.accent)} wrap="truncate-end">
+                diff {diffEntryIndex + 1}/{diffEntries.length} · {diffEntry.title}
+                {diffEntry.truncated ? " · truncated" : ""}
+                {diffHunks.length > 0
+                  ? ` · hunk ${Math.max(1, diffHunks.filter((start) => start <= diffOffset).length)}/${diffHunks.length}`
+                  : ""}
+              </Text>
+              {diffWindow.map((line, index) => {
+                const absolute = diffOffset + index;
+                return (
+                  <Text
+                    key={absolute}
+                    wrap="wrap"
+                    {...paint(
+                      line.kind === "del"
+                        ? theme.diffDel
+                        : line.kind === "add"
+                          ? theme.diffAdd
+                          : theme.diffContext,
+                    )}
+                  >
+                    {line.kind === "del" ? "- " : line.kind === "add" ? "+ " : "  "}
+                    {diffEntry.lang && line.kind !== "context"
+                      ? highlightCode(line.text, diffEntry.lang)
+                      : line.text}
+                  </Text>
+                );
+              })}
+              <Text dimColor>
+                line {diffOffset + 1}–{Math.min(diffOffset + diffWindow.length, diffEntry.lines.length)}/
+                {diffEntry.lines.length} · ↑↓ scroll · ctrl-d/u page · n/p hunk · [/] prev/next diff · esc
+                close
+              </Text>
+            </>
+          ) : (
+            <Text dimColor>
+              no diffs yet — approval previews and edit tool calls appear here (esc closes)
+            </Text>
+          )}
         </Box>
       )}
       {controller.pendingSelector && (
         <Box flexDirection="column" borderStyle="round" borderColor={theme.accent}>
-          <Text bold color={theme.accent}>
+          <Text bold {...paint(theme.accent)}>
             {controller.pendingSelector.title}
           </Text>
-          {selectorQuery ? <Text color={theme.notice}>filter: {selectorQuery}</Text> : null}
+          {selectorQuery ? <Text {...paint(theme.notice)}>filter: {selectorQuery}</Text> : null}
           {selectorVisible.map((item, index) => (
-            <Text key={item} color={index === selectorIndex ? theme.paletteSelected : theme.notice}>
+            <Text
+              key={item}
+              {...paint(index === selectorIndex ? theme.paletteSelected : theme.notice)}
+            >
               {index === selectorIndex ? "› " : "  "}
               {index + 1}. {item}
             </Text>
@@ -647,7 +949,7 @@ export function App({
         </Box>
       )}
       {showReasoning && controller.reasoningText ? (
-        <Text color={theme.notice} wrap="wrap">
+        <Text {...paint(theme.thinking)} wrap="wrap">
           🧠 {controller.reasoningText}
         </Text>
       ) : null}
@@ -658,26 +960,40 @@ export function App({
       ) : null}
       {controller.status === "streaming" && <Text dimColor>streaming…</Text>}
       {controller.status === "stalled" && (
-        <Text color={theme.toolPending}>STALLED_PENDING_DURABLE_STATE — waiting for the durable record…</Text>
+        <Text {...paint(theme.toolPending)}>
+          STALLED_PENDING_DURABLE_STATE — waiting for the durable record…
+        </Text>
       )}
       {controller.status === "awaiting_approval" &&
         (pending ? (
-          <Box flexDirection="column" borderStyle={layout.narrow ? "single" : "round"} borderColor={theme.approvalBorder}>
-            <Text bold color={theme.approvalTitle}>
+          <Box
+            flexDirection="column"
+            borderStyle={layout.narrow ? "single" : "round"}
+            borderColor={theme.approvalBorder}
+          >
+            <Text bold {...paint(theme.approvalTitle)}>
               🛡 human approval required — {pending.capability_id}
             </Text>
+            {controller.pendingApproval?.riskTier !== undefined && (
+              <Text {...paint(theme.notice)}>
+                risk tier {controller.pendingApproval.riskTier}
+                {controller.pendingApproval.nodeId
+                  ? ` · node ${controller.pendingApproval.nodeId}`
+                  : ""}
+              </Text>
+            )}
             {approvalDiff
               ? approvalDiff.map((line, index) => (
                   <Text
                     key={index}
                     wrap="wrap"
-                    color={
+                    {...paint(
                       line.kind === "del"
-                        ? theme.toolFailed
+                        ? theme.diffDel
                         : line.kind === "add"
-                          ? theme.toolDone
-                          : theme.notice
-                    }
+                          ? theme.diffAdd
+                          : theme.diffContext,
+                    )}
                   >
                     {line.kind === "del" ? "- " : line.kind === "add" ? "+ " : "  "}
                     {approvalLang && line.kind !== "context"
@@ -689,12 +1005,12 @@ export function App({
                 ? segmentPreview(pending.preview).map((segment, index) => {
                     const color =
                       segment.tone === "old"
-                        ? theme.toolFailed
+                        ? theme.diffDel
                         : segment.tone === "new"
-                          ? theme.toolDone
+                          ? theme.diffAdd
                           : undefined;
                     return (
-                      <Text key={index} wrap="wrap" {...(color ? { color } : {})}>
+                      <Text key={index} wrap="wrap" {...paint(color)}>
                         {segment.text}
                       </Text>
                     );
@@ -703,19 +1019,26 @@ export function App({
             <Text dimColor>
               digest {pending.action_digest.slice(0, 16)}… · this approval binds to that digest only
             </Text>
-            <Text color={theme.approvalTitle}>[y] approve · [n] reject · esc is ignored here</Text>
+            <Text {...paint(theme.approvalTitle)}>
+              [y] approve · [n] reject · [c] comment · ctrl-a full diff · esc is ignored here
+            </Text>
           </Box>
         ) : (
           // Snapshot refresh is in flight after the durable pending event;
           // never flash an empty "unknown capability" card (iteration-18).
           <Text dimColor>approval pending — loading preview…</Text>
         ))}
-      {controller.lastError && <Text color={theme.danger}>error: {controller.lastError}</Text>}
+      {controller.lastError && (
+        <Text {...paint(theme.danger)}>error: {controller.lastError}</Text>
+      )}
       {searchMode && (
         <Box flexDirection="column">
-          <Text color={theme.accent}>reverse search (Ctrl-R): {input || "…"}</Text>
+          <Text {...paint(theme.accent)}>reverse search (Ctrl-R): {input || "…"}</Text>
           {searchMatches.slice(0, 5).map((match, index) => (
-            <Text key={`${match}-${index}`} color={index === selected ? theme.paletteSelected : theme.notice}>
+            <Text
+              key={`${match}-${index}`}
+              {...paint(index === selected ? theme.paletteSelected : theme.notice)}
+            >
               {index === selected ? "› " : "  "}
               {match}
             </Text>
@@ -729,7 +1052,10 @@ export function App({
             const usage = `${command.name}${command.argsHint ? ` ${command.argsHint}` : ""}`;
             const suffix = layout.showDescriptions ? ` ${command.description}` : "";
             return (
-              <Text key={command.name} color={index === selected ? theme.paletteSelected : theme.notice}>
+              <Text
+                key={command.name}
+                {...paint(index === selected ? theme.paletteSelected : theme.notice)}
+              >
                 {index === selected ? "› " : "  "}
                 {usage}
                 {suffix}
@@ -740,27 +1066,32 @@ export function App({
       )}
       {!searchMode && palette.length === 0 && mention && mentionMatches.length > 0 && (
         <Box flexDirection="column">
-          <Text color={theme.notice}>file mention (Tab to insert):</Text>
+          <Text {...paint(theme.notice)}>file mention (Tab to insert):</Text>
           {mentionMatches.map((path, index) => (
-            <Text key={path} color={index === 0 ? theme.paletteSelected : theme.notice}>
+            <Text key={path} {...paint(index === 0 ? theme.paletteSelected : theme.notice)}>
               {index === 0 ? "› " : "  "}
               {path}
             </Text>
           ))}
         </Box>
       )}
+      {approvalComment && (
+        <Text {...paint(theme.approvalTitle)}>
+          approval comment — Enter approves with it (recorded in the durable approval) · Esc cancels
+        </Text>
+      )}
       {controller.goal && (
-        <Text color={theme.accent} wrap="truncate-end">
+        <Text {...paint(theme.accent)} wrap="truncate-end">
           {`🎯 goal · ${controller.goal} · (/goal clear to unset)`}
         </Text>
       )}
       <Composer
         state={composer}
-        placeholder={PLACEHOLDER}
+        placeholder={approvalComment ? COMMENT_PLACEHOLDER : PLACEHOLDER}
         theme={theme}
         modeLabel={controller.vimMode ? (vimInsert ? "[I]" : "[N]") : undefined}
       />
-      <Text color={theme.footer} wrap="truncate-end">
+      <Text {...paint(theme.footer)} wrap="truncate-end">
         {`[${controller.mode}]`}
         {controller.queuedCount > 0 ? ` · ${controller.queuedCount} queued` : ""}
         {layout.footerFields && snapshot
@@ -770,7 +1101,7 @@ export function App({
           ? ` · last turn: ${controller.lastStopReason}`
           : ""}
         {layout.showHints
-          ? " · /help · ↑↓ history · ctrl-r search · ctrl-o tools · ctrl-g editor · esc correct · ctrl-c exit"
+          ? " · /help · ctrl-o tools · ctrl-a diff · ctrl-g editor · esc correct · ctrl-c exit"
           : " · /help"}
       </Text>
     </Box>
