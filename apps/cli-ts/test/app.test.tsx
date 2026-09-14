@@ -351,3 +351,17 @@ test("home screen and header render before the first turn", () => {
   assert.match(frame, /demo-workspace/);
   view.unmount();
 });
+
+test("home panel disappears after the first message", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} workspace="/tmp/demo-workspace" />);
+  try {
+    await flush();
+    assert.match(view.lastFrame() ?? "", /Quick start/);
+    await controller.submit("/status"); // pushes a message without a live turn
+    await flush();
+    assert.doesNotMatch(view.lastFrame() ?? "", /Quick start/);
+  } finally {
+    view.unmount();
+  }
+});

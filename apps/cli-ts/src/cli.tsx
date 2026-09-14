@@ -138,14 +138,19 @@ async function main(): Promise<void> {
   });
   process.on("exit", persist); // last-resort synchronous flush
 
+  // Best-effort, bounded: the status bar shows provider/model when available and
+  // never blocks the TUI on a slow/half-dead daemon.
   let providerLabel: string | null = null;
   let modelLabel: string | null = null;
   try {
-    const status = await client.providerStatus();
-    providerLabel = status.provider_id ?? null;
-    modelLabel = status.model_id ?? null;
+    const status = await Promise.race([
+      client.providerStatus(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+    ]);
+    providerLabel = status?.provider_id ?? null;
+    modelLabel = status?.model_id ?? null;
   } catch {
-    // header falls back to "not configured"
+    // status bar falls back to "not configured"
   }
 
   render(

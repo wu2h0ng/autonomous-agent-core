@@ -14,7 +14,7 @@
 import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { execFileSync } from "node:child_process";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
-import { Header, HomeView } from "./HomeView.js";
+import { HomeView, StatusBar } from "./HomeView.js";
 import { agentVersion } from "./version.js";
 import type { Key } from "ink";
 import type { ChatMessage, ToolCall, TuiController } from "./controller.js";
@@ -605,13 +605,6 @@ export function App({
 
   return (
     <Box flexDirection="column">
-      <Header
-        workspace={workspace}
-        branch={branch}
-        mode={controller.mode}
-        version={APP_VERSION}
-        theme={theme}
-      />
       {showHome ? (
         <HomeView
           workspace={workspace}
@@ -784,6 +777,13 @@ export function App({
           {`🎯 goal · ${controller.goal} · (/goal clear to unset)`}
         </Text>
       )}
+      <StatusBar
+        workspace={workspace}
+        branch={branch}
+        mode={controller.mode}
+        version={APP_VERSION}
+        theme={theme}
+      />
       <Box
         borderStyle="round"
         borderColor={theme.border}

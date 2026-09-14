@@ -8,7 +8,7 @@ import { basename } from "node:path";
 import { Box, Text } from "ink";
 import type { ThemeColors } from "./theme.js";
 
-export interface HeaderProps {
+export interface StatusBarProps {
   workspace: string;
   branch: string | null;
   mode: string;
@@ -16,10 +16,16 @@ export interface HeaderProps {
   theme: ThemeColors;
 }
 
-export function Header({ workspace, branch, mode, version, theme }: HeaderProps) {
+/**
+ * Status bar, pinned at the bottom (just above the composer). Ink writes the
+ * `<Static>` transcript above the dynamic region, so a persistent *top* bar is
+ * not achievable without a fullscreen/alt-screen renderer; a bottom bar is the
+ * honest placement and matches the layout model.
+ */
+export function StatusBar({ workspace, branch, mode, version, theme }: StatusBarProps) {
   const name = basename(workspace) || workspace;
   return (
-    <Box justifyContent="space-between" marginBottom={1}>
+    <Box justifyContent="space-between">
       <Text>
         <Text bold color={theme.accent}>
           ◆ agent-os
