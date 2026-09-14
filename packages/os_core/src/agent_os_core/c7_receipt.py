@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 from uuid import uuid4
@@ -7,6 +8,21 @@ from uuid import uuid4
 from agent_os_contracts import C7ClearanceReceipt, CorrectionEpochVector
 
 from .errors import AgentOSCoreError
+
+
+@dataclass(frozen=True)
+class C7VerificationScope:
+    """The exact scope a receipt must be bound to.
+
+    Required (not optional) so a caller cannot omit the tenant/workspace check
+    and accept a receipt from another scope.
+    """
+
+    tenant_id: str
+    workspace_id: str
+    task_id: str
+    run_id: str
+    capability_id: str
 
 
 class C7ReceiptError(AgentOSCoreError):
@@ -113,28 +129,22 @@ class C7ReceiptVerifier:
         self,
         receipt: C7ClearanceReceipt,
         *,
-        expected_tenant_id: str | None = None,
-        expected_workspace_id: str | None = None,
-        expected_task_id: str | None = None,
-        expected_run_id: str | None = None,
-        expected_capability_id: str | None = None,
+        scope: C7VerificationScope,
     ) -> None:
-        if expected_tenant_id is not None and receipt.tenant_id != expected_tenant_id:
-            raise C7ReceiptScopeMismatch("receipt tenant scope mismatch")
         if (
-            expected_workspace_id is not None
-            and receipt.workspace_id != expected_workspace_id
+            receipt.tenant_id,
+            receipt.workspace_id,
+            receipt.task_id,
+            receipt.run_id,
+            receipt.capability_id,
+        ) != (
+            scope.tenant_id,
+            scope.workspace_id,
+            scope.task_id,
+            scope.run_id,
+            scope.capability_id,
         ):
-            raise C7ReceiptScopeMismatch("receipt workspace scope mismatch")
-        if expected_task_id is not None and receipt.task_id != expected_task_id:
-            raise C7ReceiptScopeMismatch("receipt task scope mismatch")
-        if expected_run_id is not None and receipt.run_id != expected_run_id:
-            raise C7ReceiptScopeMismatch("receipt run scope mismatch")
-        if (
-            expected_capability_id is not None
-            and receipt.capability_id != expected_capability_id
-        ):
-            raise C7ReceiptScopeMismatch("receipt capability scope mismatch")
+            raise C7ReceiptScopeMismatch("receipt scope does not match context")
         if receipt.halted:
             raise C7AuthorityHalted("receipt records a halted scope")
         try:

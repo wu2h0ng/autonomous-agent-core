@@ -1,8 +1,8 @@
 """C7 clearance-receipt fault-injection tests (P1-6, option A).
 
 These exercise the digest-bound C7 manifest: issue/verify, epoch replay, halt,
-authority unavailability, scope mismatch, write-tamper and an explicit
-worker-compromise boundary test.
+authority unavailability, scope mismatch (including tenant/workspace and scope
+omission), write-tamper and an explicit worker-compromise boundary test.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from agent_os_core.c7_receipt import (
     C7ReceiptIssuer,
     C7ReceiptScopeMismatch,
     C7ReceiptVerifier,
+    C7VerificationScope,
 )
 from agent_os_core.governance import CorrectionAuthority
 
@@ -34,14 +35,24 @@ def _issuer(authority: CorrectionAuthority) -> C7ReceiptIssuer:
     )
 
 
+def _scope(**overrides: str) -> C7VerificationScope:
+    values = {
+        "tenant_id": "tenant:1",
+        "workspace_id": "ws:1",
+        "task_id": "task-1",
+        "run_id": "run-1",
+        "capability_id": "cap.read",
+    }
+    values.update(overrides)
+    return C7VerificationScope(**values)
+
+
 def test_valid_receipt_verifies() -> None:
     authority = CorrectionAuthority()
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
     assert receipt.halted is False
     assert receipt.correction_epochs.task_epoch == 0
-    C7ReceiptVerifier(authority).verify(
-        receipt, expected_task_id="task-1", expected_run_id="run-1"
-    )
+    C7ReceiptVerifier(authority).verify(receipt, scope=_scope())
 
 
 def test_epoch_replay_does_not_reauthorize() -> None:
@@ -52,7 +63,7 @@ def test_epoch_replay_does_not_reauthorize() -> None:
     authority.correct("task", "task-1", "operator correction")
     authority.resume("task", "task-1")
     with pytest.raises(C7EpochReplay):
-        C7ReceiptVerifier(authority).verify(receipt)
+        C7ReceiptVerifier(authority).verify(receipt, scope=_scope())
 
 
 def test_halted_scope_fails_closed() -> None:
@@ -67,7 +78,7 @@ def test_receipt_recording_pre_halt_rejects_post_halt_commit() -> None:
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
     authority.correct("capability", "cap.read", "halt capability")
     with pytest.raises(C7AuthorityHalted):
-        C7ReceiptVerifier(authority).verify(receipt)
+        C7ReceiptVerifier(authority).verify(receipt, scope=_scope())
 
 
 def test_authority_unavailable_fails_closed() -> None:
@@ -80,28 +91,35 @@ def test_authority_unavailable_fails_closed() -> None:
 
     receipt = _issuer(CorrectionAuthority()).issue("task-1", "run-1", "cap.read")
     with pytest.raises(C7AuthorityUnavailable):
-        C7ReceiptVerifier(_BrokenAuthority()).verify(receipt)
+        C7ReceiptVerifier(_BrokenAuthority()).verify(receipt, scope=_scope())
 
 
 def test_scope_mismatch_fails_closed() -> None:
     authority = CorrectionAuthority()
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
     with pytest.raises(C7ReceiptScopeMismatch):
-        C7ReceiptVerifier(authority).verify(receipt, expected_task_id="task-2")
+        C7ReceiptVerifier(authority).verify(receipt, scope=_scope(task_id="task-2"))
 
 
 def test_cross_tenant_receipt_rejected() -> None:
     authority = CorrectionAuthority()
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
     with pytest.raises(C7ReceiptScopeMismatch):
-        C7ReceiptVerifier(authority).verify(receipt, expected_tenant_id="tenant:2")
+        C7ReceiptVerifier(authority).verify(receipt, scope=_scope(tenant_id="tenant:2"))
 
 
 def test_cross_workspace_receipt_rejected() -> None:
     authority = CorrectionAuthority()
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
     with pytest.raises(C7ReceiptScopeMismatch):
-        C7ReceiptVerifier(authority).verify(receipt, expected_workspace_id="ws:2")
+        C7ReceiptVerifier(authority).verify(receipt, scope=_scope(workspace_id="ws:2"))
+
+
+def test_scope_is_required_and_cannot_be_omitted() -> None:
+    authority = CorrectionAuthority()
+    receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
+    with pytest.raises(TypeError):
+        C7ReceiptVerifier(authority).verify(receipt)  # type: ignore[call-arg]
 
 
 def test_write_tamper_is_rejected_on_load() -> None:
@@ -109,6 +127,15 @@ def test_write_tamper_is_rejected_on_load() -> None:
     receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
     tampered = receipt.model_dump(mode="json")
     tampered["halted"] = not tampered["halted"]
+    with pytest.raises(ValidationError):
+        C7ClearanceReceipt.model_validate(tampered)
+
+
+def test_tenant_tamper_is_rejected_on_load() -> None:
+    authority = CorrectionAuthority()
+    receipt = _issuer(authority).issue("task-1", "run-1", "cap.read")
+    tampered = receipt.model_dump(mode="json")
+    tampered["tenant_id"] = "tenant:evil"
     with pytest.raises(ValidationError):
         C7ClearanceReceipt.model_validate(tampered)
 

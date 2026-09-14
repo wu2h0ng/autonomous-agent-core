@@ -28,7 +28,7 @@ A receipt is a **pre-commit linearization token**, not an interrupt:
 |---|---|
 | epoch replay / epoch change rejected | enforced (`C7EpochReplay`) |
 | halted scope rejected | enforced (`C7AuthorityHalted`) |
-| scope binding (task/run/capability) | enforced (`C7ReceiptScopeMismatch`) |
+| scope binding (tenant/workspace/task/run/capability) | enforced (`C7ReceiptScopeMismatch`); the verification scope is a required argument object, so it cannot be omitted |
 | write-tamper of a persisted receipt | enforced (contract validator) |
 | authority unavailable | enforced fail-closed (`C7AuthorityUnavailable`) |
 | **worker/process compromise** | **NOT enforced by option A** |
