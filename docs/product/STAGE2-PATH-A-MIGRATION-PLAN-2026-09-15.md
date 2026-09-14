@@ -84,3 +84,13 @@
 | exit code / json / approval / transport | 已覆盖 | cli-ts `headless.test.ts`（冻结表） |
 
 **2a 退出条件（已满足）**：canonical headless 文档化；`agent_cli.py` 与 `__main__._agent/_chat` 标注 DEPRECATED 指向 `agentos -p`；迁移映射登记；cli-ts headless 测试绿；无行为变更。
+
+## 8. Stage 2b — session 面（2026-09-15，已完成）
+
+- cli-ts 新增 headless：`agent-os session show|pause|resume|correct <session-id> [reason]`（复用既有 `client.getSession` / `client.correct`；pause/resume/correction 走既有 surface POST）。`session show` 打印 `{session_id,status,event_sequence,message_count}`，与 Python `session-show` 对齐。
+- 交互侧已具备 `/resume`、`/status`、esc correction；本次仅补齐命令面。
+- 测试：`apps/cli-ts/test/session-command.test.ts`（stub daemon + descriptor，3 passed）。
+- 覆盖映射：`test_cli_surface` 的 session-* 用例由 cli-ts `session-command` 承接；2f 删除对应 Python 用例。
+- 退出条件：命令 + 测试 + 无协议变更（复用 v1.1）；CI 绿。
+
+**2b 行为差异登记（非逐位等价，F3）**：cli-ts 的 `session correct` 的 reason 可省略（缺省 `operator correction`），pause/resume 额外接受自定义 reason；Python `session-correct` 的 reason 为 argparse 必填，`session-pause/-resume` 只接受 session-id。属有意扩展；2f 删除 Python 时按此登记，不视为 parity 缺口。

@@ -84,6 +84,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === "session") {
+    const { runSessionCommand } = await import("./session-command.js");
+    process.exitCode = await runSessionCommand({
+      descriptorPath: descriptorPath ?? paths.descriptorPath,
+      args: args.slice(1),
+    });
+    return;
+  }
+
   const client = new SurfaceClient(descriptor);
 
   if (printPrompt !== undefined) {
