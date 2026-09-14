@@ -24,6 +24,7 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
     SurfaceProviderStatus,
     SurfaceSessionListResponse,
@@ -116,6 +117,10 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_configure_provider(
         self, command: SurfaceProviderConfigureCommand
+    ) -> SurfaceProviderStatus: ...
+
+    def surface_clear_provider(
+        self, command: SurfaceProviderClearCommand
     ) -> SurfaceProviderStatus: ...
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot: ...
@@ -346,6 +351,15 @@ class SurfaceRuntime:
         self._require_protocol(command.protocol_version)
         self._require_principal_scope(command.client)
         return self._application.surface_configure_provider(command)
+
+    def clear_provider(
+        self, command: SurfaceProviderClearCommand
+    ) -> SurfaceProviderStatus:
+        """Operator-issued removal of the persisted provider config + key."""
+
+        self._require_protocol(command.protocol_version)
+        self._require_principal_scope(command.client)
+        return self._application.surface_clear_provider(command)
 
     def event_batch(self, task_id: str, after_sequence: int) -> SurfaceEventBatch:
         if not task_id.strip():

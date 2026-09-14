@@ -42,6 +42,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === "provider") {
+    const { runProviderCommand } = await import("./provider-command.js");
+    process.exitCode = await runProviderCommand({
+      descriptorPath,
+      args: args.slice(1),
+    });
+    return;
+  }
+
   const descriptor = await loadRuntimeDescriptor(descriptorPath);
   const client = new SurfaceClient(descriptor);
 

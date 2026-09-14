@@ -312,3 +312,27 @@ test("configureProvider posts the command and never echoes the key", async () =>
     },
   );
 });
+
+test("clearProvider posts to the provider clear route", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "POST");
+      assert.equal(req.url, "/v1/surface/provider/clear");
+      return {
+        status: 200,
+        json: {
+          provider: {
+            protocol_version: "1.1",
+            configured: true,
+            persisted: false,
+            key_source: "env",
+          },
+        },
+      };
+    },
+    async (client) => {
+      const status = await client.clearProvider();
+      assert.equal(status.persisted, false);
+    },
+  );
+});

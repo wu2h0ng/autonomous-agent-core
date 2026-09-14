@@ -74,6 +74,7 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
     SurfaceProviderStatus,
     SurfaceSessionListResponse,
@@ -182,6 +183,7 @@ from domain_packs.data_agent.situated import DataAgentSituatedRuntime
 
 from .provider_settings import (
     DEFAULT_CREDENTIAL_ENV,
+    clear_provider_config,
     default_credential_store,
     load_provider_config,
     resolve_provider_key,
@@ -2403,8 +2405,18 @@ class AgentOSApplication:
     def surface_provider_status(self) -> SurfaceProviderStatus:
         """Redacted live provider configuration (never the credential value)."""
 
+        config = load_provider_config()
+        credential_env = (config or {}).get(
+            "credential_env", DEFAULT_CREDENTIAL_ENV
+        )
+        _key, key_source = resolve_provider_key(credential_env)
+        persisted = config is not None
         if not self.provider_configured:
-            return SurfaceProviderStatus(configured=False)
+            return SurfaceProviderStatus(
+                configured=False,
+                persisted=persisted,
+                key_source=key_source,
+            )
         status = self.provider_status()
         provider = self.provider
         base_url = (
@@ -2419,7 +2431,25 @@ class AgentOSApplication:
             endpoint_class=str(status["endpoint_class"]),
             credential_ref_id=str(status["credential_ref_id"]),
             base_url=base_url,
+            persisted=persisted,
+            key_source=key_source,
         )
+
+    def surface_clear_provider(
+        self, command: SurfaceProviderClearCommand
+    ) -> SurfaceProviderStatus:
+        """Remove the persisted non-secret config + stored key.
+
+        The running process keeps its current provider until restart; the
+        provider is simply no longer auto-loaded.
+        """
+
+        clear_provider_config()
+        try:
+            default_credential_store().delete(DEFAULT_CREDENTIAL_ENV)
+        except Exception:
+            pass
+        return self.surface_provider_status()
 
     def surface_configure_provider(
         self, command: SurfaceProviderConfigureCommand

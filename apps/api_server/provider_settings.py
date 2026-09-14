@@ -28,6 +28,15 @@ def config_path() -> Path:
     return Path(override) if override else DEFAULT_CONFIG_PATH
 
 
+def clear_provider_config() -> None:
+    """Remove the persisted non-secret provider config (best effort)."""
+
+    try:
+        config_path().unlink()
+    except OSError:
+        return
+
+
 def load_provider_config() -> dict[str, str] | None:
     """Load the persisted non-secret provider config, or None if absent/invalid."""
 
