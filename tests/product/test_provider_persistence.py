@@ -174,3 +174,45 @@ def test_startup_autoload_does_not_repersist(
         database=tmp_path / "a.sqlite3", workspace=tmp_path
     )
     assert app.provider_configured is True
+
+
+def test_startup_autoload_makes_no_network_call(
+    tmp_path: Path, config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_provider_config(
+        {
+            "base_url": "https://api.example.com/v1",
+            "model": "m",
+            "endpoint_class": "openai-compatible",
+        }
+    )
+    monkeypatch.setenv("AGENT_OS_PROVIDER_KEY", _SECRET)
+    import urllib.request
+
+    def _no_network(*args: object, **kwargs: object) -> None:
+        raise AssertionError("startup auto-load must not call the network")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _no_network)
+    from apps.api_server.app import AgentOSApplication
+
+    app = AgentOSApplication(database=tmp_path / "a.sqlite3", workspace=tmp_path)
+    assert app.provider_configured is True
+
+
+def test_keychain_timeout_degrades_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from apps.api_server.provider_settings import KeychainCredentialStore
+
+    store = KeychainCredentialStore()
+    monkeypatch.setattr(KeychainCredentialStore, "available", lambda self: True)
+
+    def _timeout(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="security", timeout=5)
+
+    monkeypatch.setattr(
+        "apps.api_server.provider_settings.subprocess.run", _timeout
+    )
+    assert store.store("account", _SECRET) is False
+    assert store.load("account") is None
+    store.delete("account")  # must not raise
