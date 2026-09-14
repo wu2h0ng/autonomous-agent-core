@@ -92,3 +92,5 @@
 - 测试：`apps/cli-ts/test/session-command.test.ts`（stub daemon + descriptor，3 passed）。
 - 覆盖映射：`test_cli_surface` 的 session-* 用例由 cli-ts `session-command` 承接；2f 删除对应 Python 用例。
 - 退出条件：命令 + 测试 + 无协议变更（复用 v1.1）；CI 绿。
+
+**2b 行为差异登记（非逐位等价，F3）**：cli-ts 的 `session correct` 的 reason 可省略（缺省 `operator correction`），pause/resume 额外接受自定义 reason；Python `session-correct` 的 reason 为 argparse 必填，`session-pause/-resume` 只接受 session-id。属有意扩展；2f 删除 Python 时按此登记，不视为 parity 缺口。

@@ -39,10 +39,17 @@ async function withServer(
     let raw = "";
     req.on("data", (c) => (raw += c));
     req.on("end", () => {
-      const result = handler(req.url ?? "", req.method ?? "GET", raw ? JSON.parse(raw) : {});
-      res.statusCode = result.status;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify(result.json));
+      try {
+        const result = handler(req.url ?? "", req.method ?? "GET", raw ? JSON.parse(raw) : {});
+        res.statusCode = result.status;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(result.json));
+      } catch (cause) {
+        // Always answer so a failed assertion surfaces as a client error
+        // rather than a hung fetch.
+        res.statusCode = 500;
+        res.end(JSON.stringify({ error: String(cause) }));
+      }
     });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -102,6 +109,7 @@ test("session show prints snapshot fields", async () => {
       assert.equal(parsed.session_id, "s:1");
       assert.equal(parsed.status, "ACTIVE");
       assert.equal(parsed.event_sequence, 3);
+      assert.equal(parsed.message_count, 2);
     },
   );
 });
@@ -129,5 +137,22 @@ test("session requires a session id and a known subcommand", async () => {
   assert.equal(
     (await capture(() => runSessionCommand({ args: ["frobnicate", "s:1"] }))).result,
     1,
+  );
+});
+
+test("session correct posts the correction route with the default reason", async () => {
+  await withServer(
+    (path, method, body) => {
+      assert.equal(method, "POST");
+      assert.equal(path, "/v1/surface/sessions/s:1/correction");
+      assert.equal((body as { reason?: string }).reason, "operator correction");
+      return { status: 200, json: { snapshot: snapshot("s:1") } };
+    },
+    async (descriptorPath) => {
+      const { result } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["correct", "s:1"] }),
+      );
+      assert.equal(result, 0);
+    },
   );
 });
