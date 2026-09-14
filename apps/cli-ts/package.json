@@ -14,7 +14,8 @@
   ],
   "bin": {
     "agent-os-ts": "./dist/cli.js",
-    "agentos": "./dist/cli.js"
+    "agentos": "./dist/cli.js",
+    "agent-os": "./dist/cli.js"
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",

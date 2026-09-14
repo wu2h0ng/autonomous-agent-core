@@ -1,3 +1,11 @@
+"""Installed entry points after the terminal-line convergence.
+
+The supported terminal client is the npm `agentos` / `agent-os` / `agent-os-ts`
+bin (apps/cli-ts); the Python package only ships the governance daemon
+(`agent-os-runtime`). The former Python `agent` / `agent-os` console scripts and
+the frozen textual TUI (path B) were removed.
+"""
+
 from __future__ import annotations
 
 import subprocess
@@ -6,7 +14,7 @@ from importlib.metadata import distribution
 from pathlib import Path
 
 
-def test_installed_agent_surface_entrypoints_resolve_to_product_cli() -> None:
+def test_installed_console_scripts_are_only_the_runtime_daemon() -> None:
     installed = distribution("autonomous-agent-core")
     console_scripts = {
         entry.name: entry
@@ -14,9 +22,11 @@ def test_installed_agent_surface_entrypoints_resolve_to_product_cli() -> None:
         if entry.group == "console_scripts"
     }
 
-    assert console_scripts["agent"].value == "apps.cli.__main__:main"
-    assert console_scripts["agent-os"].value == "apps.cli.__main__:main"
-    assert console_scripts["agent"].load() is console_scripts["agent-os"].load()
+    assert console_scripts.keys() == {"agent-os-runtime"}
+    assert (
+        console_scripts["agent-os-runtime"].value
+        == "apps.runtime_daemon.__main__:main"
+    )
     assert installed.metadata["Requires-Python"] == ">=3.11"
 
 
@@ -29,9 +39,8 @@ def test_installed_product_package_contains_api_surface_resources() -> None:
     assert "apps/api_server/preview-zh.html" in installed_files
 
 
-def test_installed_agent_command_is_the_mandate_product_surface() -> None:
-    executable = Path(sys.executable).with_name("agent")
-
+def test_runtime_daemon_entrypoint_runs() -> None:
+    executable = Path(sys.executable).with_name("agent-os-runtime")
     completed = subprocess.run(
         [str(executable), "--help"],
         check=False,
@@ -41,21 +50,4 @@ def test_installed_agent_command_is_the_mandate_product_surface() -> None:
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "Mandate-top Agent Surface" in completed.stdout
-    assert "Start the Cursor Agent" not in completed.stdout
-
-
-def test_installed_agent_run_resolves_to_responsibility_work_command() -> None:
-    for executable_name in ("agent", "agent-os"):
-        executable = Path(sys.executable).with_name(executable_name)
-        completed = subprocess.run(
-            [str(executable), "run", "--help"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-
-        assert completed.returncode == 0, completed.stderr
-        assert "--max-cycles" in completed.stdout
-        assert "--prompt" not in completed.stdout
+    assert "agent-os-runtime" in completed.stdout
