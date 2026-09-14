@@ -55,7 +55,7 @@ def save_provider_config(config: dict[str, str]) -> None:
     """
 
     path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     payload = {
         field: str(config[field])
         for field in _ALLOWED_FIELDS
@@ -95,41 +95,49 @@ class KeychainCredentialStore:
     def store(self, account: str, secret: str) -> bool:
         if not self.available() or not account or not secret:
             return False
-        result = subprocess.run(
-            [
-                "security",
-                "add-generic-password",
-                "-a",
-                account,
-                "-s",
-                self.service,
-                "-w",
-                secret,
-                "-U",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "security",
+                    "add-generic-password",
+                    "-a",
+                    account,
+                    "-s",
+                    self.service,
+                    "-w",
+                    secret,
+                    "-U",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
         return result.returncode == 0
 
     def load(self, account: str) -> str | None:
         if not self.available() or not account:
             return None
-        result = subprocess.run(
-            [
-                "security",
-                "find-generic-password",
-                "-a",
-                account,
-                "-s",
-                self.service,
-                "-w",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "security",
+                    "find-generic-password",
+                    "-a",
+                    account,
+                    "-s",
+                    self.service,
+                    "-w",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
         if result.returncode != 0:
             return None
         return result.stdout.strip() or None
@@ -137,19 +145,23 @@ class KeychainCredentialStore:
     def delete(self, account: str) -> None:
         if not self.available() or not account:
             return
-        subprocess.run(
-            [
-                "security",
-                "delete-generic-password",
-                "-a",
-                account,
-                "-s",
-                self.service,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            subprocess.run(
+                [
+                    "security",
+                    "delete-generic-password",
+                    "-a",
+                    account,
+                    "-s",
+                    self.service,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return
 
 
 def resolve_provider_key(

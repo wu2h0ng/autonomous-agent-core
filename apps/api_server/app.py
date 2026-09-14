@@ -915,7 +915,13 @@ class AgentOSApplication:
             "credential_ref_id": self.provider_profile.credential_ref_id,
         }
 
-    def configure_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def configure_provider(
+        self,
+        payload: dict[str, Any],
+        *,
+        verify: bool = True,
+        persist: bool = True,
+    ) -> dict[str, Any]:
         base_url = str(payload.get("base_url", "")).rstrip("/")
         for suffix in ("/chat/completions", "/v1/messages"):
             if base_url.endswith(suffix):
@@ -1001,26 +1007,27 @@ class AgentOSApplication:
                     temperature=temperature,
                     provider_profile=profile,
                 )
-                smoke = provider.complete(
-                    ProviderRequest(
-                        request_id=f"provider-check:{uuid4()}",
-                        task_id="task:provider-check",
-                        run_id="run:provider-check",
-                        provider_profile_id=profile.profile_id,
-                        messages=(
-                            ProviderMessage(
-                                role=ProviderMessageRole.USER,
-                                content="Reply with OK.",
+                if verify:
+                    smoke = provider.complete(
+                        ProviderRequest(
+                            request_id=f"provider-check:{uuid4()}",
+                            task_id="task:provider-check",
+                            run_id="run:provider-check",
+                            provider_profile_id=profile.profile_id,
+                            messages=(
+                                ProviderMessage(
+                                    role=ProviderMessageRole.USER,
+                                    content="Reply with OK.",
+                                ),
                             ),
-                        ),
-                        timeout_seconds=30,
-                        created_at=now,
+                            timeout_seconds=30,
+                            created_at=now,
+                        )
                     )
-                )
-                if isinstance(smoke, ProviderFailure):
-                    raise ConnectionError(
-                        f"{smoke.code.value}: {smoke.safe_message}"
-                    )
+                    if isinstance(smoke, ProviderFailure):
+                        raise ConnectionError(
+                            f"{smoke.code.value}: {smoke.safe_message}"
+                        )
                 self.provider = provider
                 self.provider_profile = profile
                 self.provider_configured = True
@@ -1042,20 +1049,21 @@ class AgentOSApplication:
             str(payload.get("credential_env") or "").strip()
             or DEFAULT_CREDENTIAL_ENV
         )
-        try:
-            save_provider_config(
-                {
-                    "base_url": base_url,
-                    "model": model,
-                    "endpoint_class": endpoint_class,
-                    "credential_env": credential_env,
-                }
-            )
-            KeychainCredentialStore().store(DEFAULT_CREDENTIAL_ENV, api_key)
-        except Exception:
-            # Persistence is convenience only; the live provider is already
-            # committed. Never fail the configure on a store error.
-            pass
+        if persist:
+            try:
+                save_provider_config(
+                    {
+                        "base_url": base_url,
+                        "model": model,
+                        "endpoint_class": endpoint_class,
+                        "credential_env": credential_env,
+                    }
+                )
+                KeychainCredentialStore().store(DEFAULT_CREDENTIAL_ENV, api_key)
+            except Exception:
+                # Persistence is convenience only; the live provider is already
+                # committed. Never fail the configure on a store error.
+                pass
         return {**self.provider_status(), "connection_test": "PASS"}
 
     def _try_load_persisted_provider(self) -> None:
@@ -1083,7 +1091,9 @@ class AgentOSApplication:
                     ),
                     "api_key": api_key,
                     "credential_env": credential_env,
-                }
+                },
+                verify=False,
+                persist=False,
             )
         except Exception:
             # Persisted config could not be validated (offline/bad key); stay

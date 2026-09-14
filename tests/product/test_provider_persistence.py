@@ -148,3 +148,29 @@ def test_startup_without_key_stays_unconfigured(
 
     app = AgentOSApplication(database=tmp_path / "a.sqlite3", workspace=tmp_path)
     assert app.provider_configured is False
+
+
+def test_startup_autoload_does_not_repersist(
+    tmp_path: Path, stub_provider: str, config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    save_provider_config(
+        {
+            "base_url": stub_provider,
+            "model": "autoloaded-model",
+            "endpoint_class": "openai-compatible",
+        }
+    )
+    monkeypatch.setenv("AGENT_OS_PROVIDER_KEY", _SECRET)
+    import apps.api_server.app as app_module
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise AssertionError("autoload must not re-persist")
+
+    monkeypatch.setattr(app_module, "save_provider_config", _boom)
+    monkeypatch.setattr(
+        app_module.KeychainCredentialStore, "store", _boom
+    )
+    app = app_module.AgentOSApplication(
+        database=tmp_path / "a.sqlite3", workspace=tmp_path
+    )
+    assert app.provider_configured is True
