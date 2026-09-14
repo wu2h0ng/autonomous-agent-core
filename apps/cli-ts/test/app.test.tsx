@@ -365,3 +365,21 @@ test("home panel disappears after the first message", async () => {
     view.unmount();
   }
 });
+
+test("backspace deletes the previous character (macOS sends \\x7f)", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("abc");
+    await flush();
+    assert.match(view.lastFrame() ?? "", /abc/);
+    await view.stdin.write("\u007F"); // Backspace key on macOS terminals
+    await flush();
+    const frame = view.lastFrame() ?? "";
+    assert.match(frame, /ab/);
+    assert.doesNotMatch(frame, /abc/);
+  } finally {
+    view.unmount();
+  }
+});
