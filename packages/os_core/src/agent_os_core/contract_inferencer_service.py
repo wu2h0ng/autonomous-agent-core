@@ -204,6 +204,9 @@ class ContractInferencerService:
         self,
         contract: InferredTaskContract,
         confirmations: list[PredicateConfirmation],
+        *,
+        tenant_id: str = "tenant:1",
+        workspace_id: str = "ws:1",
     ) -> tuple[InferredTaskContract, PredicateSet | None, InferenceReport]:
         """Stage 4.5: apply confirmations, freeze, persist, and finalize telemetry."""
         received_at = _now()
@@ -225,7 +228,10 @@ class ContractInferencerService:
             )
 
         contract, predicate_set, report = self._inferencer.apply_confirmation(
-            contract, confirmations
+            contract,
+            confirmations,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
         if predicate_set is not None:
             self._store.save(predicate_set)

@@ -592,6 +592,17 @@ class TestPredicateConjunctionEvaluator:
         )
         assert result.status is OutcomeStatus.UNRESOLVED
 
+    def test_contract_error_flags_predicate_set_scope_mismatch(self):
+        p1 = _predicate(
+            CheckType.FIELD_PRESENCE, {},
+            bindings=[_binding(EvidenceSourceType.ARTIFACT, "a1", "$.id")],
+            pid="pred:p1",
+        )
+        ps = _make_predicate_set([p1])
+        evaluator = self._make_evaluator(ps, FakeEvidenceAccessor())
+        expected = _make_expected(ps).model_copy(update={"tenant_id": "tenant:other"})
+        assert evaluator.contract_error(expected) == "predicate set scope mismatch"
+
     def test_contract_error_unknown_predicate_set(self):
         p1 = _predicate(
             CheckType.FIELD_PRESENCE, {},

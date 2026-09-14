@@ -37,6 +37,7 @@ from agent_os_contracts import (
 )
 
 from .task_aggregate import TaskAggregate
+from .outcome_evaluators import OutcomeEvaluatorRegistry
 from .task_service import expected_outcome_contract_error
 
 
@@ -208,6 +209,7 @@ class MandateResponsibilityProjector:
         *,
         computed_at: datetime,
         completed_at: datetime | None,
+        registry: OutcomeEvaluatorRegistry | None = None,
     ) -> tuple[ResponsibilityItemState, tuple[ResponsibilityAttentionReason, ...]]:
         status = aggregate.status
         expected = aggregate.expected_outcome
@@ -218,7 +220,14 @@ class MandateResponsibilityProjector:
                 ResponsibilityItemState.UNKNOWN,
                 (ResponsibilityAttentionReason.TASK_SOURCE_MALFORMED,),
             )
-        if expected is not None and expected_outcome_contract_error(expected) is not None:
+        contract_error = None
+        if expected is not None:
+            contract_error = (
+                registry.contract_error(expected)
+                if registry is not None
+                else expected_outcome_contract_error(expected)
+            )
+        if expected is not None and contract_error is not None:
             return (
                 ResponsibilityItemState.UNKNOWN,
                 (ResponsibilityAttentionReason.UNSUPPORTED_EVALUATOR,),
@@ -626,6 +635,7 @@ class MandateResponsibilityProjector:
             current_outcome,
             computed_at=computed_at,
             completed_at=completed_at,
+            registry=getattr(self._tasks, "evaluator_registry", None),
         )
         historical_digest = (
             None

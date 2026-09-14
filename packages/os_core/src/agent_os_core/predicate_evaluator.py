@@ -107,9 +107,16 @@ class PredicateConjunctionEvaluator:
             )
         ):
             return "unsupported failure semantics"
-        # Verify the predicate set is loadable
-        if self._store.load(expected.evaluator_version) is None:
+        # Verify the predicate set is loadable and scope-bound to the outcome.
+        predicate_set = self._store.load(expected.evaluator_version)
+        if predicate_set is None:
             return "predicate set not found"
+        if (
+            predicate_set.task_id != expected.task_id
+            or predicate_set.tenant_id != expected.tenant_id
+            or predicate_set.workspace_id != expected.workspace_id
+        ):
+            return "predicate set scope mismatch"
         return None
 
     def evaluate(
@@ -162,6 +169,16 @@ class PredicateConjunctionEvaluator:
                 expected, task_id, run_id, tenant_id, workspace_id,
                 evidence_refs, OutcomeStatus.INVALID, None,
                 ("predicate set not found",), now,
+            )
+        if (
+            predicate_set.task_id != expected.task_id
+            or predicate_set.tenant_id != expected.tenant_id
+            or predicate_set.workspace_id != expected.workspace_id
+        ):
+            return self._outcome(
+                expected, task_id, run_id, tenant_id, workspace_id,
+                evidence_refs, OutcomeStatus.INVALID, None,
+                ("predicate set scope mismatch",), now,
             )
 
         # Build evidence accessor
@@ -290,6 +307,14 @@ class PredicateConjunctionEvaluator:
         if predicate_set is None:
             raise InvalidTransitionError(
                 "verified outcome predicate set not found"
+            )
+        if (
+            predicate_set.task_id != expected.task_id
+            or predicate_set.tenant_id != expected.tenant_id
+            or predicate_set.workspace_id != expected.workspace_id
+        ):
+            raise InvalidTransitionError(
+                "verified outcome predicate set scope mismatch"
             )
         blocking_count = sum(1 for p in predicate_set.predicates if p.blocking)
         if blocking_count == 0:

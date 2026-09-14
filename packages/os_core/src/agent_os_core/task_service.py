@@ -483,33 +483,35 @@ class TaskService:
         ):
             return outcome
         evaluator = self._evaluator_registry.get(expected.evaluator_type)
-        if evaluator is None:
-            return outcome
-        try:
-            evaluator.verify_verified_recording(
-                expected,
-                outcome,
-                report_resolver=self.validated_test_report,
-                now=self._clock(),
-            )
-        except InvalidTransitionError:
-            return ObservedOutcome(
-                observed_outcome_id=f"current-{outcome.observed_outcome_id}",
-                expected_outcome_id=outcome.expected_outcome_id,
-                task_id=outcome.task_id,
-                run_id=outcome.run_id,
-                tenant_id=outcome.tenant_id,
-                workspace_id=outcome.workspace_id,
-                evaluator_type=outcome.evaluator_type,
-                evaluator_version=outcome.evaluator_version,
-                status=OutcomeStatus.UNRESOLVED,
-                score=None,
-                confidence=1.0,
-                evidence_refs=outcome.evidence_refs,
-                unresolved_gaps=("verified evidence is no longer currently valid",),
-                observed_at=self._clock(),
-            )
-        return outcome
+        if evaluator is not None:
+            try:
+                evaluator.verify_verified_recording(
+                    expected,
+                    outcome,
+                    report_resolver=self.validated_test_report,
+                    now=self._clock(),
+                )
+                return outcome
+            except InvalidTransitionError:
+                pass
+        # Unknown evaluator or failed re-verification: fail closed to UNRESOLVED
+        # rather than projecting a stale/historical VERIFIED outcome.
+        return ObservedOutcome(
+            observed_outcome_id=f"current-{outcome.observed_outcome_id}",
+            expected_outcome_id=outcome.expected_outcome_id,
+            task_id=outcome.task_id,
+            run_id=outcome.run_id,
+            tenant_id=outcome.tenant_id,
+            workspace_id=outcome.workspace_id,
+            evaluator_type=outcome.evaluator_type,
+            evaluator_version=outcome.evaluator_version,
+            status=OutcomeStatus.UNRESOLVED,
+            score=None,
+            confidence=1.0,
+            evidence_refs=outcome.evidence_refs,
+            unresolved_gaps=("verified evidence is no longer currently valid",),
+            observed_at=self._clock(),
+        )
 
     def append_event(
         self,

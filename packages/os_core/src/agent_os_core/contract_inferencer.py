@@ -341,6 +341,9 @@ class ContractInferencer:
         self,
         contract: InferredTaskContract,
         confirmations: list[PredicateConfirmation],
+        *,
+        tenant_id: str = "tenant:1",
+        workspace_id: str = "ws:1",
     ) -> tuple[InferredTaskContract, PredicateSet | None, InferenceReport]:
         """Stage 4.5: apply confirmations and freeze. Pure transformation.
 
@@ -441,8 +444,8 @@ class ContractInferencer:
                 set_id=f"set:{uuid4()}",
                 contract_id=contract.contract_id,
                 task_id=contract.task_id,
-                tenant_id="tenant:1",
-                workspace_id="ws:1",
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 predicates=tuple(final_predicates),
                 confirmation_records=tuple(all_confirmations),
                 frozen_at=now,
