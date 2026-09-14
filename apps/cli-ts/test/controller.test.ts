@@ -723,69 +723,17 @@ test("approval decisions carry the operator comment as the durable reason", asyn
   ]);
 });
 
-test("adoptSnapshot binds the approval identity to the same pending action", () => {
+test("adoptSnapshot binds the approval identity to the same action digest", () => {
   const controller = new TuiController({} as never);
   const internals = controller as never as {
     applyDurable: (n: number, e: unknown[]) => void;
     adoptSnapshot: (s: unknown) => void;
   };
-  const requestedAt = "2026-09-14T00:00:00Z";
-  const pendingSnapshot = (at: string, capabilityId = "workspace.edit") =>
-    snapshot({
-      status: "WAITING_APPROVAL",
-      pending_approval: {
-        action_digest: "digest-abc",
-        capability_id: capabilityId,
-        proposal_id: "p:1",
-        preview: "edit f.txt",
-        requested_at: at,
-      },
-    });
-  const capture = (seq: number, at: string, capabilityId = "workspace.edit"): void => {
-    internals.applyDurable(seq, [
-      {
-        event_id: `e:${seq}`,
-        task_id: "task:1",
-        event_type: "SESSION_APPROVAL_PENDING",
-        payload_json: JSON.stringify({
-          preview: "edit f.txt",
-          requested_at: at,
-          action: {
-            action_id: `a:${seq}`,
-            capability_id: capabilityId,
-            risk_tier: 3,
-            node_id: "node:1",
-          },
-        }),
-        occurred_at: at,
-        sequence: seq,
-      },
-    ]);
-  };
-
-  // The session opens (no pending approval yet), then the durable pending
-  // event captures the action identity.
-  internals.adoptSnapshot(snapshot());
-  capture(1, requestedAt);
-  assert.equal(controller.pendingApproval?.riskTier, 3);
-
-  // The resolution path adopts a snapshot for the SAME pending action: the
-  // identity is what the card renders, so it must survive.
-  internals.adoptSnapshot(pendingSnapshot(requestedAt));
-  assert.equal(controller.pendingApproval?.riskTier, 3);
-  assert.equal(controller.pendingApproval?.nodeId, "node:1");
-
-  // A DIFFERENT pending action of the same capability (kernel requested_at
-  // differs) must never be described by the old tier/node.
-  internals.adoptSnapshot(pendingSnapshot("2026-09-14T01:00:00Z"));
-  assert.equal(controller.pendingApproval, null, "a different action is not described by stale data");
-
-  // Another session never inherits it either.
-  capture(2, requestedAt);
-  internals.adoptSnapshot(
+  const digest = "digest:aaa";
+  const pendingSnapshot = (actionDigest: string, sessionId = "s:1") =>
     snapshot({
       session: {
-        session_id: "s:2",
+        session_id: sessionId,
         task_id: "task:1",
         run_id: "run:1",
         tenant_id: "tenant:local",
@@ -793,19 +741,88 @@ test("adoptSnapshot binds the approval identity to the same pending action", () 
       },
       status: "WAITING_APPROVAL",
       pending_approval: {
-        action_digest: "digest-abc",
+        action_digest: actionDigest,
         capability_id: "workspace.edit",
         proposal_id: "p:1",
         preview: "edit f.txt",
-        requested_at: requestedAt,
+        requested_at: "2026-09-14T00:00:00Z",
       },
-    }),
-  );
-  assert.equal(controller.pendingApproval, null, "another session's action is not reused");
+    });
+  const capture = (seq: number, actionDigest: string): void => {
+    internals.applyDurable(seq, [
+      {
+        event_id: `e:${seq}`,
+        task_id: "task:1",
+        event_type: "SESSION_APPROVAL_PENDING",
+        payload_json: JSON.stringify({
+          preview: "edit f.txt",
+          requested_at: "2026-09-14T00:00:00Z",
+          action_digest: actionDigest,
+          action: {
+            action_id: `a:${seq}`,
+            capability_id: "workspace.edit",
+            risk_tier: 3,
+            node_id: "node:1",
+          },
+        }),
+        occurred_at: "2026-09-14T00:00:00Z",
+        sequence: seq,
+      },
+    ]);
+  };
+
+  // NB: read through a function so TS's `assert.equal` narrowing cannot turn
+  // later reads into `never` (repo lesson).
+  const readPending = (): { riskTier?: number; nodeId?: string; actionDigest?: string } | null =>
+    controller.pendingApproval as unknown as
+      | { riskTier?: number; nodeId?: string; actionDigest?: string }
+      | null;
+
+  // The session opens (no pending approval yet), then the durable pending
+  // event captures the action identity.
+  internals.adoptSnapshot(snapshot());
+  capture(1, digest);
+  assert.equal(readPending()?.riskTier, 3);
+  assert.equal(readPending()?.actionDigest, digest);
+
+  // The resolution path adopts a snapshot for the SAME action digest: the
+  // identity is what the card renders, so it must survive.
+  internals.adoptSnapshot(pendingSnapshot(digest));
+  assert.equal(readPending()?.riskTier, 3);
+  assert.equal(readPending()?.nodeId, "node:1");
+
+  // A DIFFERENT action (same capability, different digest) must never be
+  // described by the old tier/node.
+  internals.adoptSnapshot(pendingSnapshot("digest:bbb"));
+  assert.equal(readPending(), null, "a different action is not described by stale data");
+
+  // A payload without a digest cannot be bound — the identity is dropped on
+  // adoption rather than kept on a guess.
+  internals.applyDurable(9, [
+    {
+      event_id: "e:9",
+      task_id: "task:1",
+      event_type: "SESSION_APPROVAL_PENDING",
+      payload_json: JSON.stringify({
+        preview: "edit f.txt",
+        action: { action_id: "a:9", capability_id: "workspace.edit", risk_tier: 3 },
+      }),
+      occurred_at: "2026-09-14T00:00:00Z",
+      sequence: 9,
+    },
+  ]);
+  assert.equal(readPending()?.riskTier, 3);
+  internals.adoptSnapshot(pendingSnapshot(digest));
+  assert.equal(readPending(), null, "an unbound identity is not kept");
+
+  // Another session never inherits it, even with the same digest.
+  capture(3, digest);
+  internals.adoptSnapshot(pendingSnapshot(digest, "s:2"));
+  assert.equal(readPending(), null, "another session's action is not reused");
 
   // A resolved approval (no pending) clears it.
   internals.adoptSnapshot(snapshot({ status: "ACTIVE", pending_approval: null }));
-  assert.equal(controller.pendingApproval, null);
+  assert.equal(readPending(), null);
 });
 
 test("runTurn integration: the approval identity survives durable resolution", async () => {
@@ -841,6 +858,7 @@ test("runTurn integration: the approval identity survives durable resolution", a
             payload_json: JSON.stringify({
               preview: "edit f.txt",
               requested_at: requestedAt,
+              action_digest: "digest-abc",
               action: {
                 action_id: "a:1",
                 capability_id: "workspace.edit",

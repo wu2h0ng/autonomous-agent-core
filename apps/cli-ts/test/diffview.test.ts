@@ -138,7 +138,8 @@ test("editDiffTooLarge: oversized edits are not diffed (and are detectable)", ()
   assert.equal(editDiffTooLarge(huge), true);
   assert.equal(editArgsToDiff(huge), null);
   // The real cost driver is the line count (O(lines²)), not the characters:
-  // ~20k chars over 2,500 lines would cost ~12s of DP, so it must be refused.
+  // 2,500 lines/side is a measured ~94 ms of DP (2,000 ≈ 61 ms, 6,000 ≈ 408 ms,
+  // 12,000 ≈ 1.8 s), so the line bound must refuse it.
   const manyLines = JSON.stringify({
     path: "big.ts",
     old_string: Array.from({ length: 2_500 }, (_, i) => `line ${i}`).join("\n"),

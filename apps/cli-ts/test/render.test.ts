@@ -359,6 +359,7 @@ test("approval identity: captured from SESSION_APPROVAL_PENDING, never guessed",
       payload_json: JSON.stringify({
         preview: "edit f.txt",
         requested_at: "2026-09-14T00:00:00Z",
+        action_digest: "digest:aaa",
         action: {
           action_id: "a:1",
           capability_id: "workspace.edit",
@@ -376,6 +377,7 @@ test("approval identity: captured from SESSION_APPROVAL_PENDING, never guessed",
     riskTier: 3,
     nodeId: "node:1",
     requestedAt: "2026-09-14T00:00:00Z",
+    actionDigest: "digest:aaa",
   });
 
   // payload without an action -> null (the card shows nothing rather than 0)
