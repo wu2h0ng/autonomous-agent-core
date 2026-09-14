@@ -179,6 +179,13 @@ from domain_packs.data_agent.report_adapter import (
 )
 from domain_packs.data_agent.situated import DataAgentSituatedRuntime
 
+from .provider_settings import (
+    DEFAULT_CREDENTIAL_ENV,
+    KeychainCredentialStore,
+    load_provider_config,
+    resolve_provider_key,
+    save_provider_config,
+)
 from .mandate_active_perception import (
     ActivePerceptionReceipt,
     MandateActivePerceptionService,
@@ -554,6 +561,10 @@ class AgentOSApplication:
         # (None when the built-in/env provider is in use; only keys created by
         # configure_provider are ever purged).
         self._active_provider_resolver_key: str | None = None
+        if not self.provider_configured:
+            # Re-install a previously configured provider (non-secret config
+            # from disk + key from the OS keychain or environment).
+            self._try_load_persisted_provider()
         self.grants = self._build_grants(now)
         self.task_configurations = TaskConfigurationSnapshotService(
             self.tasks,
@@ -1025,7 +1036,59 @@ class AgentOSApplication:
                 )
             ):
                 os.environ.pop(previous_resolver_key, None)
+        # Persist the non-secret config and remember the key in the OS keychain
+        # (best effort). The key is never written to provider.json.
+        credential_env = (
+            str(payload.get("credential_env") or "").strip()
+            or DEFAULT_CREDENTIAL_ENV
+        )
+        try:
+            save_provider_config(
+                {
+                    "base_url": base_url,
+                    "model": model,
+                    "endpoint_class": endpoint_class,
+                    "credential_env": credential_env,
+                }
+            )
+            KeychainCredentialStore().store(DEFAULT_CREDENTIAL_ENV, api_key)
+        except Exception:
+            # Persistence is convenience only; the live provider is already
+            # committed. Never fail the configure on a store error.
+            pass
         return {**self.provider_status(), "connection_test": "PASS"}
+
+    def _try_load_persisted_provider(self) -> None:
+        """Best-effort: re-install a previously configured provider at startup.
+
+        Uses the persisted non-secret config plus a key from the OS keychain or
+        the environment. If the key is unavailable or the connection test fails,
+        the runtime stays on the built-in/env provider path.
+        """
+
+        config = load_provider_config()
+        if config is None:
+            return
+        credential_env = config.get("credential_env", DEFAULT_CREDENTIAL_ENV)
+        api_key, _source = resolve_provider_key(credential_env)
+        if not api_key:
+            return
+        try:
+            self.configure_provider(
+                {
+                    "base_url": config["base_url"],
+                    "model": config["model"],
+                    "endpoint_class": config.get(
+                        "endpoint_class", "openai-compatible"
+                    ),
+                    "api_key": api_key,
+                    "credential_env": credential_env,
+                }
+            )
+        except Exception:
+            # Persisted config could not be validated (offline/bad key); stay
+            # unconfigured rather than failing startup.
+            pass
 
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
