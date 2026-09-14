@@ -40,3 +40,7 @@ def _hermetic_provider_persistence(tmp_path, monkeypatch):
         "AGENT_OS_PROVIDER_CONFIG", str(tmp_path / "provider.json")
     )
     monkeypatch.setenv("AGENT_OS_DISABLE_KEYCHAIN", "1")
+    # Keep pricing hermetic: never read the developer's ~/.agent-os/pricing.json.
+    monkeypatch.setenv(
+        "AGENT_OS_PRICING_FILE", str(tmp_path / "pricing.json")
+    )

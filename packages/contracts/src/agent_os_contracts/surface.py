@@ -146,6 +146,7 @@ class SurfaceProviderConfigureCommand(ContractModel):
     api_key: NonEmptyStr
     endpoint_class: NonEmptyStr = "openai-compatible"
     temperature: float | None = None
+    max_tokens: int | None = Field(default=None, ge=1)
 
 
 class PendingSurfaceApproval(ContractModel):
