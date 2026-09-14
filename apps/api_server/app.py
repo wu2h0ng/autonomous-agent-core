@@ -2829,7 +2829,13 @@ class AgentOSApplication:
                 "configure and verify a provider before forking a session"
             )
         parent_task_id = self.surface_task_for_session(command.parent_session_id)
-        parent = self.tasks.project_session(parent_task_id, command.parent_session_id)
+        try:
+            parent = self.tasks.project_session(parent_task_id, command.parent_session_id)
+        except SessionProjectionError as exc:
+            # an unreadable parent stream must never be imported blindly
+            raise InvalidTransitionError(
+                "parent session stream is not projectable; fork is refused"
+            ) from exc
         if (
             parent.ref.tenant_id != self.principal.tenant_id
             or parent.ref.workspace_id != self.principal.workspace_id
@@ -2843,8 +2849,8 @@ class AgentOSApplication:
             raise InvalidTransitionError(
                 "cannot fork a session with an uncommitted turn"
             )
-        blocks, imported_history_digest = self._importable_parent_blocks(
-            parent_task_id, command.parent_session_id
+        blocks, imported_history_digest, imported_message_count = (
+            self._importable_parent_blocks(parent_task_id, command.parent_session_id)
         )
         child_config = AgentLoopConfig(
             max_steps_per_turn=parent.loop_config.max_steps_per_turn,
@@ -2864,33 +2870,45 @@ class AgentOSApplication:
             session_id=child.session_id,
             parent_session_id=command.parent_session_id,
             parent_message_count=parent.next_message_index,
+            imported_message_count=imported_message_count,
             imported_history_digest=imported_history_digest,
             source_loop_config_digest=parent.loop_config.digest(),
         )
         index = 1  # index 0 is the child's own (byte-identical) system message
-        for turn_id, user_message, followups in blocks:
-            child_turn_id = f"forked-turn:{turn_id}"
-            self.tasks.record_session_message(
-                child.task_id, child.session_id, index, user_message, turn_id=child_turn_id
-            )
-            index += 1
-            self.tasks.record_imported_session_turn_start(
-                child.task_id,
-                session_id=child.session_id,
-                turn_id=child_turn_id,
-                user_text=user_message.content,
-                forked_from=command.parent_session_id,
-            )
-            for message in followups:
+        try:
+            for turn_id, user_message, followups in blocks:
+                child_turn_id = f"forked-turn:{turn_id}"
                 self.tasks.record_session_message(
-                    child.task_id, child.session_id, index, message, turn_id=child_turn_id
+                    child.task_id, child.session_id, index, user_message, turn_id=child_turn_id
                 )
                 index += 1
-            self.tasks.record_imported_session_turn_completion(
-                child.task_id,
-                session_id=child.session_id,
-                turn_id=child_turn_id,
-                forked_from=command.parent_session_id,
+                self.tasks.record_imported_session_turn_start(
+                    child.task_id,
+                    session_id=child.session_id,
+                    turn_id=child_turn_id,
+                    user_text=user_message.content,
+                    forked_from=command.parent_session_id,
+                )
+                for message in followups:
+                    self.tasks.record_session_message(
+                        child.task_id, child.session_id, index, message, turn_id=child_turn_id
+                    )
+                    index += 1
+                self.tasks.record_imported_session_turn_completion(
+                    child.task_id,
+                    session_id=child.session_id,
+                    turn_id=child_turn_id,
+                    forked_from=command.parent_session_id,
+                )
+        except Exception:
+            # a half-written child must never accept turns
+            self._close_truncated_child(child)
+            raise
+        imported = self.tasks.project_session(child.task_id, child.session_id)
+        if imported.next_message_index != 1 + imported_message_count:
+            self._close_truncated_child(child)
+            raise InvalidTransitionError(
+                "fork import was truncated; the child session was closed"
             )
         return SurfaceForkResponse(
             snapshot=self.surface_session_snapshot(child.session_id),
@@ -2900,16 +2918,28 @@ class AgentOSApplication:
             imported_history_digest=imported_history_digest,
         )
 
+    def _close_truncated_child(self, child: ChatSession) -> None:
+        """Best-effort: a half-written fork child must not accept turns.
+
+        Closing is refused when the child ends mid-turn; that state is already
+        fail-closed (the projector refuses the stream, so no snapshot or
+        restore succeeds), which is why the failure is swallowed here.
+        """
+
+        try:
+            self.tasks.close_session(child.task_id, child.session_id)
+        except Exception:
+            pass
+
     def _importable_parent_blocks(
         self, task_id: str, session_id: str
-    ) -> tuple[
-        list[tuple[str, ProviderMessage, list[ProviderMessage]]], str
-    ]:
+    ) -> tuple[list[tuple[str, ProviderMessage, list[ProviderMessage]]], str, int]:
         """Raw-session read used by the fork import (and reused later by the
         compact slice): ordered parent messages grouped into turn blocks plus
         the canonical import digest an auditor can recompute from the parent's
         own SESSION_MESSAGE_RECORDED payloads (index, turn binding, canonical
-        message dump), excluding index 0 (the parent's system prompt).
+        message dump), excluding index 0 (the parent's system prompt), plus the
+        imported message count for the truncation check.
         """
 
         ordered: list[tuple[int, str | None, ProviderMessage]] = []
@@ -2962,7 +2992,7 @@ class AgentOSApplication:
                 ]
             }
         )
-        return blocks, digest
+        return blocks, digest, len(ordered) - 1
 
     def surface_task_for_session(self, session_id: str) -> str:
         if not session_id.strip():

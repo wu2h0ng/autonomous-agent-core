@@ -690,15 +690,23 @@ class TaskService:
         session_id: str,
         parent_session_id: str,
         parent_message_count: int,
+        imported_message_count: int,
         imported_history_digest: str,
         source_loop_config_digest: str,
     ) -> TaskAggregate:
-        """Typed writer for the protected SESSION_FORKED provenance record."""
+        """Typed writer for the protected SESSION_FORKED provenance record.
+
+        `parent_message_count` includes the parent's system prompt (index 0);
+        `imported_message_count` excludes it — both are recorded explicitly so
+        an auditor can detect a truncated import from the child's own stream.
+        """
 
         if not parent_session_id.strip():
             raise ValueError("parent_session_id must be non-empty")
         if isinstance(parent_message_count, bool) or parent_message_count < 0:
             raise ValueError("parent_message_count must be non-negative")
+        if isinstance(imported_message_count, bool) or imported_message_count < 0:
+            raise ValueError("imported_message_count must be non-negative")
         if not imported_history_digest.strip() or not source_loop_config_digest.strip():
             raise ValueError("fork digests must be non-empty")
         aggregate = self.get_task(task_id)
@@ -727,6 +735,7 @@ class TaskService:
                 "workspace_id": projected.ref.workspace_id,
                 "parent_session_id": parent_session_id,
                 "parent_message_count": parent_message_count,
+                "imported_message_count": imported_message_count,
                 "imported_history_digest": imported_history_digest,
                 "source_loop_config_digest": source_loop_config_digest,
             },
@@ -783,6 +792,34 @@ class TaskService:
             correlation_id=session_id,
         )
 
+    def _require_imported_turn(
+        self, task_id: str, session_id: str, turn_id: str, forked_from: str
+    ) -> None:
+        """An imported turn is only closed by an IMPORTED start record: a real
+        provider-executed turn must never be relabelled as imported/0-token."""
+
+        started_imported = False
+        for event in self._event_store.read(task_id):
+            payload = event.decoded_payload()
+            if not isinstance(payload, dict) or payload.get("session_id") != session_id:
+                continue
+            if payload.get("turn_id") != turn_id:
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                started_imported = (
+                    payload.get("imported") is True
+                    and payload.get("forked_from") == forked_from
+                )
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_COMPLETED:
+                raise InvalidTransitionError("imported turn is already completed")
+            if event.event_type is TaskEventType.SESSION_MESSAGE_RECORDED:
+                continue
+        if not started_imported:
+            raise InvalidTransitionError(
+                "turn was not started as an imported turn"
+            )
+
     def record_imported_session_turn_completion(
         self,
         task_id: str,
@@ -796,6 +833,7 @@ class TaskService:
         if not turn_id.strip():
             raise ValueError("imported turn id must be non-empty")
         self._require_fork_provenance(task_id, session_id, forked_from)
+        self._require_imported_turn(task_id, session_id, turn_id, forked_from)
         return self._append_event(
             task_id,
             TaskEventType.SESSION_TURN_COMPLETED,

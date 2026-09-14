@@ -35,6 +35,7 @@ from agent_os_core import (
     DeterministicProvider,
     InvalidTransitionError,
     SurfaceRuntime,
+    SurfaceSequenceConflict,
     SurfaceSessionNotFound,
 )
 
@@ -135,8 +136,9 @@ def test_fork_imports_history_and_never_touches_the_parent(tmp_path: Path) -> No
     assert child.forked_from == parent.session_id
     assert child.permission_mode == "ASK", "a fork never inherits an auto mode"
     assert child.next_message_index == parent_projection_before.next_message_index
-    assert child.history[0].content == parent_projection_before.history[0].content
-    assert child.history[0].role is ProviderMessageRole.SYSTEM
+    assert child.history[0].content.encode("utf-8") == (
+        parent_projection_before.history[0].content.encode("utf-8")
+    ), "the system prompt is byte-identical"
     assert child.history[1:] == parent_projection_before.history[1:], (
         "imported messages are byte-identical to the parent's"
     )
@@ -270,6 +272,88 @@ def test_fork_route_requires_bearer_and_returns_the_child(tmp_path: Path) -> Non
         with pytest.raises(urllib.error.HTTPError) as unauth:
             urllib.request.urlopen(anonymous)
         assert unauth.value.code == 401
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_imported_turn_writers_refuse_a_real_turn(tmp_path: Path) -> None:
+    """Review P1: a provider-executed turn must never be relabelled as an
+    imported/0-token turn."""
+
+    app = _app(tmp_path)
+    parent = _parent_with_turns(app)
+    response = SurfaceRuntime(app).fork_session(_command(app, parent.session_id))
+    child_id = response.snapshot.session.session_id
+    child_task = response.snapshot.session.task_id
+
+    with pytest.raises(InvalidTransitionError, match="not started as an imported turn"):
+        app.tasks.record_imported_session_turn_completion(
+            child_task,
+            session_id=child_id,
+            turn_id="turn:real",
+            forked_from=parent.session_id,
+        )
+    # the provenance gate still refuses sessions without a fork record
+    with pytest.raises(InvalidTransitionError, match="fork record"):
+        app.tasks.record_imported_session_turn_start(
+            parent.task_id,
+            session_id=parent.session_id,
+            turn_id="turn:imported",
+            user_text="forged",
+            forked_from=parent.session_id,
+        )
+
+
+def test_fork_enforces_sequence_cas(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    parent = _parent_with_turns(app)
+    stale = _command(app, parent.session_id).model_copy(
+        update={"expected_event_sequence": 0}
+    )
+    with pytest.raises(SurfaceSequenceConflict):
+        SurfaceRuntime(app).fork_session(stale)
+    assert [s.session_id for s in app.surface_sessions_listing(10, None).sessions] == [
+        parent.session_id
+    ], "a stale fork creates nothing"
+
+
+def test_fork_refusal_over_http_is_409(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=(("editing", (_proposal("call:1"),)),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    session, loop = app.open_chat_session("pending parent", DeferredApprovalGateway())
+    loop.run_turn(session, "please edit fixture.txt")
+    token = "test-local-token"
+    handler = type(
+        "TestForkRefusalHandler",
+        (Handler,),
+        {
+            "application": app,
+            "local_token": token,
+            "surface_routes": SurfaceRoutes(app.surface, token),
+        },
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        body = _command(app, session.session_id).model_dump(mode="json")
+        request = urllib.request.Request(
+            f"{base}/v1/surface/sessions/{session.session_id}/fork",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
+            },
+        )
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            urllib.request.urlopen(request)
+        assert refused.value.code == 409
     finally:
         server.shutdown()
         server.server_close()
