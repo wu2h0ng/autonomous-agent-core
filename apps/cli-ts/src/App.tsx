@@ -323,7 +323,7 @@ export function App({
             : null,
           { maxEntries: DIFF_MAX_ENTRIES, maxLines: DIFF_MAX_LINES },
         )
-      : { entries: [], dropped: 0 };
+      : { entries: [], dropped: 0, tooLarge: 0 };
   const diffEntries = diffEntrySet.entries;
 
   useInput((keyInput, key) => {
@@ -906,6 +906,7 @@ export function App({
                 diff {diffEntryIndex + 1}/{diffEntries.length} · {diffEntry.title}
                 {diffEntry.truncated ? " · truncated" : ""}
                 {diffEntrySet.dropped > 0 ? ` · ${diffEntrySet.dropped} older diff(s) not shown` : ""}
+                {diffEntrySet.tooLarge > 0 ? ` · ${diffEntrySet.tooLarge} too large to diff` : ""}
                 {diffHunks.length > 0
                   ? ` · hunk ${Math.max(1, diffHunks.filter((start) => start <= diffOffset).length)}/${diffHunks.length}`
                   : ""}
@@ -939,7 +940,9 @@ export function App({
             </>
           ) : (
             <Text dimColor>
-              no diffs yet — approval previews and edit tool calls appear here (esc closes)
+              {diffEntrySet.tooLarge > 0
+                ? `${diffEntrySet.tooLarge} edit diff(s) are too large to render — the tool viewer has the arguments (esc closes)`
+                : "no diffs yet — approval previews and edit tool calls appear here (esc closes)"}
             </Text>
           )}
         </Box>

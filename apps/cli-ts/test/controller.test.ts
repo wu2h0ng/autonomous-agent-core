@@ -723,79 +723,95 @@ test("approval decisions carry the operator comment as the durable reason", asyn
   ]);
 });
 
-test("adoptSnapshot keeps the captured approval identity for the same pending action", () => {
+test("adoptSnapshot binds the approval identity to the same pending action", () => {
   const controller = new TuiController({} as never);
   const internals = controller as never as {
     applyDurable: (n: number, e: unknown[]) => void;
     adoptSnapshot: (s: unknown) => void;
   };
-  internals.applyDurable(1, [
-    {
-      event_id: "e:ap",
-      task_id: "task:1",
-      event_type: "SESSION_APPROVAL_PENDING",
-      payload_json: JSON.stringify({
+  const requestedAt = "2026-09-14T00:00:00Z";
+  const pendingSnapshot = (at: string, capabilityId = "workspace.edit") =>
+    snapshot({
+      status: "WAITING_APPROVAL",
+      pending_approval: {
+        action_digest: "digest-abc",
+        capability_id: capabilityId,
+        proposal_id: "p:1",
         preview: "edit f.txt",
-        requested_at: "2026-09-14T00:00:00Z",
-        action: { action_id: "a:1", capability_id: "workspace.edit", risk_tier: 3, node_id: "node:1" },
-      }),
-      occurred_at: "2026-09-14T00:00:00Z",
-      sequence: 1,
-    },
-  ]);
+        requested_at: at,
+      },
+    });
+  const capture = (seq: number, at: string, capabilityId = "workspace.edit"): void => {
+    internals.applyDurable(seq, [
+      {
+        event_id: `e:${seq}`,
+        task_id: "task:1",
+        event_type: "SESSION_APPROVAL_PENDING",
+        payload_json: JSON.stringify({
+          preview: "edit f.txt",
+          requested_at: at,
+          action: {
+            action_id: `a:${seq}`,
+            capability_id: capabilityId,
+            risk_tier: 3,
+            node_id: "node:1",
+          },
+        }),
+        occurred_at: at,
+        sequence: seq,
+      },
+    ]);
+  };
+
+  // The session opens (no pending approval yet), then the durable pending
+  // event captures the action identity.
+  internals.adoptSnapshot(snapshot());
+  capture(1, requestedAt);
   assert.equal(controller.pendingApproval?.riskTier, 3);
 
   // The resolution path adopts a snapshot for the SAME pending action: the
   // identity is what the card renders, so it must survive.
+  internals.adoptSnapshot(pendingSnapshot(requestedAt));
+  assert.equal(controller.pendingApproval?.riskTier, 3);
+  assert.equal(controller.pendingApproval?.nodeId, "node:1");
+
+  // A DIFFERENT pending action of the same capability (kernel requested_at
+  // differs) must never be described by the old tier/node.
+  internals.adoptSnapshot(pendingSnapshot("2026-09-14T01:00:00Z"));
+  assert.equal(controller.pendingApproval, null, "a different action is not described by stale data");
+
+  // Another session never inherits it either.
+  capture(2, requestedAt);
   internals.adoptSnapshot(
     snapshot({
+      session: {
+        session_id: "s:2",
+        task_id: "task:1",
+        run_id: "run:1",
+        tenant_id: "tenant:local",
+        workspace_id: "workspace:local",
+      },
       status: "WAITING_APPROVAL",
       pending_approval: {
         action_digest: "digest-abc",
         capability_id: "workspace.edit",
         proposal_id: "p:1",
         preview: "edit f.txt",
-        requested_at: "2026-09-14T00:00:00Z",
+        requested_at: requestedAt,
       },
     }),
   );
-  assert.equal(controller.pendingApproval?.riskTier, 3);
-  assert.equal(controller.pendingApproval?.nodeId, "node:1");
+  assert.equal(controller.pendingApproval, null, "another session's action is not reused");
 
   // A resolved approval (no pending) clears it.
   internals.adoptSnapshot(snapshot({ status: "ACTIVE", pending_approval: null }));
   assert.equal(controller.pendingApproval, null);
-
-  // A pending approval for a different action never inherits the identity.
-  internals.applyDurable(2, [
-    {
-      event_id: "e:ap2",
-      task_id: "task:1",
-      event_type: "SESSION_APPROVAL_PENDING",
-      payload_json: JSON.stringify({
-        preview: "shell",
-        action: { action_id: "a:2", capability_id: "workspace.shell", risk_tier: 4 },
-      }),
-      occurred_at: "2026-09-14T00:00:01Z",
-      sequence: 2,
-    },
-  ]);
-  internals.adoptSnapshot(
-    snapshot({
-      status: "WAITING_APPROVAL",
-      pending_approval: {
-        action_digest: "digest-xyz",
-        capability_id: "workspace.edit",
-        proposal_id: "p:2",
-        preview: "edit g.txt",
-        requested_at: "2026-09-14T00:00:02Z",
-      },
-    }),
-  );
-  assert.equal(controller.pendingApproval, null, "a different action's identity is not reused");
 });
 
 test("runTurn integration: the approval identity survives durable resolution", async () => {
+  // The kernel writes the same requested_at into the durable pending event and
+  // into the session snapshot; both sides must be modelled faithfully.
+  const requestedAt = "2026-09-14T00:00:00Z";
   const client = {
     async openSession() {
       return snapshot();
@@ -824,6 +840,7 @@ test("runTurn integration: the approval identity survives durable resolution", a
             event_type: "SESSION_APPROVAL_PENDING",
             payload_json: JSON.stringify({
               preview: "edit f.txt",
+              requested_at: requestedAt,
               action: {
                 action_id: "a:1",
                 capability_id: "workspace.edit",
@@ -831,7 +848,7 @@ test("runTurn integration: the approval identity survives durable resolution", a
                 node_id: "node:1",
               },
             }),
-            occurred_at: new Date().toISOString(),
+            occurred_at: requestedAt,
             sequence: 1,
           },
         ],
@@ -845,7 +862,7 @@ test("runTurn integration: the approval identity survives durable resolution", a
           capability_id: "workspace.edit",
           proposal_id: "p:1",
           preview: "edit f.txt",
-          requested_at: new Date().toISOString(),
+          requested_at: requestedAt,
         },
       });
     },

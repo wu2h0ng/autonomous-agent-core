@@ -95,10 +95,10 @@ test("collectDiffEntries: pending approval first, then newest edits; bounds decl
   assert.match(entries[2]?.title ?? "", /a\.ts/);
 
   // no pending, no edits -> empty (the viewer says so, it does not invent one)
-  assert.deepEqual(collectDiffEntries([], null), { entries: [], dropped: 0 });
+  assert.deepEqual(collectDiffEntries([], null), { entries: [], dropped: 0, tooLarge: 0 });
   assert.deepEqual(
     collectDiffEntries([{ tool: { capabilityId: "workspace.shell", argsJson: "{}" } }], null),
-    { entries: [], dropped: 0 },
+    { entries: [], dropped: 0, tooLarge: 0 },
   );
 
   // bounds are declared, not silent: the line cap trims (`truncated`) and the
@@ -112,6 +112,21 @@ test("collectDiffEntries: pending approval first, then newest edits; bounds decl
   assert.equal(capped.entries[0]?.truncated, true);
   assert.equal(capped.entries[0]?.lines.length, 2);
   assert.equal(capped.dropped, 1, "the older edit diff is counted, not silently dropped");
+  assert.equal(capped.tooLarge, 0);
+
+  // an eligible-but-oversized edit is declared too, never silently missing
+  const oversized = JSON.stringify({
+    path: "big.ts",
+    old_string: "a".repeat(150_000),
+    new_string: "b".repeat(150_000),
+  });
+  const counted = collectDiffEntries(
+    [{ tool: { capabilityId: "workspace.edit", argsJson: oversized } }],
+    null,
+  );
+  assert.equal(counted.entries.length, 0);
+  assert.equal(counted.tooLarge, 1);
+  assert.equal(counted.dropped, 0);
 });
 
 test("editDiffTooLarge: oversized edits are not diffed (and are detectable)", () => {
@@ -122,6 +137,15 @@ test("editDiffTooLarge: oversized edits are not diffed (and are detectable)", ()
   });
   assert.equal(editDiffTooLarge(huge), true);
   assert.equal(editArgsToDiff(huge), null);
+  // The real cost driver is the line count (O(lines²)), not the characters:
+  // ~20k chars over 2,500 lines would cost ~12s of DP, so it must be refused.
+  const manyLines = JSON.stringify({
+    path: "big.ts",
+    old_string: Array.from({ length: 2_500 }, (_, i) => `line ${i}`).join("\n"),
+    new_string: Array.from({ length: 2_500 }, (_, i) => `line ${i + 1}`).join("\n"),
+  });
+  assert.equal(editDiffTooLarge(manyLines), true);
+  assert.equal(editArgsToDiff(manyLines), null);
   assert.equal(
     editDiffTooLarge(JSON.stringify({ path: "f", old_string: "a", new_string: "b" })),
     false,

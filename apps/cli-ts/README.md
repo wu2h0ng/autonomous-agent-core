@@ -83,7 +83,7 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 131 unit tests; `npm run build` type-checks.
+`npm test` runs the 135 unit tests; `npm run build` type-checks.
 
 ## Other entry points
 

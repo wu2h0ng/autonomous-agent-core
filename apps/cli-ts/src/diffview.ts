@@ -86,23 +86,39 @@ function editArgs(argsJson: string): { oldText: string; newText: string } | null
   return { oldText, newText };
 }
 
-/** Content bound for the LCS renderer: a very large edit is not diffed (the
- * DP is O(lines²) on the event loop, so an unbounded call stalls the TUI).
- * `editDiffTooLarge` lets callers say so instead of silently showing nothing. */
+/** Bounds for the LCS renderer. The DP is O(lines²) on the event loop, so the
+ * *line* count is the real cost driver (measured: 6k lines/side ≈ 0.4s, 12k
+ * lines/side ≈ 1.8s and >1GB heap); the character cap is a secondary guard.
+ * Oversized edits are not diffed — `editDiffTooLarge` lets callers declare
+ * that instead of silently showing nothing. */
 const MAX_DIFF_CHARS = 200_000;
+const MAX_DIFF_LINES = 2_000;
+
+function countLines(text: string): number {
+  let lines = 1;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) === 10) lines += 1;
+  }
+  return lines;
+}
 
 /** True when the call is edit-shaped but too large to diff. */
 export function editDiffTooLarge(argsJson: string): boolean {
   const parsed = editArgs(argsJson);
-  return parsed !== null && parsed.oldText.length + parsed.newText.length > MAX_DIFF_CHARS;
+  if (!parsed) return false;
+  return (
+    parsed.oldText.length + parsed.newText.length > MAX_DIFF_CHARS ||
+    countLines(parsed.oldText) > MAX_DIFF_LINES ||
+    countLines(parsed.newText) > MAX_DIFF_LINES
+  );
 }
 
 /** Unified diff lines for an edit-shaped tool call (null when not an edit,
- * nothing changed, or the content exceeds `MAX_DIFF_CHARS`). */
+ * nothing changed, or the content exceeds the renderer bounds). */
 export function editArgsToDiff(argsJson: string): DiffLine[] | null {
   const parsed = editArgs(argsJson);
   if (!parsed) return null;
-  if (parsed.oldText.length + parsed.newText.length > MAX_DIFF_CHARS) return null;
+  if (editDiffTooLarge(argsJson)) return null;
   const lines = diffLines(parsed.oldText, parsed.newText);
   return lines.some((line) => line.kind !== "context") ? lines : null;
 }
@@ -143,6 +159,8 @@ export interface DiffEntrySet {
   entries: DiffEntry[];
   /** Edit diffs beyond `maxEntries` — the viewer says so, never silently. */
   dropped: number;
+  /** Eligible edits that could not be rendered because they are oversized. */
+  tooLarge: number;
 }
 
 export interface DiffEntryOptions {
@@ -200,9 +218,14 @@ export function collectDiffEntries(
       argsJson: tool.argsJson,
     });
   }
+  let tooLarge = 0;
   for (const item of eligible.slice(0, maxEntries)) {
+    if (editDiffTooLarge(item.argsJson)) {
+      tooLarge += 1;
+      continue;
+    }
     const lines = editArgsToDiff(item.argsJson);
     if (lines) add(item.title, item.path, lines);
   }
-  return { entries, dropped: Math.max(0, eligible.length - maxEntries) };
+  return { entries, dropped: Math.max(0, eligible.length - maxEntries), tooLarge };
 }
