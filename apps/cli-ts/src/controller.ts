@@ -322,6 +322,11 @@ export class TuiController {
    * captured from the SESSION_APPROVAL_PENDING payload; null when unknown —
    * the card shows nothing rather than guessing. */
   pendingApproval: PendingApprovalInfo | null = null;
+  /** Ctrl-E explanation state (S2, display-only): exactly one of loading /
+   * text / error is meaningful at a time; reset when the approval resolves. */
+  explainLoading = false;
+  explainText: string | null = null;
+  explainError: string | null = null;
 
   private sessionId: string | null = null;
   private taskId: string | null = null;
@@ -746,6 +751,7 @@ export class TuiController {
         "ctrl-a/ctrl-e line start/end · ctrl-t thinking",
         "ctrl-o tool viewer · /tools (↑↓ select, esc close)",
         "ctrl-a while approving = full diff · /diff (↑↓, ctrl-d/u, n/p hunk, [/] diff)",
+        "ctrl-e while approving = explain the pending action (display-only)",
         "y approve · n reject · c approve-with-comment · esc correction · ctrl-c exit",
         "/ palette · @ file mention · /vim vim keymap (dd/dw/cw) · ctrl-l clear view",
       ],
@@ -1253,6 +1259,10 @@ export class TuiController {
         if (typeof payload["turn_id"] === "string" && payload["turn_id"] !== this.turnId) continue;
         this.pendingPreview = String(payload["preview"] ?? "");
         this.pendingApproval = this.approvalInfoFromPayload(payload);
+        // a new pending action invalidates any earlier explanation
+        this.explainLoading = false;
+        this.explainText = null;
+        this.explainError = null;
         this.status = "awaiting_approval";
         this.finalizeAll();
       } else if (event.event_type === "ACTION_PROPOSED") {
@@ -1385,6 +1395,30 @@ export class TuiController {
     await this.decide("REJECT", comment);
   }
 
+  /** Ctrl-E: ask the live provider to explain the pending action (S2).
+   * Display-only: the answer is never durable, never an approval basis and
+   * never enters the transcript or the composer. */
+  async explain(): Promise<void> {
+    if (this.status !== "awaiting_approval") return;
+    const digest = this.snapshot?.pending_approval?.action_digest;
+    if (!this.sessionId || !digest) return;
+    this.explainLoading = true;
+    this.explainText = null;
+    this.explainError = null;
+    this.emit();
+    try {
+      const response = await this.client.explainAction(this.sessionId, digest);
+      this.explainText = response.truncated
+        ? `${response.text}\n… (truncated by the kernel)`
+        : response.text;
+    } catch (cause) {
+      this.explainError = (cause as Error).message;
+    } finally {
+      this.explainLoading = false;
+      this.emit();
+    }
+  }
+
   private async decide(disposition: "APPROVE" | "REJECT", comment?: string): Promise<void> {
     if (this.status !== "awaiting_approval") throw new Error("no pending approval");
     if (!this.sessionId) throw new Error("no session");
@@ -1416,6 +1450,9 @@ export class TuiController {
     this.status = "idle";
     this.pendingPreview = null;
     this.pendingApproval = null;
+    this.explainLoading = false;
+    this.explainText = null;
+    this.explainError = null;
     this.finalizeAll();
     this.maybeDrain();
   }

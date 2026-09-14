@@ -52,6 +52,7 @@ from agent_os_contracts import (
     PrincipalRole,
     ProviderProfile,
     ProviderFailure,
+    ProviderDecisionRequest,
     ProviderInvocationBinding,
     ProviderMessage,
     ProviderMessageRole,
@@ -84,6 +85,8 @@ from agent_os_contracts import (
     SurfaceSessionStatus,
     SurfaceConflictProjection,
     SurfaceContextStatus,
+    SurfaceExplainCommand,
+    SurfaceExplainResponse,
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
@@ -219,6 +222,18 @@ def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentL
         config,
         system_prompt=config.system_prompt + agents_markdown_system_section(context),
     )
+
+
+# Ctrl-E explanation bounds (S2): a narrow, read-only provider decision. The
+# explain call has no tools, no Task/Run authority and no durable record.
+_EXPLAIN_TIMEOUT_SECONDS = 20
+_EXPLAIN_MAX_INPUT_CHARS = 8_000
+_EXPLAIN_MAX_OUTPUT_CHARS = 4_000
+_EXPLAIN_SYSTEM_PROMPT = (
+    "You explain one governed action to the operator. Say what the action "
+    "does, why the agent proposed it and its risk level. Never execute "
+    "anything, never propose tools and never ask for approval."
+)
 
 
 class AgentOSApplication:
@@ -2686,6 +2701,86 @@ class AgentOSApplication:
             dropped_turns=view.dropped_turns,
             total_tokens=total_tokens,
             turn_token_budget=projected.loop_config.max_turn_tokens,
+        )
+
+    def surface_explain_action(
+        self, command: SurfaceExplainCommand
+    ) -> SurfaceExplainResponse:
+        """Ctrl-E: narrow, display-only explanation of the pending action (S2).
+
+        The digest authority is the durable projection, never the request
+        body; the session's recorded provider profile must still be the live
+        one; the provider is called through the no-authority decision channel
+        (no tools on the wire) and nothing is written: the response is marked
+        `durable: false` and is never an approval basis.
+        """
+
+        if not command.action_digest.strip():
+            raise ValueError("action_digest must be non-empty")
+        if not self.provider_configured:
+            raise ValueError("configure a provider before asking for an explanation")
+        task_id = self.surface_task_for_session(command.session_id)
+        projected = self.tasks.project_session(task_id, command.session_id)
+        if (
+            projected.ref.tenant_id != self.principal.tenant_id
+            or projected.ref.workspace_id != self.principal.workspace_id
+        ):
+            raise SurfaceSessionNotFound(f"session {command.session_id} not found")
+        pending = projected.pending_continuation
+        if pending is None:
+            if projected.resumable_turn_id is not None:
+                raise InvalidTransitionError(
+                    "session has an uncommitted turn; explain once it resolves"
+                )
+            raise ValueError("explain requires a pending approval")
+        if pending.action.action_digest() != command.action_digest:
+            raise ValueError("explain digest does not match the pending action")
+        binding = self.provider.invocation_binding
+        live_profile = binding.provider_profile
+        if (
+            pending.provider_profile_id != live_profile.profile_id
+            or pending.provider_profile_digest != content_digest(live_profile)
+        ):
+            raise ValueError(
+                "explain requires the session's provider profile to still be live"
+            )
+        request = ProviderDecisionRequest(
+            request_id=f"provider-decision:explain:{pending.action.action_id}",
+            decision_kind="ACTION_EXPLANATION",
+            provider_profile_id=live_profile.profile_id,
+            expected_invocation_binding_digest=binding.digest(),
+            messages=(
+                ProviderMessage(
+                    role=ProviderMessageRole.SYSTEM,
+                    content=_EXPLAIN_SYSTEM_PROMPT,
+                ),
+                ProviderMessage(
+                    role=ProviderMessageRole.USER,
+                    content=(
+                        f"Pending action: {pending.action.capability_id}\n"
+                        f"{pending.preview[:_EXPLAIN_MAX_INPUT_CHARS]}"
+                    ),
+                ),
+            ),
+            timeout_seconds=_EXPLAIN_TIMEOUT_SECONDS,
+            created_at=self._clock(),
+        )
+        response = self.provider.decide(request)
+        if isinstance(response, ProviderFailure):
+            raise ValueError(f"explain provider call failed: {response.code.value}")
+        if response.request_id != request.request_id or response.tool_proposals:
+            # an authority-shaped answer is discarded whole, never truncated
+            raise ValueError("explain provider response was authority-shaped")
+        if response.invocation_binding_digest != binding.digest():
+            raise ValueError("explain provider response binding mismatch")
+        text = response.text
+        return SurfaceExplainResponse(
+            session_id=command.session_id,
+            action_digest=command.action_digest,
+            text=text[:_EXPLAIN_MAX_OUTPUT_CHARS],
+            truncated=len(text) > _EXPLAIN_MAX_OUTPUT_CHARS,
+            total_tokens=response.usage.total_tokens,
+            provider_profile_id=live_profile.profile_id,
         )
 
     def surface_task_for_session(self, session_id: str) -> str:

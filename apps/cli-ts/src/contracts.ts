@@ -104,6 +104,21 @@ export const SurfaceContextStatusSchema = z.object({
 });
 export type SurfaceContextStatus = z.infer<typeof SurfaceContextStatusSchema>;
 
+/** S2 Ctrl-E explanation: display-only (`durable: false`), never an approval
+ * basis, never written into the transcript. */
+export const SurfaceExplainResponseSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  session_id: NonEmptyStr,
+  action_digest: NonEmptyStr,
+  text: z.string(),
+  truncated: z.boolean().default(false),
+  total_tokens: z.number().int().nonnegative(),
+  provider_profile_id: NonEmptyStr,
+  cost_status: z.literal("UNKNOWN").default("UNKNOWN"),
+  durable: z.literal(false).default(false),
+});
+export type SurfaceExplainResponse = z.infer<typeof SurfaceExplainResponseSchema>;
+
 export const ProviderMessageSchema = z
   .object({
     role: z.enum(["SYSTEM", "USER", "ASSISTANT", "TOOL"]),

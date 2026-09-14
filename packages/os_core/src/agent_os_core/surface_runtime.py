@@ -24,6 +24,8 @@ from agent_os_contracts import (
     SurfaceContextStatus,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
+    SurfaceExplainCommand,
+    SurfaceExplainResponse,
     SurfaceOpenSessionCommand,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
@@ -45,6 +47,7 @@ ResponseT = TypeVar(
     SurfaceSessionSnapshot,
     SurfaceTurnResponse,
     SurfaceBeginTurnResponse,
+    SurfaceExplainResponse,
 )
 
 
@@ -129,6 +132,9 @@ class SurfaceApplicationPort(Protocol):
         self, limit: int, cursor: str | None
     ) -> SurfaceSessionListResponse: ...
     def surface_context_status(self, session_id: str) -> SurfaceContextStatus: ...
+    def surface_explain_action(
+        self, command: SurfaceExplainCommand
+    ) -> SurfaceExplainResponse: ...
 
     def surface_event_batch(
         self, task_id: str, after_sequence: int
@@ -211,6 +217,29 @@ class SurfaceRuntime:
         if not session_id.strip():
             raise ValueError("session_id must be non-empty")
         return self._application.surface_context_status(session_id)
+
+    def explain_action(self, command: SurfaceExplainCommand) -> SurfaceExplainResponse:
+        """Ctrl-E explanation: idempotent, principal-scoped, read-only.
+
+        No state changes and no durable writes: the narrow provider decision is
+        display-only (`durable=false`). Explaining a pending approval happens
+        during an uncommitted turn by construction, so the app-level guard is
+        "a turn is uncommitted AND no approval is pending for it".
+        """
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:explain:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceExplainResponse,
+                operation=lambda: self._explain_once(command),
+            )
+
+    def _explain_once(self, command: SurfaceExplainCommand) -> SurfaceExplainResponse:
+        self._require_protocol(command.protocol_version)
+        self._require_principal_scope(command.client)
+        self._require_open_session(command.session_id)
+        return self._application.surface_explain_action(command)
 
     def run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):

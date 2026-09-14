@@ -17,6 +17,7 @@ import { z } from "zod";import {
   SurfaceBeginTurnResponseSchema,
   SurfaceContextStatusSchema,
   SurfaceEventBatchSchema,
+  SurfaceExplainResponseSchema,
   SurfaceFileEntrySchema,
   SurfaceProviderStatusSchema,
   SurfaceSessionListResponseSchema,
@@ -32,6 +33,7 @@ import { z } from "zod";import {
   type SurfaceClientRef,
   type SurfaceContextStatus,
   type SurfaceEventBatch,
+  type SurfaceExplainResponse,
   type SurfaceFileEntry,
   type SurfaceProviderStatus,
   type SurfaceSessionSnapshot,
@@ -233,6 +235,27 @@ export class SurfaceClient {
       `/v1/surface/sessions/${sessionId}/context`,
     );
     return this.unwrap(response, "context", SurfaceContextStatusSchema);
+  }
+
+  /** S2: ask the live provider to explain the pending action (display-only).
+   * Binds the request to the exact pending action digest the caller holds. */
+  async explainAction(
+    sessionId: string,
+    actionDigest: string,
+  ): Promise<SurfaceExplainResponse> {
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/explain`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        action_digest: actionDigest,
+        idempotency_key: `cli-ts-explain:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    return this.unwrap(response, "explanation", SurfaceExplainResponseSchema);
   }
 
   /** Subscription-first: mint a transient stream under the current daemon

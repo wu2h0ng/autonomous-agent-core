@@ -214,6 +214,40 @@ class SurfaceContextStatus(ContractModel):
     window_source: Literal["unset"] = "unset"
 
 
+class SurfaceExplainCommand(ContractModel):
+    """Ctrl-E: ask the live provider to explain one pending action.
+
+    Carries no Task/Run authority: the runtime re-derives the pending action
+    digest from the durable projection and only then performs a narrow
+    read-only provider decision (no tools, no durable write).
+    """
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    action_digest: NonEmptyStr
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceExplainResponse(ContractModel):
+    """Display-only explanation of a pending action (`durable: false`).
+
+    The text is model output about an action that has NOT been approved: it is
+    never an approval basis, never durable and never part of the transcript.
+    """
+
+    protocol_version: Literal["1.1"] = "1.1"
+    session_id: NonEmptyStr
+    action_digest: NonEmptyStr
+    text: str
+    truncated: bool = False
+    total_tokens: int = Field(ge=0)
+    provider_profile_id: NonEmptyStr
+    cost_status: Literal["UNKNOWN"] = "UNKNOWN"
+    durable: Literal[False] = False
+
+
 class SurfaceTurnResponse(ContractModel):
     protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot

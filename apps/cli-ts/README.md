@@ -57,8 +57,10 @@ diffs. Both viewers are bounded and say so when they truncate.
 Approval cards show the pending capability, the risk tier, node and request
 time recorded in the durable event, and the digest the approval binds to; `y`
 approves, `n` rejects, `c` opens comment mode (Enter approves with the typed
-comment as the durable reason, Esc cancels) and `Ctrl-A` opens the full diff.
-Esc never approves or rejects.
+comment as the durable reason, Esc cancels), `Ctrl-E` asks the live provider
+to explain the pending action (display-only, `durable: false`, never an
+approval basis) and `Ctrl-A` opens the full diff. Esc never approves or
+rejects.
 
 `/theme` accepts `default`, `ansi`, `mono` and `inherit` — `inherit` sets no
 colours at all and follows the terminal's own theme. In `default`/`ansi` the

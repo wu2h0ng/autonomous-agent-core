@@ -651,6 +651,12 @@ export function App({
       return;
     }
     if (key.ctrl && keyInput === "e") {
+      // Ctrl-E in an approval explains the pending action (S2, display-only);
+      // outside it stays the readline line-end key.
+      if (controller.status === "awaiting_approval" && !approvalComment) {
+        void controller.explain().catch(() => undefined);
+        return;
+      }
       setComposer((current) => move(current, "end"));
       return;
     }
@@ -1078,8 +1084,17 @@ export function App({
             <Text dimColor>
               digest {pending.action_digest.slice(0, 16)}… · this approval binds to that digest only
             </Text>
+            {controller.explainLoading && <Text dimColor>🧠 asking the provider to explain…</Text>}
+            {controller.explainError && (
+              <Text {...paint(theme.danger)}>explain failed: {controller.explainError}</Text>
+            )}
+            {controller.explainText && (
+              <Text {...paint(theme.thinking)} wrap="wrap">
+                🧠 {controller.explainText}
+              </Text>
+            )}
             <Text {...paint(theme.approvalTitle)}>
-              [y] approve · [n] reject · [c] comment · ctrl-a full diff · esc is ignored here
+              [y] approve · [n] reject · [c] comment · ctrl-e explain · ctrl-a full diff · esc is ignored here
             </Text>
           </Box>
         ) : (

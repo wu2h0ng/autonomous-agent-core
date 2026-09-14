@@ -495,6 +495,42 @@ test("approval: empty comment + Enter does not approve", async () => {
   }
 });
 
+test("approval: ctrl-e asks for an explanation and renders it display-only", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  let calls = 0;
+  controller.explain = async () => {
+    calls += 1;
+    controller.explainText = "It edits f.txt in place; risk tier 2.";
+    // the real explain() emits on state change; the spy must too
+    (controller as never as { emit: () => void }).emit();
+  };
+  const internals = controller as never as { status: string; snapshot: unknown };
+  internals.status = "awaiting_approval";
+  internals.snapshot = {
+    ...SNAPSHOT,
+    status: "WAITING_APPROVAL",
+    pending_approval: {
+      action_digest: "d".repeat(64),
+      capability_id: "workspace.edit",
+      proposal_id: "p:1",
+      preview: "edit f.txt",
+      requested_at: "2026-09-14T00:00:00Z",
+    },
+  };
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("\u0005"); // Ctrl-E
+    await flush();
+    assert.equal(calls, 1);
+    const frame = view.lastFrame() ?? "";
+    assert.match(frame, /It edits f\.txt in place/);
+    assert.match(frame, /ctrl-e explain/);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("approval card renders the durable identity line (tier · node · requested)", async () => {
   const controller = new TuiController(new FakeClient() as never);
   const internals = controller as never as { status: string; snapshot: unknown };

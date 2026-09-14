@@ -1043,3 +1043,48 @@ test("/context without a session never calls the kernel", async () => {
   assert.equal(calls, 0);
   assert.match(controller.messages.at(-1)?.content ?? "", /no session yet/);
 });
+
+test("explain: display-only text, honest error state, nothing outside an approval", async () => {
+  const calls: string[] = [];
+  const client = {
+    async explainAction(_sessionId: string, digest: string) {
+      calls.push(digest);
+      if (digest === "digest:boom") throw new Error("provider unavailable");
+      return {
+        protocol_version: "1.1",
+        session_id: "s:1",
+        action_digest: digest,
+        text: "It edits f.txt in place; risk tier 2.",
+        truncated: false,
+        total_tokens: 42,
+        provider_profile_id: "provider-profile:default",
+        cost_status: "UNKNOWN",
+        durable: false,
+      };
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as {
+    status: string;
+    sessionId: string;
+    snapshot: unknown;
+  };
+
+  // outside an approval nothing happens (no provider call, no state)
+  await controller.explain();
+  assert.deepEqual(calls, []);
+
+  internals.sessionId = "s:1";
+  internals.status = "awaiting_approval";
+  internals.snapshot = { pending_approval: { action_digest: "digest:ok" } };
+  await controller.explain();
+  assert.deepEqual(calls, ["digest:ok"]);
+  assert.equal(controller.explainText, "It edits f.txt in place; risk tier 2.");
+  assert.equal(controller.explainError, null);
+  assert.equal(controller.explainLoading, false);
+
+  internals.snapshot = { pending_approval: { action_digest: "digest:boom" } };
+  await controller.explain();
+  assert.match(controller.explainError ?? "", /provider unavailable/);
+  assert.equal(controller.explainText, null, "a failed explain never keeps stale text");
+});

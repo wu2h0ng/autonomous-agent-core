@@ -23,6 +23,7 @@ from agent_os_contracts import (
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
     SurfaceCorrectionCommand,
+    SurfaceExplainCommand,
     SurfaceOpenSessionCommand,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
@@ -226,6 +227,10 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._post_mode(handler, session_id)
                     return
+                session_id = _match_surface_session_leaf(handler.path, "explain")
+                if session_id is not None:
+                    self._post_explain(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "turns")
                 if session_id is not None:
                     self._post_turn(handler, session_id)
@@ -390,6 +395,23 @@ class SurfaceRoutes:
             200,
             {
                 "snapshot": self._runtime.set_permission_mode(command).model_dump(
+                    mode="json"
+                )
+            },
+        )
+
+    def _post_explain(self, handler: Any, session_id: str) -> None:
+        body = handler._body()
+        command = SurfaceExplainCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {
+                "explanation": self._runtime.explain_action(command).model_dump(
                     mode="json"
                 )
             },
