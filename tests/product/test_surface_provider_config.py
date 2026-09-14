@@ -180,7 +180,7 @@ def test_unsupported_endpoint_class_fails_closed(
     runtime = SurfaceRuntime(app)
     with pytest.raises(ValueError, match="unsupported endpoint_class"):
         runtime.configure_provider(
-            _command(app, stub_provider, endpoint_class="google-generative")
+            _command(app, stub_provider, endpoint_class="cohere-command")
         )
     assert runtime.provider_status().configured is False
 

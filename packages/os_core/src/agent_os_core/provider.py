@@ -431,6 +431,16 @@ class OpenAICompatibleProvider(ProviderPort):
             "Content-Type": "application/json",
         }
 
+    def _endpoint_path(
+        self,
+        invocation: ProviderInvocationBinding | None,
+        model_id: str,
+    ) -> str:
+        """Path after ``base_url``; native protocols may embed the model id."""
+        if invocation is not None:
+            return invocation.endpoint_path
+        return self.DEFAULT_ENDPOINT_PATH
+
     def _parse_completion(
         self,
         payload: dict[str, Any],
@@ -520,11 +530,7 @@ class OpenAICompatibleProvider(ProviderPort):
                 else self._temperature
             )
             base_url = invocation.base_url if invocation is not None else self._base_url
-            endpoint_path = (
-                invocation.endpoint_path
-                if invocation is not None
-                else self.DEFAULT_ENDPOINT_PATH
-            )
+            endpoint_path = self._endpoint_path(invocation, model_id)
             runtime_timeout_seconds = (
                 invocation.request_timeout_seconds
                 if invocation is not None
@@ -960,3 +966,201 @@ def _safe_json_object(raw: str) -> dict[str, object]:
     except (TypeError, ValueError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+class GeminiGenerativeProvider(OpenAICompatibleProvider):
+    """Native Google Gemini generateContent transport.
+
+    ``POST {base_url}/v1beta/models/{model}:generateContent`` with an
+    ``x-goog-api-key`` header. Reuses the shared invocation/credential/failure
+    machinery. Streaming is not implemented (complete_streaming falls back to a
+    single-shot complete); token usage is exact, cost UNKNOWN.
+    """
+
+    DEFAULT_ENDPOINT_PATH = "/v1beta/models"
+    EXPECTED_ENDPOINT_CLASS = "google-generative"
+    ADAPTER_KIND = "google-generative"
+
+    def _transport_headers(self, secret: str) -> dict[str, str]:
+        return {
+            "x-goog-api-key": secret,
+            "Content-Type": "application/json",
+        }
+
+    def _endpoint_path(
+        self,
+        invocation: ProviderInvocationBinding | None,
+        model_id: str,
+    ) -> str:
+        if invocation is not None:
+            return invocation.endpoint_path
+        return f"/v1beta/models/{model_id}:generateContent"
+
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        result = self.complete(request)
+        if (
+            on_text_delta is not None
+            and isinstance(result, ProviderResponse)
+            and result.text
+        ):
+            on_text_delta(result.text)
+        return result
+
+    def _request_body(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        *,
+        model_id: str,
+        temperature: float,
+        allowed_capability_ids: tuple[str, ...],
+        stream: bool,
+    ) -> dict[str, object]:
+        if stream:
+            # Streaming for the native Gemini dialect is not implemented yet;
+            # fail closed rather than emit a non-streaming request as if streamed.
+            raise ValueError("gemini streaming is not implemented")
+        system_parts = [
+            str(message.content)
+            for message in request.messages
+            if message.role is ProviderMessageRole.SYSTEM
+        ]
+        tool_names = {
+            str(tool_call.tool_call_id): str(tool_call.capability_id)
+            for message in request.messages
+            if message.role is ProviderMessageRole.ASSISTANT
+            for tool_call in message.tool_calls
+        }
+        body: dict[str, object] = {
+            "contents": [
+                _gemini_content(message, tool_names)
+                for message in request.messages
+                if message.role is not ProviderMessageRole.SYSTEM
+            ]
+        }
+        if system_parts:
+            body["systemInstruction"] = {
+                "parts": [{"text": "\n\n".join(system_parts)}]
+            }
+        if temperature is not None:
+            body["generationConfig"] = {"temperature": temperature}
+        if allowed_capability_ids:
+            body["tools"] = [
+                {
+                    "functionDeclarations": [
+                        _gemini_tool(capability_id)
+                        for capability_id in allowed_capability_ids
+                    ]
+                }
+            ]
+        return body
+
+    def _parse_completion(
+        self,
+        payload: dict[str, Any],
+        request: ProviderRequest | ProviderDecisionRequest,
+    ) -> ProviderResponse:
+        candidates = payload.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("gemini response has no candidates")
+        candidate = candidates[0]
+        if not isinstance(candidate, dict):
+            raise ValueError("gemini candidate must be an object")
+        content = candidate.get("content") or {}
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if not isinstance(parts, list):
+            raise ValueError("gemini candidate content must carry parts")
+        text = "".join(
+            str(part.get("text", ""))
+            for part in parts
+            if isinstance(part, dict) and "text" in part
+        )
+        proposals: list[ProviderToolProposal] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            call = part.get("functionCall")
+            if not isinstance(call, dict):
+                continue
+            proposals.append(
+                ProviderToolProposal(
+                    proposal_id=f"proposal-{uuid4()}",
+                    capability_id=str(call.get("name", "")).replace("__", "."),
+                    arguments_json=json.dumps(call.get("args", {})),
+                )
+            )
+        usage = payload.get("usageMetadata") or {}
+        input_tokens = int(usage.get("promptTokenCount", 0))
+        output_tokens = int(usage.get("candidatesTokenCount", 0))
+        raw_finish = candidate.get("finishReason")
+        return ProviderResponse(
+            response_id=str(payload.get("responseId", f"response-{uuid4()}")),
+            request_id=request.request_id,
+            text=text,
+            tool_proposals=tuple(proposals),
+            usage=ProviderUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=int(
+                    usage.get("totalTokenCount", input_tokens + output_tokens)
+                ),
+                # E3: exact tokens; no pricing source — cost UNKNOWN.
+                cost_status="UNKNOWN",
+            ),
+            finish_reason=str(raw_finish).lower() if raw_finish else "stop",
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
+        )
+
+
+def _gemini_content(
+    message: ProviderMessage,
+    tool_names: dict[str, str],
+) -> dict[str, object]:
+    if message.role is ProviderMessageRole.TOOL:
+        name = tool_names.get(str(message.tool_call_id), str(message.tool_call_id))
+        return {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "name": name,
+                        "response": {"content": message.content},
+                    }
+                }
+            ],
+        }
+    if message.role is ProviderMessageRole.ASSISTANT:
+        parts: list[dict[str, object]] = []
+        if message.content:
+            parts.append({"text": message.content})
+        for tool_call in message.tool_calls:
+            parts.append(
+                {
+                    "functionCall": {
+                        "name": tool_call.capability_id.replace(".", "__"),
+                        "args": _safe_json_object(tool_call.arguments_json),
+                    }
+                }
+            )
+        return {"role": "model", "parts": parts or [{"text": ""}]}
+    return {"role": "user", "parts": [{"text": message.content}]}
+
+
+def _gemini_tool(capability_id: str) -> dict[str, object]:
+    definition = _tool_definition(capability_id)
+    function = definition["function"]  # type: ignore[index]
+    return {
+        "name": function["name"],  # type: ignore[index]
+        "description": function.get("description", ""),  # type: ignore[union-attr]
+        "parameters": function["parameters"],  # type: ignore[index]
+    }

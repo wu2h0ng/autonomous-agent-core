@@ -164,18 +164,106 @@ class KeychainCredentialStore:
             return
 
 
+class KeyringCredentialStore:
+    """Cross-platform keychain via the optional ``keyring`` package (no argv).
+
+    This is the preferred backend: on macOS it uses the Keychain API (not the
+    ``security`` CLI), so the secret never appears in a process argv. If the
+    ``keyring`` package or a real backend is unavailable, callers fall back to
+    :class:`KeychainCredentialStore` and then to the environment.
+    """
+
+    def __init__(self, service: str = KEYCHAIN_SERVICE) -> None:
+        self.service = service
+
+    @staticmethod
+    def _keyring_module():  # noqa: ANN205
+        try:
+            import keyring
+            from keyring.backends.fail import Keyring as _FailKeyring
+        except Exception:
+            return None
+        try:
+            if isinstance(keyring.get_keyring(), _FailKeyring):
+                return None
+        except Exception:
+            return None
+        return keyring
+
+    def available(self) -> bool:
+        return self._keyring_module() is not None
+
+    def store(self, account: str, secret: str) -> bool:
+        module = self._keyring_module()
+        if module is None or not account or not secret:
+            return False
+        try:
+            module.set_password(self.service, account, secret)
+            return True
+        except Exception:
+            return False
+
+    def load(self, account: str) -> str | None:
+        module = self._keyring_module()
+        if module is None or not account:
+            return None
+        try:
+            return module.get_password(self.service, account) or None
+        except Exception:
+            return None
+
+    def delete(self, account: str) -> None:
+        module = self._keyring_module()
+        if module is None or not account:
+            return
+        try:
+            module.delete_password(self.service, account)
+        except Exception:
+            return
+
+
+class _NullCredentialStore:
+    """No-op store used when keychain access is disabled (CI, air-gapped)."""
+
+    def available(self) -> bool:
+        return False
+
+    def store(self, account: str, secret: str) -> bool:
+        return False
+
+    def load(self, account: str) -> str | None:
+        return None
+
+    def delete(self, account: str) -> None:
+        return
+
+
+def default_credential_store():
+    """Prefer the keyring backend (no argv); then the security CLI.
+
+    ``AGENT_OS_DISABLE_KEYCHAIN`` forces the null store (tests/air-gapped).
+    """
+
+    if os.environ.get("AGENT_OS_DISABLE_KEYCHAIN"):
+        return _NullCredentialStore()
+    keyring_store = KeyringCredentialStore()
+    if keyring_store.available():
+        return keyring_store
+    return KeychainCredentialStore()
+
+
 def resolve_provider_key(
     credential_env: str,
     *,
     account: str = DEFAULT_CREDENTIAL_ENV,
-    keychain: KeychainCredentialStore | None = None,
+    keychain: KeychainCredentialStore | KeyringCredentialStore | None = None,
 ) -> tuple[str | None, str]:
     """Resolve the API key from the keychain first, then the environment.
 
     Returns (key, source) where source is one of "keychain", "env", "none".
     """
 
-    store = keychain or KeychainCredentialStore()
+    store = keychain or default_credential_store()
     from_keychain = store.load(account)
     if from_keychain:
         return from_keychain, "keychain"
