@@ -42,6 +42,36 @@ class _StubAnthropicHandler(BaseHTTPRequestHandler):
                 "body": body,
             }
         )
+        if body.get("stream"):
+            events = (
+                'event: message_start\n'
+                'data: {"type":"message_start","message":{"id":"msg_1",'
+                '"usage":{"input_tokens":4}}}\n\n'
+                'event: content_block_delta\n'
+                'data: {"type":"content_block_delta","index":0,'
+                '"delta":{"type":"text_delta","text":"hel"}}\n\n'
+                'event: content_block_delta\n'
+                'data: {"type":"content_block_delta","index":0,'
+                '"delta":{"type":"text_delta","text":"lo"}}\n\n'
+                'event: content_block_start\n'
+                'data: {"type":"content_block_start","index":1,'
+                '"content_block":{"type":"tool_use","id":"toolu_1",'
+                '"name":"workspace__read"}}\n\n'
+                'event: content_block_delta\n'
+                'data: {"type":"content_block_delta","index":1,'
+                '"delta":{"type":"input_json_delta",'
+                '"partial_json":"{\\"path\\":\\"a.txt\\"}"}}\n\n'
+                'event: message_delta\n'
+                'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},'
+                '"usage":{"output_tokens":2}}\n\n'
+            )
+            encoded = events.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            return
         payload = {
             "id": "msg_stub",
             "type": "message",
@@ -174,23 +204,6 @@ def test_anthropic_request_and_response_mapping(monkeypatch) -> None:  # type: i
     assert tool_result["content"][0]["tool_use_id"] == "toolu_prev"
 
 
-def test_anthropic_streaming_falls_back_to_single_delta(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    base = _stub()
-    monkeypatch.setenv("ANTHROPIC_TEST_KEY", _SECRET)
-    provider = AnthropicMessagesProvider(
-        base_url=base,
-        model="claude-sonnet-4",
-        credential=_credential(),
-        credentials=EnvCredentialBroker(),
-    )
-    deltas: list[str] = []
-    result = provider.complete_streaming(
-        _request().model_copy(update={"allowed_capability_ids": ()}),
-        on_text_delta=deltas.append,
-    )
-    assert isinstance(result, ProviderResponse)
-    assert deltas == [result.text]
-
 
 def test_anthropic_missing_credential_is_a_failure(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.delenv("ANTHROPIC_TEST_KEY", raising=False)
@@ -272,3 +285,27 @@ def test_anthropic_explicit_zero_temperature_is_kept(monkeypatch) -> None:  # ty
     )
     provider.complete(_request())
     assert _RECORDED[-1]["body"]["temperature"] == 0.0
+
+
+def test_anthropic_streaming_emits_text_deltas(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ANTHROPIC_TEST_KEY", _SECRET)
+    _RECORDED.clear()
+    provider = AnthropicMessagesProvider(
+        base_url=_stub(),
+        model="claude-sonnet-4",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+    )
+    deltas: list[str] = []
+    result = provider.complete_streaming(
+        _request().model_copy(update={"allowed_capability_ids": ()}),
+        on_text_delta=deltas.append,
+    )
+    assert isinstance(result, ProviderResponse), result
+    assert result.text == "hello"
+    assert deltas == ["hel", "lo"]
+    assert result.usage.input_tokens == 4
+    assert result.usage.output_tokens == 2
+    assert result.tool_proposals[0].capability_id == "workspace.read"
+    assert json.loads(result.tool_proposals[0].arguments_json) == {"path": "a.txt"}
+    assert _RECORDED[-1]["body"]["stream"] is True

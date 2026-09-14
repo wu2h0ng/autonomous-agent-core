@@ -43,6 +43,23 @@ class _StubGeminiHandler(BaseHTTPRequestHandler):
                 "body": body,
             }
         )
+        if ":streamGenerateContent" in self.path:
+            chunks = (
+                'data: {"responseId":"resp_1","candidates":[{"content":'
+                '{"role":"model","parts":[{"text":"he"}]}}]}\n\n'
+                'data: {"responseId":"resp_1","candidates":[{"content":'
+                '{"role":"model","parts":[{"text":"llo"}]},'
+                '"finishReason":"STOP"}],"usageMetadata":'
+                '{"promptTokenCount":7,"candidatesTokenCount":3,'
+                '"totalTokenCount":10}}\n\n'
+            )
+            encoded = chunks.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+            return
         payload = {
             "responseId": "resp_stub",
             "candidates": [
@@ -297,3 +314,25 @@ def test_gemini_unmatched_tool_result_fails_closed(monkeypatch) -> None:  # type
     result = provider.complete(request)
     assert not isinstance(result, ProviderResponse)
     assert result.code.value == "MALFORMED"
+
+
+def test_gemini_streaming_emits_text_deltas(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("GEMINI_TEST_KEY", _SECRET)
+    _RECORDED.clear()
+    provider = GeminiGenerativeProvider(
+        base_url=_stub(),
+        model="gemini-1.5-pro",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+    )
+    deltas: list[str] = []
+    result = provider.complete_streaming(
+        _request().model_copy(update={"allowed_capability_ids": ()}),
+        on_text_delta=deltas.append,
+    )
+    assert isinstance(result, ProviderResponse), result
+    assert result.text == "hello"
+    assert deltas == ["he", "llo"]
+    assert result.usage.total_tokens == 10
+    assert result.finish_reason == "stop"
+    assert _RECORDED[-1]["path"].endswith(":streamGenerateContent?alt=sse")

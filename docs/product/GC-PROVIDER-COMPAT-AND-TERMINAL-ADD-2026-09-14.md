@@ -1,7 +1,8 @@
 # GC + CP/AB — Provider 兼容扩展 + 终端内添加 Provider（rev 1）
 
 - **日期**：2026-09-14
-- **状态**：`SLICE_1_MERGED_PR22 / SLICE_2_ANTHROPIC_MERGED_PR24_36B911EF / SLICE_3_PERSISTENCE_MERGED_PR25_3C8D858E / SLICE_2B_GEMINI+KEYRING_IMPLEMENTED_LOCAL / AWAITING_INDEPENDENT_REVIEW`
+- **状态**：`SLICE_1_MERGED_PR22 / SLICE_2_ANTHROPIC_MERGED_PR24 / SLICE_3_PERSISTENCE_MERGED_PR25_3C8D858E / SLICE_2B_GEMINI+KEYRING_MERGED_PR26 / SLICE_4_STREAMING_IMPLEMENTED_LOCAL / AWAITING_INDEPENDENT_REVIEW`
+- **Slice 4（原生流式）**：Anthropic（`stream:true` + `message_start`/`content_block_start`/`content_block_delta`(text_delta,input_json_delta)/`message_delta`）与 Gemini（`streamGenerateContent?alt=sse`）各自实现 `_parse_sse_stream`，归一到同一套 `on_text_delta`/proposal/usage；`_endpoint_path` 新增 `stream` 参数。OpenAI 路径不变。
 - **Founder 决策（2026-09-14）**：批准 **Slice 1 先行**（终端加 provider）；凭证仅内存 env resolver（key 不落盘），已确认。Slice 1 已合并 PR #22（`fcbe6ef9`）。
 - **Slice 2（Anthropic 原生）**：已合并 PR #24（`36b911ef`）。
 - **Slice 3（provider 持久化；founder 决策 C = OS Keychain + env 回退）**：非密配置（base_url/model/endpoint_class/credential_env）持久化到 `~/.agent-os/provider.json`（0600，仓库外，**绝不写 key**）；API key 存 OS Keychain（macOS `security`，`AGENT_OS_PROVIDER_KEY` env 回退）；daemon 启动时按持久化配置 + 可解析的 key 自动重装 provider（无 key 或校验失败则保持未配置）。诚实限制：`security -w` 需 argv 传值（同用户进程短暂可见），零 argv 暴露的 keyring 后端待后续；key 仍不入 DB/state/logs/transcript。
