@@ -281,3 +281,64 @@ def test_compact_route_requires_bearer_and_returns_the_summary(tmp_path: Path) -
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_summary_survives_request_side_trimming(tmp_path: Path) -> None:
+    """Review P1 (F1): the compaction summary is part of the mandatory request
+    prefix — trimming must never silently drop it."""
+
+    app = AgentOSApplication(
+        database=tmp_path / "agent-os.sqlite3", workspace=tmp_path
+    )
+    (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+    provider = DeterministicProvider(
+        scripted=(
+            ("short answer", ()),
+            ("short answer", ()),
+            ("short answer", ()),
+            (SUMMARY, ()),
+            ("after compaction", ()),
+        ),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    app.provider = provider
+    app.provider_configured = True
+    from agent_os_core.agent_loop import AgentLoopConfig
+
+    session, loop = app.open_chat_session(
+        "trim probe",
+        DeferredApprovalGateway(),
+        loop_config=AgentLoopConfig(max_context_chars=1_200),
+    )
+    for index in range(3):
+        loop.run_turn(session, f"request number {index} " + "x" * 400)
+
+    status_before = app.surface_context_status(session.session_id)
+    assert status_before.compactions == 0
+
+    SurfaceRuntime(app).compact_session(_command(app, session.session_id))
+
+    restored, loop_after = app.restore_chat_session(
+        session.session_id, DeferredApprovalGateway()
+    )
+    for index in range(3):
+        loop_after.run_turn(restored, f"post compaction {index} " + "y" * 400)
+
+    sent = tuple(provider.requests[-1].messages)
+    assert any(
+        message.content.startswith("[context summary") for message in sent
+    ), "the summary must always be sent, trimming or not"
+    status = app.surface_context_status(session.session_id)
+    assert status.compactions == 1
+    assert status.dropped_turns > 0, "the probe must exercise trimming"
+    # the status describes the completed history, which is never smaller than
+    # the last request's view
+    assert status.used_chars >= sum(len(message.content) for message in sent)
+
+
+def test_compact_refuses_a_closed_session(tmp_path: Path) -> None:
+    app = _app(tmp_path)
+    session, _ = app.open_chat_session("closed soon", DeferredApprovalGateway())
+    app.tasks.close_session(session.task_id, session.session_id)
+    with pytest.raises(InvalidTransitionError, match="closed"):
+        app.surface_compact_session(_command(app, session.session_id))

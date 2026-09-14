@@ -60,6 +60,7 @@ from .outcome_evaluators import (
     default_registry,
 )
 from .session_projection import (
+    COMPACTION_SUMMARY_PREFIX,
     ProjectedApprovalContinuation,
     ProjectedResolvedContinuation,
     ProjectedSession,
@@ -772,27 +773,22 @@ class TaskService:
         summary: str,
         summary_digest: str,
         replaced_to_message_index: int,
-        before_chars: int,
-        after_chars: int,
         provider_profile_id: str,
     ) -> TaskAggregate:
         """Typed writer for the protected SESSION_CONTEXT_COMPACTED record.
 
         Requires quiescence: no open turn and no pending approval. The raw
         history is never rewritten — this record only changes the request view.
+        The character counts are DERIVED here (never caller-supplied) so the
+        record cannot disagree with the view it describes.
         """
 
         if not summary.strip():
             raise ValueError("compaction summary must be non-empty")
         if not summary_digest.strip() or not provider_profile_id.strip():
             raise ValueError("compaction digests must be non-empty")
-        if (
-            isinstance(replaced_to_message_index, bool)
-            or replaced_to_message_index < 0
-            or before_chars < 0
-            or after_chars < 0
-        ):
-            raise ValueError("compaction counts must be non-negative")
+        if isinstance(replaced_to_message_index, bool) or replaced_to_message_index < 0:
+            raise ValueError("compaction boundary must be non-negative")
         aggregate = self.get_task(task_id)
         projected = SessionProjector(self._event_store).project(task_id, session_id)
         self._validate_session_binding(
@@ -814,6 +810,18 @@ class TaskService:
             )
         if not 0 <= replaced_to_message_index < projected.next_message_index:
             raise InvalidTransitionError("compaction boundary is out of range")
+        if self.get_task(task_id).sequence != aggregate.sequence:
+            # a concurrent writer moved the session between validation and the
+            # append; refuse rather than commit against a stale observation
+            raise InvalidTransitionError(
+                "session state changed during compaction; retry"
+            )
+        before_chars = sum(len(message.content) for message in projected.history)
+        after_chars = (
+            len(projected.history[0].content)
+            + len(COMPACTION_SUMMARY_PREFIX)
+            + len(summary)
+        )
         return self._append_event(
             task_id,
             TaskEventType.SESSION_CONTEXT_COMPACTED,

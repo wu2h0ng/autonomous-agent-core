@@ -608,7 +608,8 @@ def run_responsibility_work(
             gateway=DeferredApprovalGateway(),
             session=session,
             config=config,
-            initial_history=projected.history,
+            initial_history=projected.context_view,
+            next_message_index=projected.next_message_index,
             message_sink=lambda session, index, message, turn_id: (
                 execution_app.tasks.record_session_message(
                     session.task_id,

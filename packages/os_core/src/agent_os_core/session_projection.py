@@ -45,6 +45,23 @@ projected view can never drift apart.
 """
 
 
+def request_prefix_length(view: Sequence[ProviderMessage]) -> int:
+    """Length of the request view's mandatory prefix.
+
+    1 for a plain `[system, …]` view; 2 when index 1 is the compaction summary,
+    which request-side trimming must never drop (a summary that can be trimmed
+    away would silently discard the whole compacted history).
+    """
+
+    if (
+        len(view) > 1
+        and view[1].role is ProviderMessageRole.ASSISTANT
+        and view[1].content.startswith(COMPACTION_SUMMARY_PREFIX)
+    ):
+        return 2
+    return 1
+
+
 @dataclass(frozen=True)
 class SessionLoopConfig:
     max_steps_per_turn: int
@@ -610,6 +627,20 @@ def _strict_project(
                     raise SessionProjectionError(
                         "cannot compact a session with a pending approval"
                     )
+                if set(payload) != {
+                    "session_id",
+                    "task_id",
+                    "run_id",
+                    "tenant_id",
+                    "workspace_id",
+                    "summary",
+                    "summary_digest",
+                    "replaced_to_message_index",
+                    "before_chars",
+                    "after_chars",
+                    "provider_profile_id",
+                }:
+                    raise SessionProjectionError("compaction fields are invalid")
                 replaced_to = payload["replaced_to_message_index"]
                 if (
                     isinstance(replaced_to, bool)
@@ -623,9 +654,13 @@ def _strict_project(
                 for value in (before_chars, after_chars):
                     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                         raise SessionProjectionError("invalid compaction char counts")
+                summary = _required_str(payload, "summary")
+                summary_digest = _required_str(payload, "summary_digest")
+                if summary_digest != content_digest({"summary": summary}):
+                    raise SessionProjectionError("compaction summary digest mismatch")
                 compaction = ProjectedCompaction(
-                    summary=_required_str(payload, "summary"),
-                    summary_digest=_required_str(payload, "summary_digest"),
+                    summary=summary,
+                    summary_digest=summary_digest,
                     replaced_to_message_index=replaced_to,
                     before_chars=before_chars,
                     after_chars=after_chars,

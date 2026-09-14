@@ -100,6 +100,7 @@ def _build_chat_loop(
     stream: bool = True,
     on_text_delta: Any | None = None,
     initial_history: tuple[ProviderMessage, ...] | None = None,
+    next_message_index: int | None = None,
     resumable_turn_ids: tuple[str, ...] = (),
 ) -> AgentLoop:
     grants = dict(app.grants)
@@ -149,6 +150,7 @@ def _build_chat_loop(
         gateway=gateway,
         session=session,
         config=config,
+        next_message_index=next_message_index,
         initial_history=(
             initial_history
             if initial_history is not None
@@ -244,9 +246,9 @@ def _resume_chat_session(
         loop_config,
         stream=stream,
         on_text_delta=on_text_delta,
-        initial_history=projected.history,
-        resumable_turn_ids=resumable_turn_ids,
-    )
+        initial_history=projected.context_view,
+        next_message_index=projected.next_message_index,
+        resumable_turn_ids=resumable_turn_ids,    )
     return session, loop
 
 

@@ -164,7 +164,7 @@ from agent_os_core import (
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.session_projection import SessionLoopConfig
-from agent_os_core.session_projection import COMPACTION_SUMMARY_PREFIX
+from agent_os_core.session_projection import request_prefix_length
 from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import (
     EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
@@ -243,7 +243,7 @@ _EXPLAIN_SYSTEM_PROMPT = (
 # S4 compaction: one narrow, read-only summary call. The summary is context
 # material (model output, untrusted) and the raw history is never rewritten.
 _COMPACT_TIMEOUT_SECONDS = 60
-_COMPACT_MAX_INPUT_CHARS = 20_000
+_COMPACT_MAX_INPUT_CHARS = 60_000
 _COMPACT_MAX_SUMMARY_CHARS = 4_000
 _COMPACT_SYSTEM_PROMPT = (
     "Summarise the conversation so far for your own future context. Keep "
@@ -2691,7 +2691,9 @@ class AgentOSApplication:
             # same response shape as a missing session)
             raise SurfaceSessionNotFound(f"session {session_id} not found")
         view = trimmed_history_view(
-            projected.context_view, projected.loop_config.max_context_chars
+            projected.context_view,
+            projected.loop_config.max_context_chars,
+            request_prefix_length(projected.context_view),
         )
         history_chars = sum(len(message.content) for message in projected.history)
         events = self.store.read(task_id)
@@ -2979,6 +2981,12 @@ class AgentOSApplication:
             f"{message.role.value}: {message.content}"
             for message in projected.history[1:]
         )
+        if len(transcript) > _COMPACT_MAX_INPUT_CHARS:
+            # never summarise a suffix while claiming the whole range
+            raise ValueError(
+                "history exceeds the summarisation input bound; compact is "
+                "refused rather than summarising only its tail"
+            )
         request = ProviderDecisionRequest(
             request_id=(
                 f"provider-decision:compact:{command.session_id}:"
@@ -2994,7 +3002,7 @@ class AgentOSApplication:
                 ),
                 ProviderMessage(
                     role=ProviderMessageRole.USER,
-                    content=transcript[-_COMPACT_MAX_INPUT_CHARS:],
+                    content=transcript,
                 ),
             ),
             timeout_seconds=_COMPACT_TIMEOUT_SECONDS,
@@ -3013,12 +3021,6 @@ class AgentOSApplication:
         summary = response.text.strip()[:_COMPACT_MAX_SUMMARY_CHARS]
         if not summary:
             raise ValueError("compact provider returned an empty summary")
-        before_chars = sum(len(message.content) for message in projected.history)
-        after_chars = (
-            len(projected.history[0].content)
-            + len(COMPACTION_SUMMARY_PREFIX)
-            + len(summary)
-        )
         summary_digest = content_digest({"summary": summary})
         self.tasks.record_session_context_compacted(
             task_id,
@@ -3026,17 +3028,17 @@ class AgentOSApplication:
             summary=summary,
             summary_digest=summary_digest,
             replaced_to_message_index=boundary,
-            before_chars=before_chars,
-            after_chars=after_chars,
             provider_profile_id=binding.provider_profile.profile_id,
         )
+        compacted = self.tasks.project_session(task_id, command.session_id)
+        assert compacted.compaction is not None  # recorded just above
         return SurfaceCompactResponse(
             session_id=command.session_id,
             summary=summary,
             summary_digest=summary_digest,
             replaced_to_message_index=boundary,
-            before_chars=before_chars,
-            after_chars=after_chars,
+            before_chars=compacted.compaction.before_chars,
+            after_chars=compacted.compaction.after_chars,
             provider_profile_id=binding.provider_profile.profile_id,
         )
 

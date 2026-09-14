@@ -56,6 +56,7 @@ from .responsibility_loop import ResponsibilityLoopStaleFence
 from .session_projection import (
     ProjectedApprovalContinuation,
     ProjectedResolvedContinuation,
+    request_prefix_length,
 )
 from .task_service import TaskService
 
@@ -176,19 +177,22 @@ class TrimmedHistoryView:
 def trimmed_history_view(
     history: "tuple[ProviderMessage, ...] | list[ProviderMessage]",
     max_context_chars: int,
+    mandatory_prefix: int = 1,
 ) -> TrimmedHistoryView:
     """Single source of truth for the request view (loop + `/context`).
 
     Whole turn blocks are dropped from the front at USER boundaries; the
-    leading system prompt is never dropped and ASSISTANT tool_calls are never
-    split from their TOOL replies. The durable history is never mutated.
+    mandatory prefix (the leading system prompt, plus the compaction summary
+    when one exists) is never dropped and ASSISTANT tool_calls are never split
+    from their TOOL replies. The durable history is never mutated.
     """
 
     messages = tuple(history)
     total = sum(len(message.content) for message in messages)
+    prefix = max(1, min(mandatory_prefix, len(messages))) if messages else 1
     if total <= max_context_chars:
         return TrimmedHistoryView(kept=messages, dropped_turns=0)
-    cut = 1  # never drop the system prompt
+    cut = prefix  # never drop the mandatory prefix
     dropped_turns = 0
     while cut < len(messages) and total > max_context_chars:
         if messages[cut].role is not ProviderMessageRole.USER:
@@ -201,7 +205,7 @@ def trimmed_history_view(
             total -= len(messages[cut].content)
             cut += 1
     return TrimmedHistoryView(
-        kept=(messages[0], *messages[cut:]) if messages else (),
+        kept=(*messages[:prefix], *messages[cut:]) if messages else (),
         dropped_turns=dropped_turns,
     )
 
@@ -318,6 +322,9 @@ class AgentLoop:
                 "next_message_index must cover the supplied history"
             )
         self._next_message_index = durable_next
+        # A compaction summary (index 1) is part of the mandatory request
+        # prefix: trimming it away would silently discard the compacted history.
+        self._mandatory_prefix = request_prefix_length(tuple(history))
         self._message_sink = message_sink
         self._resumable_turn_ids = set(resumable_turn_ids)
         self._execution_owner = f"surface-runtime:{uuid4()}"
@@ -1571,7 +1578,11 @@ class AgentLoop:
         `trimmed_history_view`), never a second implementation."""
 
         return list(
-            trimmed_history_view(self._history, self._config.max_context_chars).kept
+            trimmed_history_view(
+                self._history,
+                self._config.max_context_chars,
+                self._mandatory_prefix,
+            ).kept
         )
 
 
