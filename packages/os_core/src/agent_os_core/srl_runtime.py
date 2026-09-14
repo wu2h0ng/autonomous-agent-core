@@ -307,17 +307,16 @@ class SrlRuntime:
         proposed_goal: ProposedGoal,
         authority: ActivationAuthority,
     ) -> TaskActivationResult:
-        """Reject activation until an independent TaskService/C7 path exists.
+        """Delegate the ProposedGoal -> Task transition to the injected port.
 
         The authority record must come from an instance distinct from the one
-        that produced the source assessment (I-23).
+        that produced the source assessment (I-23). The default M0 port remains
+        fail-closed; a trusted gate may activate through the authority spine.
         """
-        # I-23: producer cannot be acceptor.
-        producer_instance_id = self._extract_producer_instance_id(proposed_goal)
-        if (
-            producer_instance_id
-            and authority.authority_instance_id == producer_instance_id
-        ):
+        # I-23: producer cannot be acceptor. The producer identity comes from
+        # the digest-verified authority record, not caller-mutable goal
+        # constraints.
+        if authority.authority_instance_id == authority.producer_instance_id:
             self._record_transition(
                 "ACTIVATION_REJECTED",
                 proposed_goal.proposal_goal_id,
@@ -328,14 +327,7 @@ class SrlRuntime:
                 rejection_reason="I-23: same instance cannot produce and accept evidence",
             )
 
-        # M0 has neither a trusted authority registry nor a C7 check port. A
-        # caller-created ActivationAuthority therefore cannot be verified, even
-        # when its public fields appear internally consistent. Keep the Runtime
-        # fail-closed rather than delegating final authority to an injected stub.
-        result = TaskActivationResult(
-            activated=False,
-            rejection_reason="no trusted TaskService/C7 activation authority in M0",
-        )
+        result = self._task_activation.activate(proposed_goal, authority)
         self._record_transition(
             "GOAL_ACTIVATED" if result.activated else "ACTIVATION_REJECTED",
             proposed_goal.proposal_goal_id,
@@ -437,11 +429,3 @@ class SrlRuntime:
             provenance=(f"runtime:{self._runtime_instance.instance_id}",),
         )
         self._audit.record(transition)
-
-    @staticmethod
-    def _extract_producer_instance_id(proposed_goal: ProposedGoal) -> str | None:
-        """Extract the assessment producer instance id from proposal constraints."""
-        for constraint in proposed_goal.constraints:
-            if constraint.startswith("assessor-instance:"):
-                return constraint.split(":", 1)[1]
-        return None
