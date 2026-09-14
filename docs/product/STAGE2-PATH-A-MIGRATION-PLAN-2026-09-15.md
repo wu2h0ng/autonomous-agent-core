@@ -68,3 +68,19 @@
 ## 6. 建议起点
 
 先做 **2a**（headless chat），它无产品面裁撤、无 surface 扩展、风险最低，且能立刻让"唯一 headless 入口 = `agentos -p`"成立；2b/2c 紧随；2d/2e 各自独立门。
+
+## 7. Stage 2a — chat/headless 迁移映射（2026-09-15）
+
+**结论**：canonical headless = `agentos -p <prompt> --output-format json|text|stream-json`。cli-ts 已有**冻结 exit-code 表**测试（`apps/cli-ts/test/headless.test.ts`：0 成功 / 1 传输错误 / 2 approval 必需 / 3 未完成），覆盖 json/stream-json/text 三种输出与 approval fail-closed。故 2a 不新增行为，只做**映射登记 + 弃用标记**。
+
+| Python 测试（用例） | 处置 | 承接者 |
+|---|---|---|
+| `test_agent_cli_stream`（chunked deltas、no-tool delta） | 迁移 | cli-ts `headless.test.ts`（stream-json）+ controller 流式测试 |
+| `test_agent_cli_v0`：REPL 流式 / `--no-stream` 一次打印 / REPL `/status` | 迁移 | cli-ts controller（流式、`/status`）与 headless；REPL 专属断言随 2f 删除 |
+| `test_agent_cli_v0`：session save/resume、resume 拒绝（db/mandate/workspace/terminal） | 递延 | **2b/2c**（session 面） |
+| `test_agent_cli_v0`：`zero_config_mandate`/`ensure_local` | 递延 | **2d**（mandate 面） |
+| `test_agent_cli_p1`：trusted profile / workspace tools / unlisted shell / AGENTS.md 注入 | 非 A 专属（内核 / M1 / M2 测试已覆盖） | 2f 连同 Python 测试删除，覆盖由内核测试保持 |
+| `test_agent_cli_review_debt`：`run_agent_cli` 调用形状与错误路径 | A 专属 | 2f 删除 |
+| exit code / json / approval / transport | 已覆盖 | cli-ts `headless.test.ts`（冻结表） |
+
+**2a 退出条件（已满足）**：canonical headless 文档化；`agent_cli.py` 与 `__main__._agent/_chat` 标注 DEPRECATED 指向 `agentos -p`；迁移映射登记；cli-ts headless 测试绿；无行为变更。

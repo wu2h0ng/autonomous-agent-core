@@ -185,6 +185,7 @@ def _run_agent_command(
     return result.exit_code
 
 
+# DEPRECATED (Stage 2a): canonical headless entry is `agentos -p` (cli-ts).
 def _agent(args: argparse.Namespace) -> int:
     return _run_agent_command(
         args,
@@ -248,6 +249,7 @@ def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
     return SurfaceClient(load_runtime_descriptor(path))
 
 
+# DEPRECATED (Stage 2a): canonical headless entry is `agentos -p` (cli-ts).
 def _chat(args: argparse.Namespace) -> int:
     client = load_surface_client(args)
     if args.prompt is not None:
