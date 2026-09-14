@@ -1,7 +1,7 @@
 schema_version: 2
 
 live_pins:
-  origin_main: "ce945be"
+  origin_main: "e2564ecb"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
@@ -10,11 +10,13 @@ live_pins:
     - "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1 (typed SrlHelpResponse + settle auto-cancel)"
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
-updated: "2026-08-12T16:20:00+08:00"
+  local_main: "83ba0eb3 (== origin/main == 83ba0eb3; the founder-authorized 2026-09-14 refresh-merge merged the SRL TaskActivationGate + trusted-producer I-23 and the contract-inference slice + evaluator registry; supersedes the stale 0045aeea/3861802d pins)"
+  primary_checkout_head: "77b1a597 (feature/terminal-coding-agent-m1; measured 2026-09-14)"
+updated: "2026-09-14T11:04:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "main (origin/main @ ce945be)"
+branch: "main checkout is on feature/terminal-coding-agent-m1 @ 77b1a597 (17 ahead / 575 behind origin/main e2564ecb, NOT merged); local main is 0045aeea (108 ahead / 0 behind origin/main, UNPUSHED). Measured 2026-09-13."
 status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
@@ -31,7 +33,7 @@ identity:
   topology: "dual-track monorepo"
   product_track: "Agent Surface, Task Workspace, Agent Core runtime, providers, capabilities, evidence/outcomes, governance, SDK, adaptive materialization and optional domain priors"
   research_track: "falsifiable mechanisms, CWM/world-model candidates, belief/action research, formal models, preregistration, results and negative maps"
-  first_vertical: "Data Agent, pending ADR-0054/SPINE-1 migration"
+  first_vertical: "Data Agent, ADR-0054/SPINE-1 seam merged into LOCAL main (UNPUSHED); donor remains the standing physical implementation"
   evidence_boundary: "Research and Product Track share a repo but not claim authority."
 
 current_phase:
@@ -43,7 +45,7 @@ current_phase:
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
-    status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
+    status: "SEAM_MERGED_INTO_LOCAL_MAIN_2026_08_14_AT_1E479093 / UNPUSHED / DONOR_STANDING / NO_PUSH_MERGE_RELEASE_OR_MERGED_CAPABILITY_AUTHORIZATION"
 
 verified_capabilities:
   mandate_workspace_input:
@@ -317,6 +319,39 @@ research_ledger:
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
 active_work:
+  - id: "LOCAL-MAIN-UNPUSHED-STATE"
+    track: "meta"
+    status: "LOCAL_MAIN_0045AEEA_108_AHEAD_0_BEHIND_ORIGIN_MAIN / UNPUSHED / NO_PUSH_MERGE_RELEASE_PERFORMED"
+    purpose: "Record the measured 2026-09-13 repository drift: local main 0045aeea carries 108 commits not on origin/main (two past the b05d29b8 pin recorded 2026-09-10), including the ADR-0059/SPINE-1 reconcile, the SPINE-1 seam chain (1b6b036a, 1e479093 \"merge: promote reconciled ADR-0059/SPINE-1 canonical head f4266cfd into main\"), realtime-collab M1a/M1b and the admit-selfdev atomic slice. The primary checkout is on feature/terminal-coding-agent-m1 @ 77b1a597 (17 ahead / 575 behind origin/main). origin/main tip e2564ecb remains \"record SPINE-1 main integration\"."
+    boundary: "State registration only. Nothing here is pushed, merged, reviewed-for-release or released; the Data Agent donor repo remains the standing implementation and no merged-capability claim follows."
+  - id: "UNRECORDED-CONTRACT-INFERENCE-QUALITY-GATE-WIP"
+    track: "product"
+    status: "UNCOMMITTED_WIP / UNTRACKED / NO_DOC_RECORD / NOT_REVIEWED / NOT_MERGED / NOT_RELEASED"
+    purpose: "Register uncommitted working-tree implementation present in the main checkout as of 2026-09-10: new files contract_inferencer.py, contract_inferencer_service.py, evidence_accessor.py, llm_judge.py, outcome_evaluators.py, predicate_evaluator.py, predicate_checkers.py, predicate_set_store.py, quality_gate.py, semantic_proposer.py, runtime_evidence_accessor.py, mechanical_extractor.py plus 11 accompanying new tests; modifications to apps/api_server/app.py, os_core execution.py, proposal_engine.py, task_service.py and others; new untracked apps/desktop/, scripts/, research/ and ruff.toml; deletion of docs/research/Kimi_Agent_终极自主智能蓝图/ (16 files)."
+    triage_2026_09_13: "Read-only triage at primary checkout 77b1a597: 113 WIP tests plus the trusted test_outcome_evaluator (10), test_long_horizon_task_service (11) and test_spine0_golden_path (3) all pass (137/137), so the WIP does not break the targeted trusted outcome path. Lint/type remediation later on 2026-09-13 fixed all 22 Ruff errors (15 F401, 4 F541, 3 F841) and the Pyright failure_paths typing error at contract_inferencer.py:220, and Ruff/Pyright are now clean on the 13 new modules with the 137 targeted tests still passing; no stash-controlled baseline was run and the checkout is 575 behind origin/main. The WIP is quality-gate clean next step but remains uncommitted, unreviewed and mixed with unrelated surface/desktop changes, so it is still not review-ready."
+    boundary: "UNCOMMITTED work-in-progress registration only. No entry point, contract, failure path, test verdict, review, integration, commit, push, merge, release or capability claim is established by this entry."
+  - id: "HCW-METRICS-0"
+    track: "product"
+    status: "COMMITTED_ON_FEATURE_BRANCH_TERMINAL_CODING_AGENT_M1 / UNMERGED / NOT_RELEASED"
+    purpose: "Operator event log plus chat/gateway instrumentation intended to support later HCW measurement; previously unrecorded in this file."
+    evidence: "Commits e76d6f53 (HCW-METRICS-0 operator event log + chat/gateway instrumentation), 06b6fef1 (shared app-layer operator event emission), 79f75486 (record operator identity per event), 77b1a597 (env-configurable provider timeout) on feature/terminal-coding-agent-m1, measured 2026-09-13."
+    boundary: "Registration of an unrecorded work line. Instrumentation is not HCW evidence; no reduced-operator-load, release, merge or capability claim follows."
+  - id: "WORKING-SET-CONTEXT-MEASURE-0"
+    track: "research_product_eval"
+    status: "WORKTREE_ACTIVE_2026_09_13 / UNMERGED / NOT_RELEASED"
+    purpose: "Active worktree registered 2026-09-13 that appears to measure situated working-set context; directly relevant to the SRL Situated Working Set gap (P-SRL-SITUATED-WORKING-SET-1)."
+    evidence: "Worktree .worktrees/terminal-agent-eval-0 on codex/working-set-context-measure-20260913 @ ac3de8e9, measured 2026-09-13."
+    boundary: "Registration only. No design, implementation, result, review or capability claim is established by this entry."
+  - id: "CODEX-IDE-UI-BRANCH-2026-09-10"
+    track: "product"
+    status: "BRANCH_ACTIVE_2026_09_10 / THREE_COMMITS_FD8A1230_4B6E1916_911E4CE5 / UNMERGED / UNPUSHED_UNVERIFIED_HERE"
+    purpose: "Register the active codex/ide-ui branch with three commits made on 2026-09-10 (fd8a1230, 4b6e1916, 911e4ce5)."
+    boundary: "Branch-existence registration from read-only drift check only; no merge, release or capability claim."
+  - id: "ADMIT-SELFDEV-LIVE-RUN-WORKTREE"
+    track: "research_product_eval"
+    status: "LIVE_RUN_2026_09_09 / WORKTREE_DIRTY / BRANCH_CODEX_ADMIT_SELFDEV_LIVE_FIXES_20260909_AT_415F1F36 / UNMERGED"
+    purpose: "Register the autonomous-agent-core-admit-selfdev-run worktree checked out at codex/admit-selfdev-live-fixes-20260909 @ 415f1f36 (2026-09-09) with a dirty working tree from a live run."
+    boundary: "Registration of worktree/branch state only; no result verdict, merge or release claim."
   - id: "P-TERMINAL-CODING-AGENT-1"
     track: "product"
     status: "M1_COMMITTED_BRANCH / TARGETED_TESTED / STUB_PROVIDER_E2E / LIVE_PROVIDER_TASK_VERIFIED_2026_08_06 / INDEPENDENT_REVIEW_APPROVE_WITH_REQUIRED_CHANGES_FIXED / NOT_MERGED / NOT_RELEASED"
@@ -421,8 +456,8 @@ parked_work:
     source: "../.agent_runs/lh-recovery-1a-task7-8-20260715/founder-portfolio-cast-20260715.md"
   - id: "T-P-OS-SPINE-1"
     track: "product"
-    status: "PARK / DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
-    blocker: "ADR-0054 G0-G7, donor pin, full-history safety/provenance scans, isolated migration plan, independent review and explicit founder push/merge authorization."
+    status: "SEAM_EXECUTED_TO_LOCAL_MAIN_2026_08_14_AT_1E479093 / UNPUSHED / DONOR_STANDING / REMAINING_GATE_PUSH_MERGE_RELEASE_AUTHORIZATION"
+    blocker: "The history-safe seam migration was executed into LOCAL main (2026-08-14, including 1b6b036a and 1e479093 \"merge: promote reconciled ADR-0059/SPINE-1 canonical head f4266cfd into main\") but never pushed. Remaining gates: explicit founder push/merge authorization, donor pin confirmation, full-history safety/provenance scans, isolated migration completion evidence and independent review. The Data Agent donor repo remains the physically standing implementation; no runtime federation, bidirectional sync, merged-capability claim, release or production deployment is authorized."
     source: "docs/adr/ADR-0054-one-time-data-agent-history-migration.md"
   - id: "GOVERNED-CORE-EVOLUTION"
     track: "research_and_product_architecture"
@@ -632,7 +667,7 @@ blockers:
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
     - "Natural-language/visual WorkflowGraph authoring, mature knowledge lifecycle, broad capabilities, marketplace and general coding-agent path are incomplete."
-    - "SPINE-1 migration is not executed."
+    - "SPINE-1 seam migration was executed into LOCAL main (1e479093, 2026-08-14) but remains UNPUSHED; the Data Agent donor remains the standing implementation and no release, merged-capability or production deployment authorization exists."
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
@@ -672,7 +707,7 @@ next_actions:
   - priority: 3
     action: "Workflow RState evaluate≠admit is merged; PARK CAS/HSM/UI/provider run. Do not reopen unbound research freeze paths."
   - priority: 4
-    action: "Keep SPINE-1, release and production activation gated; do not expand ADM/UCM/AWL/CLS breadth."
+    action: "SPINE-1 seam sits on LOCAL main UNPUSHED (1e479093); keep push, merge, release and production activation gated; do not expand ADM/UCM/AWL/CLS breadth."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
@@ -717,8 +752,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-18T18:10:10+08:00"
-  branch: "main"
+  checked_at: "2026-09-10T09:30:00+08:00"
+  branch: "feature/terminal-coding-agent-m1 @ e06ab992 (main checkout; 13 ahead / 575 behind origin/main, NOT merged)"
+  live_origin_main: "e2564ecb"
+  local_main: "b05d29b8 (2026-08-14; 106 ahead / 0 behind origin/main; UNPUSHED)"
+  worktree_now: "4 worktrees: main checkout (feature/terminal-coding-agent-m1 @ e06ab992, dirty working tree with UNCOMMITTED_WIP contract-inference/quality-gate files), autonomous-agent-core-admit-selfdev-run (codex/admit-selfdev-live-fixes-20260909 @ 415f1f36, dirty), .worktrees/agent-tui-product-fix, .worktrees/ide-ui"
   canonical_code_head: "24280fc46879a2b4a4f9884af6bf10fb179406e7"
   prior_remote_main: "6c94bd8c6f27da6d327a6841fd5c434e8e555206"
   merge_base: "6c94bd8c6f27da6d327a6841fd5c434e8e555206"
