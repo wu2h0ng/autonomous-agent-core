@@ -75,6 +75,18 @@ type Overlay =
   | { kind: "tools"; index: number }
   | { kind: "diff"; entry: number; offset: number };
 
+/** One line of durable approval metadata (empty when nothing is known). */
+function approvalMeta(
+  info: { riskTier?: number; nodeId?: string; requestedAt?: string } | null,
+): string {
+  if (!info) return "";
+  const parts: string[] = [];
+  if (info.riskTier !== undefined) parts.push(`risk tier ${info.riskTier}`);
+  if (info.nodeId) parts.push(`node ${info.nodeId}`);
+  if (info.requestedAt) parts.push(`requested ${info.requestedAt}`);
+  return parts.join(" · ");
+}
+
 function isPrintable(input: string, key: Key): boolean {
   if (!input) return false;
   if (key.ctrl || key.meta || key.escape) return false;
@@ -940,11 +952,17 @@ export function App({
             </>
           ) : (
             <Text dimColor>
-              {diffEntrySet.tooLarge > 0
-                ? `${diffEntrySet.tooLarge} edit diff(s) are too large to render — the tool viewer has the arguments (esc closes)`
-                : diffEntrySet.dropped > 0
-                  ? `${diffEntrySet.dropped} older diff(s) not shown (esc closes)`
-                  : "no diffs yet — approval previews and edit tool calls appear here (esc closes)"}
+              {(() => {
+                const notes = [
+                  diffEntrySet.tooLarge > 0
+                    ? `${diffEntrySet.tooLarge} edit diff(s) are too large to render`
+                    : null,
+                  diffEntrySet.dropped > 0 ? `${diffEntrySet.dropped} older diff(s) not shown` : null,
+                ].filter((note): note is string => note !== null);
+                return notes.length > 0
+                  ? `${notes.join(" · ")} (esc closes)`
+                  : "no diffs yet — approval previews and edit tool calls appear here (esc closes)";
+              })()}
             </Text>
           )}
         </Box>
@@ -994,13 +1012,8 @@ export function App({
             <Text bold {...paint(theme.approvalTitle)}>
               🛡 human approval required — {pending.capability_id}
             </Text>
-            {controller.pendingApproval?.riskTier !== undefined && (
-              <Text {...paint(theme.notice)}>
-                risk tier {controller.pendingApproval.riskTier}
-                {controller.pendingApproval.nodeId
-                  ? ` · node ${controller.pendingApproval.nodeId}`
-                  : ""}
-              </Text>
+            {approvalMeta(controller.pendingApproval) && (
+              <Text {...paint(theme.notice)}>{approvalMeta(controller.pendingApproval)}</Text>
             )}
             {approvalDiff
               ? approvalDiff.map((line, index) => (
