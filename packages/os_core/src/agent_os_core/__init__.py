@@ -80,6 +80,7 @@ from .governance import (
     split_correction_authority,
 )
 from .provider import (
+    AnthropicMessagesProvider,
     CredentialUnavailable,
     DeterministicProvider,
     EnvCredentialBroker,
@@ -415,6 +416,7 @@ __all__ = [
     "CredentialUnavailable",
     "DeterministicProvider",
     "EnvCredentialBroker",
+    "AnthropicMessagesProvider",
     "OpenAICompatibleProvider",
     "ProviderPort",
     "EventEnvelopeAdapter",

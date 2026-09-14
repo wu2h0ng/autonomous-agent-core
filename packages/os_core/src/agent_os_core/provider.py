@@ -275,6 +275,18 @@ class DeterministicProvider(ProviderPort):
 
 
 class OpenAICompatibleProvider(ProviderPort):
+    """OpenAI-compatible chat/completions transport.
+
+    The three transport hooks (``_request_body``, ``_transport_headers``,
+    ``_parse_completion``) plus ``DEFAULT_ENDPOINT_PATH`` are the seam that
+    native-protocol subclasses override; the invocation-binding, credential and
+    failure machinery is shared and unchanged.
+    """
+
+    DEFAULT_ENDPOINT_PATH = "/chat/completions"
+    EXPECTED_ENDPOINT_CLASS = "openai-compatible"
+    ADAPTER_KIND = "openai-compatible"
+
     def __init__(
         self,
         *,
@@ -317,22 +329,22 @@ class OpenAICompatibleProvider(ProviderPort):
                 provider_profile.model_id != self._model
                 or provider_profile.provider_id != credential.provider_id
                 or provider_profile.credential_ref_id != credential.credential_ref_id
-                or provider_profile.endpoint_class != "openai-compatible"
+                or provider_profile.endpoint_class != self.EXPECTED_ENDPOINT_CLASS
             ):
                 raise ValueError(
-                    "provider profile does not match OpenAI-compatible invocation"
+                    "provider profile does not match the adapter endpoint class"
                 )
             self._invocation_binding = ProviderInvocationBinding(
                 provider_profile=provider_profile,
                 provider_id=credential.provider_id,
-                endpoint_class="openai-compatible",
+                endpoint_class=self.EXPECTED_ENDPOINT_CLASS,
                 credential_ref_id=credential.credential_ref_id,
                 credential_ref_digest=content_digest(credential),
                 max_context_tokens=provider_profile.max_context_tokens,
-                adapter_kind="openai-compatible",
+                adapter_kind=self.ADAPTER_KIND,
                 transport="https-json",
                 base_url=self._base_url,
-                endpoint_path="/chat/completions",
+                endpoint_path=self.DEFAULT_ENDPOINT_PATH,
                 model_id=self._model,
                 request_timeout_seconds=self._timeout_seconds,
                 temperature=Decimal(str(self._temperature)),
@@ -382,6 +394,78 @@ class OpenAICompatibleProvider(ProviderPort):
             stream=True,
             on_text_delta=on_text_delta,
             on_reasoning_delta=on_reasoning_delta,
+        )
+
+    def _request_body(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        *,
+        model_id: str,
+        temperature: float,
+        allowed_capability_ids: tuple[str, ...],
+        stream: bool,
+    ) -> dict[str, object]:
+        body: dict[str, object] = {
+            "model": model_id,
+            "messages": [
+                _serialize_message(message) for message in request.messages
+            ],
+            "temperature": temperature,
+        }
+        if allowed_capability_ids:
+            body["tools"] = [
+                _tool_definition(capability_id)
+                for capability_id in allowed_capability_ids
+            ]
+            body["tool_choice"] = "auto"
+        if stream:
+            body["stream"] = True
+            # Ask the provider to emit a final usage chunk so the SSE path
+            # reports exact token counts like the JSON path (E3).
+            body["stream_options"] = {"include_usage": True}
+        return body
+
+    def _transport_headers(self, secret: str) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        }
+
+    def _parse_completion(
+        self,
+        payload: dict[str, Any],
+        request: ProviderRequest | ProviderDecisionRequest,
+    ) -> ProviderResponse:
+        choice = payload["choices"][0]  # type: ignore[index]
+        message = choice["message"]  # type: ignore[index]
+        proposals = tuple(
+            self._proposal(item) for item in message.get("tool_calls", ())
+        )
+        usage = payload.get("usage", {})
+        input_tokens = int(usage.get("prompt_tokens", 0))
+        output_tokens = int(usage.get("completion_tokens", 0))
+        return ProviderResponse(
+            response_id=str(payload.get("id", f"response-{uuid4()}")),
+            request_id=request.request_id,
+            text=str(message.get("content") or ""),
+            tool_proposals=proposals,
+            usage=ProviderUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=int(
+                    usage.get("total_tokens", input_tokens + output_tokens)
+                ),
+                # E3: token counts are exact from the provider payload; cost has
+                # no pricing source here — UNKNOWN, never zero.
+                cost_status="UNKNOWN",
+            ),
+            finish_reason=str(choice.get("finish_reason", "stop")),
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
         )
 
     def decide(
@@ -439,39 +523,25 @@ class OpenAICompatibleProvider(ProviderPort):
             endpoint_path = (
                 invocation.endpoint_path
                 if invocation is not None
-                else "/chat/completions"
+                else self.DEFAULT_ENDPOINT_PATH
             )
             runtime_timeout_seconds = (
                 invocation.request_timeout_seconds
                 if invocation is not None
                 else self._timeout_seconds
             )
-            body = {
-                "model": model_id,
-                "messages": [
-                    _serialize_message(message) for message in request.messages
-                ],
-                "temperature": temperature,
-            }
-            if allowed_capability_ids:
-                body["tools"] = [
-                    _tool_definition(capability_id)
-                    for capability_id in allowed_capability_ids
-                ]
-                body["tool_choice"] = "auto"
-            if stream:
-                body["stream"] = True
-                # Ask the provider to emit a final usage chunk so the SSE
-                # path reports exact token counts like the JSON path (E3).
-                body["stream_options"] = {"include_usage": True}
+            body = self._request_body(
+                request,
+                model_id=model_id,
+                temperature=temperature,
+                allowed_capability_ids=allowed_capability_ids,
+                stream=stream,
+            )
             encoded = json.dumps(body).encode("utf-8")
             http_request = urllib.request.Request(
                 f"{base_url}{endpoint_path}",
                 data=encoded,
-                headers={
-                    "Authorization": f"Bearer {secret}",
-                    "Content-Type": "application/json",
-                },
+                headers=self._transport_headers(secret),
                 method="POST",
             )
             with self._opener(
@@ -486,37 +556,7 @@ class OpenAICompatibleProvider(ProviderPort):
                         on_reasoning_delta=on_reasoning_delta,
                     )
                 payload = json.loads(response.read().decode("utf-8"))
-            choice = payload["choices"][0]
-            message = choice["message"]
-            proposals = tuple(
-                self._proposal(item) for item in message.get("tool_calls", ())
-            )
-            usage = payload.get("usage", {})
-            input_tokens = int(usage.get("prompt_tokens", 0))
-            output_tokens = int(usage.get("completion_tokens", 0))
-            return ProviderResponse(
-                response_id=str(payload.get("id", f"response-{uuid4()}")),
-                request_id=request.request_id,
-                text=str(message.get("content") or ""),
-                tool_proposals=proposals,
-                usage=ProviderUsage(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    total_tokens=int(
-                        usage.get("total_tokens", input_tokens + output_tokens)
-                    ),
-                    # E3: token counts are exact from the provider payload;
-                    # cost has no pricing source here — UNKNOWN, never zero.
-                    cost_status="UNKNOWN",
-                ),
-                finish_reason=str(choice.get("finish_reason", "stop")),
-                received_at=datetime.now(timezone.utc),
-                invocation_binding_digest=(
-                    self._invocation_binding.digest()
-                    if self._invocation_binding is not None
-                    else None
-                ),
-            )
+            return self._parse_completion(payload, request)
         except urllib.error.HTTPError as exc:
             code = (
                 ProviderErrorCode.AUTHENTICATION_FAILED
@@ -743,3 +783,180 @@ def _tool_definition(capability_id: str) -> dict[str, object]:
             "parameters": parameters,
         },
     }
+
+
+class AnthropicMessagesProvider(OpenAICompatibleProvider):
+    """Native Anthropic Messages transport (``POST {base_url}/v1/messages``).
+
+    Reuses the shared invocation-binding, credential and failure machinery from
+    ``OpenAICompatibleProvider`` and overrides only the transport hooks. Token
+    streaming is not implemented for this native protocol yet: ``complete_streaming``
+    falls back to a single-shot ``complete`` (the terminal renders the full text
+    at turn end) rather than mis-parsing a foreign SSE dialect. Cost remains
+    UNKNOWN (no pricing source); token counts are exact.
+    """
+
+    DEFAULT_ENDPOINT_PATH = "/v1/messages"
+    EXPECTED_ENDPOINT_CLASS = "anthropic-messages"
+    ADAPTER_KIND = "anthropic-messages"
+    ANTHROPIC_VERSION = "2023-06-01"
+    DEFAULT_MAX_TOKENS = 4096
+
+    def _transport_headers(self, secret: str) -> dict[str, str]:
+        return {
+            "x-api-key": secret,
+            "anthropic-version": self.ANTHROPIC_VERSION,
+            "Content-Type": "application/json",
+        }
+
+    def complete_streaming(
+        self,
+        request: ProviderRequest,
+        *,
+        on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        result = self.complete(request)
+        if (
+            on_text_delta is not None
+            and isinstance(result, ProviderResponse)
+            and result.text
+        ):
+            on_text_delta(result.text)
+        return result
+
+    def _request_body(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        *,
+        model_id: str,
+        temperature: float,
+        allowed_capability_ids: tuple[str, ...],
+        stream: bool,
+    ) -> dict[str, object]:
+        if stream:
+            # Streaming for the native Anthropic SSE dialect is not implemented
+            # yet; fail closed rather than emit an OpenAI-shaped stream request.
+            raise ValueError("anthropic streaming is not implemented")
+        system_parts = [
+            str(message.content)
+            for message in request.messages
+            if message.role is ProviderMessageRole.SYSTEM
+        ]
+        body: dict[str, object] = {
+            "model": model_id,
+            "max_tokens": self.DEFAULT_MAX_TOKENS,
+            "messages": [
+                _anthropic_message(message)
+                for message in request.messages
+                if message.role is not ProviderMessageRole.SYSTEM
+            ],
+        }
+        if system_parts:
+            body["system"] = "\n\n".join(system_parts)
+        if temperature is not None:
+            body["temperature"] = temperature
+        if allowed_capability_ids:
+            body["tools"] = [
+                _anthropic_tool(capability_id)
+                for capability_id in allowed_capability_ids
+            ]
+        return body
+
+    def _parse_completion(
+        self,
+        payload: dict[str, Any],
+        request: ProviderRequest | ProviderDecisionRequest,
+    ) -> ProviderResponse:
+        blocks = payload.get("content", [])
+        if not isinstance(blocks, list):
+            raise ValueError("anthropic response content must be a list")
+        text = "".join(
+            str(block.get("text", ""))
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+        proposals = tuple(
+            ProviderToolProposal(
+                proposal_id=str(block.get("id", f"proposal-{uuid4()}")),
+                capability_id=str(block.get("name", "")).replace("__", "."),
+                arguments_json=json.dumps(block.get("input", {})),
+            )
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "tool_use"
+        )
+        usage = payload.get("usage", {})
+        input_tokens = int(usage.get("input_tokens", 0))
+        output_tokens = int(usage.get("output_tokens", 0))
+        raw_finish = payload.get("stop_reason")
+        finish_reason = str(raw_finish) if raw_finish else "stop"
+        return ProviderResponse(
+            response_id=str(payload.get("id", f"response-{uuid4()}")),
+            request_id=request.request_id,
+            text=text,
+            tool_proposals=proposals,
+            usage=ProviderUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+                # E3: exact tokens from the provider payload; no pricing source
+                # here — cost is UNKNOWN, never zero.
+                cost_status="UNKNOWN",
+            ),
+            finish_reason=finish_reason,
+            received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
+        )
+
+
+def _anthropic_message(message: ProviderMessage) -> dict[str, object]:
+    """Map a typed ProviderMessage onto the Anthropic Messages wire shape."""
+    if message.role is ProviderMessageRole.TOOL:
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": str(message.tool_call_id),
+                    "content": message.content,
+                }
+            ],
+        }
+    if message.role is ProviderMessageRole.ASSISTANT and message.tool_calls:
+        blocks: list[dict[str, object]] = []
+        if message.content:
+            blocks.append({"type": "text", "text": message.content})
+        for tool_call in message.tool_calls:
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tool_call.tool_call_id,
+                    "name": tool_call.capability_id.replace(".", "__"),
+                    "input": _safe_json_object(tool_call.arguments_json),
+                }
+            )
+        return {"role": "assistant", "content": blocks}
+    role = "assistant" if message.role is ProviderMessageRole.ASSISTANT else "user"
+    return {"role": role, "content": message.content}
+
+
+def _anthropic_tool(capability_id: str) -> dict[str, object]:
+    definition = _tool_definition(capability_id)
+    function = definition["function"]  # type: ignore[index]
+    return {
+        "name": function["name"],  # type: ignore[index]
+        "description": function.get("description", ""),  # type: ignore[union-attr]
+        "input_schema": function["parameters"],  # type: ignore[index]
+    }
+
+
+def _safe_json_object(raw: str) -> dict[str, object]:
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
