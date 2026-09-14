@@ -983,10 +983,16 @@ export class TuiController {
     this.mode = snapshot.permission_mode;
     this.stream = null;
     this.filesCache = null;
-    // A different session never inherits the previous approval identity or
-    // preview (the card must not describe another session's action).
-    this.pendingApproval = null;
-    this.pendingPreview = snapshot.pending_approval?.preview ?? null;
+    // A resolved approval or a different session never inherits the previous
+    // approval identity. The SAME still-pending action keeps it: the identity
+    // is captured from the durable pending event, and adoptSnapshot runs on
+    // that very resolution path (awaitDurableResolution), so clearing it here
+    // would erase the tier/node before the card ever renders.
+    const pending = snapshot.pending_approval;
+    if (!pending || pending.capability_id !== this.pendingApproval?.capabilityId) {
+      this.pendingApproval = null;
+    }
+    this.pendingPreview = pending?.preview ?? null;
     this.recentSessions = [
       snapshot.session.session_id,
       ...this.recentSessions.filter((id) => id !== snapshot.session.session_id),
@@ -1343,7 +1349,13 @@ export class TuiController {
       reason,
     );
     this.snapshot = turn.snapshot;
-    this.push({ role: "system", content: `${disposition}: ${pending.capability_id}` });
+    // The operator sees exactly what was recorded as the durable reason.
+    this.push({
+      role: "system",
+      content: comment?.trim()
+        ? `${disposition}: ${pending.capability_id} · comment recorded: ${comment.trim()}`
+        : `${disposition}: ${pending.capability_id}`,
+    });
     if (turn.text.trim()) this.push({ role: "assistant", content: turn.text });
     if (turn.total_tokens > 0) this.tokensTotal += turn.total_tokens;
     this.status = "idle";

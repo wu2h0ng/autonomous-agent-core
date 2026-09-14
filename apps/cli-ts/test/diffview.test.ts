@@ -7,6 +7,7 @@ import {
   collectDiffEntries,
   diffLines,
   editArgsToDiff,
+  editDiffTooLarge,
   editPathFromArgs,
   hunkStarts,
   previewToDiff,
@@ -62,7 +63,7 @@ test("hunkStarts: one start per changed hunk, none for an unchanged run", () => 
   assert.deepEqual(hunkStarts(diffLines("", "x")), [0]);
 });
 
-test("collectDiffEntries: pending approval first, then newest edits; bounded and honest", () => {
+test("collectDiffEntries: pending approval first, then newest edits; bounds declared", () => {
   const messages = [
     { tool: { capabilityId: "workspace.shell", argsJson: JSON.stringify({ command: "ls" }) } },
     {
@@ -78,11 +79,13 @@ test("collectDiffEntries: pending approval first, then newest edits; bounded and
       },
     },
   ];
-  const entries = collectDiffEntries(messages, {
+  const set = collectDiffEntries(messages, {
     title: "approval · workspace.edit",
     preview: "edit fixture.txt\n--- old ---\nhello\n--- new ---\nhello world",
   });
+  const entries = set.entries;
   assert.equal(entries.length, 3);
+  assert.equal(set.dropped, 0);
   assert.match(entries[0]?.title ?? "", /^approval/);
   assert.equal(entries[0]?.lang, undefined, "unknown extension highlights nothing");
   assert.match(entries[0]?.lines[0]?.text ?? "", /edit fixture\.txt/);
@@ -92,19 +95,36 @@ test("collectDiffEntries: pending approval first, then newest edits; bounded and
   assert.match(entries[2]?.title ?? "", /a\.ts/);
 
   // no pending, no edits -> empty (the viewer says so, it does not invent one)
-  assert.deepEqual(collectDiffEntries([], null), []);
+  assert.deepEqual(collectDiffEntries([], null), { entries: [], dropped: 0 });
   assert.deepEqual(
     collectDiffEntries([{ tool: { capabilityId: "workspace.shell", argsJson: "{}" } }], null),
-    [],
+    { entries: [], dropped: 0 },
   );
 
-  // bounds are declared, not silent: caps trim and set `truncated`
+  // bounds are declared, not silent: the line cap trims (`truncated`) and the
+  // entry cap reports how many diffs it did not show
   const capped = collectDiffEntries(
     messages,
     { title: "approval", preview: "edit f\n--- old ---\na\nb\n--- new ---\nc\nd" },
     { maxEntries: 1, maxLines: 2 },
   );
-  assert.equal(capped.length, 1);
-  assert.equal(capped[0]?.truncated, true);
-  assert.equal(capped[0]?.lines.length, 2);
+  assert.equal(capped.entries.length, 2, "pending preview + the newest edit");
+  assert.equal(capped.entries[0]?.truncated, true);
+  assert.equal(capped.entries[0]?.lines.length, 2);
+  assert.equal(capped.dropped, 1, "the older edit diff is counted, not silently dropped");
+});
+
+test("editDiffTooLarge: oversized edits are not diffed (and are detectable)", () => {
+  const huge = JSON.stringify({
+    path: "big.ts",
+    old_string: "a".repeat(150_000),
+    new_string: "b".repeat(150_000),
+  });
+  assert.equal(editDiffTooLarge(huge), true);
+  assert.equal(editArgsToDiff(huge), null);
+  assert.equal(
+    editDiffTooLarge(JSON.stringify({ path: "f", old_string: "a", new_string: "b" })),
+    false,
+  );
+  assert.equal(editDiffTooLarge(JSON.stringify({ command: "ls" })), false);
 });

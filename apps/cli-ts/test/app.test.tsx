@@ -437,11 +437,14 @@ test("ctrl-d deletes forward at the cursor", async () => {
   }
 });
 
-test("approval: [c] opens comment mode and Enter approves with the comment", async () => {
+test("approval: comment mode never decides on y/n inside the comment; Enter sends it whole", async () => {
   const controller = new TuiController(new FakeClient() as never);
-  let captured: string | undefined;
+  const decisions: string[] = [];
   controller.approve = async (comment?: string) => {
-    captured = comment;
+    decisions.push(`APPROVE:${comment ?? ""}`);
+  };
+  controller.reject = async (comment?: string) => {
+    decisions.push(`REJECT:${comment ?? ""}`);
   };
   (controller as never as { status: string }).status = "awaiting_approval";
   const view = render(<App controller={controller} />);
@@ -451,11 +454,37 @@ test("approval: [c] opens comment mode and Enter approves with the comment", asy
     await flush();
     assert.match(view.lastFrame() ?? "", /approval comment/);
 
-    await view.stdin.write("lgtm");
+    // A comment full of decision letters must never decide anything.
+    await view.stdin.write("no, use the read-only path");
+    await flush();
+    assert.deepEqual(decisions, []);
+    assert.match(view.lastFrame() ?? "", /use the read-only path/);
+
+    // An empty comment must not approve either (bare Enter).
+    await view.stdin.write("\r");
+    await flush();
+    assert.deepEqual(decisions, ["APPROVE:no, use the read-only path"]);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("approval: empty comment + Enter does not approve", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const decisions: string[] = [];
+  controller.approve = async (comment?: string) => {
+    decisions.push(comment ?? "");
+  };
+  (controller as never as { status: string }).status = "awaiting_approval";
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("c");
     await flush();
     await view.stdin.write("\r");
     await flush();
-    assert.equal(captured, "lgtm", "the comment must be the durable approval reason");
+    assert.deepEqual(decisions, [], "a bare Enter must not approve without a comment");
+    assert.match(view.lastFrame() ?? "", /approval comment/);
   } finally {
     view.unmount();
   }

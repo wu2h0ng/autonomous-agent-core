@@ -86,11 +86,23 @@ function editArgs(argsJson: string): { oldText: string; newText: string } | null
   return { oldText, newText };
 }
 
-/** Unified diff lines for an edit-shaped tool call (null when not an edit or
- * nothing changed). */
+/** Content bound for the LCS renderer: a very large edit is not diffed (the
+ * DP is O(lines²) on the event loop, so an unbounded call stalls the TUI).
+ * `editDiffTooLarge` lets callers say so instead of silently showing nothing. */
+const MAX_DIFF_CHARS = 200_000;
+
+/** True when the call is edit-shaped but too large to diff. */
+export function editDiffTooLarge(argsJson: string): boolean {
+  const parsed = editArgs(argsJson);
+  return parsed !== null && parsed.oldText.length + parsed.newText.length > MAX_DIFF_CHARS;
+}
+
+/** Unified diff lines for an edit-shaped tool call (null when not an edit,
+ * nothing changed, or the content exceeds `MAX_DIFF_CHARS`). */
 export function editArgsToDiff(argsJson: string): DiffLine[] | null {
   const parsed = editArgs(argsJson);
   if (!parsed) return null;
+  if (parsed.oldText.length + parsed.newText.length > MAX_DIFF_CHARS) return null;
   const lines = diffLines(parsed.oldText, parsed.newText);
   return lines.some((line) => line.kind !== "context") ? lines : null;
 }
@@ -127,21 +139,35 @@ export interface DiffEntry {
   truncated: boolean;
 }
 
+export interface DiffEntrySet {
+  entries: DiffEntry[];
+  /** Edit diffs beyond `maxEntries` — the viewer says so, never silently. */
+  dropped: number;
+}
+
 export interface DiffEntryOptions {
   maxEntries?: number;
   maxLines?: number;
 }
 
+/** Cheap eligibility check (shape only, no LCS) so the dropped count is exact
+ * without paying for every diff. */
+function looksLikeEdit(argsJson: string): boolean {
+  const parsed = editArgs(argsJson);
+  return parsed !== null && parsed.oldText !== parsed.newText;
+}
+
 /** Entries for the `/diff` viewer: the pending approval preview first (it is
  * the only diff that still needs a decision), then edit-shaped tool calls
- * newest-first. Bounded: never unbounded scrollback in the overlay. */
+ * newest-first. Bounded in entries and lines; the counts are returned so the
+ * viewer can declare what it is not showing. */
 export function collectDiffEntries(
   messages: readonly {
     tool?: { capabilityId: string; argsJson: string } | undefined;
   }[],
   pending: { title: string; preview: string } | null,
   options: DiffEntryOptions = {},
-): DiffEntry[] {
+): DiffEntrySet {
   const maxEntries = options.maxEntries ?? 20;
   const maxLines = options.maxLines ?? 400;
   const entries: DiffEntry[] = [];
@@ -158,17 +184,25 @@ export function collectDiffEntries(
   if (pending) {
     const lines = previewToDiff(pending.preview);
     if (lines) {
-      const header = lines[0]?.kind === "context" ? lines[0].text.replace(/^edit\s+/, "").trim() : null;
+      const header =
+        lines[0]?.kind === "context" ? lines[0].text.replace(/^edit\s+/, "").trim() : null;
       add(pending.title, header, lines);
     }
   }
-  for (let i = messages.length - 1; i >= 0 && entries.length < maxEntries; i -= 1) {
+  const eligible: { title: string; path: string | null; argsJson: string }[] = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
     const tool = messages[i]?.tool;
-    if (!tool) continue;
-    const lines = editArgsToDiff(tool.argsJson);
-    if (!lines) continue;
+    if (!tool || !looksLikeEdit(tool.argsJson)) continue;
     const path = editPathFromArgs(tool.argsJson);
-    add(`${tool.capabilityId} · ${path ?? tool.capabilityId}`, path, lines);
+    eligible.push({
+      title: `${tool.capabilityId} · ${path ?? tool.capabilityId}`,
+      path,
+      argsJson: tool.argsJson,
+    });
   }
-  return entries.slice(0, maxEntries);
+  for (const item of eligible.slice(0, maxEntries)) {
+    const lines = editArgsToDiff(item.argsJson);
+    if (lines) add(item.title, item.path, lines);
+  }
+  return { entries, dropped: Math.max(0, eligible.length - maxEntries) };
 }

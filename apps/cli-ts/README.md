@@ -61,7 +61,10 @@ the durable reason, Esc cancels) and `Ctrl-A` opens the full diff. Esc never
 approves or rejects.
 
 `/theme` accepts `default`, `ansi`, `mono` and `inherit` — `inherit` sets no
-colours at all and follows the terminal's own theme.
+colours at all and follows the terminal's own theme. In `default`/`ansi` the
+assistant body also uses the terminal's own foreground (no forced white), so
+light terminals stay readable; diff and thinking lines keep their semantic
+colours.
 
 ### Local state & notifications
 

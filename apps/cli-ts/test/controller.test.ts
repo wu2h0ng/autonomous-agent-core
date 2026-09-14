@@ -818,3 +818,141 @@ test("approval decisions carry the operator comment as the durable reason", asyn
     "REJECT:reject via cli-ts",
   ]);
 });
+
+test("adoptSnapshot keeps the captured approval identity for the same pending action", () => {
+  const controller = new TuiController({} as never);
+  const internals = controller as never as {
+    applyDurable: (n: number, e: unknown[]) => void;
+    adoptSnapshot: (s: unknown) => void;
+  };
+  internals.applyDurable(1, [
+    {
+      event_id: "e:ap",
+      task_id: "task:1",
+      event_type: "SESSION_APPROVAL_PENDING",
+      payload_json: JSON.stringify({
+        preview: "edit f.txt",
+        requested_at: "2026-09-14T00:00:00Z",
+        action: { action_id: "a:1", capability_id: "workspace.edit", risk_tier: 3, node_id: "node:1" },
+      }),
+      occurred_at: "2026-09-14T00:00:00Z",
+      sequence: 1,
+    },
+  ]);
+  assert.equal(controller.pendingApproval?.riskTier, 3);
+
+  // The resolution path adopts a snapshot for the SAME pending action: the
+  // identity is what the card renders, so it must survive.
+  internals.adoptSnapshot(
+    snapshot({
+      status: "WAITING_APPROVAL",
+      pending_approval: {
+        action_digest: "digest-abc",
+        capability_id: "workspace.edit",
+        proposal_id: "p:1",
+        preview: "edit f.txt",
+        requested_at: "2026-09-14T00:00:00Z",
+      },
+    }),
+  );
+  assert.equal(controller.pendingApproval?.riskTier, 3);
+  assert.equal(controller.pendingApproval?.nodeId, "node:1");
+
+  // A resolved approval (no pending) clears it.
+  internals.adoptSnapshot(snapshot({ status: "ACTIVE", pending_approval: null }));
+  assert.equal(controller.pendingApproval, null);
+
+  // A pending approval for a different action never inherits the identity.
+  internals.applyDurable(2, [
+    {
+      event_id: "e:ap2",
+      task_id: "task:1",
+      event_type: "SESSION_APPROVAL_PENDING",
+      payload_json: JSON.stringify({
+        preview: "shell",
+        action: { action_id: "a:2", capability_id: "workspace.shell", risk_tier: 4 },
+      }),
+      occurred_at: "2026-09-14T00:00:01Z",
+      sequence: 2,
+    },
+  ]);
+  internals.adoptSnapshot(
+    snapshot({
+      status: "WAITING_APPROVAL",
+      pending_approval: {
+        action_digest: "digest-xyz",
+        capability_id: "workspace.edit",
+        proposal_id: "p:2",
+        preview: "edit g.txt",
+        requested_at: "2026-09-14T00:00:02Z",
+      },
+    }),
+  );
+  assert.equal(controller.pendingApproval, null, "a different action's identity is not reused");
+});
+
+test("runTurn integration: the approval identity survives durable resolution", async () => {
+  const client = {
+    async openSession() {
+      return snapshot();
+    },
+    async subscribeStream() {
+      return { protocol_version: "1.1", runtime_boot_id: "boot:1", stream_id: "stream:1" };
+    },
+    async beginTurn() {
+      return { protocol_version: "1.1", turn_id: "turn:1", stream_id: "stream:1" };
+    },
+    async *followStream() {
+      // no frames: resolution comes from the durable event, not the stream
+    },
+    async events(_taskId: string, after: number) {
+      if (after > 0) {
+        return { task_id: "task:1", after_sequence: after, next_sequence: after, events: [] };
+      }
+      return {
+        task_id: "task:1",
+        after_sequence: 0,
+        next_sequence: 1,
+        events: [
+          {
+            event_id: "e:ap",
+            task_id: "task:1",
+            event_type: "SESSION_APPROVAL_PENDING",
+            payload_json: JSON.stringify({
+              preview: "edit f.txt",
+              action: {
+                action_id: "a:1",
+                capability_id: "workspace.edit",
+                risk_tier: 3,
+                node_id: "node:1",
+              },
+            }),
+            occurred_at: new Date().toISOString(),
+            sequence: 1,
+          },
+        ],
+      };
+    },
+    async getSession() {
+      return snapshot({
+        status: "WAITING_APPROVAL",
+        pending_approval: {
+          action_digest: "digest-abc",
+          capability_id: "workspace.edit",
+          proposal_id: "p:1",
+          preview: "edit f.txt",
+          requested_at: new Date().toISOString(),
+        },
+      });
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 500 });
+  await controller.runTurn("make the change");
+  // The durable drain is fire-and-forget; wait (bounded) for it to apply.
+  for (let i = 0; i < 50 && controller.pendingApproval === null; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(controller.status, "awaiting_approval");
+  assert.equal(controller.pendingApproval?.riskTier, 3, "the card datum survives resolution");
+  assert.equal(controller.pendingApproval?.nodeId, "node:1");
+});
