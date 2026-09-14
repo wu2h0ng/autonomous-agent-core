@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   if (args[0] === "provider") {
     const { runProviderCommand } = await import("./provider-command.js");
     process.exitCode = await runProviderCommand({
-      descriptorPath,
+      descriptorPath: descriptorPath ?? paths.descriptorPath,
       args: args.slice(1),
     });
     return;

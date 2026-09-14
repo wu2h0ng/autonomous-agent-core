@@ -8,7 +8,11 @@
  * environment so a provider key exported in the shell flows through) — so that
  * `agentos` alone works.
  */
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import {
+  execFileSync,
+  spawn as nodeSpawn,
+  type ChildProcess,
+} from "node:child_process";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -29,7 +33,9 @@ export interface DaemonDeps {
   spawn: (command: string, args: string[], options: Record<string, unknown>) => ChildProcess;
   fetch: typeof fetch;
   sleep: (ms: number) => Promise<void>;
+  now: () => number;
   resolveCommand: (env: NodeJS.ProcessEnv) => string[] | null;
+  matchProcess: (pid: number, descriptorPath: string) => boolean;
 }
 
 export function defaultDaemonPaths(workspace: string = process.cwd()): DaemonPaths {
@@ -109,7 +115,9 @@ export async function ensureDaemon(
     spawn: nodeSpawn as DaemonDeps["spawn"],
     fetch,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: Date.now,
     resolveCommand: resolveDaemonCommand,
+    matchProcess: processMatchesDescriptor,
     ...deps,
   };
   const existing = await tryLoad(options.descriptorPath);
@@ -127,6 +135,14 @@ export async function ensureDaemon(
       "no daemon launcher found; install agent-os-runtime, run from the repo with uv, " +
         "or set AGENT_OS_RUNTIME_CMD",
     );
+  }
+  // Stop a still-alive stale daemon before respawning, but only when the pid
+  // is verified to be this runtime (never blind-kill a recycled pid).
+  if (
+    existing &&
+    resolved.matchProcess(existing.pid, options.descriptorPath)
+  ) {
+    killPid(existing.pid);
   }
   await rm(options.descriptorPath, { force: true });
   const child = resolved.spawn(
@@ -147,9 +163,20 @@ export async function ensureDaemon(
       cwd: options.workspace,
     },
   );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      child.once?.("spawn", () => resolve());
+      child.once?.("error", (error: Error) => reject(error));
+    });
+  } catch (cause) {
+    throw new Error(
+      `failed to start daemon (${(cause as Error).message}); set ` +
+        "AGENT_OS_RUNTIME_CMD or start it manually",
+    );
+  }
   child.unref?.();
-  const deadline = Date.now() + (options.timeoutSeconds ?? 20) * 1000;
-  while (Date.now() < deadline) {
+  const deadline = resolved.now() + (options.timeoutSeconds ?? 20) * 1000;
+  while (resolved.now() < deadline) {
     await resolved.sleep(300);
     const descriptor = await tryLoad(options.descriptorPath);
     if (descriptor && (await daemonHealthy(descriptor, resolved.fetch))) {
@@ -157,19 +184,41 @@ export async function ensureDaemon(
     }
   }
   throw new Error(
-    "daemon did not become ready in time; check the daemon log / provider configuration",
+    "daemon did not become ready in time; verify the provider configuration " +
+      "or start it manually with `agentos daemon start`",
   );
+}
+
+/** True when the pid runs this runtime with our registry descriptor argument. */
+function processMatchesDescriptor(pid: number, descriptorPath: string): boolean {
+  try {
+    const out = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+    });
+    return out.includes(descriptorPath);
+  } catch {
+    return false;
+  }
+}
+
+function killPid(pid: number): void {
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // already gone
+  }
 }
 
 /** Stop the daemon referenced by a descriptor and remove the descriptor. */
 export async function stopDaemon(descriptorPath: string): Promise<boolean> {
   const descriptor = await tryLoad(descriptorPath);
   if (descriptor === null) return false;
-  try {
-    process.kill(descriptor.pid, "SIGTERM");
-  } catch {
-    // already gone
+  if (!processMatchesDescriptor(descriptor.pid, descriptorPath)) {
+    // Do not blind-kill a recycled pid; drop the stale descriptor only.
+    await rm(descriptorPath, { force: true });
+    return false;
   }
+  killPid(descriptor.pid);
   await rm(descriptorPath, { force: true });
   return true;
 }

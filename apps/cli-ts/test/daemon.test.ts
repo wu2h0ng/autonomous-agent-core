@@ -19,6 +19,20 @@ import {
 } from "../src/daemon.js";
 import { runDaemonCommand } from "../src/daemon-command.js";
 
+function fakeChild(onSpawn: () => void = () => {}): ChildProcess {
+  const child = {
+    unref() {},
+    once(event: string, cb: (arg?: unknown) => void) {
+      if (event === "spawn") {
+        onSpawn();
+        cb();
+      }
+      return child;
+    },
+  };
+  return child as unknown as ChildProcess;
+}
+
 function descriptorJson(port = 12345) {
   return JSON.stringify({
     protocol_version: "1.1",
@@ -75,7 +89,7 @@ test("ensureDaemon attaches to a healthy daemon without spawning", async () => {
         fetch: okFetch,
         spawn: (() => {
           spawned = true;
-          return { unref() {} } as unknown as ChildProcess;
+          return fakeChild();
         }) as DaemonDeps["spawn"],
       },
     );
@@ -94,8 +108,7 @@ test("ensureDaemon auto-starts and waits for a ready descriptor", async () => {
     const spawn = ((command: string, args: string[]) => {
       calls.push([command, ...args]);
       // Simulate the daemon writing its descriptor before it becomes healthy.
-      writeFileSync(descriptorPath, descriptorJson());
-      return { unref() {} } as unknown as ChildProcess;
+      return fakeChild(() => writeFileSync(descriptorPath, descriptorJson()));
     }) as DaemonDeps["spawn"];
     const result = await ensureDaemon(
       { descriptorPath, workspace: dir, database: join(dir, "db") },
@@ -155,5 +168,83 @@ test("runDaemonCommand rejects unknown subcommands and reports status", async ()
   } finally {
     if (previous === undefined) delete process.env.AGENT_OS_RUNTIME_DESCRIPTOR;
     else process.env.AGENT_OS_RUNTIME_DESCRIPTOR = previous;
+  }
+});
+
+test("ensureDaemon respawns over an unhealthy stale descriptor", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    await writeFile(descriptorPath, descriptorJson());
+    let calls = 0;
+    const fetchImpl = (async () => ({ status: calls++ === 0 ? 401 : 200 })) as unknown as typeof fetch;
+    let spawned = 0;
+    const result = await ensureDaemon(
+      { descriptorPath, workspace: dir, database: join(dir, "db") },
+      {
+        fetch: fetchImpl,
+        spawn: (() => {
+          spawned += 1;
+          return fakeChild(() => writeFileSync(descriptorPath, descriptorJson(12000)));
+        }) as DaemonDeps["spawn"],
+        sleep: async () => {},
+        resolveCommand: () => ["agent-os-runtime"],
+        matchProcess: () => false,
+      },
+    );
+    assert.equal(result.started, true);
+    assert.equal(spawned, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDaemon times out when the descriptor never becomes ready", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    let clock = 0;
+    await assert.rejects(
+      ensureDaemon(
+        { descriptorPath, workspace: dir, database: join(dir, "db"), timeoutSeconds: 5 },
+        {
+          fetch: okFetch,
+          spawn: (() => fakeChild()) as DaemonDeps["spawn"],
+          sleep: async () => {},
+          now: () => (clock += 1000),
+          resolveCommand: () => ["agent-os-runtime"],
+        },
+      ),
+      /did not become ready/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDaemon fails closed when the launcher errors", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    const errorChild = {
+      unref() {},
+      once(event: string, cb: (arg?: unknown) => void) {
+        if (event === "error") cb(new Error("spawn ENOENT"));
+        return errorChild;
+      },
+    } as unknown as ChildProcess;
+    await assert.rejects(
+      ensureDaemon(
+        { descriptorPath, workspace: dir, database: join(dir, "db") },
+        {
+          fetch: okFetch,
+          spawn: (() => errorChild) as DaemonDeps["spawn"],
+          resolveCommand: () => ["/nonexistent/agent-os-runtime"],
+        },
+      ),
+      /failed to start daemon/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
