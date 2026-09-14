@@ -16,7 +16,6 @@
 import type { SurfaceClient } from "./client.js";
 import { SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
-import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
 import type {
@@ -49,8 +48,36 @@ export interface ToolCall {
   argsJson: string;
   status: "pending" | "done" | "failed";
   /** Optional durable receipt outcome (effect summary / error code / artifact
-   * count), shown in the Ctrl-O tool detail panel. */
+   * count), shown in the tool detail panel. */
   resultSummary?: string;
+  /** Durable risk tier (0–5) from the ACTION_PROPOSED ActionContract. */
+  riskTier?: number;
+  /** Durable execution node id (ActionContract.node_id). */
+  nodeId?: string;
+  /** ISO start time (ActionContract.created_at) — duration baseline. */
+  startedAt?: string;
+  /** Receipt time minus start; only when both sides are durable. */
+  durationMs?: number;
+  /** Verbatim receipt status (SUCCEEDED / FAILED / …), never prettified. */
+  receiptStatus?: string;
+}
+
+/** Approval identity captured from the durable SESSION_APPROVAL_PENDING
+ * payload — the card shows what the kernel actually recorded, not a guess. */
+export interface PendingApprovalInfo {
+  capabilityId: string;
+  actionId?: string;
+  riskTier?: number;
+  nodeId?: string;
+  requestedAt?: string;
+}
+
+/** Human duration for tool cards: ms under a second, then one decimal. */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "?";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m${Math.round((ms % 60_000) / 1000)}s`;
 }
 
 export interface TodoItem {
@@ -158,26 +185,14 @@ export function summarizeArgs(argumentsJson: string): string {
   return JSON.stringify(args).slice(0, 72);
 }
 
-/** Diff lines for an edit-style tool call (old_string/new_string present). */
-function toolDiff(argsJson: string): string[] | null {
-  let args: Record<string, unknown>;
-  try {
-    args = JSON.parse(argsJson) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-  const oldText = args["old_string"];
-  const newText = args["new_string"];
-  if (typeof oldText !== "string" || typeof newText !== "string") return null;
-  return diffLines(oldText, newText).map((line) => {
-    const marker = line.kind === "del" ? "-" : line.kind === "add" ? "+" : " ";
-    return `  ${marker} ${line.text}`;
-  });
-}
-
-/** Multi-line detail block for the expanded tool view (Ctrl-O). Never
+/** Multi-line detail block for the tool viewer (Ctrl-O / `/tools`).
+ * Metadata first, then the durable result, then pretty-printed arguments.
+ * The diff is rendered separately (and coloured) by the viewer. Never
  * throws on malformed arguments — the raw JSON is shown verbatim instead. */
-export function formatToolDetail(tool: ToolCall): string[] {
+export function formatToolDetail(
+  tool: ToolCall,
+  options: { maxArgLines?: number } = {},
+): string[] {
   let pretty = tool.argsJson;
   try {
     pretty = JSON.stringify(JSON.parse(tool.argsJson), null, 2);
@@ -185,10 +200,22 @@ export function formatToolDetail(tool: ToolCall): string[] {
     // keep raw
   }
   const lines = [`action   ${tool.actionId}`, `status   ${tool.status}`];
+  if (tool.riskTier !== undefined) lines.push(`tier     ${tool.riskTier}`);
+  if (tool.nodeId) lines.push(`node     ${tool.nodeId}`);
+  if (tool.startedAt) lines.push(`started  ${tool.startedAt}`);
+  if (tool.durationMs !== undefined) lines.push(`duration ${formatDuration(tool.durationMs)}`);
+  if (tool.receiptStatus) lines.push(`receipt  ${tool.receiptStatus}`);
   if (tool.resultSummary) lines.push(`result   ${tool.resultSummary}`);
-  lines.push(...pretty.split("\n").map((line) => `  ${line}`));
-  const diff = toolDiff(tool.argsJson);
-  if (diff) lines.push("diff", ...diff);
+  const argLines = pretty.split("\n");
+  const maxArgLines = options.maxArgLines ?? 0;
+  if (maxArgLines > 0 && argLines.length > maxArgLines) {
+    lines.push(
+      ...argLines.slice(0, maxArgLines).map((line) => `  ${line}`),
+      `  … (${argLines.length - maxArgLines} more argument lines)`,
+    );
+    return lines;
+  }
+  lines.push(...argLines.map((line) => `  ${line}`));
   return lines;
 }
 
@@ -280,6 +307,10 @@ export class TuiController {
    * never part of the assistant message). Reset at the start of each turn. */
   reasoningText = "";
   lastError: string | null = null;
+  /** Durable identity of the pending approval (action / risk tier / node),
+   * captured from the SESSION_APPROVAL_PENDING payload; null when unknown —
+   * the card shows nothing rather than guessing. */
+  pendingApproval: PendingApprovalInfo | null = null;
 
   private sessionId: string | null = null;
   private taskId: string | null = null;
@@ -297,6 +328,8 @@ export class TuiController {
   private readonly onDelta: ((delta: string) => void) | undefined;
   private readonly doctor: (() => Promise<string>) | undefined;
   private busy = false;
+  /** One-shot overlay request for the App (`/tools`, `/diff`). */
+  private pendingOverlay: "tools" | "diff" | null = null;
 
   constructor(
     private readonly client: SurfaceClient,
@@ -333,6 +366,23 @@ export class TuiController {
   /** Snapshot of queued messages (for `/queue`). */
   get queuedMessages(): readonly string[] {
     return this.queue;
+  }
+
+  /** True while a one-shot overlay request (`/tools`, `/diff`) is unconsumed. */
+  get hasPendingOverlay(): boolean {
+    return this.pendingOverlay !== null;
+  }
+
+  /** App consumes this once to open the requested overlay. */
+  consumePendingOverlay(): "tools" | "diff" | null {
+    const request = this.pendingOverlay;
+    this.pendingOverlay = null;
+    return request;
+  }
+
+  private openOverlay(kind: "tools" | "diff"): void {
+    this.pendingOverlay = kind;
+    this.emit();
   }
 
   /** Latest non-failed todo_write list (full-replace semantics), newest card
@@ -437,6 +487,12 @@ export class TuiController {
         return true;
       case "/keys":
         this.push({ role: "system", content: "", panel: this.keysPanel() });
+        return true;
+      case "/tools":
+        this.openOverlay("tools");
+        return true;
+      case "/diff":
+        this.openOverlay("diff");
         return true;
       case "/export":
         this.exportCommand(rest.join(" ").trim() || undefined);
@@ -640,9 +696,11 @@ export class TuiController {
         "enter submit · ctrl-j newline · ctrl-g $EDITOR",
         "backspace/delete delete backward · ctrl-d delete forward",
         "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
-        "ctrl-a/ctrl-e line start/end · ctrl-o tool transcript · ctrl-t thinking",
-        "esc correction · ctrl-c exit · ctrl-l clear view",
-        "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
+        "ctrl-a/ctrl-e line start/end · ctrl-t thinking",
+        "ctrl-o tool viewer · /tools (↑↓ select, esc close)",
+        "ctrl-a while approving = full diff · /diff (↑↓, ctrl-d/u, n/p hunk, [/] diff)",
+        "y approve · n reject · c approve-with-comment · esc correction · ctrl-c exit",
+        "/ palette · @ file mention · /vim vim keymap (dd/dw/cw) · ctrl-l clear view",
       ],
     };
   }
@@ -925,6 +983,10 @@ export class TuiController {
     this.mode = snapshot.permission_mode;
     this.stream = null;
     this.filesCache = null;
+    // A different session never inherits the previous approval identity or
+    // preview (the card must not describe another session's action).
+    this.pendingApproval = null;
+    this.pendingPreview = snapshot.pending_approval?.preview ?? null;
     this.recentSessions = [
       snapshot.session.session_id,
       ...this.recentSessions.filter((id) => id !== snapshot.session.session_id),
@@ -1131,36 +1193,75 @@ export class TuiController {
         // (older kernels) are accepted for back-compat.
         if (typeof payload["turn_id"] === "string" && payload["turn_id"] !== this.turnId) continue;
         this.pendingPreview = String(payload["preview"] ?? "");
+        this.pendingApproval = this.approvalInfoFromAction(
+          payload["action"],
+          payload["requested_at"],
+        );
         this.status = "awaiting_approval";
         this.finalizeAll();
       } else if (event.event_type === "ACTION_PROPOSED") {
-        this.applyToolProposed(payload);
+        this.applyToolProposed(payload, event.occurred_at);
       } else if (event.event_type === "ACTION_RECEIPT_RECORDED") {
-        this.applyToolReceipt(payload);
+        this.applyToolReceipt(payload, event.occurred_at);
       }
     }
   }
 
+  /** Durable approval identity from the SESSION_APPROVAL_PENDING payload;
+   * null when the payload carries no action (never guessed). */
+  private approvalInfoFromAction(action: unknown, requestedAt: unknown): PendingApprovalInfo | null {
+    if (!action || typeof action !== "object") return null;
+    const record = action as Record<string, unknown>;
+    const capabilityId = record["capability_id"];
+    if (typeof capabilityId !== "string" || !capabilityId) return null;
+    const actionId = record["action_id"];
+    const riskTier = record["risk_tier"];
+    const nodeId = record["node_id"];
+    return {
+      capabilityId,
+      ...(typeof actionId === "string" && actionId ? { actionId } : {}),
+      ...(typeof riskTier === "number" ? { riskTier } : {}),
+      ...(typeof nodeId === "string" && nodeId ? { nodeId } : {}),
+      ...(typeof requestedAt === "string" && requestedAt ? { requestedAt } : {}),
+    };
+  }
+
+  private isoMs(value: unknown): number | null {
+    if (typeof value !== "string" || !value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   /** Tool card projection from the durable event stream (read-only view of
    * ACTION_PROPOSED / ACTION_RECEIPT_RECORDED; no governance state here). */
-  private applyToolProposed(payload: Record<string, unknown>): void {
+  private applyToolProposed(payload: Record<string, unknown>, occurredAt: string): void {
     const action = payload["action"] as Record<string, unknown> | undefined;
     if (!action) return;
     const actionId = String(action["action_id"] ?? "");
     if (!actionId || this.toolIndex.has(actionId)) return;
     const argsJson = String(action["arguments_json"] ?? "{}");
+    const riskTier = typeof action["risk_tier"] === "number" ? action["risk_tier"] : undefined;
+    const nodeId =
+      typeof action["node_id"] === "string" && action["node_id"] ? action["node_id"] : undefined;
+    const startedAt =
+      typeof action["created_at"] === "string" && action["created_at"]
+        ? action["created_at"]
+        : occurredAt;
     const tool: ToolCall = {
       actionId,
       capabilityId: String(action["capability_id"] ?? "unknown"),
       argsSummary: summarizeArgs(argsJson),
       argsJson,
       status: "pending",
+      ...(riskTier !== undefined ? { riskTier } : {}),
+      ...(nodeId !== undefined ? { nodeId } : {}),
+      ...(startedAt ? { startedAt } : {}),
     };
     this.toolIndex.set(actionId, this.messages.length);
     this.push({ role: "system", content: "", tool });
   }
 
-  private applyToolReceipt(payload: Record<string, unknown>): void {
+  private applyToolReceipt(payload: Record<string, unknown>, occurredAt: string): void {
     const receipt = payload["receipt"] as Record<string, unknown> | undefined;
     const decision = payload["decision"] as Record<string, unknown> | undefined;
     const actionId = String(receipt?.["action_id"] ?? decision?.["action_id"] ?? "");
@@ -1192,9 +1293,15 @@ export class TuiController {
         : status === "FAILED" || status === "CANCELLED" || status === "COMPENSATED"
           ? "failed"
           : "pending";
+    const completedMs = this.isoMs(receipt?.["occurred_at"]) ?? this.isoMs(occurredAt);
+    const startedMs = this.isoMs(message.tool.startedAt);
+    const durationMs =
+      completedMs !== null && startedMs !== null ? Math.max(0, completedMs - startedMs) : undefined;
     message.tool = {
       ...message.tool,
       status: toolStatus,
+      ...(status ? { receiptStatus: status } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
       ...(parts.length > 0 ? { resultSummary: parts.join(" · ") } : {}),
     };
     this.emit();
@@ -1209,25 +1316,31 @@ export class TuiController {
     }
   }
 
-  async approve(): Promise<void> {
-    await this.decide("APPROVE");
+  async approve(comment?: string): Promise<void> {
+    await this.decide("APPROVE", comment);
   }
 
-  async reject(): Promise<void> {
-    await this.decide("REJECT");
+  async reject(comment?: string): Promise<void> {
+    await this.decide("REJECT", comment);
   }
 
-  private async decide(disposition: "APPROVE" | "REJECT"): Promise<void> {
+  private async decide(disposition: "APPROVE" | "REJECT", comment?: string): Promise<void> {
     if (this.status !== "awaiting_approval") throw new Error("no pending approval");
     if (!this.sessionId) throw new Error("no session");
     const snapshot = await this.client.getSession(this.sessionId);
     const pending = snapshot.pending_approval;
     if (!pending) throw new Error("pending approval vanished");
+    // The reason is part of the durable SESSION_APPROVAL_RESOLVED record and
+    // is compared verbatim on retry, so an operator comment is evidence, not
+    // decoration. The protocol rejects an empty reason — never send one.
+    const reason = comment?.trim()
+      ? `${disposition.toLowerCase()} via cli-ts: ${comment.trim()}`
+      : `${disposition.toLowerCase()} via cli-ts`;
     const turn = await this.client.decideApproval(
       this.sessionId,
       pending.action_digest,
       disposition,
-      `${disposition.toLowerCase()} via cli-ts`,
+      reason,
     );
     this.snapshot = turn.snapshot;
     this.push({ role: "system", content: `${disposition}: ${pending.capability_id}` });
@@ -1235,6 +1348,7 @@ export class TuiController {
     if (turn.total_tokens > 0) this.tokensTotal += turn.total_tokens;
     this.status = "idle";
     this.pendingPreview = null;
+    this.pendingApproval = null;
     this.finalizeAll();
     this.maybeDrain();
   }

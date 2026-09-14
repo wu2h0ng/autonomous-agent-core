@@ -58,6 +58,16 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "show the keymap",
   },
   {
+    name: "/tools",
+    argsHint: "",
+    description: "open the tool-call viewer (also Ctrl-O)",
+  },
+  {
+    name: "/diff",
+    argsHint: "",
+    description: "open the diff viewer (approval preview + edit diffs; Ctrl-A while approving)",
+  },
+  {
     name: "/find",
     argsHint: "<query>",
     description: "search the in-session transcript (view only)",

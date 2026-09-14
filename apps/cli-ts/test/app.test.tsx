@@ -384,6 +384,40 @@ test("backspace deletes the previous character (macOS sends \\x7f)", async () =>
   }
 });
 
+test("ctrl-o opens the tool-call viewer with the selected call expanded; esc closes", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  const push = (controller as never as { push: (message: unknown) => void }).push.bind(controller);
+  push({
+    role: "system",
+    content: "",
+    tool: {
+      actionId: "a:1",
+      capabilityId: "workspace.edit",
+      argsSummary: "f.txt",
+      argsJson: JSON.stringify({ path: "f.txt", old_string: "a", new_string: "b" }),
+      status: "done",
+      riskTier: 3,
+      durationMs: 1200,
+    },
+  });
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("\u000f"); // Ctrl-O
+    await flush();
+    const frame = view.lastFrame() ?? "";
+    assert.match(frame, /tool calls 1/);
+    assert.match(frame, /tier     3/);
+    assert.match(frame, /duration 1.2s/);
+
+    await view.stdin.write("\u001b"); // Esc
+    await flush();
+    assert.equal((view.lastFrame() ?? "").includes("tool calls 1"), false);
+  } finally {
+    view.unmount();
+  }
+});
+
 test("ctrl-d deletes forward at the cursor", async () => {
   const controller = new TuiController(new FakeClient() as never);
   const view = render(<App controller={controller} />);
@@ -398,6 +432,30 @@ test("ctrl-d deletes forward at the cursor", async () => {
     const frame = view.lastFrame() ?? "";
     assert.match(frame, /› a/);
     assert.doesNotMatch(frame, /› ab/);
+  } finally {
+    view.unmount();
+  }
+});
+
+test("approval: [c] opens comment mode and Enter approves with the comment", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  let captured: string | undefined;
+  controller.approve = async (comment?: string) => {
+    captured = comment;
+  };
+  (controller as never as { status: string }).status = "awaiting_approval";
+  const view = render(<App controller={controller} />);
+  try {
+    await flush();
+    await view.stdin.write("c");
+    await flush();
+    assert.match(view.lastFrame() ?? "", /approval comment/);
+
+    await view.stdin.write("lgtm");
+    await flush();
+    await view.stdin.write("\r");
+    await flush();
+    assert.equal(captured, "lgtm", "the comment must be the durable approval reason");
   } finally {
     view.unmount();
   }

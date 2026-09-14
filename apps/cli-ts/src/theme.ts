@@ -1,32 +1,41 @@
 /**
  * Semantic colour tokens + named themes (gap P0 #1 / P1 #22).
  *
- * One token set per theme; the active theme name lives in the controller
- * (operator-only `/theme`), so no `as const`. Colours are concrete Ink names
- * so `Text`'s exactOptionalPropertyTypes typing stays simple.
+ * A token value is a concrete Ink colour name **or `undefined`, meaning
+ * "leave the terminal's own colour alone"**. `inherit` is entirely
+ * undefined: it never fights the operator's terminal theme and relies on
+ * markers (✓/⧗/✗, +/-) plus bold/dim for structure. Every other theme can
+ * blank individual tokens the same way.
+ *
+ * Diff, thinking and tool-status tokens are explicit so the approval card,
+ * the diff viewer and the tool cards never share a colour by accident.
  */
 
 export interface ThemeColors {
-  user: string;
-  assistant: string;
-  system: string;
-  notice: string;
-  toolPending: string;
-  toolDone: string;
-  toolFailed: string;
-  approvalBorder: string;
-  approvalTitle: string;
-  danger: string;
-  accent: string;
-  border: string;
-  paletteSelected: string;
-  footer: string;
+  user: string | undefined;
+  assistant: string | undefined;
+  system: string | undefined;
+  notice: string | undefined;
+  toolPending: string | undefined;
+  toolDone: string | undefined;
+  toolFailed: string | undefined;
+  approvalBorder: string | undefined;
+  approvalTitle: string | undefined;
+  danger: string | undefined;
+  accent: string | undefined;
+  border: string | undefined;
+  paletteSelected: string | undefined;
+  footer: string | undefined;
+  diffAdd: string | undefined;
+  diffDel: string | undefined;
+  diffContext: string | undefined;
+  thinking: string | undefined;
 }
 
 export const THEMES: Record<string, ThemeColors> = {
   default: {
     user: "cyan",
-    assistant: "white",
+    assistant: undefined,
     system: "yellow",
     notice: "gray",
     toolPending: "yellow",
@@ -39,22 +48,30 @@ export const THEMES: Record<string, ThemeColors> = {
     border: "gray",
     paletteSelected: "cyan",
     footer: "gray",
+    diffAdd: "green",
+    diffDel: "red",
+    diffContext: "gray",
+    thinking: "magenta",
   },
   ansi: {
     user: "blueBright",
-    assistant: "white",
+    assistant: undefined,
     system: "yellow",
     notice: "gray",
     toolPending: "yellow",
-    toolDone: "green",
-    toolFailed: "red",
+    toolDone: "greenBright",
+    toolFailed: "redBright",
     approvalBorder: "yellow",
     approvalTitle: "yellow",
-    danger: "red",
+    danger: "redBright",
     accent: "blueBright",
     border: "gray",
     paletteSelected: "blueBright",
     footer: "gray",
+    diffAdd: "greenBright",
+    diffDel: "redBright",
+    diffContext: "gray",
+    thinking: "magentaBright",
   },
   mono: {
     user: "white",
@@ -71,6 +88,32 @@ export const THEMES: Record<string, ThemeColors> = {
     border: "gray",
     paletteSelected: "white",
     footer: "gray",
+    diffAdd: "white",
+    diffDel: "white",
+    diffContext: "gray",
+    thinking: "gray",
+  },
+  /** Terminal-native: no colour codes at all (opencode `none` / Crush
+   * `transparent`). Structure comes from markers and emphasis only. */
+  inherit: {
+    user: undefined,
+    assistant: undefined,
+    system: undefined,
+    notice: undefined,
+    toolPending: undefined,
+    toolDone: undefined,
+    toolFailed: undefined,
+    approvalBorder: undefined,
+    approvalTitle: undefined,
+    danger: undefined,
+    accent: undefined,
+    border: undefined,
+    paletteSelected: undefined,
+    footer: undefined,
+    diffAdd: undefined,
+    diffDel: undefined,
+    diffContext: undefined,
+    thinking: undefined,
   },
 };
 
@@ -92,4 +135,11 @@ export function nextTheme(name: string): string {
   const names = themeNames();
   const index = names.indexOf(name);
   return names[(index + 1) % names.length] ?? DEFAULT_THEME_NAME;
+}
+
+/** Ink props for a token: `{color}` when set, `{}` when the token means
+ * "terminal default" — so `exactOptionalPropertyTypes` never sees an
+ * explicit `color: undefined`. */
+export function paint(color: string | undefined): { color?: string } {
+  return color ? { color } : {};
 }

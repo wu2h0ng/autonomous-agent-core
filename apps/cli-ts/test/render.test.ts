@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  formatDuration,
   formatToolDetail,
   parseTodoItems,
   summarizeArgs,
@@ -218,6 +219,180 @@ function todoReceiptEvent(
     sequence: seq,
   };
 }
+
+test("formatToolDetail: metadata, result, pretty args (diff moved to the viewer)", () => {
+  const detail = formatToolDetail({
+    actionId: "a:1",
+    capabilityId: "workspace.edit",
+    argsSummary: "src/a.ts",
+    argsJson: '{"path":"src/a.ts","new_string":"b"}',
+    status: "done",
+    riskTier: 3,
+    nodeId: "node:7",
+    durationMs: 1234,
+    receiptStatus: "SUCCEEDED",
+    resultSummary: "effect src/a.ts",
+  });
+  assert.deepEqual(detail[0], "action   a:1");
+  assert.deepEqual(detail[1], "status   done");
+  assert.ok(detail.includes("tier     3"));
+  assert.ok(detail.includes("node     node:7"));
+  assert.ok(detail.includes("duration 1.2s"));
+  assert.ok(detail.includes("receipt  SUCCEEDED"));
+  assert.ok(detail.some((line) => line.includes('"path": "src/a.ts"')));
+
+  // optional metadata stays out when absent — no invented lines
+  const lean = formatToolDetail({
+    actionId: "a:2",
+    capabilityId: "workspace.shell",
+    argsSummary: "ls",
+    argsJson: '{"command":"ls"}',
+    status: "pending",
+  });
+  assert.deepEqual(lean, ["action   a:2", "status   pending", "  {", '    "command": "ls"', "  }"]);
+
+  // long arguments are trimmed with an explicit count, never silently
+  const capped = formatToolDetail(
+    {
+      actionId: "a:3",
+      capabilityId: "workspace.edit",
+      argsSummary: "f",
+      argsJson: JSON.stringify({ a: 1, b: 2, c: 3, d: 4 }),
+      status: "done",
+    },
+    { maxArgLines: 3 },
+  );
+  assert.ok(capped.some((line) => line.includes("more argument lines")));
+});
+
+test("formatDuration: ms, seconds and minutes stay honest", () => {
+  assert.equal(formatDuration(0), "0ms");
+  assert.equal(formatDuration(999), "999ms");
+  assert.equal(formatDuration(1234), "1.2s");
+  assert.equal(formatDuration(61_000), "1m1s");
+  assert.equal(formatDuration(Number.NaN), "?");
+  assert.equal(formatDuration(-5), "?");
+});
+
+test("tool projection: risk tier + duration come from the durable events", () => {
+  const controller = new TuiController({} as never);
+  const apply = controller as never as { applyDurable: (n: number, e: unknown[]) => void };
+  apply.applyDurable(1, [
+    {
+      event_id: "e:1",
+      task_id: "task:1",
+      event_type: "ACTION_PROPOSED",
+      payload_json: JSON.stringify({
+        action: {
+          action_id: "a:1",
+          capability_id: "workspace.edit",
+          arguments_json: '{"path":"f.txt"}',
+          risk_tier: 3,
+          node_id: "node:9",
+          created_at: "2026-09-14T00:00:00.000Z",
+        },
+      }),
+      occurred_at: "2026-09-14T00:00:00.100Z",
+      sequence: 1,
+    },
+  ]);
+  const proposed = controller.messages[0]?.tool;
+  assert.equal(proposed?.riskTier, 3);
+  assert.equal(proposed?.nodeId, "node:9");
+  assert.equal(proposed?.startedAt, "2026-09-14T00:00:00.000Z");
+  assert.equal(proposed?.durationMs, undefined);
+
+  apply.applyDurable(2, [
+    {
+      event_id: "e:2",
+      task_id: "task:1",
+      event_type: "ACTION_RECEIPT_RECORDED",
+      payload_json: JSON.stringify({
+        receipt: {
+          action_id: "a:1",
+          status: "SUCCEEDED",
+          occurred_at: "2026-09-14T00:00:01.500Z",
+        },
+      }),
+      occurred_at: "2026-09-14T00:00:01.600Z",
+      sequence: 2,
+    },
+  ]);
+  const done = controller.messages[0]?.tool;
+  assert.equal(done?.status, "done");
+  assert.equal(done?.receiptStatus, "SUCCEEDED");
+  assert.equal(done?.durationMs, 1500);
+  assert.equal(formatDuration(done?.durationMs ?? 0), "1.5s");
+
+  // ActionContract.created_at missing -> the event time is the honest baseline
+  apply.applyDurable(3, [
+    {
+      event_id: "e:3",
+      task_id: "task:1",
+      event_type: "ACTION_PROPOSED",
+      payload_json: JSON.stringify({
+        action: { action_id: "a:2", capability_id: "workspace.shell", arguments_json: "{}" },
+      }),
+      occurred_at: "2026-09-14T00:00:02.000Z",
+      sequence: 3,
+    },
+    {
+      event_id: "e:4",
+      task_id: "task:1",
+      event_type: "ACTION_RECEIPT_RECORDED",
+      payload_json: JSON.stringify({ receipt: { action_id: "a:2", status: "FAILED" } }),
+      occurred_at: "2026-09-14T00:00:02.250Z",
+      sequence: 4,
+    },
+  ]);
+  assert.equal(controller.messages[1]?.tool?.durationMs, 250);
+});
+
+test("approval identity: captured from SESSION_APPROVAL_PENDING, never guessed", () => {
+  const controller = new TuiController({} as never);
+  const apply = controller as never as { applyDurable: (n: number, e: unknown[]) => void };
+  apply.applyDurable(1, [
+    {
+      event_id: "e:1",
+      task_id: "task:1",
+      event_type: "SESSION_APPROVAL_PENDING",
+      payload_json: JSON.stringify({
+        preview: "edit f.txt",
+        requested_at: "2026-09-14T00:00:00Z",
+        action: {
+          action_id: "a:1",
+          capability_id: "workspace.edit",
+          risk_tier: 3,
+          node_id: "node:1",
+        },
+      }),
+      occurred_at: "2026-09-14T00:00:00Z",
+      sequence: 1,
+    },
+  ]);
+  assert.deepEqual(controller.pendingApproval, {
+    capabilityId: "workspace.edit",
+    actionId: "a:1",
+    riskTier: 3,
+    nodeId: "node:1",
+    requestedAt: "2026-09-14T00:00:00Z",
+  });
+
+  // payload without an action -> null (the card shows nothing rather than 0)
+  const bare = new TuiController({} as never);
+  const applyBare = bare as never as { applyDurable: (n: number, e: unknown[]) => void };
+  applyBare.applyDurable(1, [
+    {
+      event_id: "e:1",
+      task_id: "task:1",
+      event_type: "SESSION_APPROVAL_PENDING",
+      payload_json: JSON.stringify({ preview: "edit f.txt" }),
+      occurred_at: "2026-09-14T00:00:00Z",
+      sequence: 1,
+    },
+  ]);
+  assert.equal(bare.pendingApproval, null);
+});
 
 test("todo panel: parseTodoItems defensive + full-replace + failed never overwrites", () => {
   // parseTodoItems: shape violations return null, never guessed

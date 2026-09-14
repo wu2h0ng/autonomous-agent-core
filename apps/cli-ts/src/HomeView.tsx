@@ -6,7 +6,7 @@
 import React from "react";
 import { basename } from "node:path";
 import { Box, Text } from "ink";
-import type { ThemeColors } from "./theme.js";
+import { paint, type ThemeColors } from "./theme.js";
 
 export interface StatusBarProps {
   workspace: string;
@@ -27,7 +27,7 @@ export function StatusBar({ workspace, branch, mode, version, theme }: StatusBar
   return (
     <Box justifyContent="space-between">
       <Text>
-        <Text bold color={theme.accent}>
+        <Text bold {...paint(theme.accent)}>
           ◆ agent-os
         </Text>
         <Text dimColor> v{version}</Text>
@@ -64,7 +64,7 @@ export function HomeView({
     return (
       <Box flexDirection="column" marginBottom={1}>
         <Text>
-          <Text bold color={theme.accent}>
+          <Text bold {...paint(theme.accent)}>
             AGENT OS
           </Text>
           <Text dimColor> · v{version}</Text>
@@ -84,26 +84,26 @@ export function HomeView({
         paddingY={1}
       >
         <Text>
-          <Text bold color={theme.accent}>
+          <Text bold {...paint(theme.accent)}>
             AGENT OS
           </Text>
           <Text dimColor> · governed terminal agent</Text>
         </Text>
         <Box marginTop={1} flexDirection="column">
           <Text>
-            <Text color={theme.accent}>workspace  </Text>
+            <Text {...paint(theme.accent)}>workspace  </Text>
             {name}
           </Text>
           <Text>
-            <Text color={theme.accent}>path       </Text>
+            <Text {...paint(theme.accent)}>path       </Text>
             <Text dimColor>{workspace}</Text>
           </Text>
           <Text>
-            <Text color={theme.accent}>git        </Text>
+            <Text {...paint(theme.accent)}>git        </Text>
             <Text dimColor>{branch ?? "not a git repository"}</Text>
           </Text>
           <Text>
-            <Text color={theme.accent}>provider   </Text>
+            <Text {...paint(theme.accent)}>provider   </Text>
             {model ? (
               <Text>{`${provider ?? "openai-compatible"} · ${model}`}</Text>
             ) : (
@@ -111,13 +111,13 @@ export function HomeView({
             )}
           </Text>
           <Text>
-            <Text color={theme.accent}>version    </Text>
+            <Text {...paint(theme.accent)}>version    </Text>
             <Text dimColor>{version}</Text>
           </Text>
         </Box>
       </Box>
       <Box flexDirection="column" marginTop={1}>
-        <Text bold color={theme.notice}>
+        <Text bold {...paint(theme.notice)}>
           Quick start
         </Text>
         <Text dimColor>· Describe a task and press Enter (shift+tab switches mode)</Text>
