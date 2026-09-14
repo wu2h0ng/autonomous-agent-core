@@ -19,7 +19,13 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path.home() / ".agent-os" / "provider.json"
 KEYCHAIN_SERVICE = "agent-os:provider"
-_ALLOWED_FIELDS = ("base_url", "model", "endpoint_class", "credential_env")
+_ALLOWED_FIELDS = (
+    "base_url",
+    "model",
+    "endpoint_class",
+    "credential_env",
+    "max_tokens",
+)
 DEFAULT_CREDENTIAL_ENV = "AGENT_OS_PROVIDER_KEY"
 
 

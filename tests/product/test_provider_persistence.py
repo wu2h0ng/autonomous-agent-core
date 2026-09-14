@@ -214,3 +214,26 @@ def test_keychain_timeout_degrades_gracefully(monkeypatch: pytest.MonkeyPatch) -
     assert store.store("account", _SECRET) is False
     assert store.load("account") is None
     store.delete("account")  # must not raise
+
+
+def test_max_tokens_persists_and_autoloads(
+    tmp_path: Path, stub_provider: str, config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_KEY", _SECRET)
+    from apps.api_server.app import AgentOSApplication
+
+    app = AgentOSApplication(database=tmp_path / "a.sqlite3", workspace=tmp_path)
+    app.configure_provider(
+        {
+            "base_url": stub_provider,
+            "model": "m",
+            "api_key": _SECRET,
+            "max_tokens": 999,
+        }
+    )
+    config = load_provider_config()
+    assert config is not None and config["max_tokens"] == "999"
+
+    reloaded = AgentOSApplication(database=tmp_path / "b.sqlite3", workspace=tmp_path)
+    assert reloaded.provider_configured is True
+    assert reloaded.provider._max_tokens == 999  # type: ignore[attr-defined]

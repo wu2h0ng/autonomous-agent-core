@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -116,6 +118,68 @@ _WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
 
 class CredentialUnavailable(PermissionError):
     pass
+
+
+def _optional_int_env(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _optional_float_env(name: str) -> float | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def load_pricing_table() -> dict[str, dict[str, object]]:
+    """Load an optional local pricing table for cost honesty (E3).
+
+    Source: ``AGENT_OS_PRICING_FILE`` or ``~/.agent-os/pricing.json`` with shape
+    ``{"models": {"<model_id>": {"input_per_1k_usd": <num>,
+    "output_per_1k_usd": <num>, "source": "<ref>"}}}``. Models without a complete
+    entry are simply absent, so cost stays UNKNOWN — never a pseudo-zero.
+    """
+
+    override = os.environ.get("AGENT_OS_PRICING_FILE")
+    path = Path(override) if override else Path.home() / ".agent-os" / "pricing.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    models = raw.get("models") if isinstance(raw, dict) else None
+    if not isinstance(models, dict):
+        return {}
+    table: dict[str, dict[str, object]] = {}
+    for model_id, entry in models.items():
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source")
+        input_rate = entry.get("input_per_1k_usd")
+        output_rate = entry.get("output_per_1k_usd")
+        if not isinstance(source, str) or not source:
+            continue
+        try:
+            input_value = float(input_rate)  # type: ignore[arg-type]
+            output_value = float(output_rate)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if input_value < 0 or output_value < 0:
+            continue
+        table[str(model_id)] = {
+            "input": input_value,
+            "output": output_value,
+            "source": source,
+        }
+    return table
 
 
 class EnvCredentialBroker:
@@ -296,6 +360,9 @@ class OpenAICompatibleProvider(ProviderPort):
         credentials: EnvCredentialBroker | None = None,
         timeout_seconds: int = 60,
         temperature: float | None = None,
+        max_tokens: int | None = None,
+        max_retries: int | None = None,
+        retry_base_seconds: float | None = None,
         opener: Callable[..., object] | None = None,
         provider_profile: ProviderProfile | None = None,
     ) -> None:
@@ -310,12 +377,29 @@ class OpenAICompatibleProvider(ProviderPort):
                 )
             )
         )
+        resolved_max_tokens = (
+            max_tokens
+            if max_tokens is not None
+            else _optional_int_env("AGENT_OS_PROVIDER_MAX_TOKENS")
+        )
         self._base_url = normalized_base_url
         self._model = model
         self._credential = credential
         self._credentials = credentials or EnvCredentialBroker()
         self._timeout_seconds = timeout_seconds
         self._temperature = resolved_temperature
+        self._max_tokens = resolved_max_tokens
+        self._max_retries = (
+            max_retries
+            if max_retries is not None
+            else _optional_int_env("AGENT_OS_PROVIDER_MAX_RETRIES") or 2
+        )
+        self._retry_base_seconds = (
+            retry_base_seconds
+            if retry_base_seconds is not None
+            else _optional_float_env("AGENT_OS_PROVIDER_RETRY_BASE_SECONDS") or 0.5
+        )
+        self._pricing = load_pricing_table()
         self._opener = opener or urllib.request.urlopen
         self._invocation_binding: ProviderInvocationBinding | None = None
         if provider_profile is not None:
@@ -377,7 +461,7 @@ class OpenAICompatibleProvider(ProviderPort):
         return self._invocation_binding
 
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
-        return self._invoke(
+        return self._invoke_with_retry(
             request, allowed_capability_ids=request.allowed_capability_ids
         )
 
@@ -388,13 +472,61 @@ class OpenAICompatibleProvider(ProviderPort):
         on_text_delta: Callable[[str], None] | None = None,
         on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
-        return self._invoke(
+        return self._invoke_with_retry(
             request,
             allowed_capability_ids=request.allowed_capability_ids,
             stream=True,
             on_text_delta=on_text_delta,
             on_reasoning_delta=on_reasoning_delta,
         )
+
+    def _invoke_with_retry(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        *,
+        allowed_capability_ids: tuple[str, ...],
+        stream: bool = False,
+        on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
+    ) -> ProviderResponse | ProviderFailure:
+        """Bounded retry for retryable failures (429/5xx/timeout).
+
+        A stream that has already emitted a delta is never retried: replaying
+        would duplicate output. Read-only completions carry no side effects, so
+        retrying before any output is safe.
+        """
+
+        attempts = max(1, int(self._max_retries) + 1)
+        emitted = False
+
+        def _text_delta(chunk: str) -> None:
+            nonlocal emitted
+            emitted = True
+            if on_text_delta is not None:
+                on_text_delta(chunk)
+
+        def _reasoning_delta(chunk: str) -> None:
+            nonlocal emitted
+            emitted = True
+            if on_reasoning_delta is not None:
+                on_reasoning_delta(chunk)
+
+        result: ProviderResponse | ProviderFailure | None = None
+        for attempt in range(attempts):
+            result = self._invoke(
+                request,
+                allowed_capability_ids=allowed_capability_ids,
+                stream=stream,
+                on_text_delta=_text_delta if stream else on_text_delta,
+                on_reasoning_delta=_reasoning_delta if stream else on_reasoning_delta,
+            )
+            if isinstance(result, ProviderResponse):
+                return result
+            if not result.retryable or emitted or attempt >= attempts - 1:
+                return result
+            time.sleep(self._retry_base_seconds * (2**attempt))
+        assert result is not None
+        return result
 
     def _request_body(
         self,
@@ -412,6 +544,8 @@ class OpenAICompatibleProvider(ProviderPort):
             ],
             "temperature": temperature,
         }
+        if self._max_tokens is not None:
+            body["max_tokens"] = self._max_tokens
         if allowed_capability_ids:
             body["tools"] = [
                 _tool_definition(capability_id)
@@ -442,6 +576,40 @@ class OpenAICompatibleProvider(ProviderPort):
             return invocation.endpoint_path
         return self.DEFAULT_ENDPOINT_PATH
 
+    def _usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        total_tokens: int | None = None,
+    ) -> ProviderUsage:
+        """Exact tokens; cost KNOWN only when a local pricing source covers the model."""
+
+        total = (
+            total_tokens
+            if total_tokens is not None and total_tokens > 0
+            else input_tokens + output_tokens
+        )
+        entry = self._pricing.get(self._model)
+        if entry is None:
+            return ProviderUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total,
+                cost_status="UNKNOWN",
+            )
+        cost = (
+            Decimal(input_tokens) * Decimal(str(entry["input"]))
+            + Decimal(output_tokens) * Decimal(str(entry["output"]))
+        ) / Decimal(1000)
+        return ProviderUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total,
+            estimated_cost_usd=cost,
+            cost_status="KNOWN",
+            pricing_source_ref=str(entry["source"]),
+        )
+
     def _parse_completion(
         self,
         payload: dict[str, Any],
@@ -460,15 +628,10 @@ class OpenAICompatibleProvider(ProviderPort):
             request_id=request.request_id,
             text=str(message.get("content") or ""),
             tool_proposals=proposals,
-            usage=ProviderUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=int(
-                    usage.get("total_tokens", input_tokens + output_tokens)
-                ),
-                # E3: token counts are exact from the provider payload; cost has
-                # no pricing source here — UNKNOWN, never zero.
-                cost_status="UNKNOWN",
+            usage=self._usage(
+                input_tokens,
+                output_tokens,
+                int(usage.get("total_tokens", 0)),
             ),
             finish_reason=str(choice.get("finish_reason", "stop")),
             received_at=datetime.now(timezone.utc),
@@ -565,13 +728,16 @@ class OpenAICompatibleProvider(ProviderPort):
                 payload = json.loads(response.read().decode("utf-8"))
             return self._parse_completion(payload, request)
         except urllib.error.HTTPError as exc:
-            code = (
-                ProviderErrorCode.AUTHENTICATION_FAILED
-                if exc.code in {401, 403}
-                else ProviderErrorCode.RATE_LIMITED
-                if exc.code == 429
-                else ProviderErrorCode.UNAVAILABLE
-            )
+            if exc.code in {401, 403}:
+                code = ProviderErrorCode.AUTHENTICATION_FAILED
+            elif exc.code == 429:
+                code = ProviderErrorCode.RATE_LIMITED
+            elif 400 <= exc.code < 500:
+                # Other 4xx (bad request/not found/unprocessable) are client
+                # errors: retrying cannot help.
+                code = ProviderErrorCode.MALFORMED
+            else:
+                code = ProviderErrorCode.UNAVAILABLE
             return self._failure(
                 request,
                 code,
@@ -692,22 +858,12 @@ class OpenAICompatibleProvider(ProviderPort):
         input_tokens = int(usage_payload.get("prompt_tokens") or 0)
         output_tokens = int(usage_payload.get("completion_tokens") or 0)
         total_tokens = int(usage_payload.get("total_tokens") or 0)
-        if total_tokens <= 0:
-            total_tokens = input_tokens + output_tokens
         return ProviderResponse(
             response_id=response_id,
             request_id=request.request_id,
             text=text_out,
             tool_proposals=proposals,
-            usage=ProviderUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens,
-                # E3: streamed frames carry usage counters (stream_options.
-                # include_usage) but still no pricing source — cost is
-                # UNKNOWN, never a pseudo-zero.
-                cost_status="UNKNOWN",
-            ),
+            usage=self._usage(input_tokens, output_tokens, total_tokens),
             finish_reason=finish_reason or "stop",
             received_at=datetime.now(timezone.utc),
             invocation_binding_digest=(
@@ -830,7 +986,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         ]
         body: dict[str, object] = {
             "model": model_id,
-            "max_tokens": self.DEFAULT_MAX_TOKENS,
+            "max_tokens": self._max_tokens or self.DEFAULT_MAX_TOKENS,
             "messages": [
                 _anthropic_message(message)
                 for message in request.messages
@@ -882,14 +1038,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
             request_id=request.request_id,
             text=text,
             tool_proposals=proposals,
-            usage=ProviderUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=input_tokens + output_tokens,
-                # E3: exact tokens from the provider payload; no pricing source
-                # here — cost is UNKNOWN, never zero.
-                cost_status="UNKNOWN",
-            ),
+            usage=self._usage(input_tokens, output_tokens),
             finish_reason=finish_reason,
             received_at=datetime.now(timezone.utc),
             invocation_binding_digest=(
@@ -1002,12 +1151,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
             request_id=request.request_id,
             text="".join(text_parts),
             tool_proposals=proposals,
-            usage=ProviderUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=input_tokens + output_tokens,
-                cost_status="UNKNOWN",
-            ),
+            usage=self._usage(input_tokens, output_tokens),
             finish_reason=finish_reason,
             received_at=datetime.now(timezone.utc),
             invocation_binding_digest=(
@@ -1132,8 +1276,13 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             body["systemInstruction"] = {
                 "parts": [{"text": "\n\n".join(system_parts)}]
             }
+        generation_config: dict[str, object] = {}
         if temperature is not None:
-            body["generationConfig"] = {"temperature": temperature}
+            generation_config["temperature"] = temperature
+        if self._max_tokens is not None:
+            generation_config["maxOutputTokens"] = self._max_tokens
+        if generation_config:
+            body["generationConfig"] = generation_config
         if allowed_capability_ids:
             body["tools"] = [
                 {
@@ -1190,14 +1339,8 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             request_id=request.request_id,
             text=text,
             tool_proposals=tuple(proposals),
-            usage=ProviderUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=int(
-                    usage.get("totalTokenCount", input_tokens + output_tokens)
-                ),
-                # E3: exact tokens; no pricing source — cost UNKNOWN.
-                cost_status="UNKNOWN",
+            usage=self._usage(
+                input_tokens, output_tokens, int(usage.get("totalTokenCount", 0))
             ),
             finish_reason=str(raw_finish).lower() if raw_finish else "stop",
             received_at=datetime.now(timezone.utc),
@@ -1298,13 +1441,8 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             request_id=request.request_id,
             text="".join(text_parts),
             tool_proposals=tuple(proposals),
-            usage=ProviderUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=int(
-                    usage.get("totalTokenCount") or (input_tokens + output_tokens)
-                ),
-                cost_status="UNKNOWN",
+            usage=self._usage(
+                input_tokens, output_tokens, int(usage.get("totalTokenCount") or 0)
             ),
             finish_reason=finish_reason,
             received_at=datetime.now(timezone.utc),

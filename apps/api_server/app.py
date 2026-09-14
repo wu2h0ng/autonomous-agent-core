@@ -974,6 +974,10 @@ class AgentOSApplication:
             raise ValueError("model_revision_digest must be a lowercase SHA-256 digest")
         api_key = payload.get("api_key")
         temperature = float(payload.get("temperature", 1.0))
+        raw_max_tokens = payload.get("max_tokens")
+        max_tokens = (
+            int(raw_max_tokens) if raw_max_tokens not in (None, "") else None
+        )
         parsed = urlparse(base_url)
         local_http = parsed.scheme == "http" and parsed.hostname in {
             "127.0.0.1",
@@ -1028,6 +1032,7 @@ class AgentOSApplication:
                     credentials=EnvCredentialBroker(),
                     timeout_seconds=60,
                     temperature=temperature,
+                    max_tokens=max_tokens,
                     provider_profile=profile,
                 )
                 if verify:
@@ -1080,6 +1085,9 @@ class AgentOSApplication:
                         "model": model,
                         "endpoint_class": endpoint_class,
                         "credential_env": credential_env,
+                        "max_tokens": (
+                            str(max_tokens) if max_tokens is not None else ""
+                        ),
                     }
                 )
                 default_credential_store().store(DEFAULT_CREDENTIAL_ENV, api_key)
@@ -1114,6 +1122,11 @@ class AgentOSApplication:
                     ),
                     "api_key": api_key,
                     "credential_env": credential_env,
+                    **(
+                        {"max_tokens": int(config["max_tokens"])}
+                        if config.get("max_tokens")
+                        else {}
+                    ),
                 },
                 verify=False,
                 persist=False,
@@ -2470,6 +2483,7 @@ class AgentOSApplication:
                 "temperature": command.temperature
                 if command.temperature is not None
                 else 1.0,
+                "max_tokens": command.max_tokens,
             }
         )
         return self.surface_provider_status()

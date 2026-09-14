@@ -336,3 +336,17 @@ def test_gemini_streaming_emits_text_deltas(monkeypatch) -> None:  # type: ignor
     assert result.usage.total_tokens == 10
     assert result.finish_reason == "stop"
     assert _RECORDED[-1]["path"].endswith(":streamGenerateContent?alt=sse")
+
+
+def test_gemini_max_output_tokens_is_configurable(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("GEMINI_TEST_KEY", _SECRET)
+    _RECORDED.clear()
+    provider = GeminiGenerativeProvider(
+        base_url=_stub(),
+        model="gemini-1.5-pro",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        max_tokens=555,
+    )
+    provider.complete(_request())
+    assert _RECORDED[-1]["body"]["generationConfig"]["maxOutputTokens"] == 555

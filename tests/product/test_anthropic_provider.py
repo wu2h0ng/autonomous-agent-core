@@ -309,3 +309,17 @@ def test_anthropic_streaming_emits_text_deltas(monkeypatch) -> None:  # type: ig
     assert result.tool_proposals[0].capability_id == "workspace.read"
     assert json.loads(result.tool_proposals[0].arguments_json) == {"path": "a.txt"}
     assert _RECORDED[-1]["body"]["stream"] is True
+
+
+def test_anthropic_max_tokens_is_configurable(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ANTHROPIC_TEST_KEY", _SECRET)
+    _RECORDED.clear()
+    provider = AnthropicMessagesProvider(
+        base_url=_stub(),
+        model="claude-sonnet-4",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        max_tokens=777,
+    )
+    provider.complete(_request())
+    assert _RECORDED[-1]["body"]["max_tokens"] == 777
