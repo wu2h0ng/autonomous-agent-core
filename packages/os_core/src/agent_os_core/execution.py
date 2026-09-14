@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     ActionContract,
+    ActionReceipt,
     ApprovalDisposition,
     BindingStatus,
     CapabilityGrant,
@@ -751,6 +752,365 @@ class RunCoordinator:
             held_lease_fence=None,
             effect_custody=effect_custody,
         )
+
+    def compensate_recorded_edit(
+        self,
+        task_id: str,
+        *,
+        original_action_id: str,
+        principal: PrincipalIdentity,
+        mode: CompensationMode = CompensationMode.MANUAL,
+        effect_custody: EffectCustodyPort | None = None,
+    ) -> PatchCompensationRecord:
+        """S5a: compensate ONE recorded edit (operator-triggered file undo).
+
+        Mirrors the per-action steps of `_compensate_task_locked` without the
+        workflow-node iteration: the action set is exactly the recorded receipt
+        the caller names (never inferred from a workflow or from the model), so
+        a chat session — which has no workflow — can be undone one edit at a
+        time. Precondition violations raise; attempt outcomes are recorded as
+        COMPENSATED / BLOCKED / FAILED and returned.
+        """
+
+        if not original_action_id.strip():
+            raise ValueError("original_action_id must be non-empty")
+        aggregate = self.tasks.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise RunExecutionError("compensation requires an active Run")
+        # MANUAL compensation must hold the run lease (mirrors
+        # `_compensate_with_mode`): the broker rejects a stale claim.
+        owner = f"compensator:{uuid4()}"
+        acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
+        if acquire_lease is None:
+            raise RunExecutionError(
+                "compensation requires a lease-capable event store"
+            )
+        lease_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        lease_fence = acquire_lease(run.run_id, owner, lease_expiry)
+        original: ActionContract | None = None
+        receipt: ActionReceipt | None = None
+        effect: dict[str, Any] = {}
+        for event in self.tasks._event_store.read(task_id):
+            payload = event.decoded_payload()
+            if not isinstance(payload, dict):
+                continue
+            if event.event_type is TaskEventType.ACTION_PROPOSED:
+                action = payload.get("action")
+                if (
+                    isinstance(action, dict)
+                    and action.get("action_id") == original_action_id
+                ):
+                    original = ActionContract.model_validate(action)
+            elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
+                candidate = payload.get("receipt")
+                if (
+                    isinstance(candidate, dict)
+                    and candidate.get("action_id") == original_action_id
+                ):
+                    receipt = ActionReceipt.model_validate(candidate)
+                    raw_effect = payload.get("effect")
+                    effect = raw_effect if isinstance(raw_effect, dict) else {}
+        if original is None:
+            raise RunExecutionError("recorded action not found for compensation")
+        if original.capability_id not in {"workspace.edit", "workspace.apply_patch"}:
+            raise RunExecutionError("only recorded workspace edits can be compensated")
+        if receipt is None or receipt.status is not ReceiptStatus.SUCCEEDED:
+            raise RunExecutionError("recorded edit has no successful receipt")
+        compensation_ref = effect.get("compensation_ref")
+        manifest_sha256 = effect.get("manifest_sha256")
+        path = effect.get("path")
+        if (
+            not isinstance(compensation_ref, str)
+            or not compensation_ref
+            or not isinstance(manifest_sha256, str)
+            or not manifest_sha256
+            or not isinstance(path, str)
+            or not path
+        ):
+            raise RunExecutionError("durable compensation binding is missing")
+        # Undo is idempotent: an edit that already has a COMPENSATED record is
+        # returned as-is (no second compensation action, no second receipt).
+        for event in self.tasks._event_store.read(task_id):
+            if event.event_type is not TaskEventType.ACTION_COMPENSATED:
+                continue
+            payload = event.decoded_payload()
+            record = payload.get("compensation") if isinstance(payload, dict) else None
+            if (
+                isinstance(record, dict)
+                and record.get("original_action_id") == original_action_id
+                and record.get("status") == CompensationStatus.COMPENSATED.value
+            ):
+                return PatchCompensationRecord.model_validate(record)
+        if effect_custody is None and self._requires_effect_custody(task_id):
+            raise RunExecutionError(
+                "durable external-exact Task compensation requires effect custody"
+            )
+        arguments = {
+            "path": path,
+            "original_action_key": original.idempotency_key,
+            "compensation_ref": compensation_ref,
+            "manifest_sha256": manifest_sha256,
+        }
+        attempt_id = f"compensation-{uuid4()}"
+        node_id = original.node_id
+        compensation_identity = content_digest(
+            {
+                "task_id": task_id,
+                "run_id": run.run_id,
+                "node_id": node_id,
+                "original_action_id": original.action_id,
+                "compensation_ref": compensation_ref,
+                "manifest_sha256": manifest_sha256,
+            }
+        )
+        compensation_action = ActionContract(
+            action_id=f"action:compensate:{compensation_identity}",
+            task_id=task_id,
+            run_id=run.run_id,
+            node_id=node_id,
+            principal_id=principal.principal_id,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.workspace_id,
+            capability_id="workspace.compensate_patch",
+            capability_version="1",
+            arguments_json=json.dumps(arguments),
+            risk_tier=1,
+            idempotency_key=f"{run.run_id}:compensate:{node_id}:{original.action_id}",
+            estimated_budget=ResourceBudget(
+                max_cost_usd=Decimal("0"),
+                max_duration_seconds=120,
+                max_provider_tokens=0,
+                max_tool_calls=1,
+            ),
+            policy_version=self.policy.policy_version,
+            observed_correction_epochs=self.correction.snapshot(
+                task_id,
+                run.run_id,
+                "workspace.compensate_patch",
+            ),
+            expected_outcome_id=original.expected_outcome_id,
+            candidate_envelope_id=original.candidate_envelope_id,
+            created_at=self.tasks.now(),
+        )
+        record_kwargs = {
+            "compensation_id": attempt_id,
+            "task_id": task_id,
+            "run_id": run.run_id,
+            "node_id": node_id,
+            "original_action_id": original.action_id,
+            "compensation_action_id": compensation_action.action_id,
+            "compensation_ref": compensation_ref,
+            "manifest_sha256": manifest_sha256,
+            "mode": mode,
+        }
+        if self.compensation_grant is None:
+            failed = PatchCompensationRecord(
+                **record_kwargs,
+                status=CompensationStatus.FAILED,
+                reason="internal compensation grant is unavailable",
+                manual_intervention_required=True,
+                created_at=self.tasks.now(),
+            )
+            self._append_compensation_record(
+                task_id,
+                run.run_id,
+                TaskEventType.COMPENSATION_FAILED,
+                failed,
+            )
+            self._release_lease(run.run_id, owner)
+            return failed
+        grant = self.compensation_grant
+        if self.correction.halted(
+            task_id,
+            run.run_id,
+            "workspace.compensate_patch",
+        ) or self.correction.halted(
+            task_id,
+            run.run_id,
+            original.capability_id,
+        ):
+            blocked = PatchCompensationRecord(
+                **record_kwargs,
+                status=CompensationStatus.BLOCKED,
+                reason="correction authority halted compensation",
+                manual_intervention_required=True,
+                created_at=self.tasks.now(),
+            )
+            self._append_compensation_record(
+                task_id,
+                run.run_id,
+                TaskEventType.COMPENSATION_BLOCKED,
+                blocked,
+            )
+            self._release_lease(run.run_id, owner)
+            return blocked
+        # A previously sealed compensation replays the original durable receipt
+        # (mirrors the coordinator: minting a fresh decision/permit pair against
+        # a replayed receipt would violate the receipt identity binding).
+        pre_replayed = self.broker.replay(compensation_action)
+        if pre_replayed is not None:
+            self.tasks.append_event(
+                task_id,
+                TaskEventType.ACTION_PROPOSED,
+                {"action": compensation_action.model_dump(mode="json")},
+                correlation_id=run.run_id,
+            )
+            self.tasks._recover_action_receipt(
+                task_id,
+                action=compensation_action,
+                permit=pre_replayed.permit,
+                receipt=pre_replayed.receipt,
+                writer_token=self.tasks._runtime_writer_token,
+            )
+            compensated = PatchCompensationRecord(
+                **record_kwargs,
+                status=CompensationStatus.COMPENSATED,
+                reason="governed patch compensation completed (sealed replay)",
+                manual_intervention_required=False,
+                receipt_id=pre_replayed.receipt.receipt_id,
+                created_at=self.tasks.now(),
+            )
+            self._append_compensation_record(
+                task_id,
+                run.run_id,
+                TaskEventType.ACTION_COMPENSATED,
+                compensated,
+            )
+            self._release_lease(run.run_id, owner)
+            return compensated
+        started = PatchCompensationRecord(
+            **record_kwargs,
+            status=CompensationStatus.STARTED,
+            reason="governed patch compensation started",
+            manual_intervention_required=False,
+            created_at=self.tasks.now(),
+        )
+        self._append_compensation_record(
+            task_id,
+            run.run_id,
+            TaskEventType.COMPENSATION_STARTED,
+            started,
+        )
+        try:
+            capability = self.capabilities.specs(include_internal=True).get(
+                "workspace.compensate_patch"
+            )
+            self.tasks.append_event(
+                task_id,
+                TaskEventType.ACTION_PROPOSED,
+                {"action": compensation_action.model_dump(mode="json")},
+                correlation_id=run.run_id,
+            )
+            decision = self.policy.decide(
+                compensation_action,
+                PolicyInput(
+                    principal=principal,
+                    grant=grant,
+                    capability=capability,
+                ),
+            )
+            self.tasks.append_event(
+                task_id,
+                TaskEventType.POLICY_DECIDED,
+                {"decision": decision.model_dump(mode="json")},
+                correlation_id=run.run_id,
+            )
+            if decision.verdict is not PolicyVerdict.ALLOW:
+                raise PermissionError(
+                    f"policy denied compensation: {decision.reason_codes}"
+                )
+            permit_fence = lease_fence
+            permit = self.policy.permit(
+                compensation_action,
+                decision,
+                grant,
+                lease_fence=permit_fence,
+            )
+            claim = ExecutionLease(
+                run_id=run.run_id,
+                owner=owner,
+                fence=int(lease_fence or 1),
+                expires_at=datetime.fromisoformat(lease_expiry),
+            )
+
+            def invoke_compensation() -> Any:
+                return self.broker.invoke(
+                    compensation_action,
+                    permit,
+                    execution_claim=claim,
+                )
+
+            result = (
+                effect_custody(
+                    f"compensate:{node_id}",
+                    compensation_action.action_digest(),
+                    invoke_compensation,
+                )
+                if effect_custody is not None
+                else invoke_compensation()
+            )
+            self.tasks._record_action_receipt(
+                task_id,
+                action=compensation_action,
+                decision=decision,
+                permit=permit,
+                receipt=result.receipt,
+                writer_token=self.tasks._runtime_writer_token,
+            )
+            if result.receipt.status is not ReceiptStatus.COMPENSATED:
+                raise RunExecutionError(
+                    f"compensation failed: {result.receipt.error_code}"
+                )
+            compensated = PatchCompensationRecord(
+                **record_kwargs,
+                status=CompensationStatus.COMPENSATED,
+                reason="governed patch compensation completed",
+                manual_intervention_required=False,
+                receipt_id=result.receipt.receipt_id,
+                created_at=self.tasks.now(),
+            )
+            self._append_compensation_record(
+                task_id,
+                run.run_id,
+                TaskEventType.ACTION_COMPENSATED,
+                compensated,
+            )
+            self._release_lease(run.run_id, owner)
+            return compensated
+        except Exception as exc:
+            blocked_by_correction = self.correction.halted(
+                task_id,
+                run.run_id,
+                "workspace.compensate_patch",
+            ) or self.correction.halted(
+                task_id,
+                run.run_id,
+                original.capability_id,
+            )
+            failed = PatchCompensationRecord(
+                **record_kwargs,
+                status=(
+                    CompensationStatus.BLOCKED
+                    if blocked_by_correction
+                    else CompensationStatus.FAILED
+                ),
+                reason=f"compensation stopped: {type(exc).__name__}",
+                manual_intervention_required=True,
+                created_at=self.tasks.now(),
+            )
+            self._append_compensation_record(
+                task_id,
+                run.run_id,
+                (
+                    TaskEventType.COMPENSATION_BLOCKED
+                    if blocked_by_correction
+                    else TaskEventType.COMPENSATION_FAILED
+                ),
+                failed,
+            )
+            self._release_lease(run.run_id, owner)
+            return failed
 
     def _requires_effect_custody(self, task_id: str) -> bool:
         return any(

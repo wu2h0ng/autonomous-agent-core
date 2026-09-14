@@ -3422,6 +3422,36 @@ class AgentOSApplication:
             effect_custody=effect_custody,
         )
 
+    def undo_recorded_edit(self, task_id: str, *, action_id: str):
+        """S5a: undo ONE recorded workspace edit of a chat session.
+
+        The caller names the action; the coordinator re-derives the
+        compensation binding from the durable events and the internal
+        compensation grant authorises the governed compensation action. The
+        original receipt and the session history are untouched — the undo is a
+        new append-only compensation record.
+        """
+
+        if not action_id.strip():
+            raise ValueError("action_id must be non-empty")
+        runner = RunCoordinator(
+            self.tasks,
+            self.sandbox,
+            self.execution_profile,
+            self.provider,
+            self.provider_profile,
+            self.policy,
+            self.correction,
+            self.grants,
+            compensation_grant=self.compensation_grant,
+            collaboration_preflight=self.collaboration_preflight,
+        )
+        return runner.compensate_recorded_edit(
+            task_id,
+            original_action_id=action_id,
+            principal=self.principal,
+        )
+
     def record_approval(self, task_id: str, payload: dict[str, Any]):
         task = self.tasks.get_task(task_id)
         if task.commitment is None or task.run is None:
