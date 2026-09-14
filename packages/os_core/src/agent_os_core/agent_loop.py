@@ -156,6 +156,57 @@ class AgentLoopConfig:
 
 
 @dataclass(frozen=True)
+class TrimmedHistoryView:
+    """The provider request view for one history at one char budget.
+
+    `kept` is exactly what a request would send; `used_chars` is recomputed
+    from `kept` (the loop's running total can overstate it because dropped
+    non-USER blocks are not subtracted while scanning); `dropped_turns`
+    counts the whole USER-boundary blocks that were dropped.
+    """
+
+    kept: tuple[ProviderMessage, ...]
+    dropped_turns: int
+
+    @property
+    def used_chars(self) -> int:
+        return sum(len(message.content) for message in self.kept)
+
+
+def trimmed_history_view(
+    history: "tuple[ProviderMessage, ...] | list[ProviderMessage]",
+    max_context_chars: int,
+) -> TrimmedHistoryView:
+    """Single source of truth for the request view (loop + `/context`).
+
+    Whole turn blocks are dropped from the front at USER boundaries; the
+    leading system prompt is never dropped and ASSISTANT tool_calls are never
+    split from their TOOL replies. The durable history is never mutated.
+    """
+
+    messages = tuple(history)
+    total = sum(len(message.content) for message in messages)
+    if total <= max_context_chars:
+        return TrimmedHistoryView(kept=messages, dropped_turns=0)
+    cut = 1  # never drop the system prompt
+    dropped_turns = 0
+    while cut < len(messages) and total > max_context_chars:
+        if messages[cut].role is not ProviderMessageRole.USER:
+            cut += 1
+            continue
+        total -= len(messages[cut].content)
+        cut += 1
+        dropped_turns += 1
+        while cut < len(messages) and messages[cut].role is not ProviderMessageRole.USER:
+            total -= len(messages[cut].content)
+            cut += 1
+    return TrimmedHistoryView(
+        kept=(messages[0], *messages[cut:]) if messages else (),
+        dropped_turns=dropped_turns,
+    )
+
+
+@dataclass(frozen=True)
 class ChatSession:
     ref: SessionRef
     envelope_id: str
@@ -1498,25 +1549,12 @@ class AgentLoop:
         )
 
     def _trimmed_history(self) -> list[ProviderMessage]:
-        history = self._history
-        total = sum(len(message.content) for message in history)
-        if total <= self._config.max_context_chars:
-            return history
-        cut = 1  # never drop the system prompt
-        while cut < len(history) and total > self._config.max_context_chars:
-            # Only cut at USER boundaries so ASSISTANT tool_calls and their
-            # TOOL replies are never split apart.
-            if history[cut].role is not ProviderMessageRole.USER:
-                cut += 1
-                continue
-            total -= len(history[cut].content)
-            cut += 1
-            while (
-                cut < len(history) and history[cut].role is not ProviderMessageRole.USER
-            ):
-                total -= len(history[cut].content)
-                cut += 1
-        return [history[0], *history[cut:]]
+        """The provider request view — one shared rule (see
+        `trimmed_history_view`), never a second implementation."""
+
+        return list(
+            trimmed_history_view(self._history, self._config.max_context_chars).kept
+        )
 
 
 def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:

@@ -181,6 +181,10 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._get_conflict(handler, session_id)
                     return
+                session_id = _match_surface_session_leaf(handler.path, "context")
+                if session_id is not None:
+                    self._get_context(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "")
                 if session_id is not None:
                     self._get_session(handler, session_id)
@@ -303,6 +307,10 @@ class SurfaceRoutes:
         handler._json(
             200, self._runtime.get_session(session_id).model_dump(mode="json")
         )
+
+    def _get_context(self, handler: Any, session_id: str) -> None:
+        status = self._runtime.context_status(session_id)
+        handler._json(200, {"context": status.model_dump(mode="json")})
 
     def _get_sessions(self, handler: Any, parsed: Any) -> None:
         from urllib.parse import parse_qs

@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
+  SurfaceContextStatusSchema,
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
   SurfaceProviderStatusSchema,
@@ -29,6 +30,7 @@ import { z } from "zod";import {
   type PermissionMode,
   type SurfaceBeginTurnResponse,
   type SurfaceClientRef,
+  type SurfaceContextStatus,
   type SurfaceEventBatch,
   type SurfaceFileEntry,
   type SurfaceProviderStatus,
@@ -222,6 +224,15 @@ export class SurfaceClient {
     const query = new URLSearchParams({ limit: String(limit) });
     const response = await this.request("GET", `/v1/surface/sessions?${query.toString()}`);
     return SurfaceSessionListResponseSchema.parse(response).sessions;
+  }
+
+  /** S1: read-only context/budget projection for one session. */
+  async contextStatus(sessionId: string): Promise<SurfaceContextStatus> {
+    const response = await this.request(
+      "GET",
+      `/v1/surface/sessions/${sessionId}/context`,
+    );
+    return this.unwrap(response, "context", SurfaceContextStatusSchema);
   }
 
   /** Subscription-first: mint a transient stream under the current daemon

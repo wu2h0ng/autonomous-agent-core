@@ -191,6 +191,29 @@ class SurfaceSessionListResponse(ContractModel):
     next_cursor: NonEmptyStr | None = None
 
 
+class SurfaceContextStatus(ContractModel):
+    """Read-only context/budget projection for one session (S1).
+
+    Honesty rules: `used_chars`/`budget_chars` are the *character* budget the
+    loop actually enforces (`max_context_chars`, the same rule the provider
+    request view uses), `total_tokens` is an exact durable sum, and the
+    provider context window is `None` — `ProviderProfile.max_context_tokens`
+    is never consumed by the runtime, so any percentage would be invented.
+    """
+
+    protocol_version: Literal["1.1"] = "1.1"
+    session_id: NonEmptyStr
+    message_count: int = Field(ge=0)
+    turns: int = Field(ge=0)
+    used_chars: int = Field(ge=0)
+    budget_chars: int = Field(ge=1)
+    dropped_turns: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    turn_token_budget: int = Field(ge=1)
+    window_tokens: int | None = Field(default=None, ge=1)
+    window_source: Literal["unset"] = "unset"
+
+
 class SurfaceTurnResponse(ContractModel):
     protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot

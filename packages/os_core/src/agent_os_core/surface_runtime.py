@@ -21,6 +21,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
     SurfaceClientRef,
+    SurfaceContextStatus,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
@@ -127,6 +128,7 @@ class SurfaceApplicationPort(Protocol):
     def surface_sessions_listing(
         self, limit: int, cursor: str | None
     ) -> SurfaceSessionListResponse: ...
+    def surface_context_status(self, session_id: str) -> SurfaceContextStatus: ...
 
     def surface_event_batch(
         self, task_id: str, after_sequence: int
@@ -203,6 +205,12 @@ class SurfaceRuntime:
         if cursor is not None and not cursor.strip():
             raise ValueError("session list cursor must be non-empty when present")
         return self._application.surface_sessions_listing(limit, cursor)
+
+    def context_status(self, session_id: str) -> SurfaceContextStatus:
+        """Read-only context/budget projection (S1). No writes, no provider."""
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        return self._application.surface_context_status(session_id)
 
     def run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):

@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TuiController, STALL_DEFAULT_MS } from "../src/controller.js";
+import { contextBarText, STALL_DEFAULT_MS, TuiController } from "../src/controller.js";
 import type {
   PermissionMode,
   SurfaceSessionSnapshot,
@@ -990,4 +990,56 @@ test("runTurn integration: the approval identity survives durable resolution", a
   assert.equal(controller.status, "awaiting_approval");
   assert.equal(controller.pendingApproval?.riskTier, 3, "the card datum survives resolution");
   assert.equal(controller.pendingApproval?.nodeId, "node:1");
+});
+
+test("contextBarText: bounded ten-cell bar over the char budget", () => {
+  assert.equal(contextBarText(0, 100), "░░░░░░░░░░ 0%");
+  assert.equal(contextBarText(50, 100), "█████░░░░░ 50%");
+  assert.equal(contextBarText(100, 100), "██████████ 100%");
+  assert.equal(contextBarText(150, 100), "██████████ 100%", "over budget clamps");
+  assert.equal(contextBarText(10, 0), "", "a zero budget never renders a bar");
+});
+
+test("/context reports the request-view budget and never fabricates a window", async () => {
+  const client = {
+    async contextStatus() {
+      return {
+        protocol_version: "1.1",
+        session_id: "s:1",
+        message_count: 9,
+        turns: 4,
+        used_chars: 1_200,
+        budget_chars: 4_000,
+        dropped_turns: 2,
+        total_tokens: 777,
+        turn_token_budget: 100_000,
+        window_tokens: null,
+        window_source: "unset",
+      };
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { sessionId: string }).sessionId = "s:1";
+  await controller.submit("/context");
+  const panel = controller.messages.at(-1)?.panel;
+  assert.equal(panel?.title, "context (request-view budget)");
+  const text = (panel?.lines ?? []).join("\n");
+  assert.match(text, /chars\s+1200 \/ 4000 ███░░░░░░░ 30%/);
+  assert.match(text, /dropped {2}2 oldest turn block/);
+  assert.match(text, /tokens {3}777 \(exact, cumulative\)/);
+  assert.match(text, /window {3}unknown/);
+});
+
+test("/context without a session never calls the kernel", async () => {
+  let calls = 0;
+  const client = {
+    async contextStatus() {
+      calls += 1;
+      return {};
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/context");
+  assert.equal(calls, 0);
+  assert.match(controller.messages.at(-1)?.content ?? "", /no session yet/);
 });

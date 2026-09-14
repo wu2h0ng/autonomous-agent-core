@@ -82,6 +82,15 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(ms / 60_000)}m${Math.round((ms % 60_000) / 1000)}s`;
 }
 
+/** Ten-cell usage bar for `/context` — characters of the enforced request
+ * budget, never a token percentage (the window is unknown). */
+export function contextBarText(used: number, budget: number): string {
+  if (!Number.isFinite(used) || !Number.isFinite(budget) || budget <= 0) return "";
+  const ratio = Math.max(0, Math.min(1, used / budget));
+  const filled = Math.round(ratio * 10);
+  return `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${Math.round(ratio * 100)}%`;
+}
+
 export interface TodoItem {
   id: string;
   content: string;
@@ -446,6 +455,9 @@ export class TuiController {
       case "/cost":
         this.push({ role: "system", content: "", panel: this.costPanel() });
         return true;
+      case "/context":
+        await this.contextCommand();
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -543,6 +555,39 @@ export class TuiController {
         `cost     UNKNOWN (no pricing source)`,
       ],
     };
+  }
+
+  /** `/context` — read-only request-view budget from the kernel (S1).
+   * Units are honest: chars are the budget the loop enforces on the provider
+   * request view, tokens are exact durable sums, and the provider context
+   * window is unknown (the runtime never reads a window size, so no
+   * percentage is invented). */
+  private async contextCommand(): Promise<void> {
+    if (!this.sessionId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    try {
+      const status = await this.client.contextStatus(this.sessionId);
+      this.push({
+        role: "system",
+        content: "",
+        panel: {
+          title: "context (request-view budget)",
+          lines: [
+            `messages ${status.message_count} · turns ${status.turns}`,
+            `chars    ${status.used_chars} / ${status.budget_chars} ${contextBarText(status.used_chars, status.budget_chars)}`,
+            status.dropped_turns > 0
+              ? `dropped  ${status.dropped_turns} oldest turn block(s) would be cut from the next request`
+              : "dropped  none (the whole history fits the request budget)",
+            `tokens   ${status.total_tokens} (exact, cumulative) · per-turn budget ${status.turn_token_budget}`,
+            "window   unknown (no runtime reader consumes a provider window size)",
+          ],
+        },
+      });
+    } catch (cause) {
+      this.push({ role: "system", content: `context failed: ${(cause as Error).message}` });
+    }
   }
 
   /** `/provider` — show the redacted live provider status, or configure it.

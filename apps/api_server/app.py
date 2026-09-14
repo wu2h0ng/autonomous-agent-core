@@ -83,6 +83,7 @@ from agent_os_contracts import (
     SurfaceSetPermissionModeCommand,
     SurfaceSessionStatus,
     SurfaceConflictProjection,
+    SurfaceContextStatus,
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
@@ -95,6 +96,7 @@ from agent_os_core import (
     SurfaceStreamGone,
     AgentLoop,
     AgentLoopConfig,
+    trimmed_history_view,
     agents_markdown_system_section,
     apply_trusted_shell_profile,
     discover_agents_markdown,
@@ -2632,6 +2634,58 @@ class AgentOSApplication:
             after_sequence=after_sequence,
             next_sequence=next_sequence,
             events=events,
+        )
+
+    def surface_context_status(self, session_id: str) -> SurfaceContextStatus:
+        """Read-only context/budget projection for one session (S1).
+
+        Reports the exact rule the loop enforces for its provider request view
+        (`trimmed_history_view`) plus the exact durable token sum. It never
+        builds a loop, never calls a provider and never writes. The provider
+        context window is reported as unset: no runtime reader consumes
+        `ProviderProfile.max_context_tokens`, so a percentage would be invented.
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        if (
+            projected.ref.tenant_id != self.principal.tenant_id
+            or projected.ref.workspace_id != self.principal.workspace_id
+        ):
+            # a foreign session is invisible, not merely forbidden
+            raise SurfaceSessionNotFound(f"session {session_id} not found")
+        view = trimmed_history_view(
+            projected.history, projected.loop_config.max_context_chars
+        )
+        total_tokens = 0
+        for event in self.store.read(task_id):
+            if event.event_type is not TaskEventType.SESSION_TURN_COMPLETED:
+                continue
+            try:
+                payload = event.decoded_payload()
+            except (TypeError, ValueError):
+                continue  # an unreadable completion contributes nothing (never guessed)
+            if not isinstance(payload, dict) or payload.get("session_id") != session_id:
+                continue
+            tokens = payload.get("total_tokens")
+            if isinstance(tokens, int) and tokens > 0:
+                total_tokens += tokens
+        turns = sum(
+            1
+            for message in projected.history
+            if message.role is ProviderMessageRole.USER
+        )
+        return SurfaceContextStatus(
+            session_id=session_id,
+            message_count=projected.next_message_index,
+            turns=turns,
+            used_chars=view.used_chars,
+            budget_chars=projected.loop_config.max_context_chars,
+            dropped_turns=view.dropped_turns,
+            total_tokens=total_tokens,
+            turn_token_budget=projected.loop_config.max_turn_tokens,
         )
 
     def surface_task_for_session(self, session_id: str) -> str:

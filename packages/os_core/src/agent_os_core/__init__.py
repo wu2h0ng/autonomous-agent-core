@@ -224,7 +224,9 @@ from .agent_loop import (
     ChatSession,
     ConfirmationGateway,
     NonInteractiveDenyGateway,
+    TrimmedHistoryView,
     TurnResult,
+    trimmed_history_view,
 )
 from .execution import (
     DeterministicOutcomeEvaluator,
@@ -521,7 +523,9 @@ __all__ = [
     "ChatSession",
     "ConfirmationGateway",
     "NonInteractiveDenyGateway",
+    "TrimmedHistoryView",
     "TurnResult",
+    "trimmed_history_view",
     "DeterministicOutcomeEvaluator",
     "ExecutionProfileError",
     "ExecutionProfilePort",
