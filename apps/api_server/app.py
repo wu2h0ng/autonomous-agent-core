@@ -74,6 +74,8 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProviderConfigureCommand,
+    SurfaceProviderStatus,
     SurfaceSessionListResponse,
     SurfaceSessionSnapshot,
     SurfaceSessionSummary,
@@ -540,6 +542,10 @@ class AgentOSApplication:
             )
         )
         self.provider_configured = bool(live_base_url)
+        # The managed resolver key for the active runtime-configured provider
+        # (None when the built-in/env provider is in use; only keys created by
+        # configure_provider are ever purged).
+        self._active_provider_resolver_key: str | None = None
         self.grants = self._build_grants(now)
         self.task_configurations = TaskConfigurationSnapshotService(
             self.tasks,
@@ -878,6 +884,13 @@ class AgentOSApplication:
         if base_url.endswith("/chat/completions"):
             base_url = base_url.removesuffix("/chat/completions")
         model = str(payload.get("model", "")).strip()
+        endpoint_class = str(
+            payload.get("endpoint_class", "openai-compatible")
+        ).strip()
+        if endpoint_class != "openai-compatible":
+            raise ValueError(
+                "unsupported endpoint_class: only openai-compatible is supported"
+            )
         model_revision_digest = payload.get("model_revision_digest")
         if model_revision_digest is not None and (
             not isinstance(model_revision_digest, str)
@@ -897,66 +910,89 @@ class AgentOSApplication:
         }
         if (parsed.scheme != "https" and not local_http) or not parsed.netloc:
             raise ValueError("provider endpoint must use HTTPS or local HTTP")
+        if parsed.username or parsed.password:
+            raise ValueError("provider endpoint must not embed credentials in the URL")
         if not model or not isinstance(api_key, str) or not api_key:
             raise ValueError("provider model and API key are required")
-        resolver_key = "AGENT_OS_RUNTIME_PROVIDER_KEY"
-        os.environ[resolver_key] = api_key
         now = datetime.now(timezone.utc)
-        credential = CredentialRef(
-            credential_ref_id=f"credential:local:{uuid4()}",
-            owner_principal_id=self.principal.principal_id,
-            tenant_id=self.principal.tenant_id,
-            workspace_id=self.principal.workspace_id,
-            provider_id="openai-compatible",
-            resolver_key=resolver_key,
-            scopes=("chat",),
-            status=CredentialStatus.ACTIVE,
-            created_at=now,
-            expires_at=now + timedelta(days=30),
-        )
-        profile = ProviderProfile(
-            profile_id=f"provider-profile:{uuid4()}",
-            provider_id="openai-compatible",
-            model_id=model,
-            model_revision_digest=model_revision_digest,
-            endpoint_class="openai-compatible",
-            credential_ref_id=credential.credential_ref_id,
-            capabilities=("chat", "tool-calls"),
-            max_context_tokens=16_000,
-            request_timeout_seconds=60,
-            created_at=now,
-        )
-        provider = OpenAICompatibleProvider(
-            base_url=base_url,
-            model=model,
-            credential=credential,
-            credentials=EnvCredentialBroker(),
-            timeout_seconds=60,
-            temperature=temperature,
-            provider_profile=profile,
-        )
-        smoke = provider.complete(
-            ProviderRequest(
-                request_id=f"provider-check:{uuid4()}",
-                task_id="task:provider-check",
-                run_id="run:provider-check",
-                provider_profile_id=profile.profile_id,
-                messages=(
-                    ProviderMessage(
-                        role=ProviderMessageRole.USER, content="Reply with OK."
-                    ),
-                ),
-                timeout_seconds=30,
-                created_at=now,
-            )
-        )
-        if isinstance(smoke, ProviderFailure):
-            os.environ.pop(resolver_key, None)
-            raise ConnectionError(f"{smoke.code.value}: {smoke.safe_message}")
+        # A per-attempt managed resolver key: a failed reconfigure can never
+        # clobber the credential of the currently-active provider, and the whole
+        # set -> smoke -> commit runs under the configuration lock so a
+        # concurrent turn never sees an unverified key bound to the old
+        # endpoint. The key is env-resident (in-memory) and never persisted.
+        resolver_key = f"AGENT_OS_RUNTIME_PROVIDER_KEY_{uuid4().hex}"
         with self._configuration_lock:
-            self.provider = provider
-            self.provider_profile = profile
-            self.provider_configured = True
+            previous_resolver_key = self._active_provider_resolver_key
+            os.environ[resolver_key] = api_key
+            try:
+                credential = CredentialRef(
+                    credential_ref_id=f"credential:local:{uuid4()}",
+                    owner_principal_id=self.principal.principal_id,
+                    tenant_id=self.principal.tenant_id,
+                    workspace_id=self.principal.workspace_id,
+                    provider_id="openai-compatible",
+                    resolver_key=resolver_key,
+                    scopes=("chat",),
+                    status=CredentialStatus.ACTIVE,
+                    created_at=now,
+                    expires_at=now + timedelta(days=30),
+                )
+                profile = ProviderProfile(
+                    profile_id=f"provider-profile:{uuid4()}",
+                    provider_id="openai-compatible",
+                    model_id=model,
+                    model_revision_digest=model_revision_digest,
+                    endpoint_class="openai-compatible",
+                    credential_ref_id=credential.credential_ref_id,
+                    capabilities=("chat", "tool-calls"),
+                    max_context_tokens=16_000,
+                    request_timeout_seconds=60,
+                    created_at=now,
+                )
+                provider = OpenAICompatibleProvider(
+                    base_url=base_url,
+                    model=model,
+                    credential=credential,
+                    credentials=EnvCredentialBroker(),
+                    timeout_seconds=60,
+                    temperature=temperature,
+                    provider_profile=profile,
+                )
+                smoke = provider.complete(
+                    ProviderRequest(
+                        request_id=f"provider-check:{uuid4()}",
+                        task_id="task:provider-check",
+                        run_id="run:provider-check",
+                        provider_profile_id=profile.profile_id,
+                        messages=(
+                            ProviderMessage(
+                                role=ProviderMessageRole.USER,
+                                content="Reply with OK.",
+                            ),
+                        ),
+                        timeout_seconds=30,
+                        created_at=now,
+                    )
+                )
+                if isinstance(smoke, ProviderFailure):
+                    raise ConnectionError(
+                        f"{smoke.code.value}: {smoke.safe_message}"
+                    )
+                self.provider = provider
+                self.provider_profile = profile
+                self.provider_configured = True
+                self._active_provider_resolver_key = resolver_key
+            except Exception:
+                os.environ.pop(resolver_key, None)
+                raise
+            if (
+                previous_resolver_key
+                and previous_resolver_key != resolver_key
+                and previous_resolver_key.startswith(
+                    "AGENT_OS_RUNTIME_PROVIDER_KEY_"
+                )
+            ):
+                os.environ.pop(previous_resolver_key, None)
         return {**self.provider_status(), "connection_test": "PASS"}
 
     def create_task(self, payload: dict[str, Any]):
@@ -2237,6 +2273,50 @@ class AgentOSApplication:
             },
         )
         return self.surface_session_snapshot(command.session_id)
+
+    def surface_provider_status(self) -> SurfaceProviderStatus:
+        """Redacted live provider configuration (never the credential value)."""
+
+        if not self.provider_configured:
+            return SurfaceProviderStatus(configured=False)
+        status = self.provider_status()
+        provider = self.provider
+        base_url = (
+            provider.base_url
+            if isinstance(provider, OpenAICompatibleProvider)
+            else None
+        )
+        return SurfaceProviderStatus(
+            configured=True,
+            provider_id=str(status["provider_id"]),
+            model_id=str(status["model_id"]),
+            endpoint_class=str(status["endpoint_class"]),
+            credential_ref_id=str(status["credential_ref_id"]),
+            base_url=base_url,
+        )
+
+    def surface_configure_provider(
+        self, command: SurfaceProviderConfigureCommand
+    ) -> SurfaceProviderStatus:
+        """Operator-issued live provider configuration (surface protocol).
+
+        Delegates to the existing ``configure_provider`` connection test. The
+        credential is transient (in-memory env resolver, never persisted) and
+        this path does not alter any capability's permit/approval or C7.
+        """
+
+        self.configure_provider(
+            {
+                "base_url": command.base_url,
+                "model": command.model,
+                "api_key": command.api_key,
+                "endpoint_class": command.endpoint_class,
+                "temperature": command.temperature
+                if command.temperature is not None
+                else 1.0,
+            }
+        )
+        return self.surface_provider_status()
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
         if not session_id.strip():

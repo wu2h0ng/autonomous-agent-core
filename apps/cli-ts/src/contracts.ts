@@ -246,3 +246,25 @@ export interface SurfaceCorrectionCommand {
   idempotency_key: string;
   requested_at: string;
 }
+
+/** Redacted live provider configuration (never the credential value). */
+export const SurfaceProviderStatusSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION).optional(),
+  configured: z.boolean(),
+  provider_id: NonEmptyStr.nullable().optional(),
+  model_id: NonEmptyStr.nullable().optional(),
+  endpoint_class: NonEmptyStr.nullable().optional(),
+  credential_ref_id: NonEmptyStr.nullable().optional(),
+  base_url: NonEmptyStr.nullable().optional(),
+});
+export type SurfaceProviderStatus = z.infer<typeof SurfaceProviderStatusSchema>;
+
+export interface SurfaceProviderConfigureCommand {
+  protocol_version: typeof SURFACE_PROTOCOL_VERSION;
+  client: SurfaceClientRef;
+  base_url: string;
+  model: string;
+  api_key: string;
+  endpoint_class: string;
+  temperature?: number;
+}

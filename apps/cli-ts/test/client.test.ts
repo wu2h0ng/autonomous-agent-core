@@ -245,3 +245,70 @@ test("followStream persists the cursor per binding: a second turn never replays 
     },
   );
 });
+
+test("providerStatus reads the redacted provider status", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "GET");
+      assert.equal(req.url, "/v1/surface/provider");
+      return {
+        status: 200,
+        json: {
+          provider: {
+            protocol_version: "1.1",
+            configured: true,
+            provider_id: "openai-compatible",
+            model_id: "deepseek-chat",
+            endpoint_class: "openai-compatible",
+            credential_ref_id: "credential:local:1",
+            base_url: "https://api.deepseek.com/v1",
+          },
+        },
+      };
+    },
+    async (client) => {
+      const status = await client.providerStatus();
+      assert.equal(status.configured, true);
+      assert.equal(status.model_id, "deepseek-chat");
+      assert.equal(status.base_url, "https://api.deepseek.com/v1");
+    },
+  );
+});
+
+test("configureProvider posts the command and never echoes the key", async () => {
+  const secret = "sk-test-do-not-echo";
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "POST");
+      assert.equal(req.url, "/v1/surface/provider");
+      const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;
+      assert.equal(body.base_url, "https://api.deepseek.com/v1");
+      assert.equal(body.model, "deepseek-chat");
+      assert.equal(body.api_key, secret);
+      assert.equal(body.endpoint_class, "openai-compatible");
+      return {
+        status: 200,
+        json: {
+          provider: {
+            protocol_version: "1.1",
+            configured: true,
+            provider_id: "openai-compatible",
+            model_id: "deepseek-chat",
+            endpoint_class: "openai-compatible",
+            credential_ref_id: "credential:local:1",
+            base_url: "https://api.deepseek.com/v1",
+          },
+        },
+      };
+    },
+    async (client) => {
+      const status = await client.configureProvider({
+        baseUrl: "https://api.deepseek.com/v1",
+        model: "deepseek-chat",
+        apiKey: secret,
+      });
+      assert.equal(status.configured, true);
+      assert.ok(!JSON.stringify(status).includes(secret));
+    },
+  );
+});

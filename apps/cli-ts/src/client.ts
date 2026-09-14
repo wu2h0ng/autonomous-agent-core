@@ -17,6 +17,7 @@ import { z } from "zod";import {
   SurfaceBeginTurnResponseSchema,
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
+  SurfaceProviderStatusSchema,
   SurfaceSessionListResponseSchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
@@ -30,6 +31,7 @@ import { z } from "zod";import {
   type SurfaceClientRef,
   type SurfaceEventBatch,
   type SurfaceFileEntry,
+  type SurfaceProviderStatus,
   type SurfaceSessionSnapshot,
   type SurfaceSessionSummary,
   type SurfaceStreamBatch,
@@ -170,6 +172,39 @@ export class SurfaceClient {
     const snapshot = SurfaceSessionSnapshotSchema.parse(response);
     this.track(snapshot);
     return snapshot;
+  }
+
+  /** Redacted provider status (no credential value is ever returned). */
+  async providerStatus(): Promise<SurfaceProviderStatus> {
+    const response = await this.request("GET", "/v1/surface/provider");
+    return this.unwrap(response, "provider", SurfaceProviderStatusSchema);
+  }
+
+  /**
+   * Operator-issued live provider configuration. The API key is sent once to
+   * the local daemon (which holds it in an in-memory resolver and never
+   * persists it) and is never written to local CLI state or the transcript.
+   */
+  async configureProvider(input: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+    endpointClass?: string;
+    temperature?: number;
+  }): Promise<SurfaceProviderStatus> {
+    if (!input.baseUrl.trim()) throw new Error("base_url must be non-empty");
+    if (!input.model.trim()) throw new Error("model must be non-empty");
+    if (!input.apiKey) throw new Error("api_key must be non-empty");
+    const response = await this.request("POST", "/v1/surface/provider", {
+      protocol_version: SURFACE_PROTOCOL_VERSION,
+      client: this.clientRef(),
+      base_url: input.baseUrl.trim(),
+      model: input.model.trim(),
+      api_key: input.apiKey,
+      endpoint_class: input.endpointClass ?? "openai-compatible",
+      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    });
+    return this.unwrap(response, "provider", SurfaceProviderStatusSchema);
   }
 
   /** Read-only session listing (C2). Returns [] if the runtime has no

@@ -21,6 +21,11 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: "/status", argsHint: "", description: "session id, status, permission mode, event sequence" },
   { name: "/cost", argsHint: "", description: "exact token totals; cost is UNKNOWN (no pricing source)" },
   {
+    name: "/provider",
+    argsHint: "[set <base-url> <model> [endpoint-class]]",
+    description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",
+  },
+  {
     name: "/mode",
     argsHint: "[MODE]",
     description: "show or set permission mode (ASK | ACCEPT_READ_ONLY | ACCEPT_IN_WORKSPACE)",

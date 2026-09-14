@@ -394,6 +394,9 @@ export class TuiController {
       case "/cost":
         this.push({ role: "system", content: "", panel: this.costPanel() });
         return true;
+      case "/provider":
+        await this.providerCommand(rest);
+        return true;
       case "/mode":
         await this.modeCommand(rest[0]);
         return true;
@@ -482,6 +485,75 @@ export class TuiController {
         `cost     UNKNOWN (no pricing source)`,
       ],
     };
+  }
+
+  /** `/provider` — show the redacted live provider status, or configure it.
+   * The API key is read from AGENT_OS_PROVIDER_KEY in the CLI environment, so
+   * it is never typed into the composer (and thus never written to history,
+   * state or the transcript). */
+  private async providerCommand(rest: string[]): Promise<void> {
+    try {
+      if (rest[0]?.toLowerCase() !== "set") {
+        const status = await this.client.providerStatus();
+        this.push({
+          role: "system",
+          content: "",
+          panel: {
+            title: "provider",
+            lines: status.configured
+              ? [
+                  "status     configured",
+                  `model      ${status.model_id ?? "?"}`,
+                  `endpoint   ${status.endpoint_class ?? "?"}`,
+                  `base_url   ${status.base_url ?? "?"}`,
+                  `credential ${status.credential_ref_id ?? "?"}`,
+                ]
+              : [
+                  "status     not configured",
+                  "usage      /provider set <base-url> <model> [endpoint-class]",
+                  "(export AGENT_OS_PROVIDER_KEY in the CLI environment first)",
+                ],
+          },
+        });
+        return;
+      }
+      const [, baseUrl, model, endpointClass] = rest;
+      if (!baseUrl || !model) {
+        this.push({
+          role: "system",
+          content: "usage: /provider set <base-url> <model> [endpoint-class]",
+        });
+        return;
+      }
+      const apiKey = process.env.AGENT_OS_PROVIDER_KEY;
+      if (!apiKey) {
+        this.push({
+          role: "system",
+          content:
+            "AGENT_OS_PROVIDER_KEY is not set in the CLI environment; export it " +
+            "there, then retry (the key is never typed into the composer).",
+        });
+        return;
+      }
+      const status = await this.client.configureProvider({
+        baseUrl,
+        model,
+        apiKey,
+        ...(endpointClass ? { endpointClass } : {}),
+      });
+      this.push({
+        role: "system",
+        content:
+          `provider configured: model ${status.model_id ?? "?"} · ` +
+          `endpoint ${status.endpoint_class ?? "?"} · base_url ${status.base_url ?? "?"}`,
+      });
+      this.emit();
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `provider command failed: ${(cause as Error).message}`,
+      });
+    }
   }
 
   private async modeCommand(arg: string | undefined): Promise<void> {

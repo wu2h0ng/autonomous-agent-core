@@ -24,6 +24,8 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProviderConfigureCommand,
+    SurfaceProviderStatus,
     SurfaceSessionListResponse,
     SurfaceSessionSnapshot,
     SurfaceSessionStatus,
@@ -109,6 +111,12 @@ class SurfaceApplicationPort(Protocol):
     def surface_set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand
     ) -> SurfaceSessionSnapshot: ...
+
+    def surface_provider_status(self) -> SurfaceProviderStatus: ...
+
+    def surface_configure_provider(
+        self, command: SurfaceProviderConfigureCommand
+    ) -> SurfaceProviderStatus: ...
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot: ...
     def surface_sessions_listing(
@@ -320,6 +328,24 @@ class SurfaceRuntime:
         self._require_sequence(task_id, command.expected_event_sequence)
         self._require_open_session(command.session_id)
         return self._application.surface_set_permission_mode(command)
+
+    def provider_status(self) -> SurfaceProviderStatus:
+        return self._application.surface_provider_status()
+
+    def configure_provider(
+        self, command: SurfaceProviderConfigureCommand
+    ) -> SurfaceProviderStatus:
+        """Operator-issued live provider configuration over the surface protocol.
+
+        The credential is transient: the application keeps it in an in-memory
+        env resolver and never persists it. This validates protocol version and
+        principal scope before delegating; it is not a policy gate input and
+        does not alter permit/approval for any capability.
+        """
+
+        self._require_protocol(command.protocol_version)
+        self._require_principal_scope(command.client)
+        return self._application.surface_configure_provider(command)
 
     def event_batch(self, task_id: str, after_sequence: int) -> SurfaceEventBatch:
         if not task_id.strip():
