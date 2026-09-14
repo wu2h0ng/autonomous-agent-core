@@ -638,6 +638,7 @@ export class TuiController {
       title: "keyboard",
       lines: [
         "enter submit · ctrl-j newline · ctrl-g $EDITOR",
+        "backspace/delete delete backward · ctrl-d delete forward",
         "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
         "ctrl-a/ctrl-e line start/end · ctrl-o tool transcript · ctrl-t thinking",
         "esc correction · ctrl-c exit · ctrl-l clear view",
