@@ -373,7 +373,6 @@ test("approval identity: captured from SESSION_APPROVAL_PENDING, never guessed",
   ]);
   assert.deepEqual(controller.pendingApproval, {
     capabilityId: "workspace.edit",
-    actionId: "a:1",
     riskTier: 3,
     nodeId: "node:1",
     requestedAt: "2026-09-14T00:00:00Z",

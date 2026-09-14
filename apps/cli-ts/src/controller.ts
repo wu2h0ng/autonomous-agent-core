@@ -66,7 +66,6 @@ export interface ToolCall {
  * payload — the card shows what the kernel actually recorded, not a guess. */
 export interface PendingApprovalInfo {
   capabilityId: string;
-  actionId?: string;
   riskTier?: number;
   nodeId?: string;
   requestedAt?: string;
@@ -999,8 +998,7 @@ export class TuiController {
     const sameAction =
       previousSessionId === snapshot.session.session_id &&
       pending != null &&
-      this.pendingApproval?.actionDigest !== undefined &&
-      pending.action_digest === this.pendingApproval.actionDigest;
+      pending.action_digest === this.pendingApproval?.actionDigest;
     if (!sameAction) this.pendingApproval = null;
     this.pendingPreview = pending?.preview ?? null;
     this.recentSessions = [
@@ -1231,14 +1229,12 @@ export class TuiController {
     const record = action as Record<string, unknown>;
     const capabilityId = record["capability_id"];
     if (typeof capabilityId !== "string" || !capabilityId) return null;
-    const actionId = record["action_id"];
     const riskTier = record["risk_tier"];
     const nodeId = record["node_id"];
     const requestedAt = payload["requested_at"];
     const actionDigest = payload["action_digest"];
     return {
       capabilityId,
-      ...(typeof actionId === "string" && actionId ? { actionId } : {}),
       ...(typeof riskTier === "number" ? { riskTier } : {}),
       ...(typeof nodeId === "string" && nodeId ? { nodeId } : {}),
       ...(typeof requestedAt === "string" && requestedAt ? { requestedAt } : {}),
