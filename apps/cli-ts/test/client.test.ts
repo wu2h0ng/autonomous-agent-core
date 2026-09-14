@@ -104,6 +104,76 @@ test("openSession sends protocol version + bearer and tracks sequence", async ()
   );
 });
 
+test("contextStatus reads the S1 endpoint and unwraps the context envelope", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "GET");
+      assert.equal(req.url, "/v1/surface/sessions/s:1/context");
+      assert.equal(req.auth, `Bearer ${TOKEN}`);
+      return {
+        status: 200,
+        json: {
+          context: {
+            protocol_version: "1.1",
+            session_id: "s:1",
+            message_count: 7,
+            turns: 3,
+            used_chars: 1200,
+            history_chars: 4000,
+            budget_chars: 6000,
+            dropped_turns: 2,
+            total_tokens: 777,
+            turn_token_budget: 100000,
+            window_tokens: null,
+            window_source: "unset",
+          },
+        },
+      };
+    },
+    async (client) => {
+      const status = await client.contextStatus("s:1");
+      assert.equal(status.used_chars, 1200);
+      assert.equal(status.history_chars, 4000);
+      assert.equal(status.window_tokens, null);
+    },
+  );
+});
+
+test("explainAction posts the exact digest and unwraps the explanation envelope", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "POST");
+      assert.equal(req.url, "/v1/surface/sessions/s:1/explain");
+      const command = JSON.parse(req.body ?? "{}");
+      assert.equal(command.session_id, "s:1");
+      assert.equal(command.action_digest, "digest:abc");
+      assert.equal(command.protocol_version, "1.1");
+      return {
+        status: 200,
+        json: {
+          explanation: {
+            protocol_version: "1.1",
+            session_id: "s:1",
+            action_digest: "digest:abc",
+            text: "It edits f.txt in place; risk tier 2.",
+            truncated: false,
+            total_tokens: 12,
+            provider_profile_id: "provider-profile:default",
+            cost_status: "UNKNOWN",
+            durable: false,
+          },
+        },
+      };
+    },
+    async (client) => {
+      const explanation = await client.explainAction("s:1", "digest:abc");
+      assert.equal(explanation.durable, false);
+      assert.equal(explanation.cost_status, "UNKNOWN");
+      assert.match(explanation.text, /risk tier 2/);
+    },
+  );
+});
+
 test("401 maps to authentication error without leaking the token", async () => {
   await withServer(
     () => ({ status: 401, json: { message: "bad token" } }),

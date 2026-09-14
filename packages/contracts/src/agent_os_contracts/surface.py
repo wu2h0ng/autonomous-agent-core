@@ -194,11 +194,15 @@ class SurfaceSessionListResponse(ContractModel):
 class SurfaceContextStatus(ContractModel):
     """Read-only context/budget projection for one session (S1).
 
-    Honesty rules: `used_chars`/`budget_chars` are the *character* budget the
-    loop actually enforces (`max_context_chars`, the same rule the provider
-    request view uses), `total_tokens` is an exact durable sum, and the
-    provider context window is `None` — `ProviderProfile.max_context_tokens`
-    is never consumed by the runtime, so any percentage would be invented.
+    Honesty rules: `used_chars`/`budget_chars` are the *character* rule the
+    loop enforces on the provider request view (`max_context_chars`; the unit
+    is message content only — tool-call arguments travel on the wire but are
+    not counted). `history_chars` is the untrimmed durable history so a client
+    can show why blocks are being dropped. `turns` counts recorded USER turn
+    starts (an in-flight or approval-parked turn counts; `total_tokens` only
+    sums completed turns). The provider context window is `None` because the
+    only live value is a hardcoded constant (16_000) that nothing uses to size
+    or truncate a request — any percentage would be invented.
     """
 
     protocol_version: Literal["1.1"] = "1.1"
@@ -206,6 +210,7 @@ class SurfaceContextStatus(ContractModel):
     message_count: int = Field(ge=0)
     turns: int = Field(ge=0)
     used_chars: int = Field(ge=0)
+    history_chars: int = Field(ge=0)
     budget_chars: int = Field(ge=1)
     dropped_turns: int = Field(ge=0)
     total_tokens: int = Field(ge=0)

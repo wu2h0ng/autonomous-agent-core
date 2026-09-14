@@ -2,7 +2,8 @@
 
 The rule the endpoint reports must be the rule the loop enforces. This file
 locks `trimmed_history_view` against the messages the provider actually
-received, and asserts the endpoint is read-only and leaks nothing.
+received and against a frozen copy of the pre-refactor selection rule, and
+asserts the endpoint is read-only and leaks nothing.
 """
 
 from __future__ import annotations
@@ -11,13 +12,23 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
-from agent_os_contracts import ProviderMessage, ProviderMessageRole
-from agent_os_core import AutoApproveGateway, DeterministicProvider
+from agent_os_contracts import (
+    PrincipalIdentity,
+    PrincipalRole,
+    ProviderMessage,
+    ProviderMessageRole,
+)
+from agent_os_core import (
+    AutoApproveGateway,
+    DeterministicProvider,
+    SurfaceSessionNotFound,
+)
 from agent_os_core.agent_loop import AgentLoopConfig, trimmed_history_view
 
 from apps.api_server.app import AgentOSApplication
@@ -33,8 +44,12 @@ FORBIDDEN = (
 )
 
 
-def _app(root: Path) -> AgentOSApplication:
-    app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
+def _app(
+    root: Path, principal: PrincipalIdentity | None = None
+) -> AgentOSApplication:
+    app = AgentOSApplication(
+        database=root / "agent-os.sqlite3", workspace=root, principal=principal
+    )
     app.provider = DeterministicProvider(
         text=" ".join(["chunk"] * 120),  # ~840 chars per response
         invocation_binding=app.provider.invocation_binding,
@@ -113,6 +128,10 @@ def test_context_status_matches_the_request_actually_sent(tmp_path: Path) -> Non
     view = trimmed_history_view(projected.history, config.max_context_chars)
     assert status.used_chars == view.used_chars
     assert status.used_chars < sum(len(message.content) for message in projected.history)
+    assert status.history_chars == sum(
+        len(message.content) for message in projected.history
+    )
+    assert status.history_chars > status.used_chars, "the untrimmed size is declared"
     assert status.dropped_turns == view.dropped_turns
     assert status.budget_chars == config.max_context_chars
     assert status.turn_token_budget == config.max_turn_tokens
@@ -162,6 +181,98 @@ def test_context_status_empty_session_no_leak_and_session_scoped(
     text = json.dumps(status.model_dump(mode="json"))
     for forbidden in FORBIDDEN:
         assert forbidden not in text, f"leaked field: {forbidden}"
+
+
+def _legacy_trimmed(
+    history: tuple[ProviderMessage, ...], budget: int
+) -> tuple[ProviderMessage, ...]:
+    """Frozen copy of the pre-refactor selection rule (the C1 risk is that the
+    extraction changed which messages are sent, so the old rule is pinned here
+    as a differential reference, not reimplemented from the new one)."""
+
+    messages = tuple(history)
+    if not messages:
+        return ()
+    total = sum(len(message.content) for message in messages)
+    if total <= budget:
+        return messages
+    cut = 1  # never drop the system prompt
+    while cut < len(messages) and total > budget:
+        if messages[cut].role is not ProviderMessageRole.USER:
+            cut += 1
+            continue
+        total -= len(messages[cut].content)
+        cut += 1
+        while cut < len(messages) and messages[cut].role is not ProviderMessageRole.USER:
+            total -= len(messages[cut].content)
+            cut += 1
+    return (messages[0], *messages[cut:])
+
+
+def test_trimmed_history_view_is_differentially_equal_to_the_legacy_rule() -> None:
+    system = _message(ProviderMessageRole.SYSTEM, "s" * 7)
+    user = _message(ProviderMessageRole.USER, "u" * 11)
+    assistant = _message(ProviderMessageRole.ASSISTANT, "a" * 13)
+    tool = _message(ProviderMessageRole.ASSISTANT, "t" * 5)
+    shapes = [
+        (),
+        (system,),
+        (system, user),
+        (system, user, assistant),
+        (system, user, assistant, user, assistant),
+        (system, assistant, user),  # leading non-USER block
+        (system, tool, user, assistant),
+        (system, user, tool, user, tool, user, tool),
+        (system, user, assistant, tool, user, assistant, tool, user, assistant),
+    ]
+    budgets = list(range(0, 120, 3)) + [10_000]
+    for shape in shapes:
+        for budget in budgets:
+            expected = _legacy_trimmed(shape, budget)
+            assert trimmed_history_view(shape, budget).kept == expected, (
+                shape,
+                budget,
+            )
+
+
+def test_context_status_budget_smaller_than_the_system_prompt_is_honest(
+    tmp_path: Path,
+) -> None:
+    """The rule never drops the system prompt: `used_chars` may exceed the
+    budget, and the projection says so instead of clamping the number."""
+
+    app = _app(tmp_path)
+    session, _ = app.open_chat_session(
+        "tiny budget", AutoApproveGateway(), loop_config=AgentLoopConfig(max_context_chars=1)
+    )
+    status = app.surface_context_status(session.session_id)
+    assert status.budget_chars == 1
+    assert status.used_chars == status.history_chars  # only the system prompt remains
+    assert status.used_chars > status.budget_chars
+
+
+def test_context_status_is_tenant_scoped_and_indistinguishable_from_missing(
+    tmp_path: Path,
+) -> None:
+    owner = _app(tmp_path)
+    session, _ = owner.open_chat_session("owned", AutoApproveGateway())
+    assert owner.surface_context_status(session.session_id).session_id == session.session_id
+
+    other = _app(
+        tmp_path,
+        PrincipalIdentity(
+            principal_id="user:other",
+            tenant_id="tenant:other",
+            workspace_id="workspace:other",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=datetime.now(timezone.utc),
+        ),
+    )
+    with pytest.raises(SurfaceSessionNotFound):
+        other.surface_context_status(session.session_id)
+    # the same class as a genuinely missing session: existence is not leaked
+    with pytest.raises(SurfaceSessionNotFound):
+        other.surface_context_status("session:missing")
 
 
 def test_context_route_requires_bearer_and_returns_status(tmp_path: Path) -> None:

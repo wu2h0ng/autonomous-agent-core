@@ -1009,6 +1009,7 @@ test("/context reports the request-view budget and never fabricates a window", a
         message_count: 9,
         turns: 4,
         used_chars: 1_200,
+        history_chars: 6_000,
         budget_chars: 4_000,
         dropped_turns: 2,
         total_tokens: 777,
@@ -1025,8 +1026,9 @@ test("/context reports the request-view budget and never fabricates a window", a
   assert.equal(panel?.title, "context (request-view budget)");
   const text = (panel?.lines ?? []).join("\n");
   assert.match(text, /chars\s+1200 \/ 4000 ███░░░░░░░ 30%/);
+  assert.match(text, /history {2}6000 chars stored before trimming/);
   assert.match(text, /dropped {2}2 oldest turn block/);
-  assert.match(text, /tokens {3}777 \(exact, cumulative\)/);
+  assert.match(text, /tokens {3}777 \(exact, durable total of completed turns\)/);
   assert.match(text, /window {3}unknown/);
 });
 

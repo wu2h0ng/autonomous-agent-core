@@ -2657,8 +2657,9 @@ class AgentOSApplication:
         Reports the exact rule the loop enforces for its provider request view
         (`trimmed_history_view`) plus the exact durable token sum. It never
         builds a loop, never calls a provider and never writes. The provider
-        context window is reported as unset: no runtime reader consumes
-        `ProviderProfile.max_context_tokens`, so a percentage would be invented.
+        context window is reported as unset: the profile value is only copied
+        into the invocation binding and digest-checked, and the runtime
+        hardcodes 16_000, so a percentage would be invented.
         """
 
         if not session_id.strip():
@@ -2669,13 +2670,16 @@ class AgentOSApplication:
             projected.ref.tenant_id != self.principal.tenant_id
             or projected.ref.workspace_id != self.principal.workspace_id
         ):
-            # a foreign session is invisible, not merely forbidden
+            # a foreign session is invisible, not merely forbidden (404, the
+            # same response shape as a missing session)
             raise SurfaceSessionNotFound(f"session {session_id} not found")
         view = trimmed_history_view(
             projected.history, projected.loop_config.max_context_chars
         )
+        history_chars = sum(len(message.content) for message in projected.history)
+        events = self.store.read(task_id)
         total_tokens = 0
-        for event in self.store.read(task_id):
+        for event in events:
             if event.event_type is not TaskEventType.SESSION_TURN_COMPLETED:
                 continue
             try:
@@ -2697,6 +2701,7 @@ class AgentOSApplication:
             message_count=projected.next_message_index,
             turns=turns,
             used_chars=view.used_chars,
+            history_chars=history_chars,
             budget_chars=projected.loop_config.max_context_chars,
             dropped_turns=view.dropped_turns,
             total_tokens=total_tokens,

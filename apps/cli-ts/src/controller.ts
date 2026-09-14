@@ -563,9 +563,10 @@ export class TuiController {
   }
 
   /** `/context` — read-only request-view budget from the kernel (S1).
-   * Units are honest: chars are the budget the loop enforces on the provider
-   * request view, tokens are exact durable sums, and the provider context
-   * window is unknown (the runtime never reads a window size, so no
+   * Units are honest: chars are the rule the loop enforces on the provider
+   * request view (message content only), tokens are the exact durable sum of
+   * completed turns, and the provider context window is unknown (the live
+   * value is a hardcoded constant that never sizes a request, so no
    * percentage is invented). */
   private async contextCommand(): Promise<void> {
     if (!this.sessionId) {
@@ -581,12 +582,13 @@ export class TuiController {
           title: "context (request-view budget)",
           lines: [
             `messages ${status.message_count} · turns ${status.turns}`,
-            `chars    ${status.used_chars} / ${status.budget_chars} ${contextBarText(status.used_chars, status.budget_chars)}`,
+            `chars    ${status.used_chars} / ${status.budget_chars} ${contextBarText(status.used_chars, status.budget_chars)} (what the next request sends)`,
+            `history  ${status.history_chars} chars stored before trimming`,
             status.dropped_turns > 0
               ? `dropped  ${status.dropped_turns} oldest turn block(s) would be cut from the next request`
               : "dropped  none (the whole history fits the request budget)",
-            `tokens   ${status.total_tokens} (exact, cumulative) · per-turn budget ${status.turn_token_budget}`,
-            "window   unknown (no runtime reader consumes a provider window size)",
+            `tokens   ${status.total_tokens} (exact, durable total of completed turns) · per-turn budget ${status.turn_token_budget}`,
+            "window   unknown (the live value is a hardcoded constant; it never sizes a request)",
           ],
         },
       });

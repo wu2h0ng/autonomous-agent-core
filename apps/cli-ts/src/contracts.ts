@@ -86,15 +86,18 @@ export const SurfaceSessionListResponseSchema = z.object({
 export type SurfaceSessionListResponse = z.infer<typeof SurfaceSessionListResponseSchema>;
 
 /** S1 read-only context/budget projection. `used_chars`/`budget_chars` are
- * the character budget the loop enforces on the provider request view;
- * `window_tokens` stays null because no runtime reader consumes the provider
- * profile's window size — a percentage would be fabricated. */
+ * the character rule the loop enforces on the provider request view (message
+ * content only — tool-call arguments travel on the wire but are not counted);
+ * `history_chars` is the untrimmed durable size; and `window_tokens` stays
+ * null because the only live value is a hardcoded constant that never sizes a
+ * request — a percentage would be fabricated. */
 export const SurfaceContextStatusSchema = z.object({
   protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
   session_id: NonEmptyStr,
   message_count: z.number().int().nonnegative(),
   turns: z.number().int().nonnegative(),
   used_chars: z.number().int().nonnegative(),
+  history_chars: z.number().int().nonnegative(),
   budget_chars: z.number().int().positive(),
   dropped_turns: z.number().int().nonnegative(),
   total_tokens: z.number().int().nonnegative(),
