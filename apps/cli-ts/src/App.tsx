@@ -571,11 +571,14 @@ export function App({
       submit();
       return;
     }
-    if (key.backspace) {
+    // Terminals send \x7f for the Backspace key and Ink reports it as
+    // key.delete; treating only key.backspace deleted nothing. Both delete
+    // backward; forward-delete is Ctrl-D.
+    if (key.backspace || key.delete) {
       setComposer((current) => backspace(current));
       return;
     }
-    if (key.delete) {
+    if (key.ctrl && keyInput === "d") {
       setComposer((current) => deleteForward(current));
       return;
     }
@@ -799,16 +802,15 @@ export function App({
       </Box>
       <Text color={theme.footer} wrap="truncate-end">
         {`❯ ${controller.mode}`}
+        {model ? ` · ${model}` : ""}
         {controller.queuedCount > 0 ? ` · ${controller.queuedCount} queued` : ""}
         {layout.footerFields && snapshot
-          ? ` tokens ${controller.tokensTotal} · cost UNKNOWN · events ${snapshot.event_sequence}`
+          ? ` · ${controller.tokensTotal} tok · cost UNKNOWN · ev ${snapshot.event_sequence}`
           : ""}
         {controller.lastStopReason && controller.lastStopReason !== "completed"
-          ? ` · last turn: ${controller.lastStopReason}`
+          ? ` · last: ${controller.lastStopReason}`
           : ""}
-        {layout.showHints
-          ? " · /help · ↑↓ history · ctrl-r search · ctrl-o tools · ctrl-g editor · esc correct · ctrl-c exit"
-          : " · /help"}
+        {" · /help"}
       </Text>
     </Box>
   );
