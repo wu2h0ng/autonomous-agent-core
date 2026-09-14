@@ -1,7 +1,9 @@
 # GC + CP/AB — Provider 兼容扩展 + 终端内添加 Provider（rev 1）
 
 - **日期**：2026-09-14
-- **状态**：`SLICE_1_MERGED_PR22 / SLICE_2_ANTHROPIC_MERGED_PR24 / SLICE_3_PERSISTENCE_MERGED_PR25_3C8D858E / SLICE_2B_GEMINI+KEYRING_MERGED_PR26 / SLICE_4_STREAMING_IMPLEMENTED_LOCAL / AWAITING_INDEPENDENT_REVIEW`
+- **状态**：`SLICE_1-5_MERGED / SLICE_6_LIVE_SMOKE_HARNESS+SLICE_7_ROBUSTNESS_IMPLEMENTED_LOCAL / AWAITING_INDEPENDENT_REVIEW`
+- **Slice 6（live 冒烟）**：`scripts/live_provider_smoke.py` —— 从 env/持久化解析 provider，跑一次真实流式 completion，无 key 时 **SKIP**，证据脱敏（不打印/不落 key）；本机无 key，需用户提供后手动运行；已加 hermetic 回归（stub PASS + 无 key SKIP）。
+- **Slice 7（参数/定价/重试）**：`max_tokens` 可配置（configure 命令 + 持久化 + autoload；OpenAI `max_tokens`、Anthropic 默认 4096、Gemini `maxOutputTokens`）；**定价源** `AGENT_OS_PRICING_FILE` / `~/.agent-os/pricing.json` → 有则 `cost_status=KNOWN` + `estimated_cost_usd` + `pricing_source_ref`，无则仍 UNKNOWN（绝不伪零）；**有界重试**（429/5xx/timeout，指数退避，`AGENT_OS_PROVIDER_MAX_RETRIES`，默认 2）——已发过 delta 的流不重试；并把 4xx(非429) 归类为非重试 MALFORMED。
 - **Slice 4（原生流式）**：Anthropic（`stream:true` + `message_start`/`content_block_start`/`content_block_delta`(text_delta,input_json_delta)/`message_delta`）与 Gemini（`streamGenerateContent?alt=sse`）各自实现 `_parse_sse_stream`，归一到同一套 `on_text_delta`/proposal/usage；`_endpoint_path` 新增 `stream` 参数。OpenAI 路径不变。
 - **Founder 决策（2026-09-14）**：批准 **Slice 1 先行**（终端加 provider）；凭证仅内存 env resolver（key 不落盘），已确认。Slice 1 已合并 PR #22（`fcbe6ef9`）。
 - **Slice 2（Anthropic 原生）**：已合并 PR #24（`36b911ef`）。
