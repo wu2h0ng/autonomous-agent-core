@@ -87,6 +87,8 @@ from agent_os_contracts import (
     SurfaceContextStatus,
     SurfaceExplainCommand,
     SurfaceExplainResponse,
+    SurfaceForkCommand,
+    SurfaceForkResponse,
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
@@ -2808,6 +2810,159 @@ class AgentOSApplication:
             total_tokens=response.usage.total_tokens,
             provider_profile_id=live_profile.profile_id,
         )
+
+    def surface_fork_session(self, command: SurfaceForkCommand) -> SurfaceForkResponse:
+        """S3 fork: create a fresh child session from one quiescent parent.
+
+        The child is created exactly like a new chat session (own task, run,
+        envelope record and configuration snapshot), keeps the parent's sealed
+        loop config byte-for-byte (system prompt identical), starts in ASK with
+        no mode event, and imports the parent's recorded messages re-indexed
+        from 1 with re-minted turn boundaries (`imported: true`, zero tokens).
+        The parent is read-only throughout and never written.
+        """
+
+        if not command.parent_session_id.strip():
+            raise ValueError("parent_session_id must be non-empty")
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before forking a session"
+            )
+        parent_task_id = self.surface_task_for_session(command.parent_session_id)
+        parent = self.tasks.project_session(parent_task_id, command.parent_session_id)
+        if (
+            parent.ref.tenant_id != self.principal.tenant_id
+            or parent.ref.workspace_id != self.principal.workspace_id
+        ):
+            # a foreign parent is invisible, not merely forbidden
+            raise SurfaceSessionNotFound(f"session {command.parent_session_id} not found")
+        if parent.closed:
+            raise InvalidTransitionError("cannot fork a closed session")
+        if parent.resumable_turn_id is not None:
+            # a pending approval implies an open turn, so this covers both
+            raise InvalidTransitionError(
+                "cannot fork a session with an uncommitted turn"
+            )
+        blocks, imported_history_digest = self._importable_parent_blocks(
+            parent_task_id, command.parent_session_id
+        )
+        child_config = AgentLoopConfig(
+            max_steps_per_turn=parent.loop_config.max_steps_per_turn,
+            max_provider_retries=parent.loop_config.max_provider_retries,
+            max_turn_tokens=parent.loop_config.max_turn_tokens,
+            max_context_chars=parent.loop_config.max_context_chars,
+            loop_detection_threshold=parent.loop_config.loop_detection_threshold,
+            system_prompt=parent.loop_config.system_prompt,
+        )
+        child, _child_loop = self.open_chat_session(
+            f"fork of {command.parent_session_id}",
+            DeferredApprovalGateway(),
+            loop_config=child_config,
+        )
+        self.tasks.record_session_fork(
+            child.task_id,
+            session_id=child.session_id,
+            parent_session_id=command.parent_session_id,
+            parent_message_count=parent.next_message_index,
+            imported_history_digest=imported_history_digest,
+            source_loop_config_digest=parent.loop_config.digest(),
+        )
+        index = 1  # index 0 is the child's own (byte-identical) system message
+        for turn_id, user_message, followups in blocks:
+            child_turn_id = f"forked-turn:{turn_id}"
+            self.tasks.record_session_message(
+                child.task_id, child.session_id, index, user_message, turn_id=child_turn_id
+            )
+            index += 1
+            self.tasks.record_imported_session_turn_start(
+                child.task_id,
+                session_id=child.session_id,
+                turn_id=child_turn_id,
+                user_text=user_message.content,
+                forked_from=command.parent_session_id,
+            )
+            for message in followups:
+                self.tasks.record_session_message(
+                    child.task_id, child.session_id, index, message, turn_id=child_turn_id
+                )
+                index += 1
+            self.tasks.record_imported_session_turn_completion(
+                child.task_id,
+                session_id=child.session_id,
+                turn_id=child_turn_id,
+                forked_from=command.parent_session_id,
+            )
+        return SurfaceForkResponse(
+            snapshot=self.surface_session_snapshot(child.session_id),
+            parent_session_id=command.parent_session_id,
+            imported_turns=len(blocks),
+            imported_messages=index - 1,
+            imported_history_digest=imported_history_digest,
+        )
+
+    def _importable_parent_blocks(
+        self, task_id: str, session_id: str
+    ) -> tuple[
+        list[tuple[str, ProviderMessage, list[ProviderMessage]]], str
+    ]:
+        """Raw-session read used by the fork import (and reused later by the
+        compact slice): ordered parent messages grouped into turn blocks plus
+        the canonical import digest an auditor can recompute from the parent's
+        own SESSION_MESSAGE_RECORDED payloads (index, turn binding, canonical
+        message dump), excluding index 0 (the parent's system prompt).
+        """
+
+        ordered: list[tuple[int, str | None, ProviderMessage]] = []
+        for event in self.store.read(task_id):
+            if event.event_type is not TaskEventType.SESSION_MESSAGE_RECORDED:
+                continue
+            payload = event.decoded_payload()
+            if not isinstance(payload, dict) or payload.get("session_id") != session_id:
+                continue
+            try:
+                message = ProviderMessage.model_validate(payload["message"])
+                index = payload["message_index"]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise InvalidTransitionError(
+                    "parent session message record is invalid"
+                ) from exc
+            ordered.append((index, payload.get("turn_id"), message))
+        ordered.sort(key=lambda item: item[0])
+        if (
+            not ordered
+            or ordered[0][0] != 0
+            or ordered[0][2].role is not ProviderMessageRole.SYSTEM
+        ):
+            raise InvalidTransitionError(
+                "parent session history does not start with its system message"
+            )
+        blocks: list[tuple[str, ProviderMessage, list[ProviderMessage]]] = []
+        for index, turn_id, message in ordered[1:]:
+            if turn_id is None:
+                raise InvalidTransitionError(
+                    "parent session has a turn-free message after the system prompt"
+                )
+            if not blocks or blocks[-1][0] != turn_id:
+                if message.role is not ProviderMessageRole.USER:
+                    raise InvalidTransitionError(
+                        "parent session turn does not start with a user message"
+                    )
+                blocks.append((turn_id, message, []))
+            else:
+                blocks[-1][2].append(message)
+        digest = content_digest(
+            {
+                "imported_messages": [
+                    {
+                        "message_index": index,
+                        "turn_id": turn_id,
+                        "message": message.model_dump(mode="json"),
+                    }
+                    for index, turn_id, message in ordered[1:]
+                ]
+            }
+        )
+        return blocks, digest
 
     def surface_task_for_session(self, session_id: str) -> str:
         if not session_id.strip():

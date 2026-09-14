@@ -26,6 +26,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "request-view char budget, exact tokens, and why the window is unknown",
   },
   {
+    name: "/fork",
+    argsHint: "",
+    description: "fork this session into a fresh child (parent untouched)",
+  },
+  {
     name: "/provider",
     argsHint: "[set <base-url> <model> [endpoint-class]]",
     description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",

@@ -122,6 +122,19 @@ export const SurfaceExplainResponseSchema = z.object({
 });
 export type SurfaceExplainResponse = z.infer<typeof SurfaceExplainResponseSchema>;
 
+/** S3 fork: the child session plus its import provenance. The digest is
+ * recomputable from the parent's raw recorded messages (index, turn binding,
+ * canonical message dump), excluding index 0. */
+export const SurfaceForkResponseSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  snapshot: SurfaceSessionSnapshotSchema,
+  parent_session_id: NonEmptyStr,
+  imported_turns: z.number().int().nonnegative(),
+  imported_messages: z.number().int().nonnegative(),
+  imported_history_digest: NonEmptyStr,
+});
+export type SurfaceForkResponse = z.infer<typeof SurfaceForkResponseSchema>;
+
 export const ProviderMessageSchema = z
   .object({
     role: z.enum(["SYSTEM", "USER", "ASSISTANT", "TOOL"]),

@@ -174,6 +174,37 @@ test("explainAction posts the exact digest and unwraps the explanation envelope"
   );
 });
 
+test("forkSession posts the parent binding and unwraps the fork envelope", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "POST");
+      assert.equal(req.url, "/v1/surface/sessions/s:parent/fork");
+      const command = JSON.parse(req.body ?? "{}");
+      assert.equal(command.parent_session_id, "s:parent");
+      assert.equal(command.protocol_version, "1.1");
+      return {
+        status: 200,
+        json: {
+          fork: {
+            protocol_version: "1.1",
+            snapshot: snapshot("s:child", 3),
+            parent_session_id: "s:parent",
+            imported_turns: 2,
+            imported_messages: 4,
+            imported_history_digest: "digest:abc",
+          },
+        },
+      };
+    },
+    async (client) => {
+      const fork = await client.forkSession("s:parent");
+      assert.equal(fork.snapshot.session.session_id, "s:child");
+      assert.equal(fork.imported_turns, 2);
+      assert.equal(fork.imported_history_digest, "digest:abc");
+    },
+  );
+});
+
 test("401 maps to authentication error without leaking the token", async () => {
   await withServer(
     () => ({ status: 401, json: { message: "bad token" } }),

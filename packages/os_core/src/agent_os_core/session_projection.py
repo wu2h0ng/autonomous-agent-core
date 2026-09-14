@@ -190,6 +190,7 @@ class ProjectedSession:
     resumable_turn_id: str | None
     permission_mode: PermissionMode = "ASK"
     permission_mode_event_id: str | None = None
+    forked_from: str | None = None
 
 
 class SessionProjector:
@@ -265,6 +266,7 @@ def _strict_project(
     permission_mode: PermissionMode = "ASK"
     permission_mode_event_id: str | None = None
     history: list[ProviderMessage] = []
+    forked_from: str | None = None
     pending_continuation: ProjectedApprovalContinuation | None = None
     approval_execution_claim: ProjectedApprovalExecutionClaim | None = None
     resolved_continuation: ProjectedResolvedContinuation | None = None
@@ -544,6 +546,24 @@ def _strict_project(
                 permission_mode_event_id = event.event_id
                 continue
 
+            if event.event_type is TaskEventType.SESSION_FORKED:
+                if closed:
+                    raise SessionProjectionError("session event recorded after close")
+                if forked_from is not None:
+                    raise SessionProjectionError("session already has a fork record")
+                parent_session_id = _required_str(payload, "parent_session_id")
+                parent_message_count = payload["parent_message_count"]
+                if (
+                    isinstance(parent_message_count, bool)
+                    or not isinstance(parent_message_count, int)
+                    or parent_message_count < 0
+                ):
+                    raise SessionProjectionError("invalid fork parent message count")
+                _required_str(payload, "imported_history_digest")
+                _required_str(payload, "source_loop_config_digest")
+                forked_from = parent_session_id
+                continue
+
             raise SessionProjectionError(
                 f"unsupported session event: {event.event_type.value}"
             )
@@ -591,6 +611,7 @@ def _strict_project(
         resumable_turn_id=open_turn_id,
         permission_mode=permission_mode,
         permission_mode_event_id=permission_mode_event_id,
+        forked_from=forked_from,
     )
 
 

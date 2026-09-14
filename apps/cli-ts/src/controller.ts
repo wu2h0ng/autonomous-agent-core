@@ -463,6 +463,9 @@ export class TuiController {
       case "/context":
         await this.contextCommand();
         return true;
+      case "/fork":
+        await this.forkCommand();
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -560,6 +563,36 @@ export class TuiController {
         `cost     UNKNOWN (no pricing source)`,
       ],
     };
+  }
+
+  /** `/fork` — derive a fresh child session from this one (S3). The child
+   * carries the imported history and becomes the attached session; the parent
+   * is never written, and the child starts in ASK with no auto mode. */
+  private async forkCommand(): Promise<void> {
+    if (!this.sessionId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    if (this.busy || this.status === "awaiting_approval") {
+      this.push({
+        role: "system",
+        content: "cannot fork while a turn is in flight (resolve it first)",
+      });
+      return;
+    }
+    try {
+      const response = await this.client.forkSession(this.sessionId);
+      this.adoptSnapshot(response.snapshot);
+      this.push({
+        role: "system",
+        content:
+          `forked → session ${response.snapshot.session.session_id} ` +
+          `(imported ${response.imported_turns} turn(s), ${response.imported_messages} message(s); ` +
+          `parent ${response.parent_session_id} unchanged, imported turns carry 0 tokens)`,
+      });
+    } catch (cause) {
+      this.push({ role: "system", content: `fork failed: ${(cause as Error).message}` });
+    }
   }
 
   /** `/context` — read-only request-view budget from the kernel (S1).

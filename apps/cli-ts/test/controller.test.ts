@@ -1046,6 +1046,63 @@ test("/context without a session never calls the kernel", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /no session yet/);
 });
 
+test("/fork adopts the child session and reports the import honestly", async () => {
+  const client = {
+    async forkSession(parentSessionId: string) {
+      assert.equal(parentSessionId, "s:parent");
+      return {
+        protocol_version: "1.1",
+        snapshot: {
+          protocol_version: "1.1",
+          session: {
+            session_id: "s:child",
+            task_id: "task:child",
+            run_id: "run:child",
+            tenant_id: "tenant:local",
+            workspace_id: "workspace:local",
+          },
+          envelope_id: "env:child",
+          expected_outcome_id: "outcome:child",
+          status: "ACTIVE",
+          event_sequence: 3,
+          message_count: 3,
+          pending_approval: null,
+          permission_mode: "ASK",
+          updated_at: "2026-09-14T00:00:00Z",
+        },
+        parent_session_id: parentSessionId,
+        imported_turns: 2,
+        imported_messages: 4,
+        imported_history_digest: "digest:abc",
+      };
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as { sessionId: string };
+  internals.sessionId = "s:parent";
+  await controller.submit("/fork");
+  assert.equal(controller.currentSessionId, "s:child", "the child becomes the attached session");
+  assert.match(controller.messages.at(-1)?.content ?? "", /imported 2 turn\(s\), 4 message\(s\)/);
+  assert.match(controller.messages.at(-1)?.content ?? "", /0 tokens/);
+});
+
+test("/fork refuses while a turn is in flight", async () => {
+  let calls = 0;
+  const client = {
+    async forkSession() {
+      calls += 1;
+      return {};
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as { sessionId: string; status: string };
+  internals.sessionId = "s:parent";
+  internals.status = "awaiting_approval";
+  await controller.submit("/fork");
+  assert.equal(calls, 0);
+  assert.match(controller.messages.at(-1)?.content ?? "", /cannot fork while a turn is in flight/);
+});
+
 test("explain: display-only text, honest error state, nothing outside an approval", async () => {
   const calls: string[] = [];
   const client = {

@@ -26,6 +26,8 @@ from agent_os_contracts import (
     SurfaceEventBatch,
     SurfaceExplainCommand,
     SurfaceExplainResponse,
+    SurfaceForkCommand,
+    SurfaceForkResponse,
     SurfaceOpenSessionCommand,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
@@ -48,6 +50,7 @@ ResponseT = TypeVar(
     SurfaceTurnResponse,
     SurfaceBeginTurnResponse,
     SurfaceExplainResponse,
+    SurfaceForkResponse,
 )
 
 
@@ -132,6 +135,7 @@ class SurfaceApplicationPort(Protocol):
         self, limit: int, cursor: str | None
     ) -> SurfaceSessionListResponse: ...
     def surface_context_status(self, session_id: str) -> SurfaceContextStatus: ...
+    def surface_fork_session(self, command: SurfaceForkCommand) -> SurfaceForkResponse: ...
     def surface_explain_action(
         self, command: SurfaceExplainCommand
     ) -> SurfaceExplainResponse: ...
@@ -235,6 +239,29 @@ class SurfaceRuntime:
         self._require_principal_scope(command.client)
         self._require_open_session(command.session_id)
         return self._application.surface_explain_action(command)
+
+    def fork_session(self, command: SurfaceForkCommand) -> SurfaceForkResponse:
+        """S3 fork: idempotent, principal-scoped, sequence-exact, parent
+        read-only. The parent's open-turn precondition is enforced in the
+        application method (projector truth), not by a cached client flag."""
+        with self._session_lock(f"fork:{command.parent_session_id}"):
+            return self._idempotent(
+                scope=f"surface:fork:{command.parent_session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceForkResponse,
+                operation=lambda: self._fork_once(command),
+            )
+
+    def _fork_once(self, command: SurfaceForkCommand) -> SurfaceForkResponse:
+        self._require_protocol(command.protocol_version)
+        parent_task_id = self._application.surface_task_for_session(
+            command.parent_session_id
+        )
+        self._require_principal_scope(command.client)
+        self._require_sequence(parent_task_id, command.expected_event_sequence)
+        self._require_open_session(command.parent_session_id)
+        return self._application.surface_fork_session(command)
 
     def run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):

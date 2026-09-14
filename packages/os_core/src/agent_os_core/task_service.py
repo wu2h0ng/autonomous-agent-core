@@ -84,6 +84,7 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
         TaskEventType.SESSION_APPROVAL_RESOLVED,
         TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
+        TaskEventType.SESSION_FORKED,
     }
 )
 
@@ -678,6 +679,134 @@ class TaskService:
                 "message_index": message_index,
                 "message": message.model_dump(mode="json"),
                 "turn_id": turn_id,
+            },
+            correlation_id=session_id,
+        )
+
+    def record_session_fork(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        parent_session_id: str,
+        parent_message_count: int,
+        imported_history_digest: str,
+        source_loop_config_digest: str,
+    ) -> TaskAggregate:
+        """Typed writer for the protected SESSION_FORKED provenance record."""
+
+        if not parent_session_id.strip():
+            raise ValueError("parent_session_id must be non-empty")
+        if isinstance(parent_message_count, bool) or parent_message_count < 0:
+            raise ValueError("parent_message_count must be non-negative")
+        if not imported_history_digest.strip() or not source_loop_config_digest.strip():
+            raise ValueError("fork digests must be non-empty")
+        aggregate = self.get_task(task_id)
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        self._validate_session_binding(
+            aggregate,
+            projected.ref,
+            projected.expected_outcome_id,
+        )
+        if projected.closed:
+            raise InvalidTransitionError("cannot record a fork after session close")
+        if projected.forked_from is not None:
+            raise InvalidTransitionError("session already has a fork record")
+        if projected.next_message_index != 1:
+            raise InvalidTransitionError(
+                "fork import must start before any other message is recorded"
+            )
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_FORKED,
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "run_id": projected.ref.run_id,
+                "tenant_id": projected.ref.tenant_id,
+                "workspace_id": projected.ref.workspace_id,
+                "parent_session_id": parent_session_id,
+                "parent_message_count": parent_message_count,
+                "imported_history_digest": imported_history_digest,
+                "source_loop_config_digest": source_loop_config_digest,
+            },
+            correlation_id=session_id,
+            writer_token=self._runtime_writer_token,
+        )
+
+    def _require_fork_provenance(self, task_id: str, session_id: str, parent: str) -> None:
+        """Cheap non-projecting check: the session must carry the SESSION_FORKED
+        record for this parent. Projection is deliberately avoided because the
+        import transiently records a user message before its turn start (the
+        loop does the same), and the projector treats that as an orphan."""
+
+        for event in self._event_store.read(task_id):
+            if event.event_type is not TaskEventType.SESSION_FORKED:
+                continue
+            payload = event.decoded_payload()
+            if (
+                isinstance(payload, dict)
+                and payload.get("session_id") == session_id
+                and payload.get("parent_session_id") == parent
+            ):
+                return
+        raise InvalidTransitionError(
+            "imported turns require this session's fork record"
+        )
+
+    def record_imported_session_turn_start(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        turn_id: str,
+        user_text: str,
+        forked_from: str,
+    ) -> TaskAggregate:
+        """Typed writer for one imported turn boundary (fork import only)."""
+
+        if not turn_id.strip():
+            raise ValueError("imported turn id must be non-empty")
+        if not user_text:
+            raise ValueError("imported turn user text must be non-empty")
+        self._require_fork_provenance(task_id, session_id, forked_from)
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_TURN_STARTED,
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "user_text": user_text,
+                "imported": True,
+                "forked_from": forked_from,
+            },
+            correlation_id=session_id,
+        )
+
+    def record_imported_session_turn_completion(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        turn_id: str,
+        forked_from: str,
+    ) -> TaskAggregate:
+        """Typed writer for the completion of an imported turn (0 tokens)."""
+
+        if not turn_id.strip():
+            raise ValueError("imported turn id must be non-empty")
+        self._require_fork_provenance(task_id, session_id, forked_from)
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_TURN_COMPLETED,
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "stop_reason": "imported",
+                "steps": 0,
+                "total_tokens": 0,
+                "imported": True,
+                "forked_from": forked_from,
             },
             correlation_id=session_id,
         )

@@ -18,6 +18,7 @@ import { z } from "zod";import {
   SurfaceContextStatusSchema,
   SurfaceEventBatchSchema,
   SurfaceExplainResponseSchema,
+  SurfaceForkResponseSchema,
   SurfaceFileEntrySchema,
   SurfaceProviderStatusSchema,
   SurfaceSessionListResponseSchema,
@@ -34,6 +35,7 @@ import { z } from "zod";import {
   type SurfaceContextStatus,
   type SurfaceEventBatch,
   type SurfaceExplainResponse,
+  type SurfaceForkResponse,
   type SurfaceFileEntry,
   type SurfaceProviderStatus,
   type SurfaceSessionSnapshot,
@@ -235,6 +237,25 @@ export class SurfaceClient {
       `/v1/surface/sessions/${sessionId}/context`,
     );
     return this.unwrap(response, "context", SurfaceContextStatusSchema);
+  }
+
+  /** S3: fork the parent session into a fresh child (parent read-only). */
+  async forkSession(parentSessionId: string): Promise<SurfaceForkResponse> {
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${parentSessionId}/fork`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        parent_session_id: parentSessionId,
+        expected_event_sequence: this.sequence(parentSessionId),
+        idempotency_key: `cli-ts-fork:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const fork = this.unwrap(response, "fork", SurfaceForkResponseSchema);
+    this.track(fork.snapshot);
+    return fork;
   }
 
   /** S2: ask the live provider to explain the pending action (display-only).

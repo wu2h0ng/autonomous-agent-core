@@ -253,6 +253,34 @@ class SurfaceExplainResponse(ContractModel):
     durable: Literal[False] = False
 
 
+class SurfaceForkCommand(ContractModel):
+    """S3: derive a fresh child session from one quiescent parent session."""
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
+    parent_session_id: NonEmptyStr
+    expected_event_sequence: int = Field(ge=0)
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceForkResponse(ContractModel):
+    """The child session plus its import provenance.
+
+    `imported_history_digest` is a `content_digest` over the parent's recorded
+    messages (index, turn binding, canonical message dump) excluding index 0
+    (the parent's system prompt); an auditor recomputes it from the parent's
+    raw SESSION_MESSAGE_RECORDED payloads.
+    """
+
+    protocol_version: Literal["1.1"] = "1.1"
+    snapshot: SurfaceSessionSnapshot
+    parent_session_id: NonEmptyStr
+    imported_turns: int = Field(ge=0)
+    imported_messages: int = Field(ge=0)
+    imported_history_digest: NonEmptyStr
+
+
 class SurfaceTurnResponse(ContractModel):
     protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot
