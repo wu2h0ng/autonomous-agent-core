@@ -24,6 +24,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceCorrectionCommand,
     SurfaceOpenSessionCommand,
+    SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
@@ -205,6 +206,9 @@ class SurfaceRoutes:
             if method == "POST" and parsed.path == "/v1/surface/provider":
                 self._post_provider(handler)
                 return
+            if method == "POST" and parsed.path == "/v1/surface/provider/clear":
+                self._post_provider_clear(handler)
+                return
             if method == "POST":
                 session_id = _match_surface_session_leaf(handler.path, "streams")
                 if session_id is not None:
@@ -274,6 +278,22 @@ class SurfaceRoutes:
             200,
             {
                 "provider": self._runtime.configure_provider(command).model_dump(
+                    mode="json"
+                )
+            },
+        )
+
+    def _post_provider_clear(self, handler: Any) -> None:
+        body = handler._body()
+        try:
+            command = SurfaceProviderClearCommand.model_validate(body)
+        except ValidationError as exc:
+            raise SurfaceProtocolError("provider command payload is invalid") from exc
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {
+                "provider": self._runtime.clear_provider(command).model_dump(
                     mode="json"
                 )
             },

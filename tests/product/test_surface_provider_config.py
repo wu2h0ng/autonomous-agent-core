@@ -337,3 +337,27 @@ def test_http_provider_validation_error_never_echoes_credential(
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_status_reports_persistence_and_clear_removes_it(
+    tmp_path: Path, stub_provider: str
+) -> None:
+    from agent_os_contracts import SurfaceProviderClearCommand
+
+    app = _app(tmp_path)
+    runtime = SurfaceRuntime(app)
+    runtime.configure_provider(_command(app, stub_provider))
+
+    status = runtime.provider_status()
+    assert status.persisted is True
+    # keychain disabled (conftest) and no env key -> no key source
+    assert status.key_source in {"none", "env"}
+    assert _SECRET not in status.model_dump_json()
+
+    cleared = runtime.clear_provider(
+        SurfaceProviderClearCommand(
+            protocol_version=SURFACE_PROTOCOL_VERSION, client=_client(app)
+        )
+    )
+    assert cleared.persisted is False
+    assert not (tmp_path / "provider.json").exists()

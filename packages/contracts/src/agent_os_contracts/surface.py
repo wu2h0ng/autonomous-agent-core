@@ -103,8 +103,9 @@ class SurfaceSetPermissionModeCommand(ContractModel):
 class SurfaceProviderStatus(ContractModel):
     """Redacted live provider configuration for the terminal.
 
-    Never carries the credential value: only the non-secret profile metadata and
-    the opaque ``credential_ref_id``.
+    Never carries the credential value: only the non-secret profile metadata,
+    the opaque ``credential_ref_id``, whether a non-secret config is persisted,
+    and where the key comes from (keychain | env | none).
     """
 
     protocol_version: Literal["1.1"] = "1.1"  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -114,6 +115,20 @@ class SurfaceProviderStatus(ContractModel):
     endpoint_class: NonEmptyStr | None = None
     credential_ref_id: NonEmptyStr | None = None
     base_url: NonEmptyStr | None = None
+    persisted: bool = False
+    key_source: NonEmptyStr | None = None
+
+
+class SurfaceProviderClearCommand(ContractModel):
+    """Operator-issued removal of the persisted provider config + key.
+
+    Clears the non-secret config file and the stored keychain credential so the
+    provider is no longer auto-loaded; the running process keeps its current
+    provider until restart.
+    """
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
 
 
 class SurfaceProviderConfigureCommand(ContractModel):

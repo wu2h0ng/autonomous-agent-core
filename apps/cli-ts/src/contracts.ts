@@ -256,8 +256,15 @@ export const SurfaceProviderStatusSchema = z.object({
   endpoint_class: NonEmptyStr.nullable().optional(),
   credential_ref_id: NonEmptyStr.nullable().optional(),
   base_url: NonEmptyStr.nullable().optional(),
+  persisted: z.boolean().optional(),
+  key_source: NonEmptyStr.nullable().optional(),
 });
 export type SurfaceProviderStatus = z.infer<typeof SurfaceProviderStatusSchema>;
+
+export interface SurfaceProviderClearCommand {
+  protocol_version: typeof SURFACE_PROTOCOL_VERSION;
+  client: SurfaceClientRef;
+}
 
 export interface SurfaceProviderConfigureCommand {
   protocol_version: typeof SURFACE_PROTOCOL_VERSION;

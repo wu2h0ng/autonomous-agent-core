@@ -207,6 +207,15 @@ export class SurfaceClient {
     return this.unwrap(response, "provider", SurfaceProviderStatusSchema);
   }
 
+  /** Remove the persisted provider config + stored keychain credential. */
+  async clearProvider(): Promise<SurfaceProviderStatus> {
+    const response = await this.request("POST", "/v1/surface/provider/clear", {
+      protocol_version: SURFACE_PROTOCOL_VERSION,
+      client: this.clientRef(),
+    });
+    return this.unwrap(response, "provider", SurfaceProviderStatusSchema);
+  }
+
   /** Read-only session listing (C2). Returns [] if the runtime has no
    * sessions; throws on transport/protocol errors so callers can fall back. */
   async listSessions(limit = 50): Promise<SurfaceSessionSummary[]> {
