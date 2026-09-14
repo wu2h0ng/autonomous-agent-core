@@ -36,6 +36,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "summarise the history into the request view (raw history kept; prints the summary)",
   },
   {
+    name: "/undo",
+    argsHint: "[count]",
+    description: "undo the most recent recorded workspace edit(s); files changed since their edit are refused",
+  },
+  {
     name: "/provider",
     argsHint: "[set <base-url> <model> [endpoint-class]]",
     description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",

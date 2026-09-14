@@ -207,6 +207,9 @@ from .surface import (
     SurfaceStreamSubscription,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
+    SurfaceUndoCommand,
+    SurfaceUndoEntry,
+    SurfaceUndoResponse,
 )
 from .responsibility import (
     MandateResponsibilityView,
@@ -705,5 +708,8 @@ __all__ = [
     "SurfaceStreamSubscription",
     "SurfaceTurnCommand",
     "SurfaceTurnResponse",
+    "SurfaceUndoCommand",
+    "SurfaceUndoEntry",
+    "SurfaceUndoResponse",
 
 ]

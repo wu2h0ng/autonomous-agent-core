@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -20,6 +21,7 @@ from pydantic import ValidationError
 
 from agent_os_contracts import (
     ActionContract,
+    ActionReceipt,
     ApprovalDecision,
     ApprovalDisposition,
     CapabilityGrant,
@@ -58,6 +60,7 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
     ProtocolIngressReceipt,
+    ReceiptStatus,
     ResourceBudget,
     RunStatus,
     TaskConfigurationSnapshot,
@@ -94,6 +97,9 @@ from agent_os_contracts import (
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
+    SurfaceUndoCommand,
+    SurfaceUndoEntry,
+    SurfaceUndoResponse,
     content_digest,
 )
 from agent_os_core import (
@@ -3041,6 +3047,176 @@ class AgentOSApplication:
             after_chars=compacted.compaction.after_chars,
             provider_profile_id=binding.provider_profile.profile_id,
         )
+
+    def surface_undo_last_edits(
+        self, command: SurfaceUndoCommand
+    ) -> SurfaceUndoResponse:
+        """S5a: undo the most recent recorded workspace edit(s) of one session.
+
+        The candidate set is derived from the durable event stream only (the
+        newest SUCCEEDED `workspace.edit`/`workspace.apply_patch` receipts that
+        still match the file's current content and are not yet compensated),
+        never from the model or the request body. Each candidate is undone
+        through the governed compensation path one edit at a time; a candidate
+        whose file no longer holds the applied content is refused untouched,
+        and nothing in the history or the original receipts is rewritten.
+        """
+
+        if not command.session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(command.session_id)
+        projected = self.tasks.project_session(task_id, command.session_id)
+        if (
+            projected.ref.tenant_id != self.principal.tenant_id
+            or projected.ref.workspace_id != self.principal.workspace_id
+        ):
+            raise SurfaceSessionNotFound(f"session {command.session_id} not found")
+        if projected.closed:
+            raise InvalidTransitionError("cannot undo edits in a closed session")
+        if projected.resumable_turn_id is not None:
+            raise InvalidTransitionError("cannot undo edits while a turn is open")
+        if projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "cannot undo edits while an approval is pending"
+            )
+        undone: list[SurfaceUndoEntry] = []
+        refused: list[SurfaceUndoEntry] = []
+        for action_id, path, applied_sha256 in self._undoable_recorded_edits(task_id)[
+            : command.count
+        ]:
+            current_sha256, problem = self._workspace_file_sha256(path)
+            if current_sha256 is None:
+                refused.append(
+                    SurfaceUndoEntry(
+                        action_id=action_id,
+                        path=path,
+                        status="REFUSED",
+                        reason=problem,
+                    )
+                )
+                continue
+            if current_sha256 != applied_sha256:
+                refused.append(
+                    SurfaceUndoEntry(
+                        action_id=action_id,
+                        path=path,
+                        status="REFUSED",
+                        reason=(
+                            "the file changed since this recorded edit, so "
+                            "undoing it would discard newer content"
+                        ),
+                    )
+                )
+                continue
+            record = self.undo_recorded_edit(task_id, action_id=action_id)
+            if record.status.value == "COMPENSATED":
+                undone.append(
+                    SurfaceUndoEntry(action_id=action_id, path=path, status="UNDONE")
+                )
+            else:
+                refused.append(
+                    SurfaceUndoEntry(
+                        action_id=action_id,
+                        path=path,
+                        status="REFUSED",
+                        reason=(
+                            "compensation did not complete "
+                            f"({record.status.value}): {record.reason}"
+                        ),
+                    )
+                )
+        return SurfaceUndoResponse(
+            session_id=command.session_id,
+            undone=tuple(undone),
+            refused=tuple(refused),
+        )
+
+    def _undoable_recorded_edits(self, task_id: str) -> list[tuple[str, str, str]]:
+        """Durable scan: SUCCEEDED workspace edits, newest first, not yet
+        compensated.
+
+        A receipt qualifies only when its durable effect carries the full
+        compensation binding (`path`, `applied_sha256`) that the undo coverage
+        check and the adapter's compensation both require. The original
+        ACTION_PROPOSED capability is re-read from the same stream, so a
+        receipt whose proposal does not classify as a workspace edit is never
+        treated as one.
+        """
+
+        proposed_capability: dict[str, str] = {}
+        receipts: list[tuple[str, str, str]] = []
+        compensated: set[str] = set()
+        for event in self.store.read(task_id):
+            try:
+                payload = event.decoded_payload()
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if event.event_type is TaskEventType.ACTION_PROPOSED:
+                action = payload.get("action")
+                if isinstance(action, dict):
+                    action_id = action.get("action_id")
+                    capability_id = action.get("capability_id")
+                    if isinstance(action_id, str) and isinstance(capability_id, str):
+                        proposed_capability[action_id] = capability_id
+            elif event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED:
+                candidate = payload.get("receipt")
+                effect = payload.get("effect")
+                if not isinstance(candidate, dict) or not isinstance(effect, dict):
+                    continue
+                try:
+                    receipt = ActionReceipt.model_validate(candidate)
+                except ValueError:
+                    continue  # an unreadable receipt is never guessed at
+                path = effect.get("path")
+                applied_sha256 = effect.get("applied_sha256")
+                if (
+                    receipt.status is ReceiptStatus.SUCCEEDED
+                    and isinstance(path, str)
+                    and path
+                    and isinstance(applied_sha256, str)
+                    and applied_sha256
+                    and isinstance(effect.get("compensation_ref"), str)
+                    and effect["compensation_ref"]
+                    and isinstance(effect.get("manifest_sha256"), str)
+                    and effect["manifest_sha256"]
+                ):
+                    receipts.append((receipt.action_id, path, applied_sha256))
+            elif event.event_type is TaskEventType.ACTION_COMPENSATED:
+                record = payload.get("compensation")
+                if isinstance(record, dict) and record.get("status") == "COMPENSATED":
+                    original = record.get("original_action_id")
+                    if isinstance(original, str):
+                        compensated.add(original)
+        return [
+            (action_id, path, applied_sha256)
+            for action_id, path, applied_sha256 in reversed(receipts)
+            if proposed_capability.get(action_id)
+            in {"workspace.edit", "workspace.apply_patch"}
+            and action_id not in compensated
+        ]
+
+    def _workspace_file_sha256(self, relative_path: str) -> tuple[str | None, str]:
+        """sha256 of one in-workspace file, or a refusal reason.
+
+        The path comes from our own durable effect binding, but it is still
+        resolved and re-anchored under the workspace root before it is read:
+        an absolute path, an escape or a missing file is refused rather than
+        guessed at.
+        """
+
+        candidate = Path(relative_path)
+        if candidate.is_absolute():
+            return None, "the recorded path is not a workspace-relative path"
+        resolved = (self.workspace_root / candidate).resolve()
+        try:
+            resolved.relative_to(self.workspace_root)
+        except ValueError:
+            return None, "the recorded path escapes the workspace root"
+        if not resolved.is_file():
+            return None, "the recorded file no longer exists in the workspace"
+        return hashlib.sha256(resolved.read_bytes()).hexdigest(), ""
 
     def _close_truncated_child(self, child: ChatSession) -> None:
         """Best-effort: a half-written fork child must not accept turns.

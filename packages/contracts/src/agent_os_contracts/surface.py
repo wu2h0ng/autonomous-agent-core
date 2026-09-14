@@ -314,6 +314,36 @@ class SurfaceCompactResponse(ContractModel):
     durable: Literal[True] = True
 
 
+class SurfaceUndoCommand(ContractModel):
+    """S5a: undo the most recent recorded workspace edit(s) of one session."""
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    count: int = Field(ge=1, le=10, default=1)
+    expected_event_sequence: int = Field(ge=0)
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceUndoEntry(ContractModel):
+    """One attempted undo: the exact recorded action, its path and the outcome."""
+
+    action_id: NonEmptyStr
+    path: NonEmptyStr
+    status: Literal["UNDONE", "REFUSED"]
+    reason: str = ""
+
+
+class SurfaceUndoResponse(ContractModel):
+    """Per-entry undo outcomes (append-only: nothing was rewritten)."""
+
+    protocol_version: Literal["1.1"] = "1.1"
+    session_id: NonEmptyStr
+    undone: tuple[SurfaceUndoEntry, ...] = ()
+    refused: tuple[SurfaceUndoEntry, ...] = ()
+
+
 class SurfaceTurnResponse(ContractModel):
     protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot

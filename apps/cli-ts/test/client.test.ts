@@ -213,6 +213,59 @@ test("compactSession posts the sequence binding and unwraps the compaction envel
   );
 });
 
+test("undoEdits posts the count and unwraps the undo envelope", async () => {
+  await withServer(
+    (req) => {
+      if (req.method === "GET") {
+        // the client re-syncs its tracked sequence after an undo
+        assert.match(req.url, /^\/v1\/surface\/sessions\/s:1$/);
+        return { status: 200, json: snapshot("s:1", 12) };
+      }
+      assert.equal(req.method, "POST");
+      assert.equal(req.url, "/v1/surface/sessions/s:1/undo");
+      const command = JSON.parse(req.body ?? "{}");
+      assert.equal(command.session_id, "s:1");
+      assert.equal(command.count, 2);
+      return {
+        status: 200,
+        json: {
+          undo: {
+            protocol_version: "1.1",
+            session_id: "s:1",
+            undone: [
+              {
+                action_id: "action:2",
+                path: "fixture.txt",
+                status: "UNDONE",
+                reason: "",
+              },
+            ],
+            refused: [
+              {
+                action_id: "action:1",
+                path: "notes.md",
+                status: "REFUSED",
+                reason: "the file changed since this recorded edit",
+              },
+            ],
+          },
+        },
+      };
+    },
+    async (client) => {
+      const undo = await client.undoEdits("s:1", 2);
+      const [undoneEntry] = undo.undone;
+      const [refusedEntry] = undo.refused;
+      assert.ok(undoneEntry);
+      assert.ok(refusedEntry);
+      assert.equal(undoneEntry.path, "fixture.txt");
+      assert.equal(refusedEntry.status, "REFUSED");
+      assert.match(refusedEntry.reason, /changed/);
+      await assert.rejects(() => client.undoEdits("s:1", 0), /between 1 and 10/);
+    },
+  );
+});
+
 test("forkSession posts the parent binding and unwraps the fork envelope", async () => {
   await withServer(
     (req) => {

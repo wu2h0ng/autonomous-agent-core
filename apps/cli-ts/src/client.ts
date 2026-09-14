@@ -29,6 +29,7 @@ import { z } from "zod";import {
   SurfaceStreamSubscriptionSchema,
   SurfaceTaskOverviewSchema,
   SurfaceTurnResponseSchema,
+  SurfaceUndoResponseSchema,
   TaskEventSchema,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
@@ -48,6 +49,7 @@ import { z } from "zod";import {
   type SurfaceStreamSubscription,
   type SurfaceTaskOverview,
   type SurfaceTurnResponse,
+  type SurfaceUndoResponse,
   type TaskEvent,
 } from "./contracts.js";
 import { localHostname, type RuntimeDescriptor } from "./descriptor.js";
@@ -264,6 +266,35 @@ export class SurfaceClient {
     // the next sequence-exact command is not rejected as stale
     await this.getSession(sessionId);
     return compaction;
+  }
+
+  /** S5a: undo the most recent recorded workspace edit(s) of one session.
+   * Durable and governed (every undo that runs is a new compensation record);
+   * a file that changed since its edit is refused per entry, never
+   * overwritten. */
+  async undoEdits(sessionId: string, count = 1): Promise<SurfaceUndoResponse> {
+    if (!Number.isInteger(count) || count < 1 || count > 10) {
+      throw new Error("count must be an integer between 1 and 10");
+    }
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/undo`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        count,
+        expected_event_sequence: this.sequence(sessionId),
+        idempotency_key: `cli-ts-undo:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const undo = this.unwrap(response, "undo", SurfaceUndoResponseSchema);
+    // an undo that ran appends durable events (receipt + COMPENSATION_*):
+    // re-sync the tracked sequence so the next sequence-exact command is not
+    // rejected as stale
+    await this.getSession(sessionId);
+    return undo;
   }
 
   /** S3: fork the parent session into a fresh child (parent read-only). */

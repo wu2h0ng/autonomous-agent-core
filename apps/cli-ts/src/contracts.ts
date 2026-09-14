@@ -124,6 +124,25 @@ export const SurfaceCompactResponseSchema = z.object({
 });
 export type SurfaceCompactResponse = z.infer<typeof SurfaceCompactResponseSchema>;
 
+/** S5a file undo: per-entry outcomes of undoing the most recent recorded
+ * workspace edit(s). Append-only: nothing in the history or the original
+ * receipts is rewritten, and every entry names the exact recorded action. */
+export const SurfaceUndoEntrySchema = z.object({
+  action_id: NonEmptyStr,
+  path: NonEmptyStr,
+  status: z.union([z.literal("UNDONE"), z.literal("REFUSED")]),
+  reason: z.string().default(""),
+});
+export type SurfaceUndoEntry = z.infer<typeof SurfaceUndoEntrySchema>;
+
+export const SurfaceUndoResponseSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  session_id: NonEmptyStr,
+  undone: z.array(SurfaceUndoEntrySchema).default([]),
+  refused: z.array(SurfaceUndoEntrySchema).default([]),
+});
+export type SurfaceUndoResponse = z.infer<typeof SurfaceUndoResponseSchema>;
+
 /** S2 Ctrl-E explanation: display-only (`durable: false`), never an approval
  * basis, never written into the transcript. */
 export const SurfaceExplainResponseSchema = z.object({

@@ -41,6 +41,8 @@ from agent_os_contracts import (
     SurfaceStreamBatch,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
+    SurfaceUndoCommand,
+    SurfaceUndoResponse,
     canonical_json,
 )
 
@@ -54,6 +56,7 @@ ResponseT = TypeVar(
     SurfaceExplainResponse,
     SurfaceForkResponse,
     SurfaceCompactResponse,
+    SurfaceUndoResponse,
 )
 
 
@@ -142,6 +145,9 @@ class SurfaceApplicationPort(Protocol):
     def surface_compact_session(
         self, command: SurfaceCompactCommand
     ) -> SurfaceCompactResponse: ...
+    def surface_undo_last_edits(
+        self, command: SurfaceUndoCommand
+    ) -> SurfaceUndoResponse: ...
     def surface_explain_action(
         self, command: SurfaceExplainCommand
     ) -> SurfaceExplainResponse: ...
@@ -287,6 +293,25 @@ class SurfaceRuntime:
         self._require_sequence(task_id, command.expected_event_sequence)
         self._require_open_session(command.session_id)
         return self._application.surface_compact_session(command)
+
+    def undo_last_edits(self, command: SurfaceUndoCommand) -> SurfaceUndoResponse:
+        """S5a file undo: idempotent, principal-scoped, sequence-exact."""
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:undo:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceUndoResponse,
+                operation=lambda: self._undo_once(command),
+            )
+
+    def _undo_once(self, command: SurfaceUndoCommand) -> SurfaceUndoResponse:
+        self._require_protocol(command.protocol_version)
+        task_id = self._application.surface_task_for_session(command.session_id)
+        self._require_principal_scope(command.client)
+        self._require_sequence(task_id, command.expected_event_sequence)
+        self._require_open_session(command.session_id)
+        return self._application.surface_undo_last_edits(command)
 
     def run_turn(self, command: SurfaceTurnCommand) -> SurfaceTurnResponse:
         with self._session_lock(command.session_id):

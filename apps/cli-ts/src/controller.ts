@@ -23,6 +23,7 @@ import type {
   SurfaceFileEntry,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
+  SurfaceUndoResponse,
   TaskEvent,
 } from "./contracts.js";
 
@@ -89,6 +90,22 @@ export function contextBarText(used: number, budget: number): string {
   const ratio = Math.max(0, Math.min(1, used / budget));
   const filled = Math.round(ratio * 10);
   return `${"█".repeat(filled)}${"░".repeat(10 - filled)} ${Math.round(ratio * 100)}%`;
+}
+
+/** `/undo` outcome lines (S5a): every entry names the exact recorded action;
+ * a refusal always carries its reason and no file is ever silently skipped. */
+export function formatUndoOutcome(undo: SurfaceUndoResponse): string {
+  if (undo.undone.length === 0 && undo.refused.length === 0) {
+    return "nothing to undo: no recorded workspace edit of this session is outstanding";
+  }
+  const lines: string[] = [];
+  for (const entry of undo.undone) {
+    lines.push(`✓ undone ${entry.path} (${entry.action_id})`);
+  }
+  for (const entry of undo.refused) {
+    lines.push(`✗ refused ${entry.path}: ${entry.reason}`);
+  }
+  return lines.join("\n");
 }
 
 export interface TodoItem {
@@ -469,6 +486,9 @@ export class TuiController {
       case "/compact":
         await this.compactCommand();
         return true;
+      case "/undo":
+        await this.undoCommand(rest[0]);
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -596,6 +616,37 @@ export class TuiController {
       });
     } catch (cause) {
       this.push({ role: "system", content: `compact failed: ${(cause as Error).message}` });
+    }
+  }
+
+  /** `/undo [count]` — undo the most recent recorded workspace edit(s) (S5a).
+   * Each undo that runs is a new governed compensation record (the original
+   * receipt and transcript stay readable); a file that changed since its edit
+   * is refused with the reason, never overwritten. */
+  private async undoCommand(countText?: string): Promise<void> {
+    if (!this.sessionId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    const count = countText === undefined || countText === "" ? 1 : Number(countText);
+    if (!Number.isInteger(count) || count < 1 || count > 10) {
+      this.push({ role: "system", content: "usage: /undo [count 1..10]" });
+      return;
+    }
+    if (this.canStartTurn()) {
+      // quiescent: no turn in flight and no pending approval
+    } else {
+      this.push({
+        role: "system",
+        content: "cannot undo while a turn is in flight (resolve it first)",
+      });
+      return;
+    }
+    try {
+      const undo = await this.client.undoEdits(this.sessionId, count);
+      this.push({ role: "system", content: formatUndoOutcome(undo) });
+    } catch (cause) {
+      this.push({ role: "system", content: `undo failed: ${(cause as Error).message}` });
     }
   }
 

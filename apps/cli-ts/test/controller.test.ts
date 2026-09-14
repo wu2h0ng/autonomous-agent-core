@@ -1092,6 +1092,60 @@ test("/compact refuses while an approval is pending", async () => {
   assert.match(controller.messages.at(-1)?.content ?? "", /cannot compact while a turn is in flight/);
 });
 
+test("/undo prints each undone and refused entry with its reason", async () => {
+  const client = {
+    async undoEdits(sessionId: string, count: number) {
+      assert.equal(sessionId, "s:1");
+      assert.equal(count, 2);
+      return {
+        protocol_version: "1.1",
+        session_id: "s:1",
+        undone: [
+          { action_id: "action:2", path: "b.txt", status: "UNDONE", reason: "" },
+        ],
+        refused: [
+          {
+            action_id: "action:1",
+            path: "a.txt",
+            status: "REFUSED",
+            reason:
+              "the file changed since this recorded edit, so undoing it would discard newer content",
+          },
+        ],
+      };
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { sessionId: string }).sessionId = "s:1";
+  await controller.submit("/undo 2");
+  const content = controller.messages.at(-1)?.content ?? "";
+  assert.match(content, /✓ undone b\.txt \(action:2\)/);
+  assert.match(content, /✗ refused a\.txt: the file changed since this recorded edit/);
+});
+
+test("/undo validates the count and refuses while a turn is in flight", async () => {
+  let calls = 0;
+  const client = {
+    async undoEdits() {
+      calls += 1;
+      return {};
+    },
+  };
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as { sessionId: string; status: string };
+  internals.sessionId = "s:1";
+  await controller.submit("/undo 0");
+  assert.equal(calls, 0);
+  assert.match(controller.messages.at(-1)?.content ?? "", /usage: \/undo \[count 1\.\.10\]/);
+  internals.status = "awaiting_approval";
+  await controller.submit("/undo");
+  assert.equal(calls, 0);
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /cannot undo while a turn is in flight/,
+  );
+});
+
 test("/fork adopts the child session and reports the import honestly", async () => {
   const client = {
     async forkSession(parentSessionId: string) {
