@@ -1,4 +1,10 @@
-"""Agent CLI V0 — Mandate-top terminal bridge into governed AgentLoop."""
+"""Agent CLI V0 — Mandate-top terminal bridge into governed AgentLoop.
+
+DEPRECATED (Stage 2a, 2026-09-15): the canonical headless entry is
+``agentos -p <prompt> --output-format json|text|stream-json`` (npm bin, cli-ts).
+This module is retained only as the internal Python substrate until Stage 2f
+removes it; new work targets cli-ts.
+"""
 
 from __future__ import annotations
 
