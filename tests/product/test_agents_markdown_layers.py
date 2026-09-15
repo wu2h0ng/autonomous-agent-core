@@ -51,6 +51,52 @@ def test_hidden_and_git_dirs_are_skipped(tmp_path: Path) -> None:
     assert discover_agents_markdown_layers(tmp_path) == ()
 
 
+def test_nested_only_is_not_mislabeled_as_root(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "AGENTS.md").write_text("nested only\n", encoding="utf-8")
+    layers = discover_agents_markdown_layers(tmp_path)
+    assert [layer.path for layer in layers] == ["pkg/AGENTS.md"]
+    rendered = layered_agents_markdown_system_section(layers)
+    assert "# Nested AGENTS.md" in rendered
+    assert "Project AGENTS.md" not in rendered
+
+
+def test_root_claude_md_is_labeled_as_claude(tmp_path: Path) -> None:
+    (tmp_path / "CLAUDE.md").write_text("claude root\n", encoding="utf-8")
+    rendered = layered_agents_markdown_system_section(
+        discover_agents_markdown_layers(tmp_path)
+    )
+    assert "# Project CLAUDE.md" in rendered
+
+
+def test_oversized_layer_is_skipped(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_bytes(b"a" * 200_000)
+    assert discover_agents_markdown_layers(tmp_path) == ()
+
+
+def test_total_char_budget_is_enforced(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("r" * 100, encoding="utf-8")
+    for index in range(5):
+        directory = tmp_path / f"d{index}"
+        directory.mkdir()
+        (directory / "AGENTS.md").write_text("n" * 100, encoding="utf-8")
+    layers = discover_agents_markdown_layers(
+        tmp_path, max_total_chars=250, max_chars_per_file=1000
+    )
+    assert sum(len(layer.content) for layer in layers) <= 250
+    assert layers[0].path == "AGENTS.md"
+
+
+def test_heavy_dirs_are_pruned(tmp_path: Path) -> None:
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "AGENTS.md").write_text("no\n", encoding="utf-8")
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "AGENTS.md").write_text("yes\n", encoding="utf-8")
+    assert [layer.path for layer in discover_agents_markdown_layers(tmp_path)] == [
+        "pkg/AGENTS.md"
+    ]
+
+
 def test_symlinked_layer_is_ignored(tmp_path: Path) -> None:
     (tmp_path / "real.md").write_text("secret\n", encoding="utf-8")
     (tmp_path / "sub").mkdir()

@@ -205,11 +205,11 @@ def _env_truthy(name: str) -> bool:
 
 
 def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentLoopConfig:
-    """Attach bounded workspace AGENTS.md context to the chat system prompt.
+    """Attach bounded, layered workspace AGENTS.md/CLAUDE.md context (S3).
 
-    Fail-closed discovery (symlink or out-of-workspace -> None) is enforced by
-    `discover_agents_markdown`; this only injects prompt context and never
-    widens authority. Missing AGENTS.md is a no-op.
+    Fail-closed, bounded discovery (symlink / out-of-workspace / oversized skipped)
+    is enforced by `discover_agents_markdown_layers`; this only injects prompt
+    context and never widens authority. No instruction files is a no-op.
     """
     layers = discover_agents_markdown_layers(workspace)
     if not layers:
