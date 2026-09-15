@@ -11,6 +11,7 @@ dependencies = [
 
 [project.scripts]
 agent-os-runtime = "apps.runtime_daemon.__main__:main"
+agent-os-work = "apps.cli.__main__:main"
 
 [project.optional-dependencies]
 product-test = [

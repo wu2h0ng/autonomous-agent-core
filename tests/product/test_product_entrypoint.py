@@ -14,7 +14,7 @@ from importlib.metadata import distribution
 from pathlib import Path
 
 
-def test_installed_console_scripts_are_only_the_runtime_daemon() -> None:
+def test_installed_console_scripts_are_daemon_and_work_cli() -> None:
     installed = distribution("autonomous-agent-core")
     console_scripts = {
         entry.name: entry
@@ -22,11 +22,12 @@ def test_installed_console_scripts_are_only_the_runtime_daemon() -> None:
         if entry.group == "console_scripts"
     }
 
-    assert console_scripts.keys() == {"agent-os-runtime"}
+    assert console_scripts.keys() == {"agent-os-runtime", "agent-os-work"}
     assert (
         console_scripts["agent-os-runtime"].value
         == "apps.runtime_daemon.__main__:main"
     )
+    assert console_scripts["agent-os-work"].value == "apps.cli.__main__:main"
     assert installed.metadata["Requires-Python"] == ">=3.11"
 
 
@@ -51,6 +52,21 @@ def test_runtime_daemon_entrypoint_runs() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "agent-os-runtime" in completed.stdout
+
+
+def test_work_cli_entrypoint_runs() -> None:
+    executable = Path(sys.executable).with_name("agent-os-work")
+    completed = subprocess.run(
+        [str(executable), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "agent-run" in completed.stdout
+    assert "agent-admit-selfdev" in completed.stdout
 
 
 def test_work_cli_help_lists_the_work_surface_without_suppress_markers() -> None:
