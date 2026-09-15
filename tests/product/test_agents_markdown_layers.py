@@ -51,6 +51,26 @@ def test_hidden_and_git_dirs_are_skipped(tmp_path: Path) -> None:
     assert discover_agents_markdown_layers(tmp_path) == ()
 
 
+def test_loose_cased_name_is_found(tmp_path: Path) -> None:
+    (tmp_path / "agents.md").write_text("lower\n", encoding="utf-8")
+    layers = discover_agents_markdown_layers(tmp_path)
+    # On a case-insensitive FS (macOS) the exact-name probe resolves to this file;
+    # the contract is that the loose-cased file IS found exactly once.
+    assert len(layers) == 1
+    assert layers[0].content == "lower\n"
+
+
+def test_huge_directory_is_bounded(tmp_path: Path) -> None:
+    # A directory with very many entries must not stall discovery (budgeted scan).
+    big = tmp_path / "big"
+    big.mkdir()
+    for index in range(3000):
+        (big / f"f{index:05d}.txt").write_text("x", encoding="utf-8")
+    (big / "AGENTS.md").write_text("found\n", encoding="utf-8")
+    layers = discover_agents_markdown_layers(tmp_path)
+    assert [layer.path for layer in layers] == ["big/AGENTS.md"]
+
+
 def test_nested_only_is_not_mislabeled_as_root(tmp_path: Path) -> None:
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "AGENTS.md").write_text("nested only\n", encoding="utf-8")

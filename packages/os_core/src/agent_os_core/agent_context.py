@@ -26,6 +26,7 @@ _SKIP_DIRS = frozenset(
     }
 )
 _MAX_BYTES_PER_FILE = 131072  # hard read cap per instruction file (128 KiB)
+_MAX_ENTRIES_PER_DIR = 500  # cap on directory entries probed for a loose-cased name
 
 
 @dataclass(frozen=True)
@@ -66,9 +67,12 @@ def discover_agents_markdown(
         resolved.relative_to(root)
     except ValueError:
         return None
+    data = _read_bounded(path)
+    if data is None:
+        return None
     try:
-        raw = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        raw = data.decode("utf-8")
+    except UnicodeDecodeError:
         # Fail closed: an unreadable or non-UTF-8 AGENTS.md is ignored, never
         # allowed to abort session open.
         return None
@@ -85,6 +89,39 @@ def agents_markdown_system_section(ctx: AgentsMarkdownContext) -> str:
     return f"\n\n# Project AGENTS.md (sha256={ctx.sha256})\n{ctx.content}"
 
 
+def _read_bounded(path: Path) -> bytes | None:
+    """Read at most ``_MAX_BYTES_PER_FILE`` bytes, refusing a larger file.
+
+    Opens with ``O_NOFOLLOW`` where available (closing the symlink->read TOCTOU) and
+    loops (a single ``os.read`` may return short) up to the cap. Returns ``None`` on
+    any failure, oversize, or symlink.
+    """
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        chunks: list[bytes] = []
+        remaining = _MAX_BYTES_PER_FILE + 1
+        while remaining > 0:
+            try:
+                chunk = os.read(fd, remaining)
+            except OSError:
+                return None
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > _MAX_BYTES_PER_FILE:
+        return None
+    return data
+
+
 def _read_layer(
     path: Path, root: Path, *, max_chars: int
 ) -> AgentsMarkdownContext | None:
@@ -97,14 +134,8 @@ def _read_layer(
         resolved.relative_to(root)
     except (OSError, ValueError):
         return None
-    try:
-        # Bounded read: never load an unbounded file into memory. A file larger than
-        # the hard cap is refused (fail closed), not truncated from a full read.
-        with path.open("rb") as handle:
-            data = handle.read(_MAX_BYTES_PER_FILE + 1)
-    except OSError:
-        return None
-    if len(data) > _MAX_BYTES_PER_FILE:
+    data = _read_bounded(path)
+    if data is None:
         return None
     try:
         raw = data.decode("utf-8")
@@ -120,19 +151,29 @@ def _read_layer(
     )
 
 
-def _pick(directory: Path) -> Path | None:
+def _pick(directory: Path, budget: list[int], max_entries: int) -> Path | None:
     for name in ("AGENTS.md", "CLAUDE.md"):
         candidate = directory / name
         if candidate.is_file():
             return candidate
+    # Loose-cased fallback: bounded scan (no full-dir sort/materialization) so a
+    # directory with very many entries cannot stall a session open.
+    matches: list[Path] = []
     try:
-        entries = sorted(directory.iterdir())
+        with os.scandir(directory) as iterator:
+            for entry in iterator:
+                budget[0] += 1
+                if budget[0] > max_entries:
+                    break
+                if entry.name.lower() in {"agents.md", "claude.md"}:
+                    try:
+                        if entry.is_file():
+                            matches.append(Path(entry.path))
+                    except OSError:
+                        continue
     except OSError:
         return None
-    for entry in entries:
-        if entry.is_file() and entry.name.lower() in {"agents.md", "claude.md"}:
-            return entry
-    return None
+    return min(matches) if matches else None
 
 
 def discover_agents_markdown_layers(
@@ -142,6 +183,7 @@ def discover_agents_markdown_layers(
     max_chars_per_file: int = 12000,
     max_total_chars: int = 24000,
     max_dirs: int = 2000,
+    max_entries: int = 20000,
 ) -> tuple[AgentsMarkdownContext, ...]:
     """Discover project instruction files as ordered layers (M1 S3).
 
@@ -154,8 +196,9 @@ def discover_agents_markdown_layers(
     """
 
     root = Path(workspace).resolve()
+    budget = [0]
     ordered: list[Path] = []
-    root_file = _pick(root)
+    root_file = _pick(root, budget, max_entries)
     if root_file is not None:
         ordered.append(root_file)
 
@@ -169,9 +212,9 @@ def discover_agents_markdown_layers(
         if Path(current) == root:
             continue
         scanned += 1
-        if scanned > max_dirs:
+        if scanned > max_dirs or budget[0] > max_entries:
             break
-        nested = _pick(Path(current))
+        nested = _pick(Path(current), budget, max_entries)
         if nested is not None:
             ordered.append(nested)
 
@@ -185,16 +228,18 @@ def discover_agents_markdown_layers(
             stat = path.stat()
         except OSError:
             continue
-        key = (stat.st_dev, stat.st_ino)  # dedupe repeats, incl. hardlinks
-        if key in seen:
-            continue
+        # dedupe repeats, incl. hardlinks; skip st_ino==0 (FUSE/legacy) which is not unique
+        if stat.st_ino != 0:
+            key = (stat.st_dev, stat.st_ino)
+            if key in seen:
+                continue
+            seen.add(key)
         remaining = max_total_chars - total
         if remaining <= 0:
             break
         context = _read_layer(path, root, max_chars=min(max_chars_per_file, remaining))
         if context is None:
             continue
-        seen.add(key)
         layers.append(context)
         total += len(context.content)
     return tuple(layers)
