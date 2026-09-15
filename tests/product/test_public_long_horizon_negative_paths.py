@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import sys
 import threading
 import urllib.error
 import urllib.request
@@ -26,7 +25,6 @@ from agent_os_contracts import (
 from agent_os_core import DeterministicProvider
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
-from apps.cli import __main__ as cli
 
 
 def _app_with_waiting_task(
@@ -435,126 +433,6 @@ def test_tenant_admin_can_halt_and_resume_failed_run_with_exact_audit_identity(
             run_id,
         ),
     ]
-
-
-class TestCLISignalAndRecoveryThroughRealApplication:
-    def test_cli_signal_and_recovery_use_real_application_and_durable_store(
-        self,
-        tmp_path: Path,
-        monkeypatch,
-        capsys,
-    ) -> None:
-        db_path = tmp_path / "real-cli.sqlite3"
-        app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="real-cli.sqlite3")
-
-        signal_path = tmp_path / "signal.json"
-        signal_payload = {
-            "signal_id": "signal:cli-real",
-            "signal_name": "build.finished",
-            "correlation_key": "build:neg",
-            "payload_json": '{"status":"passed"}',
-            "occurred_at": datetime.now(timezone.utc).isoformat(),
-        }
-        signal_path.write_text(json.dumps(signal_payload), encoding="utf-8")
-
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            [
-                "agent-os",
-                "--database",
-                str(db_path),
-                "--workspace",
-                str(tmp_path),
-                "task-signal",
-                task_id,
-                str(signal_path),
-            ],
-        )
-        cli.main()
-        stdout = json.loads(capsys.readouterr().out)
-        assert stdout["run"]["status"] == "RUNNING"
-
-        events = app.store.read(task_id)
-        event_types = [e.event_type for e in events]
-        assert TaskEventType.EXTERNAL_SIGNAL_RECORDED in event_types
-        assert TaskEventType.WAIT_SATISFIED in event_types
-        assert TaskEventType.NODE_COMPLETED in event_types
-
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            [
-                "agent-os",
-                "--database",
-                str(db_path),
-                "--workspace",
-                str(tmp_path),
-                "task-recovery",
-                task_id,
-            ],
-        )
-        cli.main()
-        recovery = json.loads(capsys.readouterr().out)
-        assert recovery["signal_satisfied_count"] == 1
-        assert recovery["wait_registered_count"] == 1
-
-    def test_cli_signal_replay_through_real_app_is_idempotent(
-        self,
-        tmp_path: Path,
-        monkeypatch,
-        capsys,
-    ) -> None:
-        db_path = tmp_path / "idem-cli.sqlite3"
-        app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="idem-cli.sqlite3")
-
-        signal_path = tmp_path / "signal.json"
-        signal_payload = {
-            "signal_id": "signal:cli-idem",
-            "signal_name": "build.finished",
-            "correlation_key": "build:neg",
-            "payload_json": '{"status":"passed"}',
-            "occurred_at": datetime.now(timezone.utc).isoformat(),
-        }
-        signal_path.write_text(json.dumps(signal_payload), encoding="utf-8")
-
-        def _invoke() -> dict:
-            monkeypatch.setattr(
-                sys,
-                "argv",
-                [
-                    "agent-os",
-                    "--database",
-                    str(db_path),
-                    "--workspace",
-                    str(tmp_path),
-                    "task-signal",
-                    task_id,
-                    str(signal_path),
-                ],
-            )
-            cli.main()
-            return json.loads(capsys.readouterr().out)
-
-        first = _invoke()
-        assert first["run"]["status"] == "RUNNING"
-
-        second = _invoke()
-        assert second["sequence"] == first["sequence"]
-        assert second["run"]["status"] == "RUNNING"
-
-        events = app.store.read(task_id)
-        assert (
-            sum(
-                1
-                for e in events
-                if e.event_type is TaskEventType.EXTERNAL_SIGNAL_RECORDED
-            )
-            == 1
-        )
-        assert (
-            sum(1 for e in events if e.event_type is TaskEventType.WAIT_SATISFIED) == 1
-        )
 
 
 class TestHTTPPublicNegativePaths:

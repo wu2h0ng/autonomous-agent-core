@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import urllib.request
 import sys
 import threading
 import time
@@ -314,30 +315,23 @@ def exactly_one_effect_receipt(client: SurfaceClient, task_id: str) -> bool:
     return len(receipts) == 1
 
 
-def cli_session_show(
+def protocol_session_show(
     daemon: DaemonProcess,
     session_id: str,
 ) -> dict:
-    root = _repo_root()
-    env = _daemon_env("http://127.0.0.1:1")
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "apps.cli",
-            "--descriptor",
-            str(daemon.descriptor_path),
-            "session-show",
-            session_id,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env=env,
-        cwd=root,
+    """Read the session through the surface protocol (second client view).
+
+    The former Python CLI `session-show` was removed in Stage 2f2; the
+    canonical client is cli-ts, so this reads the same daemon surface route.
+    """
+
+    descriptor = load_runtime_descriptor(daemon.descriptor_path)
+    request = urllib.request.Request(
+        f"{descriptor.base_url}/v1/surface/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {descriptor.bearer_token}"},
     )
-    assert completed.returncode == 0, completed.stderr
-    value = json.loads(completed.stdout)
+    with urllib.request.urlopen(request, timeout=10) as response:
+        value = json.loads(response.read())
     assert isinstance(value, dict)
     return value
 
@@ -378,7 +372,7 @@ def test_cli_and_protocol_client_share_one_restartable_coding_session(
         assert (workspace / "fixture.txt").read_text(encoding="utf-8") == ("fixed\n")
         assert exactly_one_effect_receipt(restored_client, opened.session.task_id)
         assert (
-            cli_session_show(daemon, opened.session.session_id)["event_sequence"]
+            protocol_session_show(daemon, opened.session.session_id)["event_sequence"]
             == completed.snapshot.event_sequence
         )
     finally:
