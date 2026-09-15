@@ -2,7 +2,8 @@
 
 The supported terminal client is the npm `agentos` / `agent-os` / `agent-os-ts`
 bin (apps/cli-ts); the Python package only ships the governance daemon
-(`agent-os-runtime`). The former Python `agent` / `agent-os` console scripts and
+(`agent-os-runtime`) and the slim local-authority Agent Work CLI
+(`agent-os-work`). The former Python `agent` / `agent-os` console scripts and
 the frozen textual TUI (path B) were removed.
 """
 
@@ -70,9 +71,6 @@ def test_work_cli_entrypoint_runs() -> None:
 
 
 def test_work_cli_help_lists_the_work_surface_without_suppress_markers() -> None:
-    import subprocess
-    import sys
-
     completed = subprocess.run(
         [sys.executable, "-m", "apps.cli", "--help"],
         check=False,
