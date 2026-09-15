@@ -112,3 +112,20 @@
 **结论 / pre-2f 门**：2f 删除 A 前，`run` / `correct` 必须在 HTTP 管理 API 上有端点（或明确 **park 为 daemon-only**），否则它们在产品上只剩进程内可达。→ **需 founder 决策**：补管理端点 vs park。
 
 **测试迁移**：A 的 CLI 测试（`agent-run/-status/-answer/-correct`）覆盖改由 **HTTP API 层测试**保持（非 cli-ts，因终端不实现管理面）。
+
+## 10. Stage 2d/2e — mandate / task / workflow / selfdev（2026-09-15，处置：API-only）
+
+**处置同 2c（founder 选项 B）**：这些治理/管理命令**不进终端**；终端只保留 agent 循环 + 配置/会话。
+
+**既有 HTTP 管理覆盖（在 `apps/api_server/server.py` 核实）**：
+`/v1/tasks`（创建/列表/详情）、`tasks/{id}:commit`、`/signals`、`/replan`、`/compensate`、`tasks/{id}/runs/{id}/trajectory`、`configuration-snapshots`、`domain-candidates` evaluations/promotions、`/v1/mandates`（列表）、mandate `task-links`、`outcome-portfolio`（commitments/settlements）、`responsibility-view`、`help-requests` + `:respond`、`/v1/workflows/validate`、`/v1/workspace`、`/v1/provider`、data-agent `query:run`、`environment-bindings:authorize`。
+
+**尚未见 HTTP 端点（pre-2f 需逐条核对后 补端点 / park / 裁撤）**：
+- `mandate-bootstrap`、`mandate-attach`
+- `work run`（受监督工作循环）、`work correct`（2c 已记）
+- `task-run`
+- `agent-admit-selfdev`（SELFDEV 准入，安全面）
+
+**结论**：管理面 HTTP 覆盖已相当完整；删除 A（2f）前，需对上述 6 项做一个**合并决策**（补 HTTP 管理端点 vs park 为 daemon-only vs 明确裁撤）。任一裁撤属 founder-reserved。
+
+**测试迁移**：A 的 mandate/task/workflow/selfdev CLI 测试覆盖改由 **HTTP API 层测试**保持（终端不实现该面）。
