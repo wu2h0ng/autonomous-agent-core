@@ -53,6 +53,14 @@ test("parseGitStatus keeps the porcelain status column and path", () => {
     { status: "M", path: "src/a.ts" },
     { status: "??", path: "new file.txt" },
   ]);
+  assert.deepEqual(
+    parseGitStatus("MM src/staged+unstaged.ts\nR  old -> new\n?? dir/"),
+    [
+      { status: "MM", path: "src/staged+unstaged.ts" },
+      { status: "R", path: "old -> new" },
+      { status: "??", path: "dir/" },
+    ],
+  );
   assert.deepEqual(parseGitStatus(""), []);
   assert.deepEqual(parseGitStatus("\n  \n"), []);
 });

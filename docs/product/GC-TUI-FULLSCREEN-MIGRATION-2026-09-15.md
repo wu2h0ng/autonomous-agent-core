@@ -78,12 +78,15 @@ P3  多Agent/任务树：需先扩展 surface 协议 + 解除一turn冻结（独
 
 ## 9. P2 结果（2026-09-15，PASS，含诚实边界）
 
-- **多面板**：`transcript` + 右侧 `files` + `diff`（sidebar 宽 40），仅当 `width>=100` 且启用 panels 时出现；窄终端自动退回 P1 单面板（`visiblePanels`）。
-- **独立滚动**：每个面板各自 `<scrollbox>`，滚动偏移互不影响；仅焦点面板接收键盘滚动，`Tab` 循环切换焦点（`nextPanel`），焦点在标题/顶栏可见。
-- **上下文锁定**：transcript 使用 opentui 内置 `stickyScroll` + `stickyStart:"bottom"` —— 自动跟随底部；手动上滚即释放跟随（阅读位置不被流式输出冲刷）；滚回底部自动重新跟随。行为来自 `@opentui/core@0.5.11` 源码（`index.bun.js:14692-14697` 的 `_hasManualScroll` / `isAtStickyReengagePoint`），**未写自动化测试**，为源码阅读 + 人工观察证据。
-- **动效开关**：`--no-animation` → renderer `useThread:false, targetFps:1, maxFps:1`，且视图无动画化 affordance；`--no-panels` → 强制单面板。
-- **实测（`apps/cli-ts/scripts/pty_fullscreen_p2.py`，120×32，hermetic daemon）**：boot 左 transcript(focused) + 右 files（真实 `git status`）；`hi` 流式回复 + footer `122 tok · cost UNKNOWN · ev 7 · [tab] panel: transcript`；`Tab` → `files · focused`；`--no-panels` boot 无 sidebar；`--no-animation` boot 正常。
-- **§5 度量**：空闲 3.1s 写入 **0 字节**（默认与 `--no-animation` 均 0 → 该指标上无法区分两者，如实记录）；观察到 alt-screen clear 次数 0；无 resize 乱屏。
-- **测试**：`test/opentui-panels.test.ts` 6 pass（bypass-detecting：常量焦点/忽略 porcelain 状态列/无界行展开都会失败）；cli-ts 全量 **156 pass**（连续 3 次）。期间曾在高并发负载下偶现 Ink `palette` 用例失败，**非 P2 回归**：清跑 3 次全绿，`test/app.test.tsx` 单跑 16/16（两分支一致）→ 记为负载敏感 flake。
-- **安全**：审批仍为全局 `y`/`n`，`awaiting` 时强制 transcript 聚焦 → 审批面始终在前台；面板只读本地检视（`git status`/`git diff`），不经能力/permit/C7 路径，不写任何东西。
+- **多面板**：`transcript` + 右侧 `files` + `diff`（sidebar 宽 40），仅当 `width>=SIDEBAR_MIN_WIDTH(100)` 且启用 panels 时出现；窄终端退回 P1 单面板（`visiblePanels`，阈值与 `layout.ts` 共享常量）。
+- **焦点策略（复审判定的回归，已修）**：composer 输入框**始终持有键盘焦点**。opentui 焦点是排他的，给面板 `focused` 会 blur 输入框且因 prop 未变化不再重发 `focus()` → 输入永久丢失。故 `Tab` 只改变**选中**面板（标题/顶栏可见），不改焦点；`pgup/pgdn` 对选中面板显式 `scrollBy(±5,"absolute")`；鼠标滚轮滚动指针所在面板。
+- **独立滚动**：三个面板各自 `<scrollbox>`，滚动偏移互不影响；键盘滚动为"显式作用于选中面板"（见上）。
+- **上下文锁定**：transcript 用 opentui 内置 `stickyScroll` + `stickyStart:"bottom"`（手动上滚释放跟随、回到底部自动重跟）。行为来自 `@opentui/core@0.5.11` 源码（`index.node.js`/`index.bun.js` 的 `_hasManualScroll` / `isAtStickyReengagePoint`），**无自动化测试**，为源码阅读 + 人工观察证据。
+- **动效/布局开关**：`--no-animation` → renderer `useThread:false, targetFps:1, maxFps:1`；`--no-panels` → 强制单面板（且不进行 git 采样）。
+- **采样（异步、只读、有界）**：`workspace-panels.ts` 仅 `git -C <ws> status --porcelain` / `git diff --no-color`；`execFile`（非 sync）、3s timeout、4MB maxBuffer、in-flight guard、3s 间隔、卸载即取消 → 不会阻塞渲染或 500ms `controller.tick()`。无 capability/permit/approval/C7 路径，不写盘。
+- **实测（`apps/cli-ts/scripts/pty_fullscreen_p2.py`，120×32，hermetic daemon）**：boot 左 transcript(selected) + 右 files（真实 `git status`）；`hi` 流式回复；`Tab` → `files · selected`；脚本内含回归守卫 **`TYPABLE_AFTER_TAB: True`**（Tab 后仍能输入并 `Enter` 提交，提交后审批卡在前台可见）；`--no-panels` 无 sidebar；`--no-animation` 正常 boot。
+- **§5 度量**：空闲 3.1s 写入 **0 字节**（默认与 `--no-animation` 均 0 → 该指标上无法区分，如实记录）；观察到 alt-screen clear 次数 0。
+- **测试**：`test/opentui-panels.test.ts` 6 pass（bypass-detecting：常量焦点/忽略 porcelain 状态列/无界行展开都会失败；含 `MM`、`R  old -> new`、`?? dir/` 用例）；cli-ts 全量 **156 pass**（连续多次）。期间高并发负载下曾偶现 Ink `palette` 用例失败，**非 P2 回归**（清跑全绿、`app.test.tsx` 单跑 16/16 两分支一致）→ 记为负载敏感 flake。
+- **安全**：审批仍为全局 `y`/`n`，`awaiting` 时强制选中 transcript → 审批面始终在前台；面板只读本地检视。
+- **复审**：独立复审 R1 **REVISE** —— 发现 HIGH 回归（Tab 抢占 composer 焦点导致无法输入）+ F2 同步采样阻塞 + F3 `--no-panels` 仍采样 + F5 死 prop + F6 porcelain 覆盖不足 + F4 文档过度声称。**以上全部已修**（焦点策略重写、异步采样、`SIDEBAR_MIN_WIDTH` 共享、删除死 prop、补用例、本文档按实测改写），并加 pty 回归守卫。
 - **未做**：`NO_COLOR`/`--no-color`；sticky-follow 的自动化测试；多 agent/任务树（P3，内核/协议先行）。

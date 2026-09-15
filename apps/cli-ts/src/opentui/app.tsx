@@ -1,13 +1,21 @@
 /**
- * P2 full-screen view: transcript + files/diff sidebar, independent scroll.
+ * P2 full-screen view: transcript + files/diff sidebar.
  *
  * View-only layer: SurfaceClient / TuiController / surface protocol are
- * unchanged. Panel focus is local view state; approvals stay global (y/n) and
- * are always shown in the transcript, which is force-focused while awaiting.
+ * unchanged.
+ *
+ * Focus policy (regression fix): the composer input owns keyboard focus at all
+ * times — opentui focus is exclusive, so giving a panel `focused` would blur
+ * the input and steal typing. `Tab` therefore only changes the *selected*
+ * panel (shown in the title/header); keyboard scrolling of a panel is done
+ * explicitly via `scrollBy` on the selected panel, and the mouse wheel scrolls
+ * whichever panel it is over. Approvals stay global (y/n) and force the
+ * transcript to be selected so they remain in front.
  */
 /** @jsxImportSource @opentui/react */
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
@@ -17,7 +25,7 @@ import {
   visiblePanels,
   type PanelId,
 } from "./panels.js";
-import { sampleWorkspace, type WorkspaceSample } from "./workspace-panels.js";
+import { EMPTY_SAMPLE, sampleWorkspace, type WorkspaceSample } from "./workspace-panels.js";
 
 export interface FullscreenAppProps {
   controller: TuiController;
@@ -25,9 +33,11 @@ export interface FullscreenAppProps {
   branch: string | null;
   version: string;
   model: string | null;
-  noAnimation?: boolean;
   withPanels?: boolean;
 }
+
+const PANEL_SCROLL_LINES = 5;
+const SAMPLE_INTERVAL_MS = 3000;
 
 function line(message: ChatMessage): string {
   if (message.panel) {
@@ -61,11 +71,12 @@ export function App({
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [input, setInput] = useState("");
-  const [focus, setFocus] = useState<PanelId>("transcript");
+  const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
-  const [sample, setSample] = useState<WorkspaceSample>(() =>
-    sampleWorkspace(workspace),
-  );
+  const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
+  const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
+  const filesRef = useRef<ScrollBoxRenderable | null>(null);
+  const diffRef = useRef<ScrollBoxRenderable | null>(null);
 
   useEffect(
     () =>
@@ -87,9 +98,25 @@ export function App({
     };
   }, []);
   useEffect(() => {
-    if (!withPanels) return;
-    const timer = setInterval(() => setSample(sampleWorkspace(workspace)), 2000);
-    return () => clearInterval(timer);
+    if (!withPanels) {
+      setSample(EMPTY_SAMPLE);
+      return;
+    }
+    let cancelled = false;
+    let inFlight = false;
+    const run = async (): Promise<void> => {
+      if (inFlight) return;
+      inFlight = true;
+      const next = await sampleWorkspace(workspace);
+      inFlight = false;
+      if (!cancelled) setSample(next);
+    };
+    void run();
+    const timer = setInterval(() => void run(), SAMPLE_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [workspace, withPanels]);
 
   const snapshot = controller.currentSnapshot;
@@ -97,12 +124,17 @@ export function App({
   const awaiting = controller.status === "awaiting_approval";
 
   const panels = visiblePanels(width, withPanels);
-  // Approvals are global and must stay in front: force the transcript focused.
-  const activeFocus: PanelId = awaiting
+  // Approvals are global and must stay in front: force the transcript selected.
+  const activePanel: PanelId = awaiting
     ? "transcript"
-    : panels.includes(focus)
-      ? focus
+    : panels.includes(selected)
+      ? selected
       : "transcript";
+  const scrollRefs: Record<PanelId, React.RefObject<ScrollBoxRenderable | null>> = {
+    transcript: transcriptRef,
+    files: filesRef,
+    diff: diffRef,
+  };
 
   useKeyboard((key: { name?: string; ctrl?: boolean }) => {
     const name = key.name ?? "";
@@ -117,7 +149,13 @@ export function App({
       return;
     }
     if (name === "tab") {
-      setFocus(nextPanel(activeFocus, panels));
+      setSelected(nextPanel(activePanel, panels));
+      return;
+    }
+    if (name === "pageup" || name === "pagedown") {
+      const target = scrollRefs[activePanel]?.current;
+      const delta = name === "pageup" ? -PANEL_SCROLL_LINES : PANEL_SCROLL_LINES;
+      target?.scrollBy(delta, "absolute");
       return;
     }
     if (name === "return") submit(input);
@@ -137,9 +175,9 @@ export function App({
 
   const transcript = (
     <scrollbox
+      ref={transcriptRef}
       style={{ flexGrow: 1, border: true }}
-      title={`transcript · ${activeFocus === "transcript" ? "focused" : "sticky-follow"}`}
-      focused={activeFocus === "transcript"}
+      title={`transcript · ${activePanel === "transcript" ? "selected" : "sticky-follow"}`}
       stickyScroll
       stickyStart="bottom"
     >
@@ -180,9 +218,9 @@ export function App({
   const sidebar = (
     <box style={{ flexDirection: "column", width: 40 }}>
       <scrollbox
+        ref={filesRef}
         style={{ flexGrow: 1, border: true }}
-        title={`files${activeFocus === "files" ? " · focused" : ""}`}
-        focused={activeFocus === "files"}
+        title={`files${activePanel === "files" ? " · selected" : ""}`}
       >
         <box style={{ flexDirection: "column", paddingLeft: 1 }}>
           {filePanelLines(sample.files, sample.note).map((row, index) => (
@@ -191,9 +229,9 @@ export function App({
         </box>
       </scrollbox>
       <scrollbox
+        ref={diffRef}
         style={{ flexGrow: 2, border: true }}
-        title={`diff${activeFocus === "diff" ? " · focused" : ""}`}
-        focused={activeFocus === "diff"}
+        title={`diff${activePanel === "diff" ? " · selected" : ""}`}
       >
         <box style={{ flexDirection: "column", paddingLeft: 1 }}>
           {(sample.diff.length > 0 ? sample.diff : ["(no unstaged diff)"]).map(
@@ -208,7 +246,7 @@ export function App({
 
   return (
     <box style={{ flexDirection: "column", width: "100%", height: "100%" }}>
-      <text>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activeFocus}`}</text>
+      <text>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
       <box style={{ flexDirection: "row", flexGrow: 1 }}>
         {transcript}
         {panels.length > 1 ? sidebar : null}
@@ -226,7 +264,9 @@ export function App({
           ? ` · ${controller.tokensTotal} tok · cost UNKNOWN · ev ${snapshot.event_sequence}`
           : ""
       } · ${
-        panels.length > 1 ? `[tab] panel: ${activeFocus}` : "/help"
+        panels.length > 1
+          ? `[tab] panel: ${activePanel} · [pgup/pgdn] scroll`
+          : "/help"
       }`}</text>
     </box>
   );

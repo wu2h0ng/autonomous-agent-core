@@ -5,8 +5,9 @@
  * transcript. Panel visibility, focus cycling, git-status parsing and the
  * CLI flags are pure functions so they can be tested without Bun/@opentui.
  */
-export type PanelId = "transcript" | "files" | "diff";
+import { SIDEBAR_MIN_WIDTH } from "../layout.js";
 
+export type PanelId = "transcript" | "files" | "diff";
 export interface FileEntry {
   status: string;
   path: string;
@@ -34,7 +35,8 @@ export function visiblePanels(
   width: number,
   withPanels: boolean,
 ): PanelId[] {
-  if (withPanels && width >= 100) return ["transcript", "files", "diff"];
+  if (withPanels && width >= SIDEBAR_MIN_WIDTH)
+    return ["transcript", "files", "diff"];
   return ["transcript"];
 }
 
