@@ -210,3 +210,10 @@
 - 移除精简 CLI 中已无用的 `--descriptor` 选项（work 命令只用 `--database/--workspace`）。
 - `test_product_entrypoint`：断言 console scripts == `{agent-os-runtime, agent-os-work}`；新增 `agent-os-work --help` 运行测试。
 - 结果：入口测试 5 passed；ruff/pyright clean。
+
+## 16. Stage 2f4 完成（2026-09-15）：最终扫描与收口
+
+- 清理指向已删文件的字符串引用：`tests/product/test_selfdev_scoped_verifier.py` 与 `test_selfdev_admission.py` 的 verifier 路径示例改用既有 `tests/product/test_provider_robustness.py`；`test_mandate_responsibility_contracts.py` 的"outside authority core"示例改用既有 `agent_loop.py`；重命名 `test_agent_cli_admits_...` → `test_selfdev_admits_...`。
+- **有意保留**：`packages/contracts/.../responsibility.py` 的 `reserved_stems` 仍含 `"agent_cli"`——它是**防御性 denylist**（防止该核心名被领域包复用），与模块是否仍存在无关，删除会削弱防护。
+- 结果：相关 3 文件 **112 passed**；ruff clean。
+- **收敛终态**：终端唯一入口 = npm `agentos`/`agent-os`/`agent-os-ts`（agent 循环 交互+headless）；Python 侧仅 `agent-os-runtime`（治理 daemon）+ `agent-os-work`（精简本地权威 Agent Work CLI）。治理/管理面 = API-only。Path B（textual）与 Path A 的 chat/headless/CLI 均已删除。
