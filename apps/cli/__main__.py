@@ -37,37 +37,6 @@ class ProductHelpFormatter(argparse.HelpFormatter):
         )
 
 
-_KNOWN_SUBCOMMANDS = frozenset(
-    {
-        "agent-run",
-        "agent-status",
-        "agent-answer",
-        "agent-correct",
-        "agent-resume",
-        "agent-admit-selfdev",
-        "task-create",
-        "task-show",
-        "task-run",
-        "workflow-validate",
-        "task-commit",
-        "task-signal",
-        "task-replan",
-        "correction-resume",
-        "task-compensate",
-        "task-recovery",
-        "mandate-bootstrap",
-        "mandate-attach",
-        "mandate-status",
-        "session-show",
-        "session-pause",
-        "session-resume",
-        "session-correct",
-        "daemon-start",
-        "daemon-status",
-        "daemon-stop",
-    }
-)
-
 _AGENT_WORK_COMMANDS = frozenset(
     {"run", "status", "answer", "correct", "resume", "admit-selfdev"}
 )
@@ -253,7 +222,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--descriptor",
         default=None,
-        help="path to the private runtime descriptor (chat/session/daemon modes)",
+        help="unused; retained for CLI compatibility",
     )
     sub = parser.add_subparsers(
         dest="command",
