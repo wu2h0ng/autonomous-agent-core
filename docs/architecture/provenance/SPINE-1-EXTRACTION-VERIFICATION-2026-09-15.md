@@ -12,7 +12,7 @@
 | domain semantics (`MetricContract`/`SQLSafety`/`SemanticObject`/`DataProduct`/`EvidenceChain`/`BusinessIntent`/`SQLTemplate`) in `packages/os_core/src` + `packages/contracts/src` | **1 match, benign** — `consequence_preview.py` docstring *disclaiming* those semantics; no code symbol |
 | cross-repo import (`_migration` / `agent_os_api` / donor repo / `agent_workflow_runner`) in `packages apps domain_packs` | **1 match, benign** — provenance `README.md` names the donor repo; no `import` statement |
 | `os_core` importing `domain_packs` | **0** (none) |
-| domain pack → core spine (`agent_os_core.capability` / `action_pipeline`) | 2 — **allowed direction** (domain packs consume the shared core spine; the forbidden direction is core → pack) |
+| domain pack → core spine (`agent_os_core.capability` / `action_pipeline`) | 3 — **allowed direction** (`domain_packs/data_agent/runtime.py:23,29`, `domain_packs/developer_agent/workspace_collaboration.py:26`; the forbidden direction is core → pack) |
 
 No real boundary violation.
 
@@ -21,11 +21,13 @@ No real boundary violation.
 - 6 new test files (consequence preview, approval choice-set, exec-time C7 recheck, evidence lineage,
   grounding invariant, policy-approval lifecycle): **49 passed**.
 - `ruff check` on changed files: clean. `pyright` on changed files: **0 errors**.
-- Full `tests/product`: **2610 passed, 1 skipped, 24 failed**.
+- Full `tests/product`: **~2609-2611 passed, 1 skipped, 24-25 failed** (SSE/streaming tests are
+  order- and timing-sensitive; the exact pass/fail count varies run to run).
 
-### The 24 failures are pre-existing baseline debt, not regressions
+### The failures are pre-existing baseline debt, not regressions
 
-All 24 are fixed-NOW expiry / environment / order-sensitive tests in files unrelated to this change:
+All failures are fixed-NOW expiry / environment / order-sensitive tests in files unrelated to this
+change. Counts vary by ±1 between runs (one streaming test toggles):
 
 | File | Count | Nature |
 |---|---|---|
@@ -36,6 +38,8 @@ All 24 are fixed-NOW expiry / environment / order-sensitive tests in files unrel
 | `test_surface_streaming_integration.py` | 1 | streaming/env |
 | `test_wave2_renderer_conformance.py` | 1 | renderer/env |
 
-None involve the changed modules or features; the same classes of failure reproduce on the base
-`origin/main`. Claim boundary: `implemented + tested` on the branch; **not** integrated, released or
+None involve the changed modules or features; the failure modes (`CommitmentExpiredError`,
+`provider credential must be unexpired`, SSE ordering) are time/environment-based. Base reproduction
+was **not** independently re-run on a second checkout, so this is attributed — not proven — as
+pre-existing. Claim boundary: `implemented + tested` on the branch; **not** integrated, released or
 retirement-authorizing.

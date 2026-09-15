@@ -171,6 +171,12 @@ class EvidenceCompleteness:
     complete: bool
     missing: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        # Fail closed on an internally inconsistent value so the grounding guard cannot be fed a
+        # fabricated "complete=True with missing requirements".
+        if self.complete != (not self.missing):
+            raise ValueError("complete must equal (missing is empty)")
+
 
 def assess_evidence_completeness(
     *,

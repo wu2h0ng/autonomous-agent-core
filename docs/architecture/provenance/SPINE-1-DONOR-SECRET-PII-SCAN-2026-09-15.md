@@ -24,8 +24,8 @@ The report contains no secret values (scanned with `--redact`). Raw report:
 ## 2. Oversized / binary / LFS inventory — CLEAN
 
 - Git LFS: **not used** (`.gitattributes` has no `filter=lfs`).
-- Tracked files > 500 KB: **none**.
-- Binary objects: **none** (all flagged "executable" matches are UTF-8 text scripts with shebangs).
+- Tracked files > 500 KB: **1** — `docs/project_baseline/AI_Native_Business_Data_Agent_OS_Project_Baseline_阅读版.html` (1,190,245 B). Historical internal document, retained in the donor archive, not migrated.
+- Binary objects: **3** — `apps/workspace/frontend/src/app/favicon.ico` and two `…@2x.png` frontend assets. Retained in the donor archive, not migrated.
 
 ## 3. PII / customer-data inventory — best effort, no real PII detected
 

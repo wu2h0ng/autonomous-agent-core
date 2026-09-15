@@ -5,12 +5,15 @@ from .evidence import EvidenceCompleteness
 
 class GroundingInvariantViolation(Exception):
     """A formal Data Agent answer or action would be emitted WITHOUT passing SQL Safety and a
-    complete evidence chain — a bypass of the non-bypassable grounding mediation (P5.1b / AR-20260614).
+    complete evidence chain (P5.1b / AR-20260614).
 
     This is distinct from a governed business denial (e.g. ``DataAgentDenied``): a denial is an
-    expected, user-facing outcome; this is a HARD invariant breach. Reaching here means the
-    data/evidence path was bypassed by a wiring or refactor bug. Fail loudly; never emit an
-    ungrounded answer or action.
+    expected, user-facing outcome; this is a HARD invariant breach.
+
+    Scope note (honest): ``assert_grounded`` is a reusable domain guard. It is currently covered by
+    its own test and is NOT yet wired into ``DataAgentRuntime`` as the runtime's single checkpoint;
+    wiring it in (with a computed completeness) is a follow-up. Until then "non-bypassable at
+    runtime" is not established by this module alone.
     """
 
 

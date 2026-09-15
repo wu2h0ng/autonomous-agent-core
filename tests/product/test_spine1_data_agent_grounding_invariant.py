@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import pytest
 
-from domain_packs.data_agent.evidence import assess_evidence_completeness
+from domain_packs.data_agent.evidence import (
+    EvidenceCompleteness,
+    assess_evidence_completeness,
+)
 from domain_packs.data_agent.grounding import (
     GroundingInvariantViolation,
     assert_grounded,
@@ -62,3 +65,11 @@ def test_guard_checks_sql_before_evidence() -> None:
     incomplete = assess_evidence_completeness(claims=(), metric_refs=())
     with pytest.raises(GroundingInvariantViolation, match="SQL Safety did not pass"):
         assert_grounded(sql_allowed=False, evidence=incomplete)
+
+
+def test_internally_inconsistent_completeness_is_refused() -> None:
+    """A fabricated complete=True with missing requirements cannot be constructed."""
+    with pytest.raises(ValueError):
+        EvidenceCompleteness(complete=True, missing=("claims",))
+    with pytest.raises(ValueError):
+        EvidenceCompleteness(complete=False, missing=())
