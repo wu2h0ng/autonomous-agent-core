@@ -186,3 +186,12 @@
 2f4  最终删除扫描（引用、文档、CURRENT_STATE），确认 A(chat 部分) 已移除
 ```
 每片独立评审 + CI 绿；work/selfdev 保留面不得削弱 C7/permit/审批。
+
+## 13. Stage 2f1 完成（2026-09-15）：删除 chat/headless
+
+- 删除 `packages/os_core/src/agent_os_core/agent_cli.py` + `__init__` 导出（`AgentCLIError/AgentCLIResult/event_types/run_agent_cli`）。
+- `apps/cli/__main__.py`：移除 `agent`/`chat` 子命令、`_agent`/`_chat`/`_run_agent_command`/`_handle_approval`/`_print_pending_approval`、`TerminalConfirmationGateway`、以及相关导入与 `_normalize_argv` 的 `-> agent` 兜底。
+- 删除测试：`test_agent_cli_v0/_p1/_stream/_review_debt`、`test_cli_surface` 的 3 个 chat 用例、`test_terminal_chat_loop` 的 4 个 CLI chat 用例。
+- 覆盖承接：canonical headless = `agentos -p`（cli-ts `headless.test.ts` 冻结 exit-code 表）；内核行为由既有内核测试保持。
+- 结果：`tests/product` 仅剩**既存失败**（task_configuration 家族、relevance_assessor、situated_fullstack、wave2、surface_begin_turn——经 stash 到 origin/main 复现）与一次 `responsibility_loop` 既有 flake（单跑 40 passed）；无 2f1 新增失败。
+- **遗留清理（2f4）**：`responsibility.py` 的 `reserved_stems` 仍含 `"agent_cli"`；若干测试仍以 `agent_cli.py`/`test_agent_cli_stream.py` 作字符串路径示例（当前通过，但已指向已删文件）。

@@ -109,8 +109,7 @@ The public Product Track path must pass through these state/authority contracts.
 
 Local Product Track command entry. CLI behavior must use the same
 application/state/authority services as HTTP; a CLI-only bypass is invalid.
-`python -m apps.cli chat` is the local governed terminal loop and `chat -p` is its
-fail-closed non-interactive mode. Current claim level and missing live-provider/review
+The supported terminal entry is the npm `agentos` / `agent-os` / `agent-os-ts` bin (apps/cli-ts, TS/Ink) with `agentos -p` as its headless mode; the Python `apps/cli` retains only the slim local-authority CLI (Agent Work: `agent-run/-resume/-status/-answer/-correct/-admit-selfdev`). The former `apps.cli chat` / `chat -p` were removed in Stage 2f1 (2026-09-15). Current claim level and missing live-provider/review
 gates remain in `docs/CURRENT_STATE.yaml`.
 
 ### `domain_packs/developer_agent/`
