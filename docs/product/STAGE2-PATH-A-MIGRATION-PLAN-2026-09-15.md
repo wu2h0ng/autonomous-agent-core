@@ -147,3 +147,42 @@
 - **(c)** 为 work/selfdev 保留一个**精简本地权威 CLI**（即不删除 A 的该子集），只删除已覆盖的部分。
 
 在 (a)/(b)/(c) 决定前，2f 无法安全删除 A 的这部分；mandate/task 等已覆盖部分可先行。
+
+## 12. Stage 2f-c 执行边界（2026-09-15，founder 选项 c）
+
+**原则**：删除 A 中"已被 cli-ts / HTTP 管理 API 覆盖"的部分；**保留一个精简的本地权威 CLI** 承载 `work run/correct` + `agent-admit-selfdev`（这些依赖本地 attach session + `AGENT_OS_AUTHORITY_BEARER`）。避免把本地权威模型搬上网络。
+
+### 12.1 keep / delete 边界（`apps/cli/__main__.py`）
+
+| 命令 | 处置 | 承接 |
+|---|---|---|
+| `agent` / `chat`（+ `run_agent_cli` / `agent_cli.py`） | **删除** | `agentos -p`（headless canonical） |
+| `session-show/-pause/-resume/-correct` | **删除** | `agentos session ...`（2b） |
+| `mandate-bootstrap/-attach/-status` | **删除** | admin API（PR #40；status 已有 responsibility-view） |
+| `task-create/-show/-run/-commit/-compensate/-recovery/-replan/-signal` | **删除** | admin API（`/v1/tasks*`） |
+| `workflow-validate` | **删除** | `/v1/workflows/validate` |
+| `daemon-start/-status/-stop` | **删除** | `agentos daemon ...` |
+| `agent-run/-resume/-status/-answer/-correct` | **保留** | 本地权威 CLI（本项） |
+| `agent-admit-selfdev` | **保留** | 本地权威 CLI（安全面，另配评审） |
+| `correction-resume` | 待定 | 视其依赖（surface correction 已被 cli-ts esc/correct 覆盖则删） |
+
+**共享保留**：`load_attach_session` / `_work_applications` / `resolve_agent_work_authority`（仅本地权威 CLI 用）。
+
+### 12.2 新入口
+- 精简本地权威 CLI 作为**独立 console script**：`agent-os-work`（`apps/cli/__main__.py:main` 精简后）。
+- 主入口仍是 npm `agentos`/`agent-os`（agent 循环 + 配置/会话）；`agent-os-runtime` 为 daemon。
+- `pyproject [project.scripts]` 仅保留 `agent-os-runtime` + 新增 `agent-os-work`。
+
+### 12.3 测试处置
+- 删除：`test_agent_cli_v0/_p1/_stream/_review_debt`（chat/headless，覆盖由 cli-ts headless + 内核测试承接）；`test_cli_surface` 中 chat/session 用例；mandate/task CLI 用例（改由 admin API 测试承接，`test_mandate_bootstrap_attach_api` 等）。
+- 保留并改指 `agent-os-work`：work/selfdev 的 CLI 测试（`test_responsibility_controller`、`test_selfdev_admission`、`test_public_long_horizon_negative_paths` 中对应部分）。
+- `test_product_entrypoint`：断言 `agent-os-runtime` + `agent-os-work`。
+
+### 12.4 执行切片
+```text
+2f1  删除 chat/headless：agent/chat 命令 + agent_cli.py + run_agent_cli 导出 + 其测试
+2f2  删除 session/mandate/task/workflow/daemon 命令 + 对应测试（保留 admin API 覆盖）
+2f3  精简 __main__ 为本地权威 CLI，新增 console script agent-os-work，更新 entrypoint 测试
+2f4  最终删除扫描（引用、文档、CURRENT_STATE），确认 A(chat 部分) 已移除
+```
+每片独立评审 + CI 绿；work/selfdev 保留面不得削弱 C7/permit/审批。
