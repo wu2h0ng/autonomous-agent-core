@@ -75,7 +75,7 @@ from .c7_receipt import (
 )
 from .srl_execution import (
     ExecutionDenialReason,
-    SnapshotSealerPort,
+    TaskSnapshotServicePort,
     SrlExecutionPlan,
     SrlExecutionResult,
     SrlTaskExecutionBridge,
@@ -430,7 +430,7 @@ __all__ = [
     "C7ReceiptScopeMismatch",
     "C7ReceiptVerifier",
     "ExecutionDenialReason",
-    "SnapshotSealerPort",
+    "TaskSnapshotServicePort",
     "SrlExecutionPlan",
     "SrlExecutionResult",
     "SrlTaskExecutionBridge",

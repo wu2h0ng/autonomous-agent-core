@@ -14,6 +14,8 @@ from agent_os_contracts import (
 )
 from agent_os_contracts.common import ContractModel, NonEmptyStr
 
+from .task_aggregate import TaskAggregate
+
 from .c7_receipt import (
     C7ReceiptError,
     C7ReceiptIssuer,
@@ -65,8 +67,13 @@ class TrustedSrlExecutionPlanPort(Protocol):
     def resolve(self, task_id: str) -> SrlExecutionPlan | None: ...
 
 
-class SnapshotSealerPort(Protocol):
-    """Trusted configuration-snapshot sealer (reserves the run identity)."""
+class TaskSnapshotServicePort(Protocol):
+    """Trusted task-configuration service.
+
+    ``seal`` reserves the run identity; ``start_run`` is the C7-guarded start
+    (it re-checks the snapshot's original correction epochs and wraps the run-start
+    append in ``guard_unchanged``), which closes the verify->start race.
+    """
 
     def seal(
         self,
@@ -74,6 +81,13 @@ class SnapshotSealerPort(Protocol):
         task_id: str,
         command: TaskConfigurationSnapshotCommand,
     ) -> TaskConfigurationSnapshot: ...
+
+    def start_run(
+        self,
+        principal: PrincipalIdentity,
+        task_id: str,
+        snapshot_id: str,
+    ) -> TaskAggregate: ...
 
 
 class SrlTaskExecutionBridge:
@@ -90,14 +104,14 @@ class SrlTaskExecutionBridge:
         *,
         task_service: TaskService,
         plan_port: TrustedSrlExecutionPlanPort,
-        snapshot_sealer: SnapshotSealerPort,
+        task_snapshots: TaskSnapshotServicePort,
         principal: PrincipalIdentity,
         c7_issuer: C7ReceiptIssuer,
         c7_verifier: C7ReceiptVerifier,
     ) -> None:
         self._tasks = task_service
         self._plan = plan_port
-        self._sealer = snapshot_sealer
+        self._snapshots = task_snapshots
         self._principal = principal
         self._c7_issuer = c7_issuer
         self._c7_verifier = c7_verifier
@@ -139,7 +153,7 @@ class SrlTaskExecutionBridge:
 
         command = snapshot_command or TaskConfigurationSnapshotCommand()
         try:
-            snapshot = self._sealer.seal(self._principal, task_id, command)
+            snapshot = self._snapshots.seal(self._principal, task_id, command)
         except Exception as exc:
             return SrlExecutionResult(
                 committed=True,
@@ -169,11 +183,12 @@ class SrlTaskExecutionBridge:
                 detail=type(exc).__name__,
             )
 
+        # C7-guarded start: the snapshot service re-checks the original correction
+        # epochs and holds guard_unchanged across the run-start append, so a C7
+        # change between the verify above and the append still blocks the start.
         try:
-            started = self._tasks.start_run(
-                task_id,
-                configuration_snapshot_id=snapshot.snapshot_id,
-                provider_profile_id=snapshot.provider_profile.profile_id,
+            started = self._snapshots.start_run(
+                self._principal, task_id, snapshot.snapshot_id
             )
         except AgentOSCoreError as exc:
             return SrlExecutionResult(
@@ -181,7 +196,7 @@ class SrlTaskExecutionBridge:
                 started=False,
                 task_id=task_id,
                 denial_reason=ExecutionDenialReason.START_REJECTED,
-                detail=str(exc),
+                detail=type(exc).__name__,
             )
         run = started.run
         return SrlExecutionResult(
@@ -198,8 +213,13 @@ class SrlTaskExecutionBridge:
         workflow = plan.workflow
         if goal is None or commitment is None or workflow is None:
             return False
+        workflow_capabilities = {
+            node.capability for node in workflow.nodes if node.capability
+        }
         return (
-            commitment.task_id == aggregate.task_id
+            plan.task_id == aggregate.task_id
+            and plan.capability_id in workflow_capabilities
+            and commitment.task_id == aggregate.task_id
             and commitment.goal_id == goal.goal_id
             and commitment.tenant_id == goal.tenant_id
             and commitment.workspace_id == goal.workspace_id

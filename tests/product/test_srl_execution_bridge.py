@@ -42,8 +42,8 @@ class _PlanPort:
         return self._plan
 
 
-class _HaltingSealer:
-    """Seals via the real service then halts C7 (simulates a mid-window change)."""
+class _HaltingStartService:
+    """Delegates seal; on start_run it halts C7 first (mid-window change)."""
 
     def __init__(self, inner, admin, scope_kind: str, scope_id: str) -> None:
         self._inner = inner
@@ -52,10 +52,13 @@ class _HaltingSealer:
         self._id = scope_id
 
     def seal(self, principal, task_id, command):
-        snapshot = self._inner.seal(principal, task_id, command)
-        # Admin authority halts the scope after commit+seal, before start.
-        self._admin.correct(self._kind, self._id, "halt before start")
-        return snapshot
+        return self._inner.seal(principal, task_id, command)
+
+    def start_run(self, principal, task_id, snapshot_id):
+        # A C7 change lands after the bridge verified the receipt but before the
+        # guarded start append; the service guard must refuse the start.
+        self._admin.correct(self._kind, self._id, "halt after verify before start")
+        return self._inner.start_run(principal, task_id, snapshot_id)
 
 
 def _goal(app, suffix="1") -> Goal:
@@ -129,12 +132,12 @@ def _plan(app, task) -> SrlExecutionPlan:
     )
 
 
-def _bridge(app, task, plan, *, sealer=None) -> SrlTaskExecutionBridge:
+def _bridge(app, task, plan, *, snapshots=None) -> SrlTaskExecutionBridge:
     authority = app.correction
     return SrlTaskExecutionBridge(
         task_service=app.tasks,
         plan_port=_PlanPort(plan),
-        snapshot_sealer=sealer or app.task_configurations,
+        task_snapshots=snapshots or app.task_configurations,
         principal=app.principal,
         c7_issuer=C7ReceiptIssuer(
             authority,
@@ -159,6 +162,22 @@ def test_draft_task_commits_and_starts_a_run(tmp_path):
     started = app.tasks.get_task(task.task_id)
     assert started.run is not None
     assert started.run.run_id == result.run_id
+
+
+def test_result_run_id_equals_reserved_run_id(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
+    task = app.tasks.create_task(_goal(app))
+    plan = _plan(app, task)
+    result = _bridge(app, task, plan).commit_and_start(
+        task.task_id, snapshot_command=TaskConfigurationSnapshotCommand()
+    )
+    assert result.started is True
+    aggregate = app.tasks.get_task(task.task_id)
+    assert aggregate.configuration_snapshot is not None
+    reserved = aggregate.configuration_snapshot.reserved_run_id
+    assert result.run_id == reserved
+    assert aggregate.run is not None
+    assert aggregate.run.run_id == reserved
 
 
 def test_activated_task_cannot_commit_without_trusted_plan(tmp_path):
@@ -200,15 +219,15 @@ def test_c7_change_before_start_leaves_committed_without_effect(tmp_path):
     app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
     task = app.tasks.create_task(_goal(app))
     plan = _plan(app, task)
-    sealer = _HaltingSealer(
+    service = _HaltingStartService(
         app.task_configurations, app.correction_admin, "task", task.task_id
     )
-    result = _bridge(app, task, plan, sealer=sealer).commit_and_start(
+    result = _bridge(app, task, plan, snapshots=service).commit_and_start(
         task.task_id, snapshot_command=TaskConfigurationSnapshotCommand()
     )
     assert result.committed is True
     assert result.started is False
-    assert result.denial_reason is ExecutionDenialReason.C7_REJECTED
+    assert result.denial_reason is ExecutionDenialReason.START_REJECTED
     aggregate = app.tasks.get_task(task.task_id)
     assert aggregate.status is TaskStatus.COMMITTED
     assert aggregate.run is None
@@ -226,10 +245,8 @@ def test_halted_c7_blocks_start(tmp_path):
     )
     assert result.committed is True
     assert result.started is False
-    assert result.denial_reason in {
-        ExecutionDenialReason.C7_REJECTED,
-        ExecutionDenialReason.SNAPSHOT_REJECTED,
-    }
+    # The seal step is itself C7-guarded, so a pre-halted scope is denied there.
+    assert result.denial_reason is ExecutionDenialReason.SNAPSHOT_REJECTED
     assert app.tasks.get_task(task.task_id).run is None
 
 
