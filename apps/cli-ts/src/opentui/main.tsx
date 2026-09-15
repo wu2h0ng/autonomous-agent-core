@@ -40,11 +40,9 @@ const { descriptor } = await ensureDaemon({
   autoStart: !args.includes("--no-daemon"),
 });
 const client = new SurfaceClient(descriptor);
-let provider: string | null = null;
 let model: string | null = null;
 try {
   const status = await client.providerStatus();
-  provider = status.provider_id ?? null;
   model = status.model_id ?? null;
 } catch {
   // status bar falls back
@@ -59,7 +57,6 @@ createRoot(renderer).render(
     workspace={workspace}
     branch={gitBranch(workspace)}
     version={agentVersion()}
-    provider={provider}
     model={model}
   />,
 );

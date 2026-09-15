@@ -3,13 +3,13 @@
 import { useEffect, useReducer, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { ChatMessage, TuiController } from "../controller.js";
+import { handleGlobalKey } from "../keys.js";
 
 export interface FullscreenAppProps {
   controller: TuiController;
   workspace: string;
   branch: string | null;
   version: string;
-  provider: string | null;
   model: string | null;
 }
 
@@ -36,12 +36,18 @@ export function App({
   workspace,
   branch,
   version,
-  provider,
   model,
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [input, setInput] = useState("");
-  useEffect(() => controller.subscribe(bump), [controller]);
+  useEffect(
+    () =>
+      controller.subscribe(() => {
+        bump();
+        if (controller.status === "closed") process.exit(0);
+      }),
+    [controller],
+  );
   useEffect(() => {
     const timer = setInterval(() => controller.tick(), 500);
     return () => clearInterval(timer);
@@ -51,23 +57,19 @@ export function App({
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
 
-  useKeyboard((key: { name?: string; ctrl?: boolean; meta?: boolean }) => {
-    if (key.ctrl && key.name === "c") process.exit(0);
+  useKeyboard((key: { name?: string; ctrl?: boolean }) => {
+    const name = key.name ?? "";
+    // Reuse the tested frozen mapping: Esc (streaming/stalled) and Ctrl-C ->
+    // controller.interrupt(); Esc is always consumed and never approves/rejects.
+    if (handleGlobalKey(controller, name, { ctrl: key.ctrl === true, escape: name === "escape" })) {
+      return;
+    }
     if (awaiting) {
-      if (key.name === "y") void controller.approve();
-      if (key.name === "n") void controller.reject();
+      if (name === "y") void controller.approve();
+      else if (name === "n") void controller.reject();
       return;
     }
-    if (key.name === "return") {
-      submit(input);
-      return;
-    }
-    if (
-      key.name === "escape" &&
-      (controller.status === "streaming" || controller.status === "stalled")
-    ) {
-      void controller.submit("/correct");
-    }
+    if (name === "return") submit(input);
   });
 
   const submit = (value: string): void => {
