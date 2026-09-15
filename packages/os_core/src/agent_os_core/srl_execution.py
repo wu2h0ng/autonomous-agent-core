@@ -90,6 +90,8 @@ class TaskSnapshotServicePort(Protocol):
         principal: PrincipalIdentity,
         task_id: str,
         snapshot_id: str,
+        *,
+        additional_capability_ids: tuple[str, ...] = (),
     ) -> TaskAggregate: ...
 
 
@@ -194,15 +196,17 @@ class SrlTaskExecutionBridge:
                     detail=type(exc).__name__,
                 )
 
-        # C7-guarded start via the configuration service, which re-checks the
-        # snapshot's original correction epochs and holds guard_unchanged
-        # (config capability + task + run) across the run-start append.
-        # NOTE (subagent N1, OPEN): the service locks config->authority; taking an
-        # ADDITIONAL authority guard here would invert that order and deadlock, so
-        # the tool-capability scope is only verified pre-start (see the cast's F1).
+        # C7-guarded start via the configuration service. The service holds its
+        # config->authority lock region and now guards the plan's tool capability
+        # in the SAME region (additional_capability_ids), so a tool-capability
+        # correction in the verify->start window still forbids the start - without
+        # inverting the lock order (subagent F1 closed at the service level).
         try:
             started = self._snapshots.start_run(
-                self._principal, task_id, snapshot.snapshot_id
+                self._principal,
+                task_id,
+                snapshot.snapshot_id,
+                additional_capability_ids=(plan.capability_id,),
             )
         except C7ReceiptError as exc:
             return SrlExecutionResult(

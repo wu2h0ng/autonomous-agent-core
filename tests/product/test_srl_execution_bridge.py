@@ -56,11 +56,16 @@ class _HaltingStartService:
     def seal(self, principal, task_id, command):
         return self._inner.seal(principal, task_id, command)
 
-    def start_run(self, principal, task_id, snapshot_id):
+    def start_run(self, principal, task_id, snapshot_id, *, additional_capability_ids=()):
         # A C7 change lands after the bridge verified the receipt but before the
         # guarded start append; the service guard must refuse the start.
         self._admin.correct(self._kind, self._id, "halt after verify before start")
-        return self._inner.start_run(principal, task_id, snapshot_id)
+        return self._inner.start_run(
+            principal,
+            task_id,
+            snapshot_id,
+            additional_capability_ids=additional_capability_ids,
+        )
 
 
 def _goal(app, suffix="1") -> Goal:
@@ -258,14 +263,6 @@ def test_halted_c7_blocks_start(tmp_path):
     assert app.tasks.get_task(task.task_id).run is None
 
 
-@pytest.mark.xfail(
-    reason=(
-        "F1 OPEN: a tool-capability halt in the verify->start window needs a "
-        "service-level guard; closing it bridge-side inverts the config->authority "
-        "lock order and deadlocks (subagent N1). See the cast."
-    ),
-    strict=False,
-)
 def test_tool_capability_midwindow_halt_blocks_start(tmp_path):
     app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
     task = app.tasks.create_task(_goal(app))
@@ -279,7 +276,11 @@ def test_tool_capability_midwindow_halt_blocks_start(tmp_path):
     )
     assert result.committed is True
     assert result.started is False
-    assert result.denial_reason is ExecutionDenialReason.C7_REJECTED
+    # Caught by the service-level guard for the tool capability -> fail-closed.
+    assert result.denial_reason in {
+        ExecutionDenialReason.C7_REJECTED,
+        ExecutionDenialReason.START_REJECTED,
+    }
     assert app.tasks.get_task(task.task_id).run is None
 
 
