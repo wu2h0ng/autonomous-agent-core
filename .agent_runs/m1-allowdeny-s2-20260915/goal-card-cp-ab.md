@@ -45,6 +45,10 @@ untouched. The frozen matrix function is unchanged.
 
 ## 5. Residual / honesty
 
-- Residual: `responsibility_surface.py` builds its own AgentLoop and does not pass
-  `deny_rules` (not a chat permission path); noted, not wired.
-- Independent exact-diff review still required before promotion.
+- `responsibility_surface.py` (SELFDEV path) now PASSES `deny_rules` to its AgentLoop,
+  and `resume_pending_approval` enforces them — but there is **no asserting SELFDEV
+  test** for it (the end-to-end SELFDEV path needs the full mandate/verifier harness).
+  The wiring is code-reviewed, not behaviour-tested. Explicit residual.
+- The pending-approval path only blocks APPROVE; REJECT stays resolvable (tested).
+- All reviews so far are **same-model** (builder == reviewer): they do NOT satisfy the
+  independent-review gate. A different model/human must confirm before promotion.

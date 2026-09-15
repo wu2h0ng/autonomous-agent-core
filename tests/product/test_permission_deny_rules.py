@@ -374,7 +374,12 @@ def test_deny_rule_does_not_wedge_a_reject(tmp_path: Path) -> None:
         ApprovalDisposition.REJECT,
         "not now",
     )
-    assert result is not None
+    assert result.stop_reason == "completed"
+    # the pending approval is resolved, not wedged
+    assert (
+        app.tasks.project_session(session.task_id, session.session_id).pending_continuation
+        is None
+    )
 
 
 def test_deny_rule_blocks_a_mode_auto_allowed_edit(tmp_path: Path) -> None:
