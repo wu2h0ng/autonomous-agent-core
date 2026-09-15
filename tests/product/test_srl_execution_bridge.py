@@ -139,6 +139,7 @@ def _bridge(app, task, plan, *, snapshots=None) -> SrlTaskExecutionBridge:
         plan_port=_PlanPort(plan),
         task_snapshots=snapshots or app.task_configurations,
         principal=app.principal,
+        correction=authority,
         c7_issuer=C7ReceiptIssuer(
             authority,
             tenant_id=app.principal.tenant_id,
@@ -227,7 +228,8 @@ def test_c7_change_before_start_leaves_committed_without_effect(tmp_path):
     )
     assert result.committed is True
     assert result.started is False
-    assert result.denial_reason is ExecutionDenialReason.START_REJECTED
+    # The reentrant correction is refused by the held guard -> C7 denial.
+    assert result.denial_reason is ExecutionDenialReason.C7_REJECTED
     aggregate = app.tasks.get_task(task.task_id)
     assert aggregate.status is TaskStatus.COMMITTED
     assert aggregate.run is None
@@ -247,6 +249,23 @@ def test_halted_c7_blocks_start(tmp_path):
     assert result.started is False
     # The seal step is itself C7-guarded, so a pre-halted scope is denied there.
     assert result.denial_reason is ExecutionDenialReason.SNAPSHOT_REJECTED
+    assert app.tasks.get_task(task.task_id).run is None
+
+
+def test_tool_capability_midwindow_halt_blocks_start(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
+    task = app.tasks.create_task(_goal(app))
+    plan = _plan(app, task)
+    # A halt of the tool capability lands after the bridge's verify, during start.
+    service = _HaltingStartService(
+        app.task_configurations, app.correction_admin, "capability", "workspace.read"
+    )
+    result = _bridge(app, task, plan, snapshots=service).commit_and_start(
+        task.task_id, snapshot_command=TaskConfigurationSnapshotCommand()
+    )
+    assert result.committed is True
+    assert result.started is False
+    assert result.denial_reason is ExecutionDenialReason.C7_REJECTED
     assert app.tasks.get_task(task.task_id).run is None
 
 

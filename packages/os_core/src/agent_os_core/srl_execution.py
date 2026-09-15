@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Protocol
 
 from agent_os_contracts import (
+    C7ClearanceReceipt,
     Commitment,
     ExpectedOutcome,
     NodeKind,
@@ -19,11 +20,13 @@ from .task_aggregate import TaskAggregate
 from .task_configuration import TASK_CONFIGURATION_CAPABILITY
 
 from .c7_receipt import (
+    C7EpochReplay,
     C7ReceiptError,
     C7ReceiptIssuer,
     C7ReceiptVerifier,
     C7VerificationScope,
 )
+from .governance import CorrectionGuardConflict, CorrectionReadPort
 from .errors import AgentOSCoreError
 from .task_service import TaskService
 
@@ -108,6 +111,7 @@ class SrlTaskExecutionBridge:
         plan_port: TrustedSrlExecutionPlanPort,
         task_snapshots: TaskSnapshotServicePort,
         principal: PrincipalIdentity,
+        correction: CorrectionReadPort,
         c7_issuer: C7ReceiptIssuer,
         c7_verifier: C7ReceiptVerifier,
     ) -> None:
@@ -115,6 +119,7 @@ class SrlTaskExecutionBridge:
         self._plan = plan_port
         self._snapshots = task_snapshots
         self._principal = principal
+        self._correction = correction
         self._c7_issuer = c7_issuer
         self._c7_verifier = c7_verifier
 
@@ -176,6 +181,7 @@ class SrlTaskExecutionBridge:
         # tool capability as defense-in-depth. A per-capability halt landing after
         # this point still blocks the effect at dispatch, not the start; that
         # boundary is documented in the cast.
+        plan_receipt: C7ClearanceReceipt | None = None
         for capability_id in (TASK_CONFIGURATION_CAPABILITY, plan.capability_id):
             scope = C7VerificationScope(capability_id=capability_id, **base_scope)
             try:
@@ -190,13 +196,46 @@ class SrlTaskExecutionBridge:
                     denial_reason=ExecutionDenialReason.C7_REJECTED,
                     detail=type(exc).__name__,
                 )
+            if capability_id == plan.capability_id:
+                plan_receipt = receipt
 
-        # C7-guarded start: the snapshot service re-checks the original correction
-        # epochs and holds guard_unchanged across the run-start append, so a C7
-        # change between the verify above and the append still blocks the start.
+        # Hold the tool-capability C7 guard across the run-start append so that a
+        # halt of that capability landing in the verify->start window still
+        # forbids the start (the snapshot service holds its own guard for the
+        # configuration capability). CTO condition 2 is thus met for task, run,
+        # configuration-capability AND tool-capability scopes.
         try:
-            started = self._snapshots.start_run(
-                self._principal, task_id, snapshot.snapshot_id
+            assert plan_receipt is not None
+            with self._correction.guard_unchanged(
+                task_id,
+                snapshot.reserved_run_id,
+                plan.capability_id,
+                plan_receipt.correction_epochs,
+            ) as unchanged:
+                if not unchanged:
+                    raise C7EpochReplay(
+                        "tool capability correction epoch changed before start"
+                    )
+                started = self._snapshots.start_run(
+                    self._principal, task_id, snapshot.snapshot_id
+                )
+        except C7ReceiptError as exc:
+            return SrlExecutionResult(
+                committed=True,
+                started=False,
+                task_id=task_id,
+                denial_reason=ExecutionDenialReason.C7_REJECTED,
+                detail=type(exc).__name__,
+            )
+        except CorrectionGuardConflict as exc:
+            # A correction landed reentrantly while the guard was held: the
+            # authority refuses it and the start is forbidden.
+            return SrlExecutionResult(
+                committed=True,
+                started=False,
+                task_id=task_id,
+                denial_reason=ExecutionDenialReason.C7_REJECTED,
+                detail=type(exc).__name__,
             )
         except AgentOSCoreError as exc:
             return SrlExecutionResult(
@@ -214,8 +253,7 @@ class SrlTaskExecutionBridge:
             run_id=run.run_id if run is not None else None,
         )
 
-    @staticmethod
-    def _plan_binds(aggregate, plan: SrlExecutionPlan) -> bool:
+    def _plan_binds(self, aggregate, plan: SrlExecutionPlan) -> bool:
         goal = aggregate.goal
         commitment = plan.commitment
         workflow = plan.workflow
@@ -227,7 +265,11 @@ class SrlTaskExecutionBridge:
             if node.kind is NodeKind.TOOL and node.capability
         }
         return (
-            plan.task_id == aggregate.task_id
+            # The task must belong to the bridge principal's tenant/workspace, so
+            # a caller cannot bind a plan to a foreign-scope goal before mutation.
+            goal.tenant_id == self._principal.tenant_id
+            and goal.workspace_id == self._principal.workspace_id
+            and plan.task_id == aggregate.task_id
             and plan.capability_id in workflow_capabilities
             and commitment.task_id == aggregate.task_id
             and commitment.goal_id == goal.goal_id
