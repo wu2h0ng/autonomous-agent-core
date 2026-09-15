@@ -98,6 +98,13 @@ def apply_deny_rules(
     tier-3, or pre-empt C7; the frozen matrix itself is unchanged above.
     """
 
+    if decision.outcome in (
+        PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST,
+        PermissionGateOutcome.DENY_BY_RULE,
+    ):
+        # Never relabel an existing denial (the frozen out-of-allowlist audit
+        # semantics are preserved; a rule cannot upgrade a denial's provenance).
+        return decision
     rule = active_deny_rule(tuple(rules), capability_id, tenant_id, workspace_id)
     if rule is None:
         return decision

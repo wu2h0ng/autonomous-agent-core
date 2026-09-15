@@ -11,6 +11,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
     SurfaceBeginTurnCommand,
@@ -139,6 +141,30 @@ def test_deny_rule_does_not_change_a_non_matching_capability() -> None:
     assert unchanged is decision
 
 
+def test_apply_deny_rules_preserves_an_existing_denial() -> None:
+    # An out-of-allowlist denial must keep its own audit semantics; a '*' rule
+    # must not relabel it as DENY_BY_RULE.
+    decision = evaluate_permission_gate(
+        capability_id="workspace.exfiltrate", mode="ACCEPT_IN_WORKSPACE", mode_event_id=None
+    )
+    assert decision.outcome is PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST
+    gated = apply_deny_rules(
+        decision,
+        capability_id="workspace.exfiltrate",
+        rules=[_rule(capability_id="*")],
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
+    assert gated.outcome is PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST
+
+
+def test_store_is_tenant_scoped(tmp_path: Path) -> None:
+    store = SQLitePermissionRuleStore(tmp_path / "rules.sqlite3")
+    store.save(_rule(rule_id="r1"))
+    assert store.list_active(tenant_id="tenant:other", workspace_id="workspace:local") == []
+    store.close()
+
+
 def test_apply_deny_rules_never_produces_an_allow_outcome() -> None:
     allowed = {
         PermissionGateOutcome.TIER_DEFAULT_AUTO_PASS,
@@ -211,7 +237,7 @@ def _wait_for(predicate, description: str, timeout: float = 5.0):
     raise AssertionError(f"{description} did not occur within {timeout}s")
 
 
-def _run_turn(app: AgentOSApplication, session_id: str) -> None:
+def _begin_turn(app: AgentOSApplication, session_id: str) -> None:
     task_id = app.surface_task_for_session(session_id)
     stream_id = app.subscribe_stream(session_id)
     app.surface.begin_turn(
@@ -226,6 +252,11 @@ def _run_turn(app: AgentOSApplication, session_id: str) -> None:
             requested_at=datetime.now(timezone.utc),
         )
     )
+
+
+def _run_turn(app: AgentOSApplication, session_id: str) -> None:
+    task_id = app.surface_task_for_session(session_id)
+    _begin_turn(app, session_id)
 
     def _done():
         events = [
@@ -270,6 +301,54 @@ def _verdicts(app: AgentOSApplication, task_id: str) -> list[dict]:
     ]
 
 
+def _shell_script() -> tuple:
+    return (
+        (
+            "",
+            (_proposal("call-shell", "workspace.shell", {"command": "echo hi"}),),
+        ),
+        ("shell done", ()),
+    )
+
+
+def test_deny_rule_blocks_resolving_a_pending_approval(tmp_path: Path) -> None:
+    from agent_os_contracts import ApprovalDisposition
+    from agent_os_core import RunExecutionError
+
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=_shell_script(), invocation_binding=app.provider.invocation_binding
+    )
+    app.provider_configured = True
+    session, _loop = app.open_chat_session("hi", DeferredApprovalGateway())
+    _set_mode(app, session.session_id, "ACCEPT_IN_WORKSPACE")
+    _begin_turn(app, session.session_id)
+
+    def _pending():
+        projected = app.tasks.project_session(session.task_id, session.session_id)
+        return projected.pending_continuation
+
+    pending = _wait_for(_pending, "pending approval")
+    assert pending is not None
+
+    # The operator adds a DENY rule AFTER the action was escalated; resolving the
+    # pending approval must now be refused (fail closed), not executed.
+    app.permission_rule_store.save(_rule(capability_id="workspace.shell"))
+    with pytest.raises(RunExecutionError):
+        app.decide_session_approval(
+            session.session_id,
+            pending.action.action_digest(),
+            ApprovalDisposition.APPROVE,
+            "approved earlier",
+        )
+    rule_denials = [
+        verdict
+        for verdict in _verdicts(app, session.task_id)
+        if verdict.get("basis") == "rule" and verdict.get("verdict") == "DENY"
+    ]
+    assert rule_denials and rule_denials[0]["rule_id"] == "rule-1"
+
+
 def test_deny_rule_blocks_a_mode_auto_allowed_edit(tmp_path: Path) -> None:
     app = _chat_app(tmp_path)
     # Add the rule BEFORE the session loop is built, so it is consulted this turn.
@@ -285,6 +364,7 @@ def test_deny_rule_blocks_a_mode_auto_allowed_edit(tmp_path: Path) -> None:
         if verdict.get("basis") == "rule" and verdict.get("verdict") == "DENY"
     ]
     assert rule_denials, "expected a DENY-by-rule policy verdict"
+    assert rule_denials[0]["rule_id"] == "rule-1"
     # No mode auto-allow for the edit this turn.
     assert not [
         verdict

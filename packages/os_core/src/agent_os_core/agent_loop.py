@@ -51,7 +51,7 @@ from .permission_gate import (
     apply_deny_rules,
     evaluate_permission_gate,
 )
-from .permission_rules import PermissionDenyRule
+from .permission_rules import PermissionDenyRule, active_deny_rule
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
 from .responsibility_loop import ResponsibilityLoopStaleFence
@@ -537,6 +537,26 @@ class AgentLoop:
         ):
             raise InvalidTransitionError(
                 "approval decision does not bind the exact pending action"
+            )
+        # Fail closed: a durable operator DENY rule forbids executing a previously
+        # escalated pending action (otherwise resolving it would bypass the rule).
+        deny_rule = active_deny_rule(
+            self._deny_rules,
+            pending.action.capability_id,
+            self._principal.tenant_id,
+            self._principal.workspace_id,
+        )
+        if deny_rule is not None:
+            self._record_policy_verdict(
+                session,
+                pending.action,
+                verdict="DENY",
+                basis="rule",
+                reason="denied by an operator permission rule",
+                rule_id=deny_rule.rule_id,
+            )
+            raise RunExecutionError(
+                "denied by an operator permission rule: pending action is blocked"
             )
         unknown = self._tasks._unknown_session_action(
             session.task_id,
@@ -1327,11 +1347,16 @@ class AgentLoop:
                     if denied_by_rule
                     else "capability is outside the frozen session allowlist"
                 ),
+                rule_id=gate.rule_id if denied_by_rule else None,
             )
             return self._tool_message(
                 proposal,
                 {
-                    "error": "denied: capability is outside the allowlist",
+                    "error": (
+                        "denied: an operator permission rule forbids this capability"
+                        if denied_by_rule
+                        else "denied: capability is outside the allowlist"
+                    ),
                     "denied": True,
                 },
             )
@@ -1461,10 +1486,12 @@ class AgentLoop:
         basis: str | None,
         reason: str | None,
         mode_event_id: str | None = None,
+        rule_id: str | None = None,
     ) -> None:
         """E2 durable policy verdict: an auto-allowance is recorded with
         provenance (basis=permission_mode + mode_event_id), never as an
-        ApprovalDecision; an out-of-allowlist denial is recorded with reason."""
+        ApprovalDecision; an out-of-allowlist denial is recorded with reason; a
+        DENY-by-rule records the exact rule_id."""
         self._tasks.append_event(
             session.task_id,
             TaskEventType.POLICY_VERDICT_RECORDED,
@@ -1472,6 +1499,7 @@ class AgentLoop:
                 "verdict": verdict,
                 "basis": basis,
                 "mode_event_id": mode_event_id,
+                "rule_id": rule_id,
                 "capability_id": action.capability_id,
                 "risk_tier": action.risk_tier,
                 "action_digest": action.action_digest(),

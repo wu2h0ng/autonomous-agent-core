@@ -626,6 +626,14 @@ def run_responsibility_work(
             collaboration_preflight=getattr(
                 execution_app, "collaboration_preflight", None
             ),
+            deny_rules=(
+                execution_app.permission_rule_store.list_active(
+                    tenant_id=execution_app.principal.tenant_id,
+                    workspace_id=execution_app.principal.workspace_id,
+                )
+                if getattr(execution_app, "permission_rule_store", None) is not None
+                else ()
+            ),
         )
         current = execution_app.tasks.get_task(task_id)
         if (
