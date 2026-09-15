@@ -220,6 +220,18 @@ from .terminal_session import (
     save_terminal_session,
     session_path,
 )
+from .permission_gate import (
+    PermissionGateOutcome,
+    apply_deny_rules,
+    evaluate_permission_gate,
+)
+from .permission_rules import (
+    PermissionDenyRule,
+    PermissionRuleKind,
+    SQLitePermissionRuleStore,
+    active_deny_rule,
+    rule_matches,
+)
 from .agent_loop import (
     ACTION_RISK_TIERS,
     CHAT_CAPABILITY_IDS,
@@ -522,6 +534,14 @@ __all__ = [
     "save_terminal_session",
     "session_path",
     "ACTION_RISK_TIERS",
+    "PermissionDenyRule",
+    "PermissionGateOutcome",
+    "PermissionRuleKind",
+    "SQLitePermissionRuleStore",
+    "active_deny_rule",
+    "apply_deny_rules",
+    "evaluate_permission_gate",
+    "rule_matches",
     "CHAT_CAPABILITY_IDS",
     "CHAT_GRANT_MAX_RISK_TIERS",
     "AgentLoop",

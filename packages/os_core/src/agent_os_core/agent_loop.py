@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
@@ -48,8 +48,10 @@ from .governance import CorrectionReadPort, PolicyKernel
 from .permission_gate import (
     ACTION_RISK_TIERS,
     PermissionGateOutcome,
+    apply_deny_rules,
     evaluate_permission_gate,
 )
+from .permission_rules import PermissionDenyRule
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
 from .responsibility_loop import ResponsibilityLoopStaleFence
@@ -222,6 +224,7 @@ class AgentLoop:
         reasoning_delta_sink: Callable[[str], None] | None = None,
         permission_mode: PermissionMode = "ASK",
         permission_mode_event_id: str | None = None,
+        deny_rules: Sequence[PermissionDenyRule] = (),
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -268,6 +271,7 @@ class AgentLoop:
         self._reasoning_delta_sink = reasoning_delta_sink
         self._permission_mode: PermissionMode = permission_mode
         self._permission_mode_event_id = permission_mode_event_id
+        self._deny_rules = tuple(deny_rules)
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -1296,16 +1300,33 @@ class AgentLoop:
             mode=self._permission_mode,
             mode_event_id=self._permission_mode_event_id,
         )
-        if gate.outcome is PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST:
+        # Purely-restrictive operator DENY rules (S2): they can only downgrade the
+        # frozen matrix to DENY_BY_RULE; they can never allow or pre-empt C7.
+        gate = apply_deny_rules(
+            gate,
+            capability_id=capability_id,
+            rules=self._deny_rules,
+            tenant_id=self._principal.tenant_id,
+            workspace_id=self._principal.workspace_id,
+        )
+        if gate.outcome in (
+            PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST,
+            PermissionGateOutcome.DENY_BY_RULE,
+        ):
             # Fail closed in every mode: never executable, not approvable.
             # No ApprovalDecision, human or otherwise, can authorize it; the
             # denial is recorded durably with reason and the action digest.
+            denied_by_rule = gate.outcome is PermissionGateOutcome.DENY_BY_RULE
             self._record_policy_verdict(
                 session,
                 action,
                 verdict="DENY",
-                basis="out_of_allowlist",
-                reason="capability is outside the frozen session allowlist",
+                basis="rule" if denied_by_rule else "out_of_allowlist",
+                reason=(
+                    "denied by an operator permission rule"
+                    if denied_by_rule
+                    else "capability is outside the frozen session allowlist"
+                ),
             )
             return self._tool_message(
                 proposal,

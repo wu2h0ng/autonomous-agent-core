@@ -89,6 +89,7 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core import (
+    SQLitePermissionRuleStore,
     SurfaceRuntime,
     SurfaceSessionNotFound,
     SessionStreamRegistry,
@@ -365,6 +366,12 @@ class AgentOSApplication:
             else None
         )
         self.tasks = TaskService(self.store, clock=self._clock)
+        # S2: durable, operator-authored, DENY-only permission rules (fail-closed;
+        # consulted after the frozen E2 gate, can only restrict).
+        self.permission_rule_store = SQLitePermissionRuleStore(
+            canonical_database,
+            uri=canonical_database_uri,
+        )
         self.mandate_responsibility_store = SQLiteMandateResponsibilityStore(
             canonical_database,
             clock=self._clock,
@@ -1960,6 +1967,10 @@ class AgentOSApplication:
             initial_history=(system_message,),
             message_sink=self._record_chat_message,
             collaboration_preflight=self.collaboration_preflight,
+            deny_rules=self.permission_rule_store.list_active(
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+            ),
         )
         self.tasks.append_event(
             task.task_id,
@@ -2081,6 +2092,10 @@ class AgentOSApplication:
             reasoning_delta_sink=reasoning_delta_sink,
             permission_mode=projected.permission_mode,
             permission_mode_event_id=projected.permission_mode_event_id,
+            deny_rules=self.permission_rule_store.list_active(
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+            ),
         )
         return session, loop
 

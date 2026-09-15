@@ -11,11 +11,14 @@ executable, not approvable.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
 from agent_os_contracts import PermissionMode
+
+from .permission_rules import PermissionDenyRule, active_deny_rule
 
 ACTION_RISK_TIERS: dict[str, int] = {
     "workspace.read": 1,
@@ -33,14 +36,16 @@ class PermissionGateOutcome(str, Enum):
     MODE_AUTO_ALLOW = "MODE_AUTO_ALLOW"
     REQUIRE_CONFIRM = "REQUIRE_CONFIRM"
     DENY_OUT_OF_ALLOWLIST = "DENY_OUT_OF_ALLOWLIST"
+    DENY_BY_RULE = "DENY_BY_RULE"
 
 
 @dataclass(frozen=True)
 class PermissionGateDecision:
     outcome: PermissionGateOutcome
     risk_tier: int
-    basis: Literal["permission_mode", "out_of_allowlist"] | None = None
+    basis: Literal["permission_mode", "out_of_allowlist", "rule"] | None = None
     mode_event_id: str | None = None
+    rule_id: str | None = None
 
 
 def evaluate_permission_gate(
@@ -75,4 +80,30 @@ def evaluate_permission_gate(
     return PermissionGateDecision(
         outcome=PermissionGateOutcome.REQUIRE_CONFIRM,
         risk_tier=risk_tier,
+    )
+
+
+def apply_deny_rules(
+    decision: PermissionGateDecision,
+    *,
+    capability_id: str,
+    rules: Sequence[PermissionDenyRule],
+    tenant_id: str,
+    workspace_id: str,
+) -> PermissionGateDecision:
+    """Apply durable operator DENY rules — purely restrictive, never granting.
+
+    A matching, unrevoked DENY rule downgrades any decision (including a mode
+    auto-allow) to ``DENY_BY_RULE``. There is no rule that can ALLOW, auto-approve
+    tier-3, or pre-empt C7; the frozen matrix itself is unchanged above.
+    """
+
+    rule = active_deny_rule(tuple(rules), capability_id, tenant_id, workspace_id)
+    if rule is None:
+        return decision
+    return PermissionGateDecision(
+        outcome=PermissionGateOutcome.DENY_BY_RULE,
+        risk_tier=decision.risk_tier,
+        basis="rule",
+        rule_id=rule.rule_id,
     )
