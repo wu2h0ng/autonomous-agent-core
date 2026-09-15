@@ -28,11 +28,7 @@ from agent_os_core import (
     ExecutionLease,
 )
 
-from .dangerous_command import (
-    ShellCommandDenied,
-    ShellDenialReason,
-    classify_dangerous_command,
-)
+from .dangerous_command import require_safe_shell_command
 
 # OS-SANDBOX-0: execution isolation is an OS-level confinement below the
 # permit/approval spine. It never substitutes for approval and is never an
@@ -43,6 +39,10 @@ EXECUTION_ISOLATION_SANDBOXED = "sandboxed"
 _EXECUTION_ISOLATION_VALUES = (
     EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
     EXECUTION_ISOLATION_SANDBOXED,
+)
+
+_ALLOWLISTED_TEST_COMMANDS = frozenset(
+    {"pytest", "python -m pytest", "python3 -m pytest"}
 )
 
 # Read prefixes denied even though file-read* is otherwise broad, then
@@ -450,30 +450,19 @@ class DeveloperWorkspaceAdapter:
 
     def _preflight_shell(self, args: dict[str, object]) -> None:
         command = " ".join(str(args.get("command", "")).split())
-        # Defense-in-depth before the allowlist: refuse a dangerous command even if
-        # an operator allowlisted it, with a machine-consumable reason code. This is
-        # a classifier, not sandbox isolation.
-        classes = classify_dangerous_command(command)
-        if classes:
-            raise ShellCommandDenied(
-                ShellDenialReason.DANGEROUS_PATTERN,
-                "command matches dangerous patterns: "
-                + ",".join(command_class.value for command_class in classes),
-                classes=classes,
-            )
-        if command not in self._shell_allowlist:
-            raise ShellCommandDenied(
-                ShellDenialReason.NOT_IN_ALLOWLIST,
-                "command is not in the shell allowlist",
-            )
+        require_safe_shell_command(
+            command, self._shell_allowlist, "command is not in the shell allowlist"
+        )
         int(str(args.get("timeout_seconds", 120)))
 
     @staticmethod
     def _preflight_run_tests(args: dict[str, object]) -> None:
         command = str(args.get("command", ""))
-        allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
-        if command not in allowed:
-            raise CapabilityDenied("only the allowlisted test commands are permitted")
+        require_safe_shell_command(
+            command,
+            _ALLOWLISTED_TEST_COMMANDS,
+            "only the allowlisted test commands are permitted",
+        )
         int(str(args.get("timeout_seconds", 120)))
 
     def specs(
@@ -1222,8 +1211,11 @@ class DeveloperWorkspaceAdapter:
 
     def _shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = " ".join(str(args.get("command", "")).split())
-        if command not in self._shell_allowlist:
-            raise CapabilityDenied("command is not in the shell allowlist")
+        # Same guard as the preflight: reaching execution without it must not bypass
+        # the classifier (an allowlisted dangerous command is still refused here).
+        require_safe_shell_command(
+            command, self._shell_allowlist, "command is not in the shell allowlist"
+        )
         timeout = min(int(str(args.get("timeout_seconds", 120))), 300)
         result, isolation = self._execute_confined(command.split(), timeout)
         report = {
@@ -1250,9 +1242,11 @@ class DeveloperWorkspaceAdapter:
 
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
-        allowed = {"pytest", "python -m pytest", "python3 -m pytest"}
-        if command not in allowed:
-            raise CapabilityDenied("only the allowlisted test commands are permitted")
+        require_safe_shell_command(
+            command,
+            _ALLOWLISTED_TEST_COMMANDS,
+            "only the allowlisted test commands are permitted",
+        )
         timeout = min(int(str(args.get("timeout_seconds", 120))), 120)
         snapshot = args.get("selfdev_verification_snapshot")
         verifier_bindings: list[dict[str, str]] | None = None
