@@ -32,7 +32,13 @@
 | 终端进度：P0/P1（全屏）、P2（多面板 `transcript`+`files`+`diff`、独立滚动、sticky context-lock、`--no-panels/--no-animation`）已合并 | `docs/product/GC-TUI-FULLSCREEN-MIGRATION-2026-09-15.md` §7-§9 |
 | Stage 2c/2d：治理面 API-only；surface 协议保持 v1.1 | `docs/CURRENT_STATE.yaml` `stage2_path_a_migration_2026_09_15` |
 
-**OPEN（需实现前核实，勿在设计中当作已知）**
+**RESOLVED 2026-09-16（见 `AB-P3A-MULTIAGENT-TASK-TREE-2026-09-16.md` §1）**
+1. session↔mandate/parent：**已存在** mandate→task→session（`GET /v1/mandates`、`/task-links`、`SurfaceSessionSummary.task_id`），**无需新持久化**；session→parent-session 不存在（不入 P3a）。
+2. 客户端 stream 并发：改为**活动流=1，其余只读轮询** → 资源上界问题消除。
+3. 协议版本策略：先例 `CP-TERMINAL-CODING-AGENT-M2`（附加字段升 minor 且保留旧解码）；**P3a-1 零契约改动**故不触发。
+4. mandate 创建/绑定入口：`/v1/mandates:bootstrap|attach` 已知；树只读消费，不依赖新入口。
+
+**原始 OPEN（保留供追溯）**
 1. 会话与 mandate/task 的**从属关系**是否已持久化并可读？（`SurfaceSessionSummary.task_id` 存在，但 session→mandate、session→parent session 未见字段。）
 2. 客户端能否同时持有 N 条 per-session stream？（当前 `TuiController` 单会话；stream registry 为 per-session。）
 3. 附加可选字段是否触发协议版本策略（`Literal["1.1"]` 与兼容规则写在何处）。
