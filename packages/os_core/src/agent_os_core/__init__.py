@@ -39,6 +39,12 @@ from .errors import (
     TaskConfigurationScopeMismatch,
 )
 from .event_store import InMemoryTaskEventStore, TaskEventStore
+from .consequence_preview import (
+    DEFAULT_LAST_OUTCOMES,
+    INTENDED_EXECUTION_OUTCOME,
+    ActionHistoryPort,
+    build_consequence_preview,
+)
 from .external_boundary import (
     DurableExecutionBackend,
     DurableExecutionBoundary,
@@ -312,6 +318,10 @@ from .materialization_promotion_policy import (
 )
 
 __all__ = [
+    "ActionHistoryPort",
+    "INTENDED_EXECUTION_OUTCOME",
+    "DEFAULT_LAST_OUTCOMES",
+    "build_consequence_preview",
     "AgentOSCoreError",
     "CandidateConcurrentWrite",
     "CandidateError",

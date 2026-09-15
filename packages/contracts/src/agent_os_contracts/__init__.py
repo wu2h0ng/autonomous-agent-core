@@ -37,6 +37,7 @@ from .candidate import (
     rollback_receipt_digest,
 )
 from .c7_receipt import C7ClearanceReceipt
+from .consequence import ConsequencePreview
 from .common import (
     ContractModel,
     NonEmptyStr,
@@ -373,6 +374,7 @@ from .trajectory import (
 )
 
 __all__ = [
+    "ConsequencePreview",
     "ActionContract",
     "BindingStatus",
     "ActionPermit",
