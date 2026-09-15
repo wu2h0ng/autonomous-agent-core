@@ -70,6 +70,23 @@ class TrustedSrlExecutionPlanPort(Protocol):
     def resolve(self, task_id: str) -> SrlExecutionPlan | None: ...
 
 
+class SrlExecutionPlanRegistry:
+    """Composition-root-owned, trusted plan source (never caller-injected).
+
+    A trusted organ registers a plan for an already-activated SRL task; the bridge
+    resolves it. There is no HTTP/CLI path that accepts a plan from a caller.
+    """
+
+    def __init__(self) -> None:
+        self._plans: dict[str, SrlExecutionPlan] = {}
+
+    def register(self, plan: SrlExecutionPlan) -> None:
+        self._plans[plan.task_id] = plan
+
+    def resolve(self, task_id: str) -> SrlExecutionPlan | None:
+        return self._plans.get(task_id)
+
+
 class TaskSnapshotServicePort(Protocol):
     """Trusted task-configuration service.
 

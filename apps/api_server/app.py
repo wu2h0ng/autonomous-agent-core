@@ -89,6 +89,12 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core import (
+    C7ReceiptIssuer,
+    C7ReceiptVerifier,
+    SrlExecutionPlan,
+    SrlExecutionPlanRegistry,
+    SrlExecutionResult,
+    SrlTaskExecutionBridge,
     SurfaceRuntime,
     SurfaceSessionNotFound,
     SessionStreamRegistry,
@@ -574,6 +580,24 @@ class AgentOSApplication:
             evaluations=self.evaluation_receipts,
             promotions=self.candidate_promotions,
             clock=self._clock,
+        )
+        # P0-3 Increment 1 production wiring: the SRL execution bridge is composed
+        # here. Its plan source is a composition-root-owned trusted registry that a
+        # trusted organ populates; no HTTP/CLI path accepts a caller-supplied plan.
+        self.srl_execution_plans = SrlExecutionPlanRegistry()
+        self.srl_execution = SrlTaskExecutionBridge(
+            task_service=self.tasks,
+            plan_port=self.srl_execution_plans,
+            task_snapshots=self.task_configurations,
+            principal=self.principal,
+            correction=self.correction,
+            c7_issuer=C7ReceiptIssuer(
+                self.correction,
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+                issuer_id=self.principal.principal_id,
+            ),
+            c7_verifier=C7ReceiptVerifier(self.correction),
         )
         self.domain_candidate_evaluations = DomainCandidateEvaluationRecorder(
             self.tasks,
@@ -1503,6 +1527,27 @@ class AgentOSApplication:
     ) -> TaskConfigurationSnapshot:
         command = TaskConfigurationSnapshotCommand.model_validate(payload)
         return self.task_configurations.seal(self.principal, task_id, command)
+
+    def register_srl_execution_plan(self, plan: SrlExecutionPlan) -> None:
+        """Trusted-organ entry: register the execution contracts for an SRL task.
+
+        This is a composition-root method, not an HTTP/CLI surface, so a caller
+        cannot inject an execution plan.
+        """
+
+        self.srl_execution_plans.register(plan)
+
+    def commit_and_start_srl_task(
+        self,
+        task_id: str,
+        *,
+        snapshot_command: TaskConfigurationSnapshotCommand | None = None,
+    ) -> SrlExecutionResult:
+        """Commit and C7-guarded-start an activated SRL task via the trusted plan."""
+
+        return self.srl_execution.commit_and_start(
+            task_id, snapshot_command=snapshot_command
+        )
 
     def get_task_configuration(
         self,
