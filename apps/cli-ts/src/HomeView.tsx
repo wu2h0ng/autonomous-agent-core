@@ -35,7 +35,7 @@ export function StatusBar({
     return (
       <Text dimColor wrap="truncate-end">
         <Text bold color={theme.accent}>
-          ◆ agent-os
+          ◆ noem
         </Text>
         {` · ${name}`}
       </Text>
@@ -45,7 +45,7 @@ export function StatusBar({
     <Box justifyContent="space-between">
       <Text>
         <Text bold color={theme.accent}>
-          ◆ agent-os
+          ◆ noem
         </Text>
         <Text dimColor> v{version}</Text>
       </Text>
@@ -99,7 +99,7 @@ export function HomeView({
       <Box flexDirection="column" marginBottom={1}>
         <Text>
           <Text bold color={theme.accent}>
-            AGENT OS
+            NOEM
           </Text>
           <Text dimColor> · v{version}</Text>
         </Text>
@@ -119,7 +119,7 @@ export function HomeView({
       >
         <Text>
           <Text bold color={theme.accent}>
-            AGENT OS
+            NOEM
           </Text>
           <Text dimColor> · governed terminal agent</Text>
         </Text>

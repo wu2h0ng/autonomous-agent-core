@@ -605,7 +605,7 @@ export class TuiController {
   /** `/export [path]` — write the in-session transcript (0600, explicit path). */
   private exportCommand(pathArg: string | undefined): void {
     const stamp = new Date(this.clock()).toISOString().replace(/[:.]/g, "-");
-    const path = pathArg?.trim() ? pathArg.trim() : `agent-os-transcript-${stamp}.md`;
+    const path = pathArg?.trim() ? pathArg.trim() : `noem-transcript-${stamp}.md`;
     try {
       writeFileSync(
         path,

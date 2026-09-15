@@ -167,7 +167,7 @@ function emit(
     out.stdout(`${JSON.stringify(payload)}\n`);
   } else {
     if (payload.text) out.stdout(payload.text.endsWith("\n") ? payload.text : `${payload.text}\n`);
-    if (payload.is_error) out.stderr(`agent-os-ts: ${payload.subtype} (${payload.stop_reason ?? ""})\n`);
+    if (payload.is_error) out.stderr(`noem: ${payload.subtype} (${payload.stop_reason ?? ""})\n`);
   }
   return exitCode;
 }

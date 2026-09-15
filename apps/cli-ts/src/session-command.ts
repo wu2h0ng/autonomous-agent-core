@@ -1,5 +1,5 @@
 /**
- * Headless session administration (`agent-os session ...`), mirroring the
+ * Headless session administration (`noem session ...`), mirroring the
  * former Python `session-show` / `session-pause` / `session-resume` /
  * `session-correct` subcommands. Read/control only; durable truth stays in the
  * task event stream.
@@ -22,13 +22,13 @@ export async function runSessionCommand(
   const reason = options.args.slice(2).join(" ").trim();
   if (!SUBCOMMANDS.has(sub)) {
     process.stderr.write(
-      `agent-os-ts: unknown session subcommand ${sub} (show | pause | resume | correct)\n`,
+      `noem: unknown session subcommand ${sub} (show | pause | resume | correct)\n`,
     );
     return 1;
   }
   if (!sessionId) {
     process.stderr.write(
-      `usage: agent-os-ts session ${sub} <session-id>${sub === "show" ? "" : " [reason]"}\n`,
+      `usage: noem session ${sub} <session-id>${sub === "show" ? "" : " [reason]"}\n`,
     );
     return 1;
   }
@@ -64,7 +64,7 @@ export async function runSessionCommand(
     );
     return 0;
   } catch (cause) {
-    process.stderr.write(`agent-os-ts session: ${(cause as Error).message}\n`);
+    process.stderr.write(`noem session: ${(cause as Error).message}\n`);
     return 1;
   }
 }

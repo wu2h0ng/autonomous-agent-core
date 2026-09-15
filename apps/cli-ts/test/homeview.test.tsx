@@ -40,7 +40,7 @@ test("StatusBar renders one compact line when narrow", () => {
     />,
   );
   const frame = view.lastFrame() ?? "";
-  assert.match(frame, /agent-os/);
+  assert.match(frame, /noem/);
   assert.match(frame, /os-sandbox/);
   assert.doesNotMatch(frame, /feature\/long-branch-name/);
   assert.equal(frame.trimEnd().split("\n").length, 1);

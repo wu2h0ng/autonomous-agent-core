@@ -28,7 +28,7 @@ export function openExternalEditor(
   const [command, ...args] = editor.split(/\s+/).filter(Boolean);
   if (!command) return null;
 
-  const dir = mkdtempSync(join(tmpdir(), "agent-os-edit-"));
+  const dir = mkdtempSync(join(tmpdir(), "noem-edit-"));
   const file = join(dir, "prompt.md");
   try {
     writeFileSync(file, current, "utf8");

@@ -85,7 +85,7 @@ test("provider set requires --base-url and --model before connecting", async () 
     runProviderCommand({ args: ["set", "--model", "m"] }),
   );
   assert.equal(result, 1);
-  assert.match(err, /usage: agent-os-ts provider set/);
+  assert.match(err, /usage: noem provider set/);
 });
 
 test("provider set without AGENT_OS_PROVIDER_KEY never echoes a key", async () => {

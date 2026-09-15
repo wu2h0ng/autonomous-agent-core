@@ -34,7 +34,7 @@ export async function loadRuntimeDescriptor(
     raw = await readFile(path, "utf8");
   } catch {
     throw new Error(
-      `runtime descriptor not found at ${path}; start the daemon first (agent-os daemon start / scripts/dev_daemon.py)`,
+      `runtime descriptor not found at ${path}; start the daemon first (noem daemon start / scripts/dev_daemon.py)`,
     );
   }
   let parsed: unknown;
