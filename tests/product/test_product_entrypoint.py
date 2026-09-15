@@ -51,3 +51,20 @@ def test_runtime_daemon_entrypoint_runs() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "agent-os-runtime" in completed.stdout
+
+
+def test_work_cli_help_lists_the_work_surface_without_suppress_markers() -> None:
+    import subprocess
+    import sys
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "apps.cli", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "==SUPPRESS==" not in completed.stdout
+    assert "agent-run" in completed.stdout
+    assert "agent-admit-selfdev" in completed.stdout

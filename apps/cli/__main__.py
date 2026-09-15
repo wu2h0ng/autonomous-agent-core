@@ -523,14 +523,17 @@ def main(argv: list[str] | None = None) -> None:
         help="path to the private runtime descriptor",
     )
 
-    for command in ("agent-run", "agent-resume"):
-        work = sub.add_parser(command, help=argparse.SUPPRESS)
+    for command, description in (
+        ("agent-run", "run supervised Agent Work to completion (--max-cycles)"),
+        ("agent-resume", "resume suspended Agent Work"),
+    ):
+        work = sub.add_parser(command, help=description)
         work.add_argument("--inputs-json", type=Path, default=None)
         work.add_argument("--max-cycles", type=int, default=16)
         work.add_argument("--offline", action="store_true")
 
-    sub.add_parser("agent-status", help=argparse.SUPPRESS)
-    answer = sub.add_parser("agent-answer", help=argparse.SUPPRESS)
+    sub.add_parser("agent-status", help="show Agent Work status")
+    answer = sub.add_parser("agent-answer", help="answer an Agent Work help request")
     answer.add_argument("help_request_id")
     answer.add_argument(
         "--decision",
@@ -538,9 +541,13 @@ def main(argv: list[str] | None = None) -> None:
         required=True,
     )
     answer.add_argument("--notes", default=None)
-    correct = sub.add_parser("agent-correct", help=argparse.SUPPRESS)
+    correct = sub.add_parser(
+        "agent-correct", help="operator correction for Agent Work"
+    )
     correct.add_argument("reason")
-    admit_selfdev = sub.add_parser("agent-admit-selfdev", help=argparse.SUPPRESS)
+    admit_selfdev = sub.add_parser(
+        "agent-admit-selfdev", help="admit one bounded SELFDEV responsibility"
+    )
     admit_selfdev.add_argument("admission_json", type=Path)
 
     mandate_bootstrap = sub.add_parser("mandate-bootstrap")

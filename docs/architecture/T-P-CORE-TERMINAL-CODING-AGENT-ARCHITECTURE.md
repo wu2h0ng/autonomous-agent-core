@@ -183,7 +183,9 @@ Agent Core.
 
 ## 9. Engineering reality review (root constitution §14)
 
-- **Entry point:** `python -m apps.cli chat` and `python -m apps.cli chat -p`, calling
+> Update 2026-09-15 (Stage 2f1): the terminal entry moved to the npm `agentos`/`agent-os` bin (apps/cli-ts); `apps.cli chat`/`chat -p` were removed. The line below is M1 history.
+
+- **Entry point (M1 history):** `python -m apps.cli chat` and `python -m apps.cli chat -p`, calling
   `AgentLoop.run_turn()`; no other consumer is claimed for M1.
 - **Contract:** `ProviderMessage` (+`tool_call_id`/`tool_calls`), `SessionRef`,
   `TurnId`, `TurnResult`, capability specs for `workspace.edit` / `workspace.search` /
