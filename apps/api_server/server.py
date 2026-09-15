@@ -740,13 +740,14 @@ class Handler(BaseHTTPRequestHandler):
                 admin = self._admin_application()
                 if admin is None:
                     return
-                database = Path(str(admin.store.path))
-                if str(database) == ":memory:":
+                store_path = str(admin.store.path)
+                if ":memory:" in store_path or "mode=memory" in store_path:
                     self._json(
                         400,
                         {"error": "mandate bootstrap requires a file database"},
                     )
                     return
+                database = Path(store_path)
                 mandate = RatifiedMandateRef.model_validate(body)
                 self._json(
                     201, bootstrap_mandate(database=database, mandate=mandate)
@@ -759,13 +760,13 @@ class Handler(BaseHTTPRequestHandler):
                 session = attach_mandate(
                     workspace=Path(str(admin.workspace_root)),
                     database=Path(str(admin.store.path)),
-                    mandate_id=str(body.get("mandate_id", "")),
+                    mandate_id=str(body.get("mandate_id") or ""),
                     environment_binding_id=str(
-                        body.get("environment_binding_id", "")
+                        body.get("environment_binding_id") or ""
                     ),
-                    principal_id=str(body.get("principal_id", "")),
-                    tenant_id=str(body.get("tenant_id", "")),
-                    workspace_id=str(body.get("workspace_id", "")),
+                    principal_id=str(body.get("principal_id") or ""),
+                    tenant_id=str(body.get("tenant_id") or ""),
+                    workspace_id=str(body.get("workspace_id") or ""),
                 )
                 self._json(200, session.to_dict())
                 return
