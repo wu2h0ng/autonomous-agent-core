@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+import sqlite3
+from collections.abc import Iterable
+from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
+from threading import RLock
 from typing import Protocol
 
 from agent_os_contracts import (
@@ -42,6 +48,27 @@ class ExecutionDenialReason(str, Enum):
     START_REJECTED = "START_REJECTED"
 
 
+class PlanRegistrationDenialReason(str, Enum):
+    """Enumerable fail-closed reasons for refusing a plan registration."""
+
+    MISSING_REGISTRANT = "MISSING_REGISTRANT"
+    TASK_UNAVAILABLE = "TASK_UNAVAILABLE"
+    TASK_NOT_DRAFT = "TASK_NOT_DRAFT"
+    BINDING_MISMATCH = "BINDING_MISMATCH"
+    DUPLICATE_PLAN = "DUPLICATE_PLAN"
+
+
+class SrlExecutionPlanRegistrationError(AgentOSCoreError):
+    """Raised when a registration would violate the trusted-plan boundary."""
+
+    def __init__(self, reason: PlanRegistrationDenialReason, detail: str = "") -> None:
+        self.reason = reason
+        message = f"plan registration denied: {reason.value}"
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)
+
+
 class SrlExecutionPlan(ContractModel):
     """Trusted execution contracts for one activated SRL task.
 
@@ -70,21 +97,189 @@ class TrustedSrlExecutionPlanPort(Protocol):
     def resolve(self, task_id: str) -> SrlExecutionPlan | None: ...
 
 
+class RegisteredSrlExecutionPlan(ContractModel):
+    """A durable (plan, registrant) record read back from the plan store."""
+
+    plan: SrlExecutionPlan
+    registered_by: NonEmptyStr
+    registered_at: datetime
+
+
+class SrlExecutionPlanStore(Protocol):
+    """Durable backing for the trusted plan registry (optional)."""
+
+    def save(
+        self,
+        plan: SrlExecutionPlan,
+        *,
+        registered_by: str,
+        registered_at: datetime,
+    ) -> None: ...
+
+    def exists(self, task_id: str) -> bool: ...
+
+    def load_all(self) -> Iterable[RegisteredSrlExecutionPlan]: ...
+
+
+class SQLiteSrlExecutionPlanStore:
+    """SQLite-backed, restart-durable store for registered SRL execution plans."""
+
+    def __init__(self, path: str | Path = ":memory:", *, uri: bool = False) -> None:
+        self.path = str(path)
+        self._uri = uri
+        self._lock = RLock()
+        self._db = sqlite3.connect(self.path, check_same_thread=False, uri=self._uri)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute("PRAGMA journal_mode = WAL")
+        self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS srl_execution_plans (
+              task_id TEXT PRIMARY KEY,
+              tenant_id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL,
+              registered_by TEXT NOT NULL,
+              registered_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            )
+            """
+        )
+        self._db.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._db.close()
+
+    def exists(self, task_id: str) -> bool:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT 1 FROM srl_execution_plans WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        return row is not None
+
+    def save(
+        self,
+        plan: SrlExecutionPlan,
+        *,
+        registered_by: str,
+        registered_at: datetime,
+    ) -> None:
+        payload = plan.model_dump(mode="json")
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO srl_execution_plans
+                  (task_id, tenant_id, workspace_id, registered_by,
+                   registered_at, payload_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    plan.task_id,
+                    plan.commitment.tenant_id,
+                    plan.commitment.workspace_id,
+                    registered_by,
+                    registered_at.isoformat(),
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            self._db.commit()
+
+    def load_all(self) -> list[RegisteredSrlExecutionPlan]:
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT payload_json, registered_by, registered_at
+                FROM srl_execution_plans ORDER BY registered_at
+                """
+            ).fetchall()
+        return [
+            RegisteredSrlExecutionPlan(
+                plan=SrlExecutionPlan.model_validate(json.loads(row["payload_json"])),
+                registered_by=row["registered_by"],
+                registered_at=datetime.fromisoformat(row["registered_at"]),
+            )
+            for row in rows
+        ]
+
+
 class SrlExecutionPlanRegistry:
     """Composition-root-owned, trusted plan source (never caller-injected).
 
     A trusted organ registers a plan for an already-activated SRL task; the bridge
     resolves it. There is no HTTP/CLI path that accepts a plan from a caller.
+
+    Hardening (subagent N6/N7): registration binds an explicit registrant, refuses
+    a second plan for the same task (no silent overwrite), and, when a durable
+    store is supplied, survives a process restart by reloading registered plans.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, store: SrlExecutionPlanStore | None = None) -> None:
+        self._store = store
         self._plans: dict[str, SrlExecutionPlan] = {}
+        self._registrants: dict[str, str] = {}
+        if store is not None:
+            for record in store.load_all():
+                self._plans[record.plan.task_id] = record.plan
+                self._registrants[record.plan.task_id] = record.registered_by
 
-    def register(self, plan: SrlExecutionPlan) -> None:
+    def register(
+        self,
+        plan: SrlExecutionPlan,
+        *,
+        registered_by: str,
+        registered_at: datetime | None = None,
+    ) -> None:
+        if not registered_by:
+            raise SrlExecutionPlanRegistrationError(
+                PlanRegistrationDenialReason.MISSING_REGISTRANT
+            )
+        if plan.task_id in self._plans:
+            raise SrlExecutionPlanRegistrationError(
+                PlanRegistrationDenialReason.DUPLICATE_PLAN, plan.task_id
+            )
+        if self._store is not None:
+            self._store.save(
+                plan,
+                registered_by=registered_by,
+                registered_at=registered_at or datetime.now(timezone.utc),
+            )
         self._plans[plan.task_id] = plan
+        self._registrants[plan.task_id] = registered_by
 
     def resolve(self, task_id: str) -> SrlExecutionPlan | None:
         return self._plans.get(task_id)
+
+    def registered_by(self, task_id: str) -> str | None:
+        return self._registrants.get(task_id)
+
+
+def plan_binds(aggregate: TaskAggregate, plan: SrlExecutionPlan, principal: PrincipalIdentity) -> bool:
+    """True iff the trusted plan is coherently bound to the task and principal."""
+
+    goal = aggregate.goal
+    commitment = plan.commitment
+    workflow = plan.workflow
+    if goal is None or commitment is None or workflow is None:
+        return False
+    workflow_capabilities = {
+        node.capability
+        for node in workflow.nodes
+        if node.kind is NodeKind.TOOL and node.capability
+    }
+    return (
+        goal.tenant_id == principal.tenant_id
+        and goal.workspace_id == principal.workspace_id
+        and plan.task_id == aggregate.task_id
+        and plan.capability_id in workflow_capabilities
+        and commitment.task_id == aggregate.task_id
+        and commitment.goal_id == goal.goal_id
+        and commitment.tenant_id == goal.tenant_id
+        and commitment.workspace_id == goal.workspace_id
+        and workflow.tenant_id == goal.tenant_id
+        and workflow.workspace_id == goal.workspace_id
+        and plan.expected_outcome.task_id == aggregate.task_id
+        and plan.expected_outcome.tenant_id == goal.tenant_id
+        and plan.expected_outcome.workspace_id == goal.workspace_id
+    )
 
 
 class TaskSnapshotServicePort(Protocol):
@@ -165,7 +360,7 @@ class SrlTaskExecutionBridge:
         plan = self._plan.resolve(task_id)
         if plan is None:
             return _deny(ExecutionDenialReason.PLAN_UNAVAILABLE)
-        if not self._plan_binds(aggregate, plan):
+        if not plan_binds(aggregate, plan, self._principal):
             return _deny(ExecutionDenialReason.PLAN_BINDING_MISMATCH)
 
         try:
@@ -257,33 +452,4 @@ class SrlTaskExecutionBridge:
             started=True,
             task_id=task_id,
             run_id=run.run_id if run is not None else None,
-        )
-
-    def _plan_binds(self, aggregate, plan: SrlExecutionPlan) -> bool:
-        goal = aggregate.goal
-        commitment = plan.commitment
-        workflow = plan.workflow
-        if goal is None or commitment is None or workflow is None:
-            return False
-        workflow_capabilities = {
-            node.capability
-            for node in workflow.nodes
-            if node.kind is NodeKind.TOOL and node.capability
-        }
-        return (
-            # The task must belong to the bridge principal's tenant/workspace, so
-            # a caller cannot bind a plan to a foreign-scope goal before mutation.
-            goal.tenant_id == self._principal.tenant_id
-            and goal.workspace_id == self._principal.workspace_id
-            and plan.task_id == aggregate.task_id
-            and plan.capability_id in workflow_capabilities
-            and commitment.task_id == aggregate.task_id
-            and commitment.goal_id == goal.goal_id
-            and commitment.tenant_id == goal.tenant_id
-            and commitment.workspace_id == goal.workspace_id
-            and workflow.tenant_id == goal.tenant_id
-            and workflow.workspace_id == goal.workspace_id
-            and plan.expected_outcome.task_id == aggregate.task_id
-            and plan.expected_outcome.tenant_id == goal.tenant_id
-            and plan.expected_outcome.workspace_id == goal.workspace_id
         )

@@ -17,10 +17,16 @@ from agent_os_contracts import (
     TaskConfigurationSnapshotCommand,
     WorkflowGraph,
 )
+import pytest
+
 from agent_os_core import (
     TASK_CONFIGURATION_CAPABILITY,
     ExecutionDenialReason,
+    PlanRegistrationDenialReason,
+    SQLiteSrlExecutionPlanStore,
     SrlExecutionPlan,
+    SrlExecutionPlanRegistrationError,
+    SrlExecutionPlanRegistry,
 )
 from apps.api_server.app import AgentOSApplication
 
@@ -103,7 +109,7 @@ def _draft_task(app: AgentOSApplication):
 def test_application_wires_and_runs_the_srl_execution_bridge(tmp_path):
     app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
     task = _draft_task(app)
-    app.register_srl_execution_plan(_plan(app, task))
+    app.register_srl_execution_plan(_plan(app, task), registered_by="organ:srl")
     result = app.commit_and_start_srl_task(
         task.task_id, snapshot_command=TaskConfigurationSnapshotCommand()
     )
@@ -127,3 +133,87 @@ def test_srl_execution_bridge_is_composed(tmp_path):
     # The bridge and its trusted plan registry are owned by the composition root.
     assert app.srl_execution is not None
     assert app.srl_execution_plans.resolve("missing") is None
+
+
+def test_registration_refuses_missing_registrant(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
+    task = _draft_task(app)
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        app.srl_execution_plans.register(_plan(app, task), registered_by="")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.MISSING_REGISTRANT
+
+
+def test_registration_refuses_duplicate_plan_without_overwrite(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
+    task = _draft_task(app)
+    plan = _plan(app, task)
+    app.register_srl_execution_plan(plan, registered_by="organ:srl")
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        app.register_srl_execution_plan(plan, registered_by="organ:impostor")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.DUPLICATE_PLAN
+    # the original registration is intact (no silent overwrite)
+    assert app.srl_execution_plans.resolve(task.task_id) == plan
+    assert app.srl_execution_plans.registered_by(task.task_id) == "organ:srl"
+
+
+def test_app_registration_refuses_unknown_task(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
+    task = _draft_task(app)
+    forged = _plan(app, task).model_copy(update={"task_id": "task:missing"})
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        app.register_srl_execution_plan(forged, registered_by="organ:srl")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.TASK_UNAVAILABLE
+
+
+def test_app_registration_refuses_non_draft_task(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
+    task = _draft_task(app)
+    plan = _plan(app, task)
+    app.tasks.commit_task(task.task_id, plan.commitment, plan.workflow, plan.expected_outcome)
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        app.register_srl_execution_plan(plan, registered_by="organ:srl")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.TASK_NOT_DRAFT
+
+
+def test_app_registration_refuses_binding_mismatch(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
+    task = _draft_task(app)
+    plan = _plan(app, task)
+    # a tool capability not present in the workflow is not a coherent binding
+    forged = plan.model_copy(update={"capability_id": "workspace.edit"})
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        app.register_srl_execution_plan(forged, registered_by="organ:srl")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.BINDING_MISMATCH
+
+
+def test_app_registration_refuses_foreign_tenant_binding(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-int.sqlite3", workspace=tmp_path)
+    task = _draft_task(app)
+    plan = _plan(app, task)
+    forged = plan.model_copy(
+        update={"commitment": plan.commitment.model_copy(update={"tenant_id": "tenant:other"})}
+    )
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        app.register_srl_execution_plan(forged, registered_by="organ:srl")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.BINDING_MISMATCH
+
+
+def test_durable_registry_survives_restart(tmp_path):
+    source = AgentOSApplication(database=tmp_path / "src.sqlite3", workspace=tmp_path)
+    task = _draft_task(source)
+    plan = _plan(source, task)
+
+    db = tmp_path / "plans.sqlite3"
+    store = SQLiteSrlExecutionPlanStore(db)
+    SrlExecutionPlanRegistry(store=store).register(plan, registered_by="organ:srl")
+    store.close()
+
+    reopened_store = SQLiteSrlExecutionPlanStore(db)
+    reopened = SrlExecutionPlanRegistry(store=reopened_store)
+    assert reopened.resolve(task.task_id) == plan
+    assert reopened.registered_by(task.task_id) == "organ:srl"
+    # a plan loaded from disk still refuses a duplicate (durability participates in N6)
+    with pytest.raises(SrlExecutionPlanRegistrationError) as excinfo:
+        reopened.register(plan, registered_by="organ:other")
+    assert excinfo.value.reason is PlanRegistrationDenialReason.DUPLICATE_PLAN
+    reopened_store.close()
