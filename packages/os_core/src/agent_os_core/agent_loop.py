@@ -538,26 +538,6 @@ class AgentLoop:
             raise InvalidTransitionError(
                 "approval decision does not bind the exact pending action"
             )
-        # Fail closed: a durable operator DENY rule forbids executing a previously
-        # escalated pending action (otherwise resolving it would bypass the rule).
-        deny_rule = active_deny_rule(
-            self._deny_rules,
-            pending.action.capability_id,
-            self._principal.tenant_id,
-            self._principal.workspace_id,
-        )
-        if deny_rule is not None:
-            self._record_policy_verdict(
-                session,
-                pending.action,
-                verdict="DENY",
-                basis="rule",
-                reason="denied by an operator permission rule",
-                rule_id=deny_rule.rule_id,
-            )
-            raise RunExecutionError(
-                "denied by an operator permission rule: pending action is blocked"
-            )
         unknown = self._tasks._unknown_session_action(
             session.task_id,
             session.session_id,
@@ -591,6 +571,28 @@ class AgentLoop:
                 stop_reason="unknown_requires_review",
                 total_tokens=unknown_tokens,
             )
+        # Fail closed: a durable operator DENY rule forbids *executing* a previously
+        # escalated pending action. Only APPROVE executes, so only APPROVE is
+        # blocked — a REJECT is always safe and must stay resolvable (no wedging).
+        if approval.disposition is ApprovalDisposition.APPROVE:
+            deny_rule = active_deny_rule(
+                self._deny_rules,
+                pending.action.capability_id,
+                self._principal.tenant_id,
+                self._principal.workspace_id,
+            )
+            if deny_rule is not None:
+                self._record_policy_verdict(
+                    session,
+                    pending.action,
+                    verdict="DENY",
+                    basis="rule",
+                    reason="denied by an operator permission rule",
+                    rule_id=deny_rule.rule_id,
+                )
+                raise RunExecutionError(
+                    "denied by an operator permission rule: pending action is blocked"
+                )
         self._validate_pending_runtime(
             session,
             pending,

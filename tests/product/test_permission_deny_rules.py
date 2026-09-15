@@ -349,6 +349,34 @@ def test_deny_rule_blocks_resolving_a_pending_approval(tmp_path: Path) -> None:
     assert rule_denials and rule_denials[0]["rule_id"] == "rule-1"
 
 
+def test_deny_rule_does_not_wedge_a_reject(tmp_path: Path) -> None:
+    from agent_os_contracts import ApprovalDisposition
+
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider(
+        scripted=_shell_script(), invocation_binding=app.provider.invocation_binding
+    )
+    app.provider_configured = True
+    session, _loop = app.open_chat_session("hi", DeferredApprovalGateway())
+    _set_mode(app, session.session_id, "ACCEPT_IN_WORKSPACE")
+    _begin_turn(app, session.session_id)
+
+    def _pending():
+        return app.tasks.project_session(session.task_id, session.session_id).pending_continuation
+
+    pending = _wait_for(_pending, "pending approval")
+    app.permission_rule_store.save(_rule(capability_id="workspace.shell"))
+
+    # REJECT must still resolve even with a matching DENY rule (no wedging).
+    result = app.decide_session_approval(
+        session.session_id,
+        pending.action.action_digest(),
+        ApprovalDisposition.REJECT,
+        "not now",
+    )
+    assert result is not None
+
+
 def test_deny_rule_blocks_a_mode_auto_allowed_edit(tmp_path: Path) -> None:
     app = _chat_app(tmp_path)
     # Add the rule BEFORE the session loop is built, so it is consulted this turn.
