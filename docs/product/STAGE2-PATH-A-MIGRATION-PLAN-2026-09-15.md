@@ -195,3 +195,11 @@
 - 覆盖承接：canonical headless = `agentos -p`（cli-ts `headless.test.ts` 冻结 exit-code 表）；内核行为由既有内核测试保持。
 - 结果：`tests/product` 仅剩**既存失败**（task_configuration 家族、relevance_assessor、situated_fullstack、wave2、surface_begin_turn——经 stash 到 origin/main 复现）与一次 `responsibility_loop` 既有 flake（单跑 40 passed）；无 2f1 新增失败。
 - **遗留清理（2f4）**：`responsibility.py` 的 `reserved_stems` 仍含 `"agent_cli"`；若干测试仍以 `agent_cli.py`/`test_agent_cli_stream.py` 作字符串路径示例（当前通过，但已指向已删文件）。
+
+## 14. Stage 2f2 完成（2026-09-15）：删除 session/mandate/task/workflow/daemon CLI
+
+- `apps/cli/__main__.py` 仅保留**本地权威 Agent Work 面**：`agent-run/-resume/-status/-answer/-correct/-admit-selfdev`（+ `agent <verb>` 归一）。删除 `session-*`、`daemon-start/-status/-stop`、`mandate-bootstrap/-attach/-status`、`task-create/-show/-run/-commit/-signal/-replan/-compensate/-recovery`、`workflow-validate`、`correction-resume` 及其处理器、导入与专用辅助（`_session_command`、`load_surface_client`、`_status_value`、`_mandate_*`、`_daemon_*`、`_wait_for_daemon_health`）。
+- 承接：session → `agentos session`（2b）；mandate → admin API（PR #40）；task/workflow → admin API；daemon → `agentos daemon`。
+- 测试：删 `test_cli_surface.py`（全为已删命令）；`test_public_long_horizon_negative_paths` 移除 `TestCLISignalAndRecoveryThroughRealApplication`（task-signal/recovery CLI）；`test_surface_wave1_e2e` 的 `session-show` 探针改用**surface HTTP GET**（保持"第二客户端读同一 session"意图）。
+- 结果：`tests/product` = **23 failed（全部既存）+ 2518 passed**；无 2f2 新增失败。`--help` 仅显示 work 面；ruff/pyright clean。
+- 遗留（2f4）：`responsibility.py` reserved_stem `"agent_cli"`、测试里以已删文件名为字符串的引用。
