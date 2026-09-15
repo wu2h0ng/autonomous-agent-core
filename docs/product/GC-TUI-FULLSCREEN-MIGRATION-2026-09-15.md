@@ -67,3 +67,11 @@ P3  多Agent/任务树：需先扩展 surface 协议 + 解除一turn冻结（独
   - P1：把 `SurfaceClient`/`TuiController`（协议/状态，**不动**）接到 @opentui 视图，移植 transcript/工具卡/审批卡/palette/composer。
   - P2：多面板 + 独立滚动 + `--no-animation`；P3：多Agent/任务树（内核/协议先行）。
   - `Ink` 依赖在视图对齐后删除（同 Stage 2f 处理）。
+
+## 8. P1 结果（2026-09-15，PASS）
+
+- 新增全屏视图 `apps/cli-ts/src/opentui/app.tsx` + 入口 `src/opentui/main.tsx`（Bun）：复用**未改动**的 `SurfaceClient`/`TuiController`。
+- 实测（hermetic daemon，pty 100×32）：boot 渲染顶部状态行 + `scrollbox`(带滚动条) + `message` 输入盒 + footer；输入 `hi`+Enter → `› hi` → `streaming…` → 流式回复 → footer `122 tok · cost UNKNOWN · ev 7`。
+- 交互：Enter 提交（手动 `useKeyboard`，避开 `input.onSubmit` 重载类型冲突）、审批时 `y`/`n`、流式中 Esc 纠正、Ctrl-C 退出。
+- 脚本：`npm run p1:fullscreen`（Bun）。**Ink 版暂留并行**，视图对齐后删除。
+- 说明：`bun build` 会尝试解析全平台原生包（win32*/linux*）而报错 → P1 用 `bun run`（仅当前平台）；单二进制留待 `bun build --compile` 处理（P3/分发 GC）。
