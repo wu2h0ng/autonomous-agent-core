@@ -82,18 +82,21 @@ def _nested_correction_guards(
     task_id: str,
     run_id: str,
     capability_ids: tuple[str, ...],
-    observed_epochs: object,
 ) -> Iterator[None]:
     """Hold ``guard_unchanged`` for several capabilities in one atomic region.
 
-    All guards are acquired on the same (RLock) correction authority, so this
-    never inverts the config->authority lock order.
+    The observed epoch vector is read PER capability at entry, so each scope is
+    guarded against its own baseline (not another scope's epochs), and all guards
+    use the same RLock, so the config->authority lock order is never inverted.
     """
     with ExitStack() as stack:
         for capability_id in capability_ids:
+            observed = correction.snapshot(  # type: ignore[attr-defined]
+                task_id, run_id, capability_id
+            )
             unchanged = stack.enter_context(
                 correction.guard_unchanged(  # type: ignore[attr-defined]
-                    task_id, run_id, capability_id, observed_epochs
+                    task_id, run_id, capability_id, observed
                 )
             )
             if not unchanged:
@@ -348,7 +351,6 @@ class TaskConfigurationSnapshotService:
                 task_id,
                 snapshot.reserved_run_id,
                 guarded_capabilities,
-                snapshot.observed_correction_epochs,
             ):
                 linearization_now = self._clock()
                 current_task = self._tasks.get_task(task_id)

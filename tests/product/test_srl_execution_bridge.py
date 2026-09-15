@@ -9,8 +9,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-import pytest
-
 from agent_os_contracts import (
     Commitment,
     EdgeSpec,
@@ -186,6 +184,21 @@ def test_result_run_id_equals_reserved_run_id(tmp_path):
     assert result.run_id == reserved
     assert aggregate.run is not None
     assert aggregate.run.run_id == reserved
+
+
+def test_prior_tool_capability_correction_does_not_deny_valid_start(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
+    task = app.tasks.create_task(_goal(app))
+    plan = _plan(app, task)
+    # A PRIOR correction of the tool capability (epoch advanced, then resumed)
+    # must not permanently deny a later valid start (subagent N3).
+    app.correction_admin.correct("capability", "workspace.read", "prior correction")
+    app.correction_admin.resume("capability", "workspace.read")
+    result = _bridge(app, task, plan).commit_and_start(
+        task.task_id, snapshot_command=TaskConfigurationSnapshotCommand()
+    )
+    assert result.started is True
+    assert result.run_id is not None
 
 
 def test_activated_task_cannot_commit_without_trusted_plan(tmp_path):
