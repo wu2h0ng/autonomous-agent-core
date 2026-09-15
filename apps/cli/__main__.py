@@ -219,11 +219,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--database", default="agent-os.sqlite3")
     parser.add_argument("--workspace", default=".")
-    parser.add_argument(
-        "--descriptor",
-        default=None,
-        help="unused; retained for CLI compatibility",
-    )
     sub = parser.add_subparsers(
         dest="command",
         required=True,

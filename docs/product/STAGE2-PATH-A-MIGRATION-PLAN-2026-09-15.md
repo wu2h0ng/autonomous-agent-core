@@ -203,3 +203,10 @@
 - 测试：删 `test_cli_surface.py`（全为已删命令）；`test_public_long_horizon_negative_paths` 移除 `TestCLISignalAndRecoveryThroughRealApplication`（task-signal/recovery CLI）；`test_surface_wave1_e2e` 的 `session-show` 探针改用**surface HTTP GET**（保持"第二客户端读同一 session"意图）。
 - 结果：`tests/product` = **23 failed（全部既存）+ 2518 passed**；无 2f2 新增失败。`--help` 仅显示 work 面；ruff/pyright clean。
 - 遗留（2f4）：`responsibility.py` reserved_stem `"agent_cli"`、测试里以已删文件名为字符串的引用。
+
+## 15. Stage 2f3 完成（2026-09-15）：agent-os-work 入口
+
+- `pyproject [project.scripts]` 新增 `agent-os-work = "apps.cli.__main__:main"`（保留 `agent-os-runtime`）。主入口仍是 npm `agentos`/`agent-os`/`agent-os-ts`。
+- 移除精简 CLI 中已无用的 `--descriptor` 选项（work 命令只用 `--database/--workspace`）。
+- `test_product_entrypoint`：断言 console scripts == `{agent-os-runtime, agent-os-work}`；新增 `agent-os-work --help` 运行测试。
+- 结果：入口测试 5 passed；ruff/pyright clean。
