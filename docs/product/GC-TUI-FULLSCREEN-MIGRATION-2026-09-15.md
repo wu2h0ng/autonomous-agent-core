@@ -56,3 +56,14 @@ P3  多Agent/任务树：需先扩展 surface 协议 + 解除一turn冻结（独
 - A：Bun 运行时/原生二进制/平台矩阵/库成熟度；B：imperative 重写量 + 老库维护。
 - 过渡期"两套 view"维护成本 → 设截止点，对齐后**删除 Ink 版**（同 Stage 2f 方式）。
 - 多Agent/任务树不是 UI 问题：**内核/协议先行**。
+
+## 7. P0 spike 结果（2026-09-15，PASS）
+
+- **决策确认**：**A = Bun + `@opentui/react`**（founder）。
+- **实测**：`bun add @opentui/react@0.5.11 @opentui/core@0.5.11 ws react-devtools-core`（React 19 已兼容）；`bun run spike/fullscreen.tsx` 在 pty(90×24) 渲染出**真全屏**：alt-screen、`┌─ NOEM ─…┐` 边框盒、`message` 输入盒、`❯ ASK · deepseek-chat · /help` 状态栏。
+- **落点**：spike 置于 `apps/cli-ts/spike/fullscreen.tsx`（不入 `src`/打包），脚本 `npm run spike:fullscreen`（Bun）。
+- **影响/后续**：
+  - 客户端运行时由 Node → **Bun**（此前"npm 维持"分发决策需更新为 Bun；单二进制可用 `bun build --compile`，与既有"Bun 备选"一致）。
+  - P1：把 `SurfaceClient`/`TuiController`（协议/状态，**不动**）接到 @opentui 视图，移植 transcript/工具卡/审批卡/palette/composer。
+  - P2：多面板 + 独立滚动 + `--no-animation`；P3：多Agent/任务树（内核/协议先行）。
+  - `Ink` 依赖在视图对齐后删除（同 Stage 2f 处理）。
