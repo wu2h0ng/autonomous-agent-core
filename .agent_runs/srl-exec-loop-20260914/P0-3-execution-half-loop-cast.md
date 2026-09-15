@@ -76,3 +76,4 @@ tests/product/test_srl_execution_bridge.py
 - Only Increment 1 is authorized. No effect execution, no provider call, no learning, no knowledge candidates.
 - No release/tag/deploy; no autonomy/HCW claim.
 - Deferred: Increment 2 `OutcomeLearningGate`, `MethodSelector`/Dispatch breadth.
+- Per-capability C7 boundary: the start-authorizing C7 scope is `TASK_CONFIGURATION_CAPABILITY`, which the guarded start holds atomically across the run-start append. The plan's tool capability is verified before start as defense-in-depth; a correction that halts only that tool capability after the verify still permits `RUN_STARTED`, but the effect is blocked at dispatch (the Runtime consults `correction.halted(task, run, capability)` before the tool call). No effect is ever executed under a halt.

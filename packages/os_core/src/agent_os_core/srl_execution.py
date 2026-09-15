@@ -6,6 +6,7 @@ from typing import Protocol
 from agent_os_contracts import (
     Commitment,
     ExpectedOutcome,
+    NodeKind,
     PrincipalIdentity,
     TaskConfigurationSnapshot,
     TaskConfigurationSnapshotCommand,
@@ -15,6 +16,7 @@ from agent_os_contracts import (
 from agent_os_contracts.common import ContractModel, NonEmptyStr
 
 from .task_aggregate import TaskAggregate
+from .task_configuration import TASK_CONFIGURATION_CAPABILITY
 
 from .c7_receipt import (
     C7ReceiptError,
@@ -163,25 +165,31 @@ class SrlTaskExecutionBridge:
                 detail=type(exc).__name__,
             )
 
-        scope = C7VerificationScope(
-            tenant_id=plan.commitment.tenant_id,
-            workspace_id=plan.commitment.workspace_id,
-            task_id=task_id,
-            run_id=snapshot.reserved_run_id,
-            capability_id=plan.capability_id,
-        )
-        try:
-            receipt = self._c7_issuer.issue(task_id, scope.run_id, scope.capability_id)
-            self._c7_verifier.verify(receipt, scope=scope)
-        except C7ReceiptError as exc:
-            # Committed but deliberately NOT started: auditable COMMITTED state.
-            return SrlExecutionResult(
-                committed=True,
-                started=False,
-                task_id=task_id,
-                denial_reason=ExecutionDenialReason.C7_REJECTED,
-                detail=type(exc).__name__,
-            )
+        base_scope = {
+            "tenant_id": plan.commitment.tenant_id,
+            "workspace_id": plan.commitment.workspace_id,
+            "task_id": task_id,
+            "run_id": snapshot.reserved_run_id,
+        }
+        # Verify the start-authorizing scope (the configuration capability, which
+        # the guarded start also holds atomically across the append) AND the plan's
+        # tool capability as defense-in-depth. A per-capability halt landing after
+        # this point still blocks the effect at dispatch, not the start; that
+        # boundary is documented in the cast.
+        for capability_id in (TASK_CONFIGURATION_CAPABILITY, plan.capability_id):
+            scope = C7VerificationScope(capability_id=capability_id, **base_scope)
+            try:
+                receipt = self._c7_issuer.issue(task_id, scope.run_id, capability_id)
+                self._c7_verifier.verify(receipt, scope=scope)
+            except C7ReceiptError as exc:
+                # Committed but deliberately NOT started: auditable COMMITTED state.
+                return SrlExecutionResult(
+                    committed=True,
+                    started=False,
+                    task_id=task_id,
+                    denial_reason=ExecutionDenialReason.C7_REJECTED,
+                    detail=type(exc).__name__,
+                )
 
         # C7-guarded start: the snapshot service re-checks the original correction
         # epochs and holds guard_unchanged across the run-start append, so a C7
@@ -214,7 +222,9 @@ class SrlTaskExecutionBridge:
         if goal is None or commitment is None or workflow is None:
             return False
         workflow_capabilities = {
-            node.capability for node in workflow.nodes if node.capability
+            node.capability
+            for node in workflow.nodes
+            if node.kind is NodeKind.TOOL and node.capability
         }
         return (
             plan.task_id == aggregate.task_id

@@ -250,6 +250,21 @@ def test_halted_c7_blocks_start(tmp_path):
     assert app.tasks.get_task(task.task_id).run is None
 
 
+def test_capability_scope_halt_blocks_start(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
+    task = app.tasks.create_task(_goal(app))
+    plan = _plan(app, task)
+    # Halt only the plan's tool capability (not the configuration capability).
+    app.correction_admin.correct("capability", "workspace.read", "halt capability")
+    result = _bridge(app, task, plan).commit_and_start(
+        task.task_id, snapshot_command=TaskConfigurationSnapshotCommand()
+    )
+    assert result.committed is True
+    assert result.started is False
+    assert result.denial_reason is ExecutionDenialReason.C7_REJECTED
+    assert app.tasks.get_task(task.task_id).run is None
+
+
 def test_misbound_evaluator_blocks_commit(tmp_path):
     app = AgentOSApplication(database=tmp_path / "srl-exec.sqlite3", workspace=tmp_path)
     task = app.tasks.create_task(_goal(app))
