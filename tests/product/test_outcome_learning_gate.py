@@ -253,6 +253,16 @@ def test_rejects_forged_verified_evidence(tmp_path):
     assert decision.reason_code is OutcomeAdmissionReason.EVIDENCE_INVALID
 
 
+def test_rejects_forgery_that_passes_the_evaluator(tmp_path):
+    # Subagent F5: confidence is not checked by the evaluator, so this forgery is
+    # rejected ONLY by the full-equality guard; this test fails if that guard regresses.
+    app, task_id, observed = _verified(tmp_path)
+    forged = observed.model_copy(update={"confidence": 0.01})
+    decision = OutcomeLearningGate(app.tasks).admit(task_id, forged)
+    assert decision.admitted is False
+    assert decision.reason_code is OutcomeAdmissionReason.OUTCOME_NOT_CURRENT
+
+
 def test_rejects_non_current_outcome(tmp_path):
     app, task_id, observed = _verified(tmp_path)
     other = observed.model_copy(update={"observed_outcome_id": "observed:not-current"})
