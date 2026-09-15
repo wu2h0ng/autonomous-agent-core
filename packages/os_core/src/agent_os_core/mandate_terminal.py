@@ -176,7 +176,7 @@ def load_attach_session(workspace: Path) -> MandateAttachSession:
     path = attach_path(Path(workspace))
     if not path.is_file():
         raise MandateTerminalError(
-            f"mandate attach missing: {path} (run mandate-attach first)"
+            f"mandate attach missing: {path} (attach a mandate via the admin API first)"
         )
     raw = json.loads(path.read_text(encoding="utf-8"))
     required = (
