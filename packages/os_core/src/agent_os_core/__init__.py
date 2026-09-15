@@ -73,6 +73,14 @@ from .c7_receipt import (
     C7ReceiptScopeMismatch,
     C7ReceiptVerifier,
 )
+from .srl_execution import (
+    ExecutionDenialReason,
+    SnapshotSealerPort,
+    SrlExecutionPlan,
+    SrlExecutionResult,
+    SrlTaskExecutionBridge,
+    TrustedSrlExecutionPlanPort,
+)
 from .governance import (
     POLICY_KERNEL_V1_DIGEST,
     POLICY_KERNEL_V1_SPEC,
@@ -421,6 +429,12 @@ __all__ = [
     "C7ReceiptIssuer",
     "C7ReceiptScopeMismatch",
     "C7ReceiptVerifier",
+    "ExecutionDenialReason",
+    "SnapshotSealerPort",
+    "SrlExecutionPlan",
+    "SrlExecutionResult",
+    "SrlTaskExecutionBridge",
+    "TrustedSrlExecutionPlanPort",
     "CorrectionAuthority",
     "CorrectionGuard",
     "CorrectionReadPort",
