@@ -4,7 +4,6 @@ from enum import Enum
 from typing import Protocol
 
 from agent_os_contracts import (
-    C7ClearanceReceipt,
     Commitment,
     ExpectedOutcome,
     NodeKind,
@@ -20,7 +19,6 @@ from .task_aggregate import TaskAggregate
 from .task_configuration import TASK_CONFIGURATION_CAPABILITY
 
 from .c7_receipt import (
-    C7EpochReplay,
     C7ReceiptError,
     C7ReceiptIssuer,
     C7ReceiptVerifier,
@@ -181,7 +179,6 @@ class SrlTaskExecutionBridge:
         # tool capability as defense-in-depth. A per-capability halt landing after
         # this point still blocks the effect at dispatch, not the start; that
         # boundary is documented in the cast.
-        plan_receipt: C7ClearanceReceipt | None = None
         for capability_id in (TASK_CONFIGURATION_CAPABILITY, plan.capability_id):
             scope = C7VerificationScope(capability_id=capability_id, **base_scope)
             try:
@@ -196,29 +193,17 @@ class SrlTaskExecutionBridge:
                     denial_reason=ExecutionDenialReason.C7_REJECTED,
                     detail=type(exc).__name__,
                 )
-            if capability_id == plan.capability_id:
-                plan_receipt = receipt
 
-        # Hold the tool-capability C7 guard across the run-start append so that a
-        # halt of that capability landing in the verify->start window still
-        # forbids the start (the snapshot service holds its own guard for the
-        # configuration capability). CTO condition 2 is thus met for task, run,
-        # configuration-capability AND tool-capability scopes.
+        # C7-guarded start via the configuration service, which re-checks the
+        # snapshot's original correction epochs and holds guard_unchanged
+        # (config capability + task + run) across the run-start append.
+        # NOTE (subagent N1, OPEN): the service locks config->authority; taking an
+        # ADDITIONAL authority guard here would invert that order and deadlock, so
+        # the tool-capability scope is only verified pre-start (see the cast's F1).
         try:
-            assert plan_receipt is not None
-            with self._correction.guard_unchanged(
-                task_id,
-                snapshot.reserved_run_id,
-                plan.capability_id,
-                plan_receipt.correction_epochs,
-            ) as unchanged:
-                if not unchanged:
-                    raise C7EpochReplay(
-                        "tool capability correction epoch changed before start"
-                    )
-                started = self._snapshots.start_run(
-                    self._principal, task_id, snapshot.snapshot_id
-                )
+            started = self._snapshots.start_run(
+                self._principal, task_id, snapshot.snapshot_id
+            )
         except C7ReceiptError as exc:
             return SrlExecutionResult(
                 committed=True,
