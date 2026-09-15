@@ -1,3 +1,7 @@
+from .approval_choice import (
+    ApprovalChoice,
+    ApprovalChoiceSet,
+)
 from .authority import (
     NO_APPROVAL_ID,
     ActionContract,
@@ -375,6 +379,8 @@ from .trajectory import (
 
 __all__ = [
     "ConsequencePreview",
+    "ApprovalChoice",
+    "ApprovalChoiceSet",
     "ActionContract",
     "BindingStatus",
     "ActionPermit",
