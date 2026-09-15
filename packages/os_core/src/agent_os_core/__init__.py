@@ -73,6 +73,11 @@ from .c7_receipt import (
     C7ReceiptScopeMismatch,
     C7ReceiptVerifier,
 )
+from .outcome_learning_gate import (
+    OutcomeAdmissionDecision,
+    OutcomeAdmissionReason,
+    OutcomeLearningGate,
+)
 from .governance import (
     POLICY_KERNEL_V1_DIGEST,
     POLICY_KERNEL_V1_SPEC,
@@ -420,6 +425,9 @@ __all__ = [
     "C7ReceiptIssuer",
     "C7ReceiptScopeMismatch",
     "C7ReceiptVerifier",
+    "OutcomeAdmissionDecision",
+    "OutcomeAdmissionReason",
+    "OutcomeLearningGate",
     "CorrectionAuthority",
     "CorrectionGuard",
     "CorrectionReadPort",
