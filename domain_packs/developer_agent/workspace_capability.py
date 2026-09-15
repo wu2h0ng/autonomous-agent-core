@@ -28,6 +28,12 @@ from agent_os_core import (
     ExecutionLease,
 )
 
+from .dangerous_command import (
+    ShellCommandDenied,
+    ShellDenialReason,
+    classify_dangerous_command,
+)
+
 # OS-SANDBOX-0: execution isolation is an OS-level confinement below the
 # permit/approval spine. It never substitutes for approval and is never an
 # input to the policy kernel (design docs live in the portfolio repo at
@@ -444,8 +450,22 @@ class DeveloperWorkspaceAdapter:
 
     def _preflight_shell(self, args: dict[str, object]) -> None:
         command = " ".join(str(args.get("command", "")).split())
+        # Defense-in-depth before the allowlist: refuse a dangerous command even if
+        # an operator allowlisted it, with a machine-consumable reason code. This is
+        # a classifier, not sandbox isolation.
+        classes = classify_dangerous_command(command)
+        if classes:
+            raise ShellCommandDenied(
+                ShellDenialReason.DANGEROUS_PATTERN,
+                "command matches dangerous patterns: "
+                + ",".join(command_class.value for command_class in classes),
+                classes=classes,
+            )
         if command not in self._shell_allowlist:
-            raise CapabilityDenied("command is not in the shell allowlist")
+            raise ShellCommandDenied(
+                ShellDenialReason.NOT_IN_ALLOWLIST,
+                "command is not in the shell allowlist",
+            )
         int(str(args.get("timeout_seconds", 120)))
 
     @staticmethod
