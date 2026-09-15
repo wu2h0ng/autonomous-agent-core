@@ -1,6 +1,14 @@
 # Goal Card + CP/AB + CTO gate — S1 DANGEROUS-COMMAND-CLASSIFICATION
 
-> Status: `CTO_GATE_ASSIGNED / TEST_FIRST_IMPLEMENTED / PENDING_INDEPENDENT_EXACT_DIFF_REVIEW`
+> Status: `DESCOPED_2026-09-15 / TYPED_ENUMERABLE_DENIAL_ONLY / PENDING_REVIEW`
+>
+> **Descope (founder, 2026-09-15).** The original S1 included a regex
+> dangerous-command classifier. Three same-model exact-diff reviews found it brittle
+> (wrapper/quoted bypasses) and, worse, that it introduced catastrophic backtracking
+> (ReDoS) on the product shell path. The classifier was REMOVED. S1 now ships only
+> the typed, enumerable denial (`ShellDenialReason.NOT_IN_ALLOWLIST`) shared by the
+> preflight and execution sites. A sound dangerous-command classifier needs a real
+> token parser behind its own gate — not regex-on-string — and is deferred.
 > Track: Product Track (medium risk: touches the shell preflight on the path to a
 > risk-bearing capability; adds a new typed denial surface).
 > Cast: P2-7 M1 route = A (finish M1 kernel), target = Python core, first slice = S1.

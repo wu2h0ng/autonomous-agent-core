@@ -28,7 +28,7 @@ from agent_os_core import (
     ExecutionLease,
 )
 
-from .dangerous_command import require_safe_shell_command
+from .shell_denial import require_allowlisted_command
 
 # OS-SANDBOX-0: execution isolation is an OS-level confinement below the
 # permit/approval spine. It never substitutes for approval and is never an
@@ -450,7 +450,7 @@ class DeveloperWorkspaceAdapter:
 
     def _preflight_shell(self, args: dict[str, object]) -> None:
         command = " ".join(str(args.get("command", "")).split())
-        require_safe_shell_command(
+        require_allowlisted_command(
             command, self._shell_allowlist, "command is not in the shell allowlist"
         )
         int(str(args.get("timeout_seconds", 120)))
@@ -458,7 +458,7 @@ class DeveloperWorkspaceAdapter:
     @staticmethod
     def _preflight_run_tests(args: dict[str, object]) -> None:
         command = str(args.get("command", ""))
-        require_safe_shell_command(
+        require_allowlisted_command(
             command,
             _ALLOWLISTED_TEST_COMMANDS,
             "only the allowlisted test commands are permitted",
@@ -1211,9 +1211,9 @@ class DeveloperWorkspaceAdapter:
 
     def _shell(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = " ".join(str(args.get("command", "")).split())
-        # Same guard as the preflight: reaching execution without it must not bypass
-        # the classifier (an allowlisted dangerous command is still refused here).
-        require_safe_shell_command(
+        # Same guard as the preflight: reaching execution without a preflight pass
+        # must not bypass the allowlist, and the denial stays enumerable.
+        require_allowlisted_command(
             command, self._shell_allowlist, "command is not in the shell allowlist"
         )
         timeout = min(int(str(args.get("timeout_seconds", 120))), 300)
@@ -1242,7 +1242,7 @@ class DeveloperWorkspaceAdapter:
 
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
-        require_safe_shell_command(
+        require_allowlisted_command(
             command,
             _ALLOWLISTED_TEST_COMMANDS,
             "only the allowlisted test commands are permitted",

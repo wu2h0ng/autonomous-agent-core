@@ -58,7 +58,7 @@ pythonpath = [
 [tool.pyright]
 pythonVersion = "3.11"
 include = [
-    "domain_packs/developer_agent/dangerous_command.py",
+    "domain_packs/developer_agent/shell_denial.py",
     "packages/contracts/src",
     "packages/os_core/src",
     "product_evals/srl_e2e_falsifier",
