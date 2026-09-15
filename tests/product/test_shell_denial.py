@@ -19,7 +19,7 @@ from domain_packs.developer_agent.shell_denial import (
 from domain_packs.developer_agent.workspace_capability import DeveloperWorkspaceAdapter
 
 
-def _shell_action(command: str) -> ActionContract:
+def _shell_action(command: str, capability_id: str = "workspace.shell") -> ActionContract:
     now = datetime.now(timezone.utc)
     return ActionContract(
         action_id="action:denial",
@@ -29,7 +29,7 @@ def _shell_action(command: str) -> ActionContract:
         principal_id="user-1",
         tenant_id="tenant-1",
         workspace_id="workspace-1",
-        capability_id="workspace.shell",
+        capability_id=capability_id,
         capability_version="1",
         arguments_json=json.dumps({"command": command}),
         risk_tier=3,
@@ -65,8 +65,9 @@ def test_unlisted_command_is_denied_with_enumerable_reason(tmp_path: Path) -> No
 def test_denial_is_still_a_capability_denied(tmp_path: Path) -> None:
     # Existing callers catch CapabilityDenied; the typed denial must remain one.
     adapter = DeveloperWorkspaceAdapter(tmp_path, shell_allowlist=("git status",))
-    with pytest.raises(CapabilityDenied):
+    with pytest.raises(CapabilityDenied) as excinfo:
         adapter.preflight("workspace.shell", {"command": "ls -la"}, "key-3")
+    assert isinstance(excinfo.value, ShellCommandDenied)
 
 
 def test_denial_reason_is_machine_consumable_after_the_rewrite(tmp_path: Path) -> None:
@@ -84,6 +85,13 @@ def test_execution_site_also_enforces_the_allowlist(tmp_path: Path) -> None:
     adapter = DeveloperWorkspaceAdapter(tmp_path, shell_allowlist=("git status",))
     with pytest.raises(ShellCommandDenied) as excinfo:
         adapter.execute(_shell_action("ls -la"))
+    assert excinfo.value.reason_code is ShellDenialReason.NOT_IN_ALLOWLIST
+
+
+def test_run_tests_execution_site_denial_is_enumerable(tmp_path: Path) -> None:
+    adapter = DeveloperWorkspaceAdapter(tmp_path, shell_allowlist=("git status",))
+    with pytest.raises(ShellCommandDenied) as excinfo:
+        adapter.execute(_shell_action("rm -rf /", capability_id="workspace.run_tests"))
     assert excinfo.value.reason_code is ShellDenialReason.NOT_IN_ALLOWLIST
 
 
