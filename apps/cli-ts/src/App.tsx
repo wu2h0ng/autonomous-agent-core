@@ -617,6 +617,7 @@ export function App({
           model={model}
           theme={theme}
           narrow={layout.narrow}
+          columns={width}
         />
       ) : null}
       <Static items={finalized}>
@@ -783,9 +784,9 @@ export function App({
       <StatusBar
         workspace={workspace}
         branch={branch}
-        mode={controller.mode}
         version={APP_VERSION}
         theme={theme}
+        narrow={layout.narrow}
       />
       <Box
         borderStyle="round"

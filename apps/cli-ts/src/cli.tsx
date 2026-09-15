@@ -4,6 +4,7 @@
 import React from "react";
 import { render } from "ink";
 import { SurfaceClient } from "./client.js";
+import { agentVersion } from "./version.js";
 import type { RuntimeDescriptor } from "./descriptor.js";
 import { TuiController } from "./controller.js";
 import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
@@ -34,6 +35,31 @@ async function main(): Promise<void> {
   const resumeSessionId = flagValue(args, "--resume");
   const printPrompt = flagValue(args, "-p", "--print");
   const outputFormat = flagValue(args, "--output-format") as HeadlessOutputFormat | undefined;
+
+  if (args[0] === "--version" || args[0] === "-v") {
+    process.stdout.write(`${agentVersion()}\n`);
+    return;
+  }
+  if (args[0] === "--help" || args[0] === "-h") {
+    process.stdout.write(
+      [
+        `agent-os-ts ${agentVersion()} — governed terminal agent`,
+        "",
+        "usage:",
+        "  agent-os-ts                 interactive TUI (starts the daemon on demand)",
+        "  agent-os-ts -p <prompt>     headless one-shot (--output-format json|text|stream-json)",
+        "  agent-os-ts doctor          read-only self-check",
+        "  agent-os-ts provider ...    show/configure the live provider",
+        "  agent-os-ts session ...     show/pause/resume/correct a session",
+        "  agent-os-ts daemon ...      start/stop/status the local runtime",
+        "",
+        "Governance/admin (mandate, task, workflow, selfdev) is API-only.",
+        "The slim local-authority Agent Work CLI is `agent-os-work`.",
+        "",
+      ].join("\n"),
+    );
+    return;
+  }
 
   if (args[0] === "doctor") {
     const report = await runDoctor(descriptorPath);
