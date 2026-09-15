@@ -7,6 +7,7 @@ import { SurfaceClient } from "../client.js";
 import { TuiController } from "../controller.js";
 import { defaultDaemonPaths, ensureDaemon } from "../daemon.js";
 import { agentVersion } from "../version.js";
+import { parseViewFlags } from "./panels.js";
 import { App } from "./app.js";
 
 function flag(args: string[], ...names: string[]): string | undefined {
@@ -50,7 +51,10 @@ try {
 
 const workspace = process.cwd();
 const controller = new TuiController(client, {});
-const renderer = await createCliRenderer();
+const flags = parseViewFlags(args);
+const renderer = await createCliRenderer(
+  flags.noAnimation ? { useThread: false, targetFps: 1, maxFps: 1 } : {},
+);
 createRoot(renderer).render(
   <App
     controller={controller}
@@ -58,5 +62,6 @@ createRoot(renderer).render(
     branch={gitBranch(workspace)}
     version={agentVersion()}
     model={model}
+    withPanels={flags.withPanels}
   />,
 );

@@ -11,11 +11,14 @@ export interface Layout {
   footerFields: boolean;
 }
 
+/** Below this width the full-screen sidebar has no room (shared with panels). */
+export const SIDEBAR_MIN_WIDTH = 100;
+
 export function layoutFor(width: number): Layout {
   if (width < 60) {
     return { narrow: true, showDescriptions: false, footerFields: false };
   }
-  if (width < 100) {
+  if (width < SIDEBAR_MIN_WIDTH) {
     return { narrow: false, showDescriptions: true, footerFields: false };
   }
   return { narrow: false, showDescriptions: true, footerFields: true };
