@@ -188,7 +188,6 @@ from ._action_outcome import (
     ExecutionLease,
     ExecutionLeaseConflict,
 )
-from .agent_cli import AgentCLIError, AgentCLIResult, event_types, run_agent_cli
 from .agent_context import (
     AgentsMarkdownContext,
     agent_context_status_payload,
@@ -495,10 +494,6 @@ __all__ = [
     "CollaborationPreflightPort",
     "ReplanRequired",
     "WorkspaceWriteRejected",
-    "AgentCLIError",
-    "AgentCLIResult",
-    "event_types",
-    "run_agent_cli",
     "AgentsMarkdownContext",
     "agent_context_status_payload",
     "agents_markdown_system_section",

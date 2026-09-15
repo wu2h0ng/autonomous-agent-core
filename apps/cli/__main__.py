@@ -13,17 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agent_os_contracts import (
-    ActionContract,
-    ApprovalDisposition,
     PrincipalIdentity,
     PrincipalRole,
     SelfDevelopmentAdmissionCommand,
     SrlHelpResponseKind,
-    SurfaceSessionStatus,
-    SurfaceTurnResponse,
 )
-from agent_os_core import AutoApproveGateway, DeterministicProvider
-from agent_os_core.agent_cli import run_agent_cli
+from agent_os_core import DeterministicProvider
 from agent_os_core.mandate_terminal import (
     MandateTerminalError,
     attach_mandate,
@@ -55,23 +50,7 @@ from apps.runtime_daemon.descriptor import (
 )
 from apps.api_server.app import AgentOSApplication
 
-from .surface_client import (
-    SurfaceClient,
-    SurfaceClientError,
-)
-
-
-class TerminalConfirmationGateway:
-    """Human-in-the-loop approval bridge for interactive chat sessions."""
-
-    def confirm(self, action: ActionContract, preview: str) -> bool:
-        print(f"\n[approval required] {action.capability_id}")
-        print(preview)
-        try:
-            reply = input("Approve this action? [y/N] ")
-        except EOFError:
-            return False
-        return reply.strip().lower() in {"y", "yes"}
+from .surface_client import SurfaceClient
 
 
 class ProductHelpFormatter(argparse.HelpFormatter):
@@ -85,14 +64,12 @@ class ProductHelpFormatter(argparse.HelpFormatter):
 
 _KNOWN_SUBCOMMANDS = frozenset(
     {
-        "agent",
         "agent-run",
         "agent-status",
         "agent-answer",
         "agent-correct",
         "agent-resume",
         "agent-admit-selfdev",
-        "chat",
         "task-create",
         "task-show",
         "task-run",
@@ -149,97 +126,11 @@ def _normalize_argv(argv: list[str]) -> list[str]:
             f"agent-{argv[index]}",
             *argv[index + 1 :],
         ]
-    if len(argv) > 1 and not argv[1].startswith("-") and argv[1] not in _KNOWN_SUBCOMMANDS:
-        return [argv[0], "agent", *argv[1:]]
     return argv
-
-
-def _run_agent_command(
-    args: argparse.Namespace,
-    *,
-    default_goal: str,
-    repl_banner_template: str | None,
-) -> int:
-    goal = args.prompt or default_goal
-    # One-shot `-p` / positional prompt: AutoApproveGateway admits tier < 3
-    # (read/edit/tests). Tier >= 3 shell still requires interactive confirm and
-    # is rejected headlessly. REPL uses TerminalConfirmationGateway.
-    gateway = (
-        AutoApproveGateway()
-        if args.prompt is not None
-        else TerminalConfirmationGateway()
-    )
-    app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
-    result = run_agent_cli(
-        app=app,
-        workspace=Path(args.workspace),
-        database=Path(args.database),
-        goal=goal,
-        gateway=gateway,
-        prompt=args.prompt,
-        resume=args.resume,
-        offline=args.offline,
-        repl_banner_template=repl_banner_template,
-        stream=not args.no_stream,
-    )
-    return result.exit_code
-
-
-# DEPRECATED (Stage 2a): canonical headless entry is `agentos -p` (cli-ts).
-def _agent(args: argparse.Namespace) -> int:
-    return _run_agent_command(
-        args,
-        default_goal="interactive agent session",
-        repl_banner_template=None,
-    )
 
 
 def _status_value(status: object) -> str:
     return getattr(status, "value", str(status))
-
-
-def _print_pending_approval(pending: object) -> None:
-    capability_id = getattr(pending, "capability_id", "unknown capability")
-    preview = getattr(pending, "preview", "")
-    print(f"\n[approval required] {capability_id}")
-    if preview:
-        print(preview)
-
-
-def _handle_approval(
-    client: SurfaceClient,
-    session_id: str,
-    pending: object,
-) -> SurfaceTurnResponse | None:
-    if pending is None:
-        return None
-    _print_pending_approval(pending)
-    try:
-        reply = input("Approve this action? [y/N] ")
-    except EOFError:
-        return None
-    digest = getattr(pending, "action_digest", "")
-    if reply.strip().lower() in {"y", "yes"}:
-        resumed = client.decide_approval(
-            session_id,
-            digest,
-            ApprovalDisposition.APPROVE,
-            "approved from terminal",
-        )
-        if resumed.text:
-            print(resumed.text)
-        if resumed.stop_reason != "completed":
-            print(f"[stopped: {resumed.stop_reason}]")
-        return resumed
-    denied = client.decide_approval(
-        session_id,
-        digest,
-        ApprovalDisposition.REJECT,
-        "rejected from terminal",
-    )
-    if denied.text:
-        print(denied.text)
-    return denied
 
 
 def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
@@ -250,96 +141,6 @@ def load_surface_client(args: argparse.Namespace) -> SurfaceClient:
 
 
 # DEPRECATED (Stage 2a): canonical headless entry is `agentos -p` (cli-ts).
-def _chat(args: argparse.Namespace) -> int:
-    client = load_surface_client(args)
-    if args.prompt is not None:
-        snapshot = client.open_session(args.prompt)
-        session_id = snapshot.session.session_id
-        response = client.run_turn(session_id, args.prompt)
-        if response.text:
-            print(response.text)
-        if (
-            response.snapshot.status == SurfaceSessionStatus.WAITING_APPROVAL
-        ):
-            resumed = _handle_approval(
-                client, session_id, response.snapshot.pending_approval
-            )
-            if resumed is not None:
-                response = resumed
-        if response.stop_reason != "completed":
-            print(f"[stopped: {response.stop_reason}]", file=sys.stderr)
-        return 0 if response.stop_reason == "completed" else 1
-    if args.session:
-        snapshot = client.get_session(args.session)
-    else:
-        snapshot = client.open_session("interactive terminal chat session")
-    session_id = snapshot.session.session_id
-    print(f"chat session started (session {session_id})")
-    print("type /exit to quit, /status for session state")
-    while True:
-        try:
-            line = input("you> ")
-        except EOFError:
-            print()
-            break
-        except KeyboardInterrupt:
-            try:
-                client.correct(session_id, "user interrupt at terminal prompt")
-            except SurfaceClientError:
-                pass
-            print("\n[session interrupted; task correction-halted]")
-            break
-        text = line.strip()
-        if not text:
-            continue
-        if text in {"/exit", "/quit"}:
-            break
-        if text == "/status":
-            current = client.get_session(session_id)
-            print(
-                json.dumps(
-                    {
-                        "session_id": session_id,
-                        "status": _status_value(current.status),
-                        "event_sequence": current.event_sequence,
-                        "message_count": current.message_count,
-                    },
-                    indent=2,
-                )
-            )
-            continue
-        if text == "/pause":
-            paused = client.pause(session_id, "paused by user")
-            print(f"[paused: {_status_value(paused.status)}]")
-            continue
-        if text == "/resume":
-            resumed = client.resume(session_id, "resumed by user")
-            print(f"[resumed: {_status_value(resumed.status)}]")
-            continue
-        if text == "/correct" or text.startswith("/correct "):
-            reason = text[len("/correct") :].strip()
-            if not reason:
-                print("[usage: /correct REASON]")
-                continue
-            halted = client.correct(session_id, reason)
-            print(f"[correction halted: {_status_value(halted.status)}]")
-            continue
-        response = client.run_turn(session_id, text)
-        if response.text:
-            print(response.text)
-        if (
-            response.snapshot.status == SurfaceSessionStatus.WAITING_APPROVAL
-        ):
-            _handle_approval(
-                client, session_id, response.snapshot.pending_approval
-            )
-            continue
-        if response.stop_reason != "completed":
-            print(f"[stopped: {response.stop_reason}]")
-    return 0
-
-
-
 def _mandate_bootstrap(args: argparse.Namespace) -> int:
     mandate = load_mandate_json(args.mandate_json)
     relevance = (
@@ -690,43 +491,8 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{agent,chat}",
+        metavar="{command}",
     )
-
-    agent = sub.add_parser(
-        "agent",
-        help=(
-            "Mandate-top Agent Surface: Ask mode, plus "
-            "run/status/answer/correct/resume Work commands"
-        ),
-    )
-    agent.add_argument("prompt", nargs="?", default=None)
-    agent.add_argument("--prompt", "-p", dest="prompt_flag", default=None)
-    agent.add_argument("--resume", action="store_true")
-    agent.add_argument("--offline", action="store_true")
-    agent.add_argument(
-        "--no-stream",
-        action="store_true",
-        help="disable provider SSE streaming (debug)",
-    )
-    agent.set_defaults(_uses_prompt_flag=True)
-
-    chat = sub.add_parser("chat", help="deprecated alias for agent")
-    chat.add_argument("prompt", nargs="?", default=None)
-    chat.add_argument("--prompt", "-p", dest="prompt_flag", default=None)
-    chat.add_argument("--resume", action="store_true")
-    chat.add_argument("--offline", action="store_true")
-    chat.add_argument(
-        "--no-stream",
-        action="store_true",
-        help="disable provider SSE streaming (debug)",
-    )
-    chat.add_argument(
-        "--session",
-        default=None,
-        help="resume an existing session instead of opening a new one",
-    )
-    chat.set_defaults(_uses_prompt_flag=True)
 
     session_show = sub.add_parser("session-show", help=argparse.SUPPRESS)
     session_show.add_argument("session_id")
@@ -817,21 +583,22 @@ def main(argv: list[str] | None = None) -> None:
     recovery = sub.add_parser("task-recovery")
     recovery.add_argument("task_id")
 
+    _visible_work_commands = {
+        "agent-run",
+        "agent-resume",
+        "agent-status",
+        "agent-answer",
+        "agent-correct",
+        "agent-admit-selfdev",
+    }
     sub._choices_actions = [  # type: ignore[attr-defined]
         action
         for action in sub._choices_actions  # type: ignore[attr-defined]
-        if action.dest in {"agent", "chat"}
+        if action.dest in _visible_work_commands
     ]
     args = parser.parse_args(argv[1:])
 
-    if getattr(args, "_uses_prompt_flag", False) and args.prompt_flag is not None:
-        args.prompt = args.prompt_flag
-
     try:
-        if args.command == "agent":
-            raise SystemExit(_agent(args))
-        if args.command == "chat":
-            raise SystemExit(_chat(args))
         if args.command == "daemon-start":
             raise SystemExit(_daemon_start(args))
         if args.command == "daemon-status":
