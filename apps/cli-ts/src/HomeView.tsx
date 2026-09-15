@@ -5,15 +5,16 @@
  */
 import React from "react";
 import { basename } from "node:path";
+import { homedir } from "node:os";
 import { Box, Text } from "ink";
 import type { ThemeColors } from "./theme.js";
 
 export interface StatusBarProps {
   workspace: string;
   branch: string | null;
-  mode: string;
   version: string;
   theme: ThemeColors;
+  narrow?: boolean;
 }
 
 /**
@@ -22,8 +23,24 @@ export interface StatusBarProps {
  * not achievable without a fullscreen/alt-screen renderer; a bottom bar is the
  * honest placement and matches the layout model.
  */
-export function StatusBar({ workspace, branch, mode, version, theme }: StatusBarProps) {
+export function StatusBar({
+  workspace,
+  branch,
+  version,
+  theme,
+  narrow = false,
+}: StatusBarProps) {
   const name = basename(workspace) || workspace;
+  if (narrow) {
+    return (
+      <Text dimColor wrap="truncate-end">
+        <Text bold color={theme.accent}>
+          ◆ agent-os
+        </Text>
+        {` · ${name}`}
+      </Text>
+    );
+  }
   return (
     <Box justifyContent="space-between">
       <Text>
@@ -34,7 +51,7 @@ export function StatusBar({ workspace, branch, mode, version, theme }: StatusBar
       </Text>
       <Text dimColor wrap="truncate-end">
         {name}
-        {branch ? ` · ${branch}` : ""} · {mode}
+        {branch ? ` · ${branch}` : ""}
       </Text>
     </Box>
   );
@@ -48,6 +65,22 @@ export interface HomeViewProps {
   model: string | null;
   theme: ThemeColors;
   narrow?: boolean;
+  columns?: number;
+}
+
+/** Home-relative, single-line path bounded to the terminal width. */
+export function shortenPath(workspace: string, columns: number): string {
+  const home = homedir();
+  const value = workspace.startsWith(home)
+    ? `~${workspace.slice(home.length)}`
+    : workspace;
+  const limit = Math.max(20, columns);
+  if (value.length <= limit) return value;
+  const parts = value.split("/").filter(Boolean);
+  const tail = parts.slice(-2).join("/");
+  const prefix = value.startsWith("~") ? "~/" : "/";
+  const short = `${prefix}…/${tail}`;
+  return short.length <= limit ? short : `…/${tail}`;
 }
 
 export function HomeView({
@@ -58,6 +91,7 @@ export function HomeView({
   model,
   theme,
   narrow = false,
+  columns = 100,
 }: HomeViewProps) {
   const name = basename(workspace) || workspace;
   if (narrow) {
@@ -96,7 +130,7 @@ export function HomeView({
           </Text>
           <Text>
             <Text color={theme.accent}>path       </Text>
-            <Text dimColor>{workspace}</Text>
+            <Text dimColor>{shortenPath(workspace, columns - 16)}</Text>
           </Text>
           <Text>
             <Text color={theme.accent}>git        </Text>
