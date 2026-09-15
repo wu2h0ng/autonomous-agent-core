@@ -310,18 +310,18 @@ def test_admission_contract_requires_one_to_eight_product_verifier_paths() -> No
         {
             **base,
             "verifier_paths": (
-                "tests/product/test_agent_cli_stream.py",
+                "tests/product/test_provider_robustness.py",
                 "tests/product/test_selfdev_admission.py",
             ),
         }
     )
     assert command.verifier_paths == (
-        "tests/product/test_agent_cli_stream.py",
+        "tests/product/test_provider_robustness.py",
         "tests/product/test_selfdev_admission.py",
     )
     noncanonical = {
         **base,
-        "verifier_paths": ("tests/product/test_agent_cli_stream.py",),
+        "verifier_paths": ("tests/product/test_provider_robustness.py",),
         "selfdev_spec": {
             **base["selfdev_spec"],
             "verifier_command": "python -m pytest",
@@ -770,7 +770,7 @@ def test_git_marker_symlink_is_not_an_isolated_worktree(tmp_path: Path) -> None:
     assert "SELFDEV_WORKTREE_NOT_ISOLATED" in excinfo.value.details
 
 
-def test_agent_cli_admits_typed_json_and_replays_reformatted_json(
+def test_selfdev_admits_typed_json_and_replays_reformatted_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

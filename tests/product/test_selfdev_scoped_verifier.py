@@ -155,7 +155,7 @@ def test_selfdev_organ_fails_unbound_before_agent_loop_and_forwards_sealed_bindi
 def test_run_coordinator_snapshot_contains_only_head_and_sealed_verifier_bindings() -> None:
     binding = {
         "schema_version": "1.0",
-        "path": "tests/product/test_agent_cli_stream.py",
+        "path": "tests/product/test_provider_robustness.py",
         "base_blob_sha256": "a" * 64,
     }
 
