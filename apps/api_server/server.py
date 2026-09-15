@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote_to_bytes, urlparse
 
 from pydantic import ValidationError
 
-from agent_os_contracts import HelpRequest, TaskDraftProposal
+from agent_os_contracts import HelpRequest, RatifiedMandateRef, TaskDraftProposal
 from agent_os_core import (
     CandidateConcurrentWrite,
     CandidateEvaluationDenied,
@@ -47,6 +47,8 @@ from agent_os_core import (
     MandateOutcomePortfolioPersistenceConflict,
     TaskNotFoundError,
 )
+
+from agent_os_core.mandate_terminal import attach_mandate, bootstrap_mandate
 
 from ._cors import _tauri_origin_cors
 from .app import AgentOSApplication
@@ -733,6 +735,40 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/v1/mandates":
                 record = self.application.create_mandate_workspace_record(body)
                 self._json(201, record)
+                return
+            if parsed.path == "/v1/mandates:bootstrap":
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                store_path = str(admin.store.path)
+                if ":memory:" in store_path or "mode=memory" in store_path:
+                    self._json(
+                        400,
+                        {"error": "mandate bootstrap requires a file database"},
+                    )
+                    return
+                database = Path(store_path)
+                mandate = RatifiedMandateRef.model_validate(body)
+                self._json(
+                    201, bootstrap_mandate(database=database, mandate=mandate)
+                )
+                return
+            if parsed.path == "/v1/mandates:attach":
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                session = attach_mandate(
+                    workspace=Path(str(admin.workspace_root)),
+                    database=Path(str(admin.store.path)),
+                    mandate_id=str(body.get("mandate_id") or ""),
+                    environment_binding_id=str(
+                        body.get("environment_binding_id") or ""
+                    ),
+                    principal_id=str(body.get("principal_id") or ""),
+                    tenant_id=str(body.get("tenant_id") or ""),
+                    workspace_id=str(body.get("workspace_id") or ""),
+                )
+                self._json(200, session.to_dict())
                 return
             mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio")
             if mandate_id is not None:
