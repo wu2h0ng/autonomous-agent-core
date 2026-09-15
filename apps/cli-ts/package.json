@@ -32,7 +32,7 @@
     "e2e": "bash scripts/e2e.sh",
     "live": "uv run python scripts/live_evidence.py --out /tmp/cli-ts-live.json",
     "live:pty": "uv run python scripts/live_multiturn_pty.py --out /tmp/cli-ts-live-pty.json",
-    "test": "node --import tsx --test test/client.test.ts test/controller.test.ts test/render.test.ts test/headless.test.ts test/provider-command.test.ts test/daemon.test.ts test/homeview.test.tsx test/cli-entry.test.ts test/session-command.test.ts test/doctor.test.ts test/keys.test.ts test/diff.test.ts test/commands.test.ts test/history.test.ts test/composer.test.ts test/editor.test.ts test/mentions.test.ts test/diffview.test.ts test/themes.test.ts test/layout.test.ts test/selector.test.ts test/state.test.ts test/attention.test.ts test/highlight.test.ts test/app.test.tsx",
+    "test": "node --import tsx --test test/client.test.ts test/controller.test.ts test/render.test.ts test/headless.test.ts test/provider-command.test.ts test/daemon.test.ts test/homeview.test.tsx test/cli-entry.test.ts test/session-command.test.ts test/doctor.test.ts test/keys.test.ts test/opentui-panels.test.ts test/diff.test.ts test/commands.test.ts test/history.test.ts test/composer.test.ts test/editor.test.ts test/mentions.test.ts test/diffview.test.ts test/themes.test.ts test/layout.test.ts test/selector.test.ts test/state.test.ts test/attention.test.ts test/highlight.test.ts test/app.test.tsx",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
   },
