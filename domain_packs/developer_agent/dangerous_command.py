@@ -99,30 +99,31 @@ _LAUNCHERS = frozenset(
     }
 )
 _SEGMENT_SPLIT = re.compile(r"[;&|\n]+")
-_PATH_PREFIX = re.compile(r"^(?:[A-Za-z0-9._+-]+/)+")
+_PATH_PREFIX = re.compile(r"^/?(?:[A-Za-z0-9._+-]+/)+")
 
-# (class, kind) where kind="seg" matches a launcher-stripped segment and
-# kind="full" matches the whole normalised command line.
+# kind="seg" matches a launcher-stripped, lower-cased segment anchored at its start
+# (a command position). kind="full" matches the whole normalised command line (for
+# pipeline/redirect/chain shapes that span separators).
 _RULES: tuple[tuple[DangerousCommandClass, str, re.Pattern[str]], ...] = (
     (
         DangerousCommandClass.RECURSIVE_DELETE,
         "seg",
-        # requires a recursive flag: rm -r / -rf / -fr / --recursive
-        re.compile(r"\brm\s+((-\w*r\w*)|(--recursive))(\s|$)"),
+        # recursive delete: the rm argument list must contain a flag with an r/R
+        # (-r / -rf / -Rf / -f -r / --recursive), order-independent; plain rm/-f is clean
+        re.compile(r"^rm\s+(?=[^;&|]*-{1,2}[\w-]*r[\w-]*\b)"),
     ),
     (
         DangerousCommandClass.PRIVILEGE_ESCALATION,
-        "full",
-        re.compile(
-            r"(^|[\s;&|])(sudo|doas|su)\s+(?!(-h|-V|--help|--version)\b)"
-        ),
+        "seg",
+        re.compile(r"^(sudo|doas|su)\s+(?!(-h|-V|--help|--version)\b)"),
     ),
     (
         DangerousCommandClass.REMOTE_CODE_EXECUTION,
         "full",
         re.compile(
-            r"\b(curl|wget)\b[^|]*\|[^|]*"
-            r"\b(sh|bash|zsh|dash|ksh|python[0-9.]*|perl|ruby)\b"
+            r"\b(curl|wget)\b.*\|(\s*\S+\s*\|)*\s*"
+            r"(?:(?:sudo|doas|env|command)\s+)?(?:\S*/)?"
+            r"(sh|bash|zsh|dash|ksh|python[0-9.]*|perl|ruby)\b"
         ),
     ),
     (
@@ -135,22 +136,28 @@ _RULES: tuple[tuple[DangerousCommandClass, str, re.Pattern[str]], ...] = (
     ),
     (
         DangerousCommandClass.FILESYSTEM_DESTRUCTION,
+        "seg",
+        re.compile(r"^(mkfs(\.[a-z0-9]+)?|wipefs|shred)\b"),
+    ),
+    (
+        DangerousCommandClass.FILESYSTEM_DESTRUCTION,
         "full",
         re.compile(
-            r"(^|[\s;&|])(mkfs(\.[a-z0-9]+)?|wipefs|shred)\b"
-            r"|\bgit\s+clean\b[^|]*\s-\w*[fd]"
+            r"\bgit\s+clean\b[^|]*\s-\w*[fd]"
             r"|\bfind\b[^|]*(-delete\b|-exec\s+(?:\S*/)?rm\b)"
         ),
     ),
     (
         DangerousCommandClass.PERMISSION_WIDENING,
-        "full",
-        re.compile(r"(^|[\s;&|])chmod\s+(-\w+\s+)*(777|0777|a\+rwx)\b"),
+        "seg",
+        re.compile(r"^chmod\s+(-{1,2}[\w-]+\s+)*(777|0777|a\+rwx)\b"),
     ),
     (
         DangerousCommandClass.FORK_BOMB,
         "full",
-        re.compile(r":\s*\(\s*\)\s*\{"),
+        # a function definition whose body pipes/backgrounds itself (fork bomb),
+        # e.g. ':(){ :|:& };:' or 'f(){ f|f& };f'
+        re.compile(r"([^\s(){}]+)\s*\(\s*\)\s*\{[^}]*(?:\1\s*[|&]|[|&]\s*\1)[^}]*\}"),
     ),
 )
 
@@ -170,7 +177,7 @@ def _command_segments(command: str) -> list[str]:
             tokens[index] = head
             break
         if index < len(tokens):
-            segments.append(" ".join(tokens[index:]))
+            segments.append(" ".join(tokens[index:]).lower())
     return segments
 
 
@@ -180,11 +187,16 @@ def classify_dangerous_command(command: str) -> tuple[DangerousCommandClass, ...
     normalized = " ".join(command.split()).lower()
     if not normalized:
         return ()
-    segments = ";".join(_command_segments(command))
+    segments = _command_segments(command)
     seen: list[DangerousCommandClass] = []
     for command_class, kind, pattern in _RULES:
-        subject = segments if kind == "seg" else normalized
-        if pattern.search(subject) and command_class not in seen:
+        if command_class in seen:
+            continue
+        if kind == "seg":
+            hit = any(pattern.search(segment) for segment in segments)
+        else:
+            hit = pattern.search(normalized) is not None
+        if hit:
             seen.append(command_class)
     return tuple(seen)
 
