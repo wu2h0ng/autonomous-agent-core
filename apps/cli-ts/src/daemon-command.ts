@@ -1,5 +1,5 @@
 /**
- * `agent-os-ts daemon start|stop|status` — manage the local governance daemon.
+ * `noem daemon start|stop|status` — manage the local governance daemon.
  */
 import {
   daemonHealthy,
@@ -56,11 +56,11 @@ export async function runDaemonCommand(
       return healthy ? 0 : 1;
     }
     process.stderr.write(
-      `agent-os-ts: unknown daemon subcommand ${sub} (start | stop | status)\n`,
+      `noem: unknown daemon subcommand ${sub} (start | stop | status)\n`,
     );
     return 1;
   } catch (cause) {
-    process.stderr.write(`agent-os-ts daemon: ${(cause as Error).message}\n`);
+    process.stderr.write(`noem daemon: ${(cause as Error).message}\n`);
     return 1;
   }
 }

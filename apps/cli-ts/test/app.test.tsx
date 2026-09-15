@@ -344,8 +344,8 @@ test("home screen and header render before the first turn", () => {
     />,
   );
   const frame = view.lastFrame() ?? "";
-  assert.match(frame, /agent-os/);
-  assert.match(frame, /AGENT OS/);
+  assert.match(frame, /noem/);
+  assert.match(frame, /NOEM/);
   assert.match(frame, /Quick start/);
   assert.match(frame, /deepseek-chat/);
   assert.match(frame, /demo-workspace/);

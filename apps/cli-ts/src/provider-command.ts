@@ -1,5 +1,5 @@
 /**
- * Headless provider administration (`agent-os-ts provider ...`).
+ * Headless provider administration (`noem provider ...`).
  *
  * Mirrors the TUI `/provider`: status / set / clear. The API key is read from
  * AGENT_OS_PROVIDER_KEY (never typed, never written to local state); the daemon
@@ -29,7 +29,7 @@ export async function runProviderCommand(
   const sub = (options.args[0] ?? "status").toLowerCase();
   if (!SUBCOMMANDS.has(sub)) {
     process.stderr.write(
-      `agent-os-ts: unknown provider subcommand ${sub} (status | set | clear)\n`,
+      `noem: unknown provider subcommand ${sub} (status | set | clear)\n`,
     );
     return 1;
   }
@@ -44,7 +44,7 @@ export async function runProviderCommand(
     endpointClass = flagValue(options.args, "--endpoint-class");
     if (!baseUrl || !model) {
       process.stderr.write(
-        "usage: agent-os-ts provider set --base-url <url> --model <id> [--endpoint-class <class>]\n",
+        "usage: noem provider set --base-url <url> --model <id> [--endpoint-class <class>]\n",
       );
       return 1;
     }
@@ -85,7 +85,7 @@ export async function runProviderCommand(
     );
     return 0;
   } catch (cause) {
-    process.stderr.write(`agent-os-ts provider: ${(cause as Error).message}\n`);
+    process.stderr.write(`noem provider: ${(cause as Error).message}\n`);
     return 1;
   }
 }

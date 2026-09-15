@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** agent-os-ts entry: Ink TUI over the local runtime daemon, or headless
+/** noem entry: Ink TUI over the local runtime daemon, or headless
  * one-shot with -p/--print (frozen exit codes in headless.ts). */
 import React from "react";
 import { render } from "ink";
@@ -12,7 +12,7 @@ import { renderDoctorText, runDoctor } from "./doctor.js";
 import { loadState, saveState, stateFilePath } from "./state.js";
 import { App } from "./App.js";
 
-// Writing to a closed pipe (e.g. `agent-os-ts -p ... | head -3`) raises
+// Writing to a closed pipe (e.g. `noem -p ... | head -3`) raises
 // EPIPE; mainstream CLI behavior is a quiet exit, not an unhandled throw.
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (error: NodeJS.ErrnoException) => {
@@ -43,15 +43,15 @@ async function main(): Promise<void> {
   if (args[0] === "--help" || args[0] === "-h") {
     process.stdout.write(
       [
-        `agent-os-ts ${agentVersion()} — governed terminal agent`,
+        `noem ${agentVersion()} — governed terminal agent`,
         "",
         "usage:",
-        "  agent-os-ts                 interactive TUI (starts the daemon on demand)",
-        "  agent-os-ts -p <prompt>     headless one-shot (--output-format json|text|stream-json)",
-        "  agent-os-ts doctor          read-only self-check",
-        "  agent-os-ts provider ...    show/configure the live provider",
-        "  agent-os-ts session ...     show/pause/resume/correct a session",
-        "  agent-os-ts daemon ...      start/stop/status the local runtime",
+        "  noem                 interactive TUI (starts the daemon on demand)",
+        "  noem -p <prompt>     headless one-shot (--output-format json|text|stream-json)",
+        "  noem doctor          read-only self-check",
+        "  noem provider ...    show/configure the live provider",
+        "  noem session ...     show/pause/resume/correct a session",
+        "  noem daemon ...      start/stop/status the local runtime",
         "",
         "Governance/admin (mandate, task, workflow, selfdev) is API-only.",
         "The slim local-authority Agent Work CLI is `agent-os-work`.",
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
       })
     ).descriptor;
   } catch (cause) {
-    console.error(`agent-os-ts: ${(cause as Error).message}`);
+    console.error(`noem: ${(cause as Error).message}`);
     process.exitCode = 1;
     return;
   }
@@ -123,7 +123,7 @@ async function main(): Promise<void> {
 
   if (printPrompt !== undefined) {
     if (outputFormat && outputFormat !== "text" && outputFormat !== "json" && outputFormat !== "stream-json") {
-      console.error(`agent-os-ts: unknown --output-format ${outputFormat} (text | json | stream-json)`);
+      console.error(`noem: unknown --output-format ${outputFormat} (text | json | stream-json)`);
       process.exitCode = 1;
       return;
     }
@@ -204,6 +204,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((cause: unknown) => {
-  console.error(`agent-os-ts: ${(cause as Error).message}`);
+  console.error(`noem: ${(cause as Error).message}`);
   process.exitCode = 1;
 });
