@@ -189,6 +189,70 @@ def test_rejects_outcome_for_missing_expected_outcome(tmp_path):
     assert decision.reason_code is OutcomeAdmissionReason.NO_EXPECTED_OUTCOME
 
 
+def _committed_with_evaluator(tmp_path, evaluator_type: str):
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    task = app.create_task({
+        "goal_id": "goal:ue", "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local", "created_by": "user:local",
+        "created_at": NOW, "statement": "x",
+    })
+    workflow = _workflow().model_copy(
+        update={"evaluator_refs": (f"evaluator:{evaluator_type}:1",)}
+    )
+    app.commit_task(task.task_id, {
+        "commitment": {
+            "commitment_id": "commitment:ue", "task_id": task.task_id, "goal_id": "goal:ue",
+            "tenant_id": "tenant:local", "workspace_id": "workspace:local",
+            "accepted_by": "user:local", "accepted_at": NOW,
+            "deliverables": ["x"], "acceptance_criteria": ["x"],
+            "authority_scopes": ["workspace:read"],
+            "budget": {"max_cost_usd": "1", "max_duration_seconds": 300,
+                       "max_provider_tokens": 0, "max_tool_calls": 1},
+            "risk_tier": 1, "exit_conditions": ["x"],
+            "expires_at": NOW + timedelta(hours=1),
+        },
+        "workflow": workflow.model_dump(mode="json"),
+        "expected_outcome": {
+            "expected_outcome_id": "expected:ue", "task_id": task.task_id,
+            "tenant_id": "tenant:local", "workspace_id": "workspace:local",
+            "evaluator_type": evaluator_type, "evaluator_version": "1",
+            "evidence_requirements": ["x"], "failure_semantics": ["x"],
+            "threshold": 1, "observation_window_seconds": 3600, "frozen_at": NOW,
+        },
+    })
+    return app, task.task_id
+
+
+def test_rejects_unknown_evaluator(tmp_path):
+    app, task_id = _committed_with_evaluator(tmp_path, "unknown:evaluator")
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed:ue",
+        expected_outcome_id="expected:ue",
+        task_id=task_id,
+        run_id="run",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluator_type="unknown:evaluator",
+        evaluator_version="1",
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("x",),
+        observed_at=NOW,
+    )
+    decision = OutcomeLearningGate(app.tasks).admit(task_id, outcome)
+    assert decision.admitted is False
+    assert decision.reason_code is OutcomeAdmissionReason.UNKNOWN_EVALUATOR
+
+
+def test_rejects_forged_verified_evidence(tmp_path):
+    app, task_id, observed = _verified(tmp_path)
+    forged = observed.model_copy(update={"score": 0.5})
+    decision = OutcomeLearningGate(app.tasks).admit(task_id, forged)
+    assert decision.admitted is False
+    assert decision.reason_code is OutcomeAdmissionReason.EVIDENCE_INVALID
+
+
 def test_rejects_non_current_outcome(tmp_path):
     app, task_id, observed = _verified(tmp_path)
     other = observed.model_copy(update={"observed_outcome_id": "observed:not-current"})

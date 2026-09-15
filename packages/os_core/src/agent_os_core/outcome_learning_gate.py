@@ -79,14 +79,31 @@ class OutcomeLearningGate:
         if outcome.status is not OutcomeStatus.VERIFIED:
             return _deny(OutcomeAdmissionReason.OUTCOME_NOT_VERIFIED)
 
-        if self._tasks.evaluator_registry.get(expected.evaluator_type) is None:
+        evaluator = self._tasks.evaluator_registry.get(expected.evaluator_type)
+        if evaluator is None:
             return _deny(OutcomeAdmissionReason.UNKNOWN_EVALUATOR)
 
+        # Evidence binding is enforced on the SUPPLIED outcome (not only on the
+        # stored one), so reusing a genuine outcome id with forged score/evidence/
+        # run/window fields is rejected here.
+        try:
+            evaluator.verify_verified_recording(
+                expected,
+                outcome,
+                report_resolver=self._tasks.validated_test_report,
+                now=self._tasks.now(),
+            )
+        except Exception as exc:
+            return _deny(OutcomeAdmissionReason.EVIDENCE_INVALID, type(exc).__name__)
+
+        # Full equality with the current trusted outcome binds every field
+        # (run_id, observed_at, score, evidence_refs), rejecting any forgery that
+        # reuses a genuine observed_outcome_id.
         current = self._tasks.current_outcome(task_id)
         if (
             current is None
             or current.status is not OutcomeStatus.VERIFIED
-            or current.observed_outcome_id != outcome.observed_outcome_id
+            or current != outcome
         ):
             return _deny(OutcomeAdmissionReason.OUTCOME_NOT_CURRENT)
 
