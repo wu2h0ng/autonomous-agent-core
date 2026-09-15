@@ -193,6 +193,8 @@ from .agent_context import (
     agent_context_status_payload,
     agents_markdown_system_section,
     discover_agents_markdown,
+    discover_agents_markdown_layers,
+    layered_agents_markdown_system_section,
 )
 from .trusted_commands import TRUSTED_SHELL_PROFILE_V1, apply_trusted_shell_profile
 from .mandate_terminal import (
@@ -510,6 +512,8 @@ __all__ = [
     "agent_context_status_payload",
     "agents_markdown_system_section",
     "discover_agents_markdown",
+    "discover_agents_markdown_layers",
+    "layered_agents_markdown_system_section",
     "TRUSTED_SHELL_PROFILE_V1",
     "apply_trusted_shell_profile",
     "MandateAttachSession",

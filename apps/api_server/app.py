@@ -96,9 +96,9 @@ from agent_os_core import (
     SurfaceStreamGone,
     AgentLoop,
     AgentLoopConfig,
-    agents_markdown_system_section,
     apply_trusted_shell_profile,
-    discover_agents_markdown,
+    discover_agents_markdown_layers,
+    layered_agents_markdown_system_section,
     CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
@@ -211,12 +211,13 @@ def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentL
     `discover_agents_markdown`; this only injects prompt context and never
     widens authority. Missing AGENTS.md is a no-op.
     """
-    context = discover_agents_markdown(workspace)
-    if context is None:
+    layers = discover_agents_markdown_layers(workspace)
+    if not layers:
         return config
     return replace(
         config,
-        system_prompt=config.system_prompt + agents_markdown_system_section(context),
+        system_prompt=config.system_prompt
+        + layered_agents_markdown_system_section(layers),
     )
 
 
