@@ -1,7 +1,7 @@
 /** --version/--help print without starting the daemon (no descriptor needed). */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -36,4 +36,16 @@ test("--help prints usage without a daemon", () => {
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("package registers the noem bin with legacy aliases", () => {
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { bin?: Record<string, string> };
+  const bins = Object.keys(pkg.bin ?? {});
+  assert.ok(bins.includes("noem"), "noem must be a registered bin");
+  assert.deepEqual(
+    bins.filter((name) => name !== "noem").sort(),
+    ["agent-os", "agent-os-ts", "agentos"],
+  );
 });

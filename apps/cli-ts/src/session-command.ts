@@ -1,5 +1,5 @@
 /**
- * Headless session administration (`agent-os session ...`), mirroring the
+ * Headless session administration (`noem session ...`), mirroring the
  * former Python `session-show` / `session-pause` / `session-resume` /
  * `session-correct` subcommands. Read/control only; durable truth stays in the
  * task event stream.

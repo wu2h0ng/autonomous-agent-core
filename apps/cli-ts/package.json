@@ -15,6 +15,7 @@
   "bin": {
     "noem": "./dist/cli.js",
     "agentos": "./dist/cli.js",
+    "agent-os": "./dist/cli.js",
     "agent-os-ts": "./dist/cli.js"
   },
   "scripts": {
