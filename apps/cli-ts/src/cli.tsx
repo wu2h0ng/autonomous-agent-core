@@ -36,11 +36,11 @@ async function main(): Promise<void> {
   const printPrompt = flagValue(args, "-p", "--print");
   const outputFormat = flagValue(args, "--output-format") as HeadlessOutputFormat | undefined;
 
-  if (args.includes("--version") || args.includes("-v")) {
+  if (args[0] === "--version" || args[0] === "-v") {
     process.stdout.write(`${agentVersion()}\n`);
     return;
   }
-  if (args.includes("--help") || args.includes("-h")) {
+  if (args[0] === "--help" || args[0] === "-h") {
     process.stdout.write(
       [
         `agent-os-ts ${agentVersion()} — governed terminal agent`,

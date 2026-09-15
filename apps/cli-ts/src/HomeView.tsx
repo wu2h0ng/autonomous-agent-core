@@ -4,7 +4,7 @@
  * the first turn; this keeps the first-run experience from being a blank log.
  */
 import React from "react";
-import { basename } from "node:path";
+import { basename, sep } from "node:path";
 import { homedir } from "node:os";
 import { Box, Text } from "ink";
 import type { ThemeColors } from "./theme.js";
@@ -71,16 +71,16 @@ export interface HomeViewProps {
 /** Home-relative, single-line path bounded to the terminal width. */
 export function shortenPath(workspace: string, columns: number): string {
   const home = homedir();
-  const value = workspace.startsWith(home)
-    ? `~${workspace.slice(home.length)}`
-    : workspace;
+  const isHome = workspace === home || workspace.startsWith(`${home}${sep}`);
+  const value = isHome ? `~${workspace.slice(home.length)}` : workspace;
   const limit = Math.max(20, columns);
   if (value.length <= limit) return value;
   const parts = value.split("/").filter(Boolean);
   const tail = parts.slice(-2).join("/");
   const prefix = value.startsWith("~") ? "~/" : "/";
   const short = `${prefix}…/${tail}`;
-  return short.length <= limit ? short : `…/${tail}`;
+  // Always bound the result: a single very long segment must not overflow.
+  return short.length <= limit ? short : `…${short.slice(-(limit - 1))}`;
 }
 
 export function HomeView({
