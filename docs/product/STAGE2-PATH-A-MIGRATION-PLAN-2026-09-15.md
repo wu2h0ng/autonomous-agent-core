@@ -129,3 +129,21 @@
 **结论**：管理面 HTTP 覆盖已相当完整；删除 A（2f）前，需对上述 6 项做一个**合并决策**（补 HTTP 管理端点 vs park 为 daemon-only vs 明确裁撤）。任一裁撤属 founder-reserved。
 
 **测试迁移**：A 的 mandate/task/workflow/selfdev CLI 测试覆盖改由 **HTTP API 层测试**保持（终端不实现该面）。
+
+## 11. 2f-prep 进展与"权威模型"门（2026-09-15）
+
+| 操作 | 状态 |
+|---|---|
+| mandate-bootstrap / mandate-attach | ✅ 已加 admin HTTP 端点（PR #40，`e5391751`） |
+| task-run | ✅ 既有 `POST /v1/tasks/{id}/run` 已覆盖（无需新增） |
+| work run / work correct | ⛔ 未完成——不是"加路由"问题 |
+| agent-admit-selfdev | ⛔ 未完成——同上，且属安全面 |
+
+**根因**：`work run` / `work correct` / `agent-admit-selfdev` 都经 `_work_applications()` 构造 **execution_app + authority_app**：它依赖 **本地 mandate attach session** 与 **`AGENT_OS_AUTHORITY_BEARER`** 解析 execution/authority principal 角色（`resolve_agent_work_authority`）。也就是说这是**本地终端权威模型**，不是普通管理 API 调用。
+
+**删除 A（2f）前需 founder 决策"权威 bearer 如何在网络上定义"**：
+- **(a)** 在 admin API 上定义并暴露该权威模型（bearer/角色/审计/越权失败路径）→ 必配安全评审；
+- **(b)** park：这三项保持**本地权威/进程内**，不暴露 HTTP；
+- **(c)** 为 work/selfdev 保留一个**精简本地权威 CLI**（即不删除 A 的该子集），只删除已覆盖的部分。
+
+在 (a)/(b)/(c) 决定前，2f 无法安全删除 A 的这部分；mandate/task 等已覆盖部分可先行。
