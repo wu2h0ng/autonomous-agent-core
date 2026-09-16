@@ -39,12 +39,12 @@ durable record of the compaction.
 
 ## 4. Verification
 
-- `tests/product/test_context_compaction.py` (9): drops the oldest turn and keeps the
+- `tests/product/test_context_compaction.py` (11): drops the oldest turn and keeps the
   active request; never splits a tool group; no compaction within budget; a single
   over-budget turn records no event; digest determinism; `_maybe_record_compaction`
   writes exactly one event per distinct result; two distinct compactions are both
-  recorded; the projection replays a compaction event safely; no event for a large
-  budget.
+  recorded; the same boundary is recorded once across steps; the projection replays a
+  compaction event safely; no event for a large budget.
 - Full `tests/product` 24 failed == base + 1 order-sensitive flaky mode-matrix test
   that passes in isolation (zero real new). Ruff clean; pyright 0.
 
@@ -55,8 +55,9 @@ durable record of the compaction.
   kept in full and no event is recorded. Compaction only removes whole *completed*
   turns older than the active one.
 - One event is recorded per distinct drop boundary `(dropped_messages,
-  kept_from_index)` per loop instance. Because the cut point is stable across the steps
-  of a turn, this is one event per real turn-level compaction, not per provider step.
+  kept_from_index)` per loop instance: a compaction is not re-recorded on every provider
+  step. Cardinality is per distinct boundary, not strictly per turn — if a very large
+  tool result pushes the cut further mid-turn, an additional event is recorded.
 - Compaction drops whole pre-active turns only; it does not summarise/rewrite content
   (that would need a model and a different gate). "Manual" compaction is out of scope.
 - Independent exact-diff review still required before promotion.
