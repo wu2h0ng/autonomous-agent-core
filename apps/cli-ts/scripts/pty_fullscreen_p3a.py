@@ -115,24 +115,22 @@ def main() -> None:
         time.sleep(1.5)
         agents = read(fd, 2.5)
         frames.append(agents)
-        print("===== TAB -> agents (read-only tree) =====")
+        print("===== TAB -> agents panel =====")
         print(agents)
-        # The renderer diffs cells, so tree rows may have been painted earlier;
-        # assert over the accumulated frames (still evidence it was rendered).
-        all_frames = "\n".join(frames)
-        # The renderer diffs cells, so a title may land in an earlier frame;
-        # assert over the accumulated frames (still real render evidence).
-        print(
-            "AGENTS_PANEL_SELECTED:",
-            ("agents · selected" in all_frames)
-            or ("panel: agents" in all_frames)
-            or ("panel:agents" in all_frames),
-        )
+        # The renderer diffs cells, so after a Tab only changed cells are
+        # re-emitted: the panel *title* can be split across frames and a
+        # substring check would be flaky (R2 finding F1). Assert instead on
+        # facts that are deterministically observable:
+        #   - the panel exists in the FIRST full paint (boot frame),
+        #   - the tree content is rendered,
+        #   - --no-agents removes the panel (second spawn below).
+        # Selection itself is covered by the renderer-independent unit tests for
+        # nextPanel/visiblePanels (test/opentui-panels.test.ts), not from frames.
+        print("AGENTS_PANEL_PRESENT:", "─agents" in boot)
         print(
             "TREE_ROWS_RENDERED:",
-            any(g in all_frames for g in ("▸", "•", "◆", "(unlinked task)", "(no mandates)")),
+            any(g in "\n".join(frames) for g in ("▸", "•", "◆", "(unlinked task)", "(no mandates)")),
         )
-
         # Regression guard: selecting a panel must not steal composer focus.
         os.write(fd, b"zzz")
         time.sleep(0.4)
@@ -146,10 +144,7 @@ def main() -> None:
         print("===== BOOT --no-agents (expect NO agents panel) =====")
         frame = read(fd, 4)
         print(frame)
-        print(
-            "HAS_AGENTS_TITLE:",
-            ("─agents" in frame) or ("agents · selected" in frame),
-        )
+        print("HAS_AGENTS_TITLE:", "─agents" in frame)
         os.write(fd, b"\x03")
         time.sleep(0.4)
         kill(pid)

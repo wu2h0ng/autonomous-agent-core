@@ -86,8 +86,9 @@
   - `src/opentui/agent-tree-source.ts`：只读拼接 `GET /v1/mandates` + `GET /v1/mandates/{id}/task-links` + `SurfaceClient.listSessions`；宽松解析（只取所需字段）、失败降级为 note、mandate 扇出上限 20。
   - `SurfaceClient.getReadOnly(path)`：仅 GET、无 body、沿用同一 bearer/错误映射；**不做任何治理操作**。
   - `app.tsx`：侧栏新增 `agents` 面板（`Tab` 选中、独立滚动，复用 P2）；`--no-agents` 关闭（关闭后不拉取树）。面板只渲染标识/状态，**不渲染 mission/statement 文本或凭证**。
-- **实测**（`scripts/pty_fullscreen_p3a.py`，120×40，hermetic daemon）：
-  `AGENTS_PANEL_SELECTED: True`、`TREE_ROWS_RENDERED: True`、`TYPABLE_WITH_AGENTS_PANEL: True`（选中面板不抢 composer 焦点）、`HAS_AGENTS_TITLE: False`（`--no-agents` 无面板）。
+- **实测**（`scripts/pty_fullscreen_p3a.py`，120×40，hermetic daemon；连续两次一致）：
+  `AGENTS_PANEL_PRESENT: True`（boot 首帧含 `─agents` 面板标题）、`TREE_ROWS_RENDERED: True`、`TYPABLE_WITH_AGENTS_PANEL: True`（Tab 后 composer 仍可输入）、`HAS_AGENTS_TITLE: False`（`--no-agents` 无该面板）。
+  **断言口径（R2 修正）**：渲染器逐格 diff，Tab 后只重发变化的单元格 → 面板标题会被拆到不同帧，早期"`agents · selected` 字符串"断言**不可复现**。故 pty 只断言**确定性可见事实**（首帧存在、树内容、可输入、`--no-agents` 移除）；**面板选中**不靠截图，由渲染器无关的单测（`nextPanel`/`visiblePanels`，`test/opentui-panels.test.ts`）覆盖。
 - **测试**：`test/opentui-agents.test.ts` 4 pass（bypass-detecting：忽略 links 的扁平实现、丢孤儿会话、不截断都会失败）；`test/opentui-panels.test.ts` 更新为 4 面板 + `--no-agents`；`test/client.test.ts` 新增 `getReadOnly` 仅 GET/无 body 断言；cli-ts 全量 **161 pass**。
 - **诚实边界**：
   - hermetic daemon 无 mandate，实测走的是"`(unlinked task)` 分组 + 真实 task/session"路径；**mandate→task→session 三层**路径仅由单元测试覆盖，**未做端到端 live**（需要真实 mandate bootstrap）。
