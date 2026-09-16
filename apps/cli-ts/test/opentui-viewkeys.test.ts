@@ -17,6 +17,9 @@ function ctx(overrides: Partial<ViewKeyContext> = {}): ViewKeyContext {
     paletteOpen: false,
     mentionOpen: false,
     activePanel: "transcript",
+    vimNormal: false,
+    vimInsertMode: false,
+    streaming: false,
     name: "",
     ctrl: false,
     sequence: "",
@@ -231,4 +234,41 @@ test("up/down are history for the composer unless the agents panel owns them", (
     layer: "history",
     action: "prev",
   });
+});
+
+test("vim layer precedence: normal owns keys, Ctrl-C/Esc-streaming stay global", () => {
+  // Normal mode owns everything (the composer is blurred there).
+  assert.deepEqual(resolveViewKey(ctx({ vimNormal: true, name: "h" })), { layer: "vim" });
+  assert.deepEqual(resolveViewKey(ctx({ vimNormal: true, name: "return" })), { layer: "vim" });
+  assert.deepEqual(resolveViewKey(ctx({ vimNormal: true, name: "d" })), { layer: "vim" });
+  // ...but the exit/interrupt keys keep their frozen meaning.
+  assert.deepEqual(
+    resolveViewKey(ctx({ vimNormal: true, name: "c", ctrl: true })),
+    { layer: "global" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ vimNormal: true, name: "l", ctrl: true })),
+    { layer: "global" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ vimNormal: true, name: "escape", streaming: true })),
+    { layer: "global" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ vimNormal: true, name: "escape" })),
+    { layer: "vim" },
+  );
+});
+
+test("insert-mode Esc enters vim normal mode (unless streaming)", () => {
+  assert.deepEqual(
+    resolveViewKey(ctx({ vimInsertMode: true, name: "escape" })),
+    { layer: "vim", action: "normal" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ vimInsertMode: true, name: "escape", streaming: true })),
+    { layer: "global" },
+  );
+  // With vim disabled nothing changes.
+  assert.deepEqual(resolveViewKey(ctx({ name: "escape" })), { layer: "global" });
 });

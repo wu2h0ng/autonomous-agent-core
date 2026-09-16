@@ -16,6 +16,7 @@ export type ViewKeyOwner =
   | { layer: "mention"; action: "complete" | "ignore" }
   | { layer: "history"; action: "prev" | "next" }
   | { layer: "editor" }
+  | { layer: "vim"; action?: "normal" }
   | { layer: "agents"; action: "move"; delta: 1 | -1 }
   | { layer: "enter" }
   | { layer: "ignore" };
@@ -36,6 +37,12 @@ export interface ViewKeyContext {
   mentionOpen: boolean;
   /** Currently selected panel id. */
   activePanel: string;
+  /** Vim is enabled AND the composer is in normal (not insert) mode. */
+  vimNormal: boolean;
+  /** Vim is enabled and the composer is editing (insert mode). */
+  vimInsertMode: boolean;
+  /** A turn is streaming/stalled (Esc then belongs to the frozen global layer). */
+  streaming: boolean;
   /** opentui key name, e.g. "escape", "return", "tab", "up", "c", "n". */
   name: string;
   ctrl: boolean;
@@ -45,6 +52,23 @@ export interface ViewKeyContext {
 
 export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   const { name, ctrl, sequence } = ctx;
+
+  // 0a. Insert mode + Esc leaves vim editing for normal mode (unless a turn is
+  //     streaming, where Esc must stay the frozen global correction).
+  if (ctx.vimInsertMode && name === "escape" && !ctx.streaming) {
+    return { layer: "vim", action: "normal" };
+  }
+
+  // 0. Vim normal mode owns every key (the composer is blurred there, so
+  //    nothing else can consume them). Esc is the exception while a turn is
+  //    streaming: it must still reach the frozen global correction mapping.
+  if (ctx.vimNormal) {
+    // Esc while streaming and Ctrl-C/Ctrl-L must keep their frozen global
+    // meaning even in normal mode (otherwise vim would swallow the exit keys).
+    if (name === "escape" && ctx.streaming) return { layer: "global" };
+    if (ctrl && (name === "c" || name === "l")) return { layer: "global" };
+    return { layer: "vim" };
+  }
 
   // 1. Selector owns every key while open (so Esc cancels the picker and never
   //    reaches the frozen global mapping).

@@ -18,6 +18,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
+import type { ComposerState } from "../composer.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
 import { filterCommands } from "../commands.js";
@@ -28,6 +29,7 @@ import {
 } from "../selector.js";
 import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
+import { applyVimAction, offsetFromCursor, resolveVimKey } from "./vim.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
 import { InputHistory } from "../history.js";
 import { openExternalEditor } from "../editor.js";
@@ -105,7 +107,10 @@ export function App({
    * for the overlays (palette/mentions) and writes go through the buffer. */
   const setComposerText = (value: string): void => {
     const buffer = composerRef.current?.editBuffer;
-    buffer?.setText(value);
+    // Skip a no-op setText: the write is applied asynchronously and RESETS the
+    // caret to the start, so calling it with an unchanged value (vim's A/I
+    // motions) silently moved the caret before the following keystroke.
+    if (buffer !== undefined && buffer.getText() !== value) buffer.setText(value);
     // setText leaves the caret at the start; put it at the end so the next
     // keystroke appends (otherwise typing prepends and backspace does nothing).
     buffer?.setCursorByOffset(value.length);
@@ -127,6 +132,11 @@ export function App({
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
+  const [vimInsert, setVimInsert] = useState(true);
+  // Synchronous mirror of vimInsert: the router must see the new mode for the
+  // VERY NEXT key, which a React state update cannot guarantee.
+  const vimInsertRef = useRef(true);
+  const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const syntaxStyle = useMemo(() => SyntaxStyle.create(), []);
   const historyRef = useRef<InputHistory | null>(null);
@@ -220,6 +230,24 @@ export function App({
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
 
+  const vimNormal =
+    controller.vimMode &&
+    !vimInsert &&
+    !awaiting &&
+    selector === null &&
+    palette.length === 0;
+
+  /** Current draft + caret as a composer state (for the vim edits). */
+  const composerState = (): ComposerState => {
+    const buffer = composerRef.current;
+    const value = buffer?.plainText ?? input;
+    const cursor = buffer
+      ? offsetFromCursor(value, buffer.editBuffer.getCursorPosition().row, buffer.editBuffer.getCursorPosition().col)
+      : value.length;
+    return { value, cursor };
+  };
+
+
   const panels = visiblePanels(width, withPanels, withAgents);
   // Approvals are global and must stay in front: force the transcript selected.
   agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
@@ -268,7 +296,7 @@ export function App({
   }, [client, showAgentsPanel]);
 
 
-  useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
+  useKeyboard((key: { name?: string; ctrl?: boolean; shift?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
     const ctrl = key.ctrl === true;
     const sequence = key.sequence ?? "";
@@ -278,6 +306,9 @@ export function App({
       paletteOpen: palette.length > 0,
       mentionOpen: mentionMatches.length > 0,
       activePanel,
+      vimNormal,
+      vimInsertMode: controller.vimMode && vimInsertRef.current,
+      streaming: controller.status === "streaming" || controller.status === "stalled",
       name,
       ctrl,
       sequence,
@@ -386,6 +417,53 @@ export function App({
       }
       case "agents": {
         setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
+        return;
+      }
+      case "vim": {
+        const before = composerState();
+        if (owner.action === "normal") {
+          // Leave editing for vim normal mode. Update the ref FIRST so the next
+          // key is already routed as normal mode, and blur the textarea.
+          vimInsertRef.current = false;
+          setVimInsert(false);
+          composerRef.current?.blur();
+          setPendingOp(null);
+          return;
+        }
+        const action = resolveVimKey(name, pendingOp, key.shift === true);
+        if (action.kind === "submit") {
+          submit(composerRef.current?.plainText ?? input);
+          return;
+        }
+        let target = before;
+        let insert = false;
+        if (action.kind === "clearPending") {
+          setPendingOp(null);
+        } else if (action.kind === "pending") {
+          setPendingOp(action.op);
+        } else if (action.kind !== "ignore") {
+          const result = applyVimAction(before, action);
+          target = result.state;
+          insert = result.insert;
+          setComposerText(result.state.value);
+          composerRef.current?.editBuffer.setCursorByOffset(result.state.cursor);
+          setPendingOp(null);
+        }
+        // The textarea has no readOnly and a blur is asynchronous, so it can
+        // still insert the very key this layer just handled (observed: "A"
+        // inserted as text while the A motion also ran). Restore the intended
+        // text/caret on the next tick, after the renderable applied it.
+        queueMicrotask(() => {
+          const buffer = composerRef.current?.editBuffer;
+          if (buffer === undefined) return;
+          if (buffer.getText() !== target.value) buffer.setText(target.value);
+          buffer.setCursorByOffset(target.cursor);
+        });
+        if (insert) {
+          vimInsertRef.current = true;
+          setVimInsert(true);
+          composerRef.current?.focus();
+        }
         return;
       }
       case "enter": {
@@ -568,7 +646,7 @@ export function App({
         <textarea
           ref={composerRef}
           placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"
-          focused={!awaiting}
+          focused={!awaiting && !vimNormal}
           keyBindings={[
             { name: "return", action: "submit" },
             { name: "kpenter", action: "submit" },
