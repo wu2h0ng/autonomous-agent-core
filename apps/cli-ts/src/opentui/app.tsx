@@ -420,10 +420,10 @@ export function App({
         return;
       }
       case "vim": {
+        const before = composerState();
         if (owner.action === "normal") {
-          // Leave editing for vim normal mode (the textarea blurs, so letters
-          // reach this handler instead of being inserted). Update the ref FIRST
-          // so the next key is already routed as normal mode.
+          // Leave editing for vim normal mode. Update the ref FIRST so the next
+          // key is already routed as normal mode, and blur the textarea.
           vimInsertRef.current = false;
           setVimInsert(false);
           composerRef.current?.blur();
@@ -435,20 +435,31 @@ export function App({
           submit(composerRef.current?.plainText ?? input);
           return;
         }
+        let target = before;
+        let insert = false;
         if (action.kind === "clearPending") {
           setPendingOp(null);
-          return;
-        }
-        if (action.kind === "pending") {
+        } else if (action.kind === "pending") {
           setPendingOp(action.op);
-          return;
+        } else if (action.kind !== "ignore") {
+          const result = applyVimAction(before, action);
+          target = result.state;
+          insert = result.insert;
+          setComposerText(result.state.value);
+          composerRef.current?.editBuffer.setCursorByOffset(result.state.cursor);
+          setPendingOp(null);
         }
-        if (action.kind === "ignore") return;
-        const result = applyVimAction(composerState(), action);
-        setComposerText(result.state.value);
-        composerRef.current?.editBuffer.setCursorByOffset(result.state.cursor);
-        setPendingOp(null);
-        if (result.insert) {
+        // The textarea has no readOnly and a blur is asynchronous, so it can
+        // still insert the very key this layer just handled (observed: "A"
+        // inserted as text while the A motion also ran). Restore the intended
+        // text/caret on the next tick, after the renderable applied it.
+        queueMicrotask(() => {
+          const buffer = composerRef.current?.editBuffer;
+          if (buffer === undefined) return;
+          if (buffer.getText() !== target.value) buffer.setText(target.value);
+          buffer.setCursorByOffset(target.cursor);
+        });
+        if (insert) {
           vimInsertRef.current = true;
           setVimInsert(true);
           composerRef.current?.focus();
