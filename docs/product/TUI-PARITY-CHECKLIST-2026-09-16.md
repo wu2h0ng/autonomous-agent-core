@@ -84,7 +84,7 @@
 - **复审发现并修复的 P1 回归**：textarea 的 `onSubmit` 与 resolver 的 palette Enter **双触发** → 命令执行两次（`/status` 出现两次 + 一条 `unknown command: /stat`）。修法：`overlayOwnsEnterRef`（palette/selector/approval 打开时抑制 textarea 提交）；不变式脚本新增 **`COMMAND_RAN_EXACTLY_ONCE`**。
 - **后续会话定位的根因（HISTORY/MENTION 长期为红）**：`overlayOwnsEnterRef` 用了 `selector !== undefined`，而 `pendingSelector` 关闭时是 **null** → 判定恒真 → textarea `onSubmit` **永远早退**，**根本没有可用提交路径**（无历史条目→无会话→无文件→无 mentions）。修为 `!== null` 后整网转绿。同 `viewkeys.ts` 已记录的 null/undefined 陷阱。
 - **产品级修复**：`controller.workspaceFiles()` 曾缓存**空文件列表** → 一次过早抓取即可让整个会话的 `@` mentions 失效；改为**只缓存非空结果**。视图侧亦改为「每次打开的 mention 只抓一次」（原先按 query 依赖会 cancel 上一次抓取）。
-- **已知显示缺口**：transcript 用 `<text>` 渲染会**折叠内嵌换行**；多行**输入/提交**正确（`/export` 可见 `\n`），**显示**为一行，待修。
+- **多行显示（2026-09-17 用可读行帧工具实测更正）**：此前称 `<text>` 会折叠内嵌换行，**实测不成立** —— 提交两行草稿后，`line1`/`line2` 在 transcript 落在**不同行**（行 02/03），composer 亦然（行 36/37）。该「显示缺口」条目已撤回。
 - **证据**：`pty_fullscreen_composer_invariant.py`（/stat → 面板 → Enter 执行 `/status` → **进程存活**）连续 2 次 `INVARIANT_OK: True`；`parity_a` 四项、`parity_b` 四项（`HISTORY_PREVIOUS`/`MENTION_COMPLETED_ON_SUBMIT`（信号由 `MENTION_TAB_COMPLETED` 更名）/`MARKDOWN_RENDER_PATH_OK`/`SLICE_B_ALL`）、`parity_c` `EDITOR_ROUNDTRIP`、`p3a` `RESUMED`/`TYPABLE`、多会话 `PROVEN_CROSS_SESSION_SWITCH` 全 True；单测 **158 + 19**。
 - **未做**：**vim 模态层**（下一个独立切片 #11）；多行滚动/高度自适应；textarea 的 paste/undo 语义专项验证。
 - **已知限制（复审记录）**：① palette/mention 以 `input.length` 当光标 → 仅在**文末**触发（多行草稿中间输入 `@` 不补全）；② 空工作区时（不缓存空结果）Ink 路径会**每击键**发一次 `client.files()` GET（轻微、待优化）；③ `setCursorByOffset(value.length)` 用 UTF-16 长度对原生 offset，**非 ASCII（中文）草稿可能有光标偏移**（未构造出复现，仅提示）。
@@ -97,3 +97,9 @@
 - **回归网（同批全绿）**：composer 不变式（含 `COMMAND_RAN_EXACTLY_ONCE`）、`parity_a`、`parity_b`（`SLICE_B_ALL`）、`parity_c`、`p3a`、多会话；单测 **162 + 19**。
 - **教训（第 3 次同类陷阱）**：`vimNormal` 一度写成 `selector === undefined`，而 `pendingSelector` 关闭时是 **null** → vim 层永不激活（"0"/"x" 被当普通文本插入）。同一个 null/undefined 陷阱在本会话已出现三次（selector 层、`overlayOwnsEnterRef`、`vimNormal`）——**新增涉及 `pendingSelector` 的判断必须用 `=== null`/真值**。
 - **仍未做**：`ctrl+r` 历史搜索、彩色语法高亮、主题配色、首页面板、多行**显示**（`<text>` 折叠换行）、多行滚动/高度自适应。
+
+## 10. 可读行帧工具（2026-09-17）
+
+`scripts/frame_reader.py`：把 pty 原始字节重建成**真实屏幕**（`ESC[r;cH` 定位 + SGR 颜色/加粗 + 文本/CR/LF/擦除 + UTF-8 宽字符），提供 `text_rows()`/`row_text(i)`/`spans(i)`/`token_style(token)`。用途：行结构断言（多行是否真分行）、颜色断言（#16/#17：同一 token 在不同主题下 SGR 应不同）、可视化检查（`--demo`；`--self-test` 自检 0 失败）。
+
+实测结论：① 提交两行草稿后 transcript 的 `line1`/`line2` 分属不同行 → 多行显示正常；② opentui 自带默认调色（placeholder `fg=(102,102,102)`），`THEMES` 需显式覆盖才生效。
