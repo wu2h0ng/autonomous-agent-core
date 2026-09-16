@@ -133,6 +133,9 @@ export function App({
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [vimInsert, setVimInsert] = useState(true);
+  // Synchronous mirror of vimInsert: the router must see the new mode for the
+  // VERY NEXT key, which a React state update cannot guarantee.
+  const vimInsertRef = useRef(true);
   const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const syntaxStyle = useMemo(() => SyntaxStyle.create(), []);
@@ -304,7 +307,7 @@ export function App({
       mentionOpen: mentionMatches.length > 0,
       activePanel,
       vimNormal,
-      vimInsertMode: controller.vimMode && vimInsert,
+      vimInsertMode: controller.vimMode && vimInsertRef.current,
       streaming: controller.status === "streaming" || controller.status === "stalled",
       name,
       ctrl,
@@ -419,8 +422,11 @@ export function App({
       case "vim": {
         if (owner.action === "normal") {
           // Leave editing for vim normal mode (the textarea blurs, so letters
-          // reach this handler instead of being inserted).
+          // reach this handler instead of being inserted). Update the ref FIRST
+          // so the next key is already routed as normal mode.
+          vimInsertRef.current = false;
           setVimInsert(false);
+          composerRef.current?.blur();
           setPendingOp(null);
           return;
         }
@@ -443,6 +449,7 @@ export function App({
         composerRef.current?.editBuffer.setCursorByOffset(result.state.cursor);
         setPendingOp(null);
         if (result.insert) {
+          vimInsertRef.current = true;
           setVimInsert(true);
           composerRef.current?.focus();
         }
