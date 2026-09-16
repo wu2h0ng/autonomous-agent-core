@@ -66,6 +66,9 @@ verified_paths:
   D-OSCORE-CONVERSATION: ["domain_packs/data_agent/conversation.py"]
   D-OSCORE-GOVSEAM: ["packages/contracts/src/agent_os_contracts/governance_decision_seam.py"]
   D-OSCORE-EXPERIMENT: ["domain_packs/data_agent/experimentation.py"]
+  D-OSCORE-CORRIGIBILITY: ["domain_packs/data_agent/corrigibility.py"]
+  D-OSCORE-APPROVAL: ["domain_packs/data_agent/approval_lite.py"]
+  D-OSCORE-ACTIONCONNECTORS: ["domain_packs/data_agent/action_connectors/base.py"]
   D-OSCORE-CONSEQUENCE-PREVIEW:
     - "packages/os_core/src/agent_os_core/consequence_preview.py"
     - "packages/contracts/src/agent_os_contracts/consequence.py"
