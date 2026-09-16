@@ -290,7 +290,7 @@ export function App({
   }, [client, showAgentsPanel]);
 
 
-  useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
+  useKeyboard((key: { name?: string; ctrl?: boolean; shift?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
     const ctrl = key.ctrl === true;
     const sequence = key.sequence ?? "";
@@ -421,7 +421,7 @@ export function App({
           setPendingOp(null);
           return;
         }
-        const action = resolveVimKey(name, pendingOp);
+        const action = resolveVimKey(name, pendingOp, key.shift === true);
         if (action.kind === "submit") {
           submit(composerRef.current?.plainText ?? input);
           return;

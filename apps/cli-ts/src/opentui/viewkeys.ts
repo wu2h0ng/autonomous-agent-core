@@ -63,7 +63,10 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   //    nothing else can consume them). Esc is the exception while a turn is
   //    streaming: it must still reach the frozen global correction mapping.
   if (ctx.vimNormal) {
+    // Esc while streaming and Ctrl-C/Ctrl-L must keep their frozen global
+    // meaning even in normal mode (otherwise vim would swallow the exit keys).
     if (name === "escape" && ctx.streaming) return { layer: "global" };
+    if (ctrl && (name === "c" || name === "l")) return { layer: "global" };
     return { layer: "vim" };
   }
 

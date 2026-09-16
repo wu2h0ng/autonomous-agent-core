@@ -29,8 +29,15 @@ export type VimAction =
   | { kind: "clearPending" }
   | { kind: "ignore" };
 
-/** Normal-mode key -> action. `pending` is the operator awaiting a motion. */
-export function resolveVimKey(name: string, pending: VimOperator): VimAction {
+/** Normal-mode key -> action. `pending` is the operator awaiting a motion.
+ * `shift` matters because opentui LOWERCASES the key name for A-Z and sets
+ * shift=true (verified in @opentui/core), so A/I must be recognised via the
+ * modifier, not the name. */
+export function resolveVimKey(
+  name: string,
+  pending: VimOperator,
+  shift = false,
+): VimAction {
   if (pending !== null) {
     if (name === "d" || name === "w" || name === "$") {
       return { kind: "operator", op: pending, motion: name as "d" | "w" | "$" };
@@ -45,9 +52,9 @@ export function resolveVimKey(name: string, pending: VimOperator): VimAction {
     case "c":
       return { kind: "pending", op: "c" };
     case "i":
-      return { kind: "insert" };
+      return shift ? { kind: "insert", move: "home" } : { kind: "insert" };
     case "a":
-      return { kind: "insert", move: "right" };
+      return shift ? { kind: "insert", move: "end" } : { kind: "insert", move: "right" };
     case "A":
       return { kind: "insert", move: "end" };
     case "I":

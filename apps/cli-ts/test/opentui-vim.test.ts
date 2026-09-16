@@ -17,6 +17,10 @@ const draft = { value: "hello world", cursor: 5 };
 test("normal-mode entry: i/a/A/I and the motions", () => {
   assert.deepEqual(resolveVimKey("i", null), { kind: "insert" });
   assert.deepEqual(resolveVimKey("a", null), { kind: "insert", move: "right" });
+  // opentui lowercases A-Z and sets shift, so A/I arrive as a/i + shift.
+  assert.deepEqual(resolveVimKey("a", null, true), { kind: "insert", move: "end" });
+  assert.deepEqual(resolveVimKey("i", null, true), { kind: "insert", move: "home" });
+  // The literal names still work for callers that pass them.
   assert.deepEqual(resolveVimKey("A", null), { kind: "insert", move: "end" });
   assert.deepEqual(resolveVimKey("I", null), { kind: "insert", move: "home" });
   assert.deepEqual(resolveVimKey("h", null), { kind: "move", dir: "left" });
