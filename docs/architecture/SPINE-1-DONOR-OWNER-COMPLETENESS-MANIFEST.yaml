@@ -71,6 +71,14 @@ verified_paths:
   D-OSCORE-CORRIGIBILITY: ["domain_packs/data_agent/corrigibility.py"]
   D-OSCORE-APPROVAL: ["domain_packs/data_agent/approval_lite.py"]
   D-OSCORE-ACTIONCONNECTORS: ["domain_packs/data_agent/action_connectors/base.py"]
+  D-CONNECTORS:
+    - "domain_packs/data_agent/connectors/manual_review/connector.py"
+    - "domain_packs/data_agent/connectors/action_record/connector.py"
+    - "domain_packs/data_agent/connectors/email_connector/connector.py"
+    - "domain_packs/data_agent/connectors/webhook_connector/connector.py"
+  D-DOMAINPACKS:
+    - "domain_packs/data_agent/content_commerce/manifest.yaml"
+    - "domain_packs/data_agent/content_commerce/metrics/gmv.yaml"
   D-OSCORE-CONSEQUENCE-PREVIEW:
     - "packages/os_core/src/agent_os_core/consequence_preview.py"
     - "packages/contracts/src/agent_os_contracts/consequence.py"

@@ -1,0 +1,52 @@
+[
+  {
+    "template_id": "content_commerce_metric_daily",
+    "metric_name": "gmv",
+    "sql": "select order_date, sum(paid_amount) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+    "required_parameters": ["start_date", "end_date", "limit"],
+    "required_time_parameters": ["start_date", "end_date"],
+    "default_limit": 100,
+    "max_limit": 1000,
+    "allow_select_star": false
+  },
+  {
+    "template_id": "content_commerce_spend_daily",
+    "metric_name": "spend",
+    "sql": "select order_date, sum(spend) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+    "required_parameters": ["start_date", "end_date", "limit"],
+    "required_time_parameters": ["start_date", "end_date"],
+    "default_limit": 100,
+    "max_limit": 1000,
+    "allow_select_star": false
+  },
+  {
+    "template_id": "content_commerce_roi_daily",
+    "metric_name": "roi",
+    "sql": "select order_date, sum(paid_amount) / sum(spend) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+    "required_parameters": ["start_date", "end_date", "limit"],
+    "required_time_parameters": ["start_date", "end_date"],
+    "default_limit": 100,
+    "max_limit": 1000,
+    "allow_select_star": false
+  },
+  {
+    "template_id": "content_commerce_conversion_rate_daily",
+    "metric_name": "conversion_rate",
+    "sql": "select order_date, 1.0 * count(order_id) / sum(visits) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+    "required_parameters": ["start_date", "end_date", "limit"],
+    "required_time_parameters": ["start_date", "end_date"],
+    "default_limit": 100,
+    "max_limit": 1000,
+    "allow_select_star": false
+  },
+  {
+    "template_id": "content_commerce_orders_daily",
+    "metric_name": "orders",
+    "sql": "select order_date, count(order_id) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+    "required_parameters": ["start_date", "end_date", "limit"],
+    "required_time_parameters": ["start_date", "end_date"],
+    "default_limit": 100,
+    "max_limit": 1000,
+    "allow_select_star": false
+  }
+]
