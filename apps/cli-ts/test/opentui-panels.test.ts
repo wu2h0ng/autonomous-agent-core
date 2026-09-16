@@ -50,10 +50,15 @@ test("visiblePanels: sidebar needs width; agents panel is opt-out", () => {
 });
 
 test("nextPanel cycles through the visible panels and wraps", () => {
-  const all = ["transcript", "files", "diff"] as const;
-  assert.equal(nextPanel("transcript", [...all]), "files");
+  const all = ["transcript", "agents", "files", "diff"] as const;
+  assert.equal(nextPanel("transcript", [...all]), "agents");
+  assert.equal(nextPanel("agents", [...all]), "files");
   assert.equal(nextPanel("files", [...all]), "diff");
   assert.equal(nextPanel("diff", [...all]), "transcript");
+
+  // With the agents panel disabled the cycle must skip it entirely.
+  const noAgents = ["transcript", "files", "diff"] as const;
+  assert.equal(nextPanel("transcript", [...noAgents]), "files");
 
   const single = ["transcript"] as const;
   assert.equal(nextPanel("transcript", [...single]), "transcript");

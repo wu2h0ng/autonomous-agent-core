@@ -94,5 +94,5 @@
   - hermetic daemon 无 mandate，实测走的是"`(unlinked task)` 分组 + 真实 task/session"路径；**mandate→task→session 三层**路径仅由单元测试覆盖，**未做端到端 live**（需要真实 mandate bootstrap）。
   - 活动流仍为 1（仅活动会话订阅）；树内不显示 pending 审批计数（需 P3a-2 附加字段 `1.2`，未做）。
   - 树面板刷新 5s 轮询；未做增量/事件驱动。
-- **声明的证据修复（R1 复审条件）**：pty 脚本断言改为对**累计帧**判定（渲染器逐格 diff，标题可能落在更早的帧）→ 本机复跑 `AGENTS_PANEL_SELECTED/TREE_ROWS_RENDERED/TYPABLE_WITH_AGENTS_PANEL = True`、`HAS_AGENTS_TITLE = False`；mandate 子集先按 id 排序再截断（确定性）；树轮询改由**面板可见性**门控（窄终端不再空拉）。
+- **证据口径（R1/R2 复审条件）**：pty 只断言确定性可观察事实 → 本机连续两次 `AGENTS_PANEL_PRESENT/TREE_ROWS_RENDERED/TYPABLE_WITH_AGENTS_PANEL = True`、`HAS_AGENTS_TITLE = False`（`--no-agents`）；**面板选中不做帧断言**，由 `nextPanel/visiblePanels` 单测覆盖（含 4 面板含 `agents` 的循环用例）。另：mandate 子集先按 id 排序再截断（确定性）；树轮询由**面板可见性**门控（窄终端不再空拉）。
 - **声明分级**：`specified+implemented+tested`（目标测试）；`integrated: 终端内已接入`；`verified: 待独立复审（R1=APPROVE_WITH_CONDITIONS，条件已修，待 R2 确认）`；`released: NO`。
