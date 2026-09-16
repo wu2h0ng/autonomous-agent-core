@@ -64,6 +64,8 @@ verified_paths:
   D-OSCORE-ALERT: ["domain_packs/data_agent/alert_agent.py"]
   D-OSCORE-DASHBOARD: ["domain_packs/data_agent/dashboard.py"]
   D-OSCORE-CONVERSATION: ["domain_packs/data_agent/conversation.py"]
+  D-OSCORE-GOVSEAM: ["packages/contracts/src/agent_os_contracts/governance_decision_seam.py"]
+  D-OSCORE-EXPERIMENT: ["domain_packs/data_agent/experimentation.py"]
   D-OSCORE-CONSEQUENCE-PREVIEW:
     - "packages/os_core/src/agent_os_core/consequence_preview.py"
     - "packages/contracts/src/agent_os_contracts/consequence.py"
@@ -110,8 +112,8 @@ entries:
     disposition: "EXTRACT_TO_PACKAGE"
     status: "REVIEWED"
     confidence: "medium"
-    rationale: "Governed decision seam is believed to map to the report policy/admission surface; confirm mapping during review."
-    target: "domain_packs/data_agent/report_policy.py"
+    rationale: "Generic versioned governed-decision RPC seam contract; re-homed to packages/contracts (not os_core)."
+    target: "packages/contracts"
     globs: ["packages/os_core/src/agent_os_core/governance_decision_seam/**"]
 
   - id: "D-OSCORE-DATA-COMPILER"

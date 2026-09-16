@@ -78,6 +78,20 @@ from .environment import (
     EnvironmentRelation,
     EnvironmentSourceCoverage,
 )
+from .governance_decision_seam import (
+    ALLOW,
+    DENY,
+    ESCALATE,
+    SEAM_CONTRACT_VERSION,
+    VERIFY_MORE,
+    GovernanceDecisionRequest,
+    GovernanceDecisionResponse,
+    VerifiedCandidate,
+    request_from_json,
+    request_to_json,
+    response_from_json,
+    response_to_json,
+)
 from .evidence import (
     ArtifactLocationClass,
     ArtifactRef,
@@ -378,6 +392,18 @@ from .trajectory import (
 )
 
 __all__ = [
+    "ALLOW",
+    "DENY",
+    "ESCALATE",
+    "SEAM_CONTRACT_VERSION",
+    "VERIFY_MORE",
+    "GovernanceDecisionRequest",
+    "GovernanceDecisionResponse",
+    "VerifiedCandidate",
+    "request_from_json",
+    "request_to_json",
+    "response_from_json",
+    "response_to_json",
     "ConsequencePreview",
     "ApprovalChoice",
     "ApprovalChoiceSet",
