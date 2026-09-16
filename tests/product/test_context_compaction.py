@@ -194,6 +194,19 @@ def test_no_compaction_when_within_budget(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_two_turns_compact_once_over_the_turn_path(tmp_path: Path) -> None:
+    # Turn 1 is over budget only once; when turn 2 starts, the completed turn-1 group
+    # is dropped and recorded exactly once.
+    app, session, _loop = _open(tmp_path, max_context_chars=120)
+    _set_workspace_mode(app, session.session_id)
+    _run_turn(app, session.session_id, "one" + "a" * 40)
+    _run_turn(app, session.session_id, "two" + "b" * 40)
+    events = _compaction_events(app, session.task_id)
+    assert len(events) == 1
+    assert int(events[0]["dropped_messages"]) >= 1  # type: ignore[arg-type]
+    assert len(str(events[0]["retained_digest"])) == 64
+
+
 def test_single_turn_records_no_compaction_event(tmp_path: Path) -> None:
     # The active request is never dropped, so a single over-budget turn is NOT a
     # compaction and must not be recorded as one (evidence honesty).
@@ -249,6 +262,8 @@ def test_projection_ignores_a_recorded_compaction(tmp_path: Path) -> None:
             "dropped_messages": 2,
             "kept_from_index": 3,
             "retained_digest": "b" * 64,
+            # carry session_id so the event reaches the explicit projection branch
+            "session_id": session.session_id,
         },
     )
     projected = app.tasks.project_session(session.task_id, session.session_id)
@@ -257,14 +272,29 @@ def test_projection_ignores_a_recorded_compaction(tmp_path: Path) -> None:
 
 def test_two_distinct_compactions_are_both_recorded(tmp_path: Path) -> None:
     app, session, loop = _open(tmp_path, max_context_chars=1_000_000)
-    base = {"kept_from_index": 3, "dropped_messages": 2, "chars_before": 100}
     loop._maybe_record_compaction(
-        session, {**base, "chars_after": 40, "retained_digest": "a" * 64}
+        session,
+        {"kept_from_index": 3, "dropped_messages": 2, "chars_before": 100,
+         "chars_after": 40, "retained_digest": "a" * 64},
     )
+    # a genuinely later compaction (a different drop boundary) is recorded too
     loop._maybe_record_compaction(
-        session, {**base, "chars_after": 45, "retained_digest": "c" * 64}
+        session,
+        {"kept_from_index": 7, "dropped_messages": 4, "chars_before": 120,
+         "chars_after": 50, "retained_digest": "c" * 64},
     )
     assert len(_compaction_events(app, session.task_id)) == 2
+
+
+def test_same_boundary_is_recorded_once_across_steps(tmp_path: Path) -> None:
+    app, session, loop = _open(tmp_path, max_context_chars=1_000_000)
+    same = {"kept_from_index": 3, "dropped_messages": 2, "chars_before": 100}
+    for chars_after in (40, 42, 44):
+        loop._maybe_record_compaction(
+            session,
+            {**same, "chars_after": chars_after, "retained_digest": "d" * 64},
+        )
+    assert len(_compaction_events(app, session.task_id)) == 1
 
 
 def test_no_compaction_event_for_a_large_budget(tmp_path: Path) -> None:

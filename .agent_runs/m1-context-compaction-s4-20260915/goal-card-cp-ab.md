@@ -54,8 +54,9 @@ durable record of the compaction.
   most recent USER message onward) is never dropped, so a single over-budget turn is
   kept in full and no event is recorded. Compaction only removes whole *completed*
   turns older than the active one.
-- One event is recorded per distinct `(dropped_messages, kept_from_index)` per loop
-  instance; events are bounded by turns, not steps.
+- One event is recorded per distinct drop boundary `(dropped_messages,
+  kept_from_index)` per loop instance. Because the cut point is stable across the steps
+  of a turn, this is one event per real turn-level compaction, not per provider step.
 - Compaction drops whole pre-active turns only; it does not summarise/rewrite content
   (that would need a model and a different gate). "Manual" compaction is out of scope.
 - Independent exact-diff review still required before promotion.

@@ -1558,11 +1558,10 @@ class AgentLoop:
 
         if compaction is None:
             return
-        key = (
-            compaction["dropped_messages"],
-            compaction["kept_from_index"],
-            compaction["retained_digest"],
-        )
+        # Key on the drop BOUNDARY, which is stable across the steps of one turn (the
+        # retained content grows per step but the cut point does not move back), so a
+        # real compaction is recorded once per turn even as the digest changes.
+        key = (compaction["dropped_messages"], compaction["kept_from_index"])
         if key == self._last_compaction:
             return
         self._last_compaction = key
