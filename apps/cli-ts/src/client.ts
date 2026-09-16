@@ -224,6 +224,19 @@ export class SurfaceClient {
     return SurfaceSessionListResponseSchema.parse(response).sessions;
   }
 
+  /**
+   * Read-only GET for the P3a agents-tree projections (mandates, task links).
+   *
+   * This exists solely so the terminal can *display* existing read-only
+   * governance projections; it performs no governance operation. GET only, no
+   * body, and it inherits the same bearer/local-auth and typed-error mapping as
+   * the surface calls — the caller treats any failure as "unavailable" and
+   * degrades. Authorization semantics are unchanged by this method.
+   */
+  async getReadOnly(path: string): Promise<unknown> {
+    return this.request("GET", path);
+  }
+
   /** Subscription-first: mint a transient stream under the current daemon
    * generation before executing any turn (E1, frozen order). */
   async subscribeStream(sessionId: string): Promise<SurfaceStreamSubscription> {
