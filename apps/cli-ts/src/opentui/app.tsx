@@ -29,7 +29,9 @@ import { EMPTY_SAMPLE, sampleWorkspace, type WorkspaceSample } from "./workspace
 import {
   agentRowLine,
   clampCursor,
+  cursorKey,
   moveCursor,
+  repositionCursor,
   resumableSessionId,
 } from "./agents.js";
 import { fetchAgentTree, type AgentTreeResult } from "./agent-tree-source.js";
@@ -91,6 +93,7 @@ export function App({
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
   const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
   const [cursor, setCursor] = useState(0);
+  const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
   const filesRef = useRef<ScrollBoxRenderable | null>(null);
@@ -137,6 +140,7 @@ export function App({
     };
   }, [workspace, withPanels]);
 
+  cursorKeyRef.current = cursorKey(tree.rows, cursor);
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
@@ -170,7 +174,10 @@ export function App({
       inFlight = false;
       if (!cancelled) {
         setTree(next);
-        setCursor((current) => clampCursor(current, next.rows.length));
+        // Keep the same ROW highlighted across refreshes (index can shift).
+        setCursor((current) =>
+          repositionCursor(next.rows, cursorKeyRef.current, current),
+        );
       }
     };
     void run();
@@ -215,11 +222,15 @@ export function App({
     if (name === "return") {
       if (activePanel === "agents") {
         const target = resumableSessionId(tree.rows, cursor);
-        // Reuses the frozen /resume path: busy (any in-flight turn, including a
-        // pending approval) is refused by the controller, so a switch can never
-        // abandon a turn or hide an approval surface.
-        if (target !== null) void controller.submit(`/resume ${target}`);
-        return;
+        // Only a session row switches; on any other row Enter falls through so
+        // composer text can still be submitted.
+        if (target !== null) {
+          // Reuses the /resume path. The controller refuses it whenever a turn
+          // or an approval is pending, so a switch can never abandon a turn or
+          // move an approval surface out of view.
+          void controller.submit(`/resume ${target}`);
+          return;
+        }
       }
       submit(input);
     }

@@ -572,21 +572,31 @@ test("/resume: prefers the server session list, falls back to local MRU", async 
   assert.ok(fallback.pendingSelector?.items.includes("s:1"));
 });
 
-test("/resume is refused while a turn is in flight (no abandoned turn, no hidden approval)", async () => {
-  // Session switching relies on this guard: a switch must never abandon an
-  // in-flight turn or move the approval surface out of view.
+test("/resume is refused while an approval is pending (approval surface stays in front)", async () => {
+  // Drives a REAL turn to awaiting_approval. `busy` is false in that state, so
+  // a `busy`-based guard would allow the switch and move the approval surface
+  // away; the guard must be the turn-state predicate (canStartTurn).
   const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.approvalPending = true;
   const controller = new TuiController(client as never, { pollMs: 1 });
-  (controller as never as { busy: boolean }).busy = true;
-  const before = controller.messages.length;
-  await controller.submit("/resume session:other");
+  await controller.submit("edit it");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "awaiting_approval");
+  assert.equal((controller as never as { busy: boolean }).busy, false);
+
+  const sessionBefore = controller.currentSessionId;
+  const countBefore = controller.messages.length;
+  await controller.submit("/resume s:other");
   assert.ok(
     controller.messages
-      .slice(before)
-      .some((m) => m.content.includes("turn in progress")),
-    "refusal must be surfaced to the user",
+      .slice(countBefore)
+      .some((m) => m.content.includes("cannot switch sessions")),
+    "the refusal must be surfaced to the user",
   );
-  assert.equal(controller.currentSessionId, null, "no session switch while busy");
+  assert.equal(controller.currentSessionId, sessionBefore, "no switch while approval pending");
+  assert.equal(controller.status, "awaiting_approval", "approval surface preserved");
+  assert.equal(controller.pendingPreview, "edit fixture.txt");
 });
 
 test("/theme /mode /resume selectors: open, choose, cancel", async () => {

@@ -142,3 +142,22 @@ export function resumableSessionId(
   const row = rows[clampCursor(cursor, rows.length)];
   return row !== undefined && row.kind === "session" ? row.id : null;
 }
+
+/** Stable identity of a row, so a refresh can keep the same row highlighted
+ * instead of the same index (rows can be inserted/removed by a refresh). */
+export function cursorKey(rows: readonly AgentRow[], cursor: number): string | null {
+  const row = rows[clampCursor(cursor, rows.length)];
+  return row === undefined ? null : `${row.kind}:${row.id}`;
+}
+
+export function repositionCursor(
+  rows: readonly AgentRow[],
+  previousKey: string | null,
+  fallback: number,
+): number {
+  if (previousKey !== null) {
+    const index = rows.findIndex((row) => `${row.kind}:${row.id}` === previousKey);
+    if (index >= 0) return index;
+  }
+  return clampCursor(fallback, rows.length);
+}

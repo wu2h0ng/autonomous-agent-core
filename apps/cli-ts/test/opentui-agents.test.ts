@@ -9,7 +9,9 @@ import {
   agentRowLine,
   buildAgentTree,
   clampCursor,
+  cursorKey,
   moveCursor,
+  repositionCursor,
   resumableSessionId,
 } from "../src/opentui/agents.js";
 
@@ -108,4 +110,26 @@ test("cursor helpers clamp to the tree and only sessions are resumable", () => {
   assert.equal(resumableSessionId(rows, taskIndex), null);
   assert.equal(resumableSessionId(rows, mandateIndex), null);
   assert.equal(resumableSessionId([], 0), null);
+});
+
+test("the highlighted row survives a tree refresh (identity, not index)", () => {
+  const first = buildAgentTree({ mandates, links, sessions }).rows;
+  const target = first.findIndex((r) => r.kind === "session");
+  const key = cursorKey(first, target);
+  assert.equal(key, "session:s-1");
+
+  // A refresh that inserts a mandate row above shifts every index; the cursor
+  // must stay on the same row rather than silently highlight a different one.
+  const shiftedRows = [
+    ...buildAgentTree({
+      mandates: [{ mandate_id: "aaa", status: "ACTIVE" }, ...mandates],
+      links: [{ mandate_id: "aaa", task_id: "task-0" }, ...links],
+      sessions,
+    }).rows,
+  ];
+  const moved = repositionCursor(shiftedRows, key, target);
+  assert.equal(shiftedRows[moved]?.id, "s-1");
+  assert.notEqual(moved, target);
+  // A vanished row falls back to a clamped index.
+  assert.equal(repositionCursor(first, "session:gone", 99), first.length - 1);
 });
