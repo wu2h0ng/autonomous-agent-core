@@ -16,7 +16,7 @@
 /** @jsxImportSource @opentui/react */
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { SyntaxStyle, type ScrollBoxRenderable } from "@opentui/core";
+import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
@@ -100,6 +100,7 @@ export function App({
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [input, setInput] = useState("");
+  const composerRef = useRef<TextareaRenderable | null>(null);
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
@@ -242,6 +243,7 @@ export function App({
 
   useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
+    process.stderr.write(`DBGKEY name=${name} seq=${JSON.stringify(key.sequence ?? "")} ctrl=${key.ctrl === true}\n`);
     const ctrl = key.ctrl === true;
     const sequence = key.sequence ?? "";
     const owner = resolveViewKey({
@@ -522,12 +524,21 @@ export function App({
           })()}
         </box>
       ) : null}
-      <box border title="message" style={{ height: 3, paddingLeft: 1 }}>
-        <input
-          placeholder="Tell Noem what to do… (Enter to send)"
+      <box border title="message" style={{ height: 5, paddingLeft: 1 }}>
+        <textarea
+          ref={composerRef}
+          placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"
           focused={!awaiting}
-          value={input}
-          onInput={setInput}
+          keyBindings={[
+            { name: "return", action: "submit" },
+            { name: "kpenter", action: "submit" },
+            { name: "linefeed", action: "newline" },
+          ]}
+          onSubmit={() => {
+            const text = composerRef.current?.plainText ?? "";
+            composerRef.current?.editBuffer.setText("");
+            submit(text);
+          }}
         />
       </box>
       <text>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
