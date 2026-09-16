@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class RiskLevel(StrEnum):
@@ -72,3 +73,20 @@ class MetricContract:
     quality_contract: QualityContract | None = None
     action_candidates: tuple[ActionCandidate, ...] = field(default_factory=tuple)
     feedback_metric: str | None = None
+
+
+@dataclass(frozen=True)
+class QueryPlan:
+    metric_name: str
+    sql: str
+    parameters: dict[str, Any]
+    source_template: SQLTemplate | None = None
+
+
+@dataclass(frozen=True)
+class QueryResult:
+    rows: tuple[dict[str, Any], ...]
+    row_count: int
+    # Actual recency of the underlying data at query time (seconds). ``None`` = the provider did
+    # not report freshness, so the evidence chain caps and flags confidence rather than assuming it.
+    source_age_seconds: float | None = None
