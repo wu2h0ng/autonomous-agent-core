@@ -7,10 +7,11 @@
  * Focus policy (regression fix): the composer input owns keyboard focus at all
  * times — opentui focus is exclusive, so giving a panel `focused` would blur
  * the input and steal typing. `Tab` therefore only changes the *selected*
- * panel (shown in the title/header); keyboard scrolling of a panel is done
- * explicitly via `scrollBy` on the selected panel, and the mouse wheel scrolls
- * whichever panel it is over. Approvals stay global (y/n) and force the
- * transcript to be selected so they remain in front.
+ * panel (shown in the title/header); `pgup`/`pgdn` scroll the selected panel via
+ * an explicit `scrollBy`, and the mouse wheel scrolls whichever panel it is over.
+ * Approvals stay global (y/n) and force the transcript to be selected so they
+ * remain in front. Key ownership/precedence is resolved by the pure
+ * `resolveViewKey` (src/opentui/viewkeys.ts) so the order is testable.
  */
 /** @jsxImportSource @opentui/react */
 import { useEffect, useReducer, useRef, useState } from "react";
@@ -19,6 +20,14 @@ import type { ScrollBoxRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
+import { filterCommands } from "../commands.js";
+import {
+  filterSelectorItems,
+  moveSelector,
+  numberedChoice,
+} from "../selector.js";
+import { sliceWindow } from "./overlays.js";
+import { resolveViewKey } from "./viewkeys.js";
 import {
   filePanelLines,
   nextPanel,
@@ -93,6 +102,9 @@ export function App({
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
   const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
   const [cursor, setCursor] = useState(0);
+  const [selectorQuery, setSelectorQuery] = useState("");
+  const [selectorIndex, setSelectorIndex] = useState(0);
+  const [paletteIndex, setPaletteIndex] = useState(0);
   const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
@@ -141,6 +153,19 @@ export function App({
   }, [workspace, withPanels]);
 
   cursorKeyRef.current = cursorKey(tree.rows, cursor);
+  const selector = controller.pendingSelector;
+  const selectorItems = selector
+    ? filterSelectorItems(selector.items, selectorQuery)
+    : [];
+  const selectorState = { items: selectorItems, index: selectorIndex };
+  const palette = input.startsWith("/") && !input.includes(" ")
+    ? filterCommands(input)
+    : [];
+
+  useEffect(() => {
+    setPaletteIndex(0);
+  }, [input]);
+
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
@@ -189,43 +214,113 @@ export function App({
   }, [client, showAgentsPanel]);
 
 
-  useKeyboard((key: { name?: string; ctrl?: boolean }) => {
+  useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
-    // Reuse the tested frozen mapping: Esc (streaming/stalled) and Ctrl-C ->
-    // controller.interrupt(); Esc is always consumed and never approves/rejects.
-    if (handleGlobalKey(controller, name, { ctrl: key.ctrl === true, escape: name === "escape" })) {
-      return;
-    }
-    if (awaiting) {
-      if (name === "y") void controller.approve();
-      else if (name === "n") void controller.reject();
-      return;
-    }
-    if (name === "tab") {
-      setSelected(nextPanel(activePanel, panels));
-      return;
-    }
-    if (name === "pageup" || name === "pagedown") {
-      const target = scrollRefs[activePanel]?.current;
-      const delta = name === "pageup" ? -PANEL_SCROLL_LINES : PANEL_SCROLL_LINES;
-      target?.scrollBy(delta, "absolute");
-      return;
-    }
-    // The agents panel owns ctrl+up/down (cursor) and Enter (switch session).
-    // Plain arrows/letters stay with the composer, which keeps keyboard focus.
-    const down = name === "down" || name === "n";
-    const up = name === "up" || name === "p";
-    if (activePanel === "agents" && key.ctrl === true && (down || up)) {
-      setCursor((current) => moveCursor(current, down ? 1 : -1, tree.rows.length));
-      return;
-    }
-    if (name === "return") {
-      // Routing is a pure function (tested): a session row switches via the
-      // /resume path (the controller refuses it whenever a turn or an approval
-      // is pending), any other row / panel falls through to the composer.
-      const plan = planEnter(activePanel, tree.rows, cursor, input);
-      if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
-      else if (plan.kind === "submit") submit(plan.text);
+    const ctrl = key.ctrl === true;
+    const sequence = key.sequence ?? "";
+    const owner = resolveViewKey({
+      selectorOpen: selector,
+      awaitingApproval: awaiting,
+      paletteOpen: palette.length > 0,
+      activePanel,
+      name,
+      ctrl,
+      sequence,
+    });
+
+    switch (owner.layer) {
+      case "selector": {
+        if (name === "escape") {
+          controller.cancelSelector();
+          setSelectorQuery("");
+          setSelectorIndex(0);
+          return;
+        }
+        if (name === "return") {
+          const pick = selectorItems[
+            Math.min(selectorIndex, Math.max(0, selectorItems.length - 1))
+          ];
+          if (pick !== undefined) controller.chooseSelector(pick);
+          setSelectorQuery("");
+          return;
+        }
+        if (name === "up" || name === "down") {
+          const next = moveSelector(selectorState, name === "down" ? 1 : -1);
+          setSelectorIndex(next.index);
+          return;
+        }
+        if (name === "backspace") {
+          setSelectorQuery((q) => q.slice(0, -1));
+          setSelectorIndex(0);
+          return;
+        }
+        if (/^[1-9]$/.test(sequence) && selectorQuery === "") {
+          const pick = numberedChoice(selectorState, Number(sequence));
+          if (pick !== undefined) controller.chooseSelector(pick);
+          return;
+        }
+        if (/^[\x20-\x7e]$/.test(sequence)) {
+          setSelectorQuery((q) => q + sequence);
+          setSelectorIndex(0);
+          return;
+        }
+        return;
+      }
+      case "approval": {
+        if (owner.action === "approve") void controller.approve();
+        else if (owner.action === "reject") void controller.reject();
+        return;
+      }
+      case "global": {
+        handleGlobalKey(controller, name, { ctrl, escape: name === "escape" });
+        return;
+      }
+      case "palette": {
+        if (owner.action === "up" || owner.action === "down") {
+          const step = owner.action === "down" ? 1 : -1;
+          setPaletteIndex((i) => (i + step + palette.length) % palette.length);
+          return;
+        }
+        if (owner.action === "complete" || owner.action === "submit") {
+          const pick = palette[Math.min(paletteIndex, palette.length - 1)];
+          if (pick === undefined) return;
+          if (owner.action === "complete") {
+            setInput(`${pick.name} `);
+            setPaletteIndex(0);
+          } else {
+            submit(pick.name);
+          }
+          return;
+        }
+        return;
+      }
+      case "panel": {
+        if (owner.action === "switch") {
+          setSelected(nextPanel(activePanel, panels));
+          return;
+        }
+        if (owner.action === "scroll") {
+          const target = scrollRefs[activePanel]?.current;
+          target?.scrollBy(
+            (owner.delta ?? 1) * PANEL_SCROLL_LINES,
+            "absolute",
+          );
+          return;
+        }
+        return;
+      }
+      case "agents": {
+        setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
+        return;
+      }
+      case "enter": {
+        const plan = planEnter(activePanel, tree.rows, cursor, input);
+        if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
+        else if (plan.kind === "submit") submit(plan.text);
+        return;
+      }
+      default:
+        return;
     }
   });
 
@@ -342,6 +437,31 @@ export function App({
         {transcript}
         {panels.length > 1 ? sidebar : null}
       </box>
+      {selector ? (
+        <box border title={selector.title} style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {(() => {
+            const window = sliceWindow(selectorItems, selectorIndex, 8);
+            return window.items.map((item, index) => (
+              <text key={`s${index}`}>
+                {`${index === window.index ? "▌ " : "  "}${item}`}
+              </text>
+            ));
+          })()}
+          <text>{`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}</text>
+        </box>
+      ) : null}
+      {palette.length > 0 ? (
+        <box border title="commands" style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {(() => {
+            const window = sliceWindow(palette, paletteIndex, 6);
+            return window.items.map((command, index) => (
+              <text key={`c${index}`}>
+                {`${index === window.index ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
+              </text>
+            ));
+          })()}
+        </box>
+      ) : null}
       <box border title="message" style={{ height: 3, paddingLeft: 1 }}>
         <input
           placeholder="Tell Noem what to do… (Enter to send)"

@@ -86,6 +86,25 @@ class FakeClient {
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
 
+/** Wait until the rendered frame matches. Ink renders asynchronously, so a fixed
+ * sleep is load-sensitive (this test flaked only when the machine was busy);
+ * polling keeps the assertion strict while removing the timing dependency. */
+async function waitForFrame(
+  view: { lastFrame: () => string | undefined },
+  pattern: RegExp,
+  timeoutMs = 3000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let frame = view.lastFrame() ?? "";
+  while (Date.now() < deadline) {
+    frame = view.lastFrame() ?? "";
+    if (pattern.test(frame)) return frame;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.match(frame, pattern);
+  return frame;
+}
+
 test("palette: `/` lists commands; typing filters; Enter runs the selection", async () => {
   const controller = new TuiController(new FakeClient() as never);
   const submitted: string[] = [];
@@ -97,13 +116,18 @@ test("palette: `/` lists commands; typing filters; Enter runs the selection", as
   try {
     await flush();
     await view.stdin.write("/");
-    await flush();
-    assert.match(view.lastFrame() ?? "", /\/status/);
+    await waitForFrame(view, /\/status/);
 
     await view.stdin.write("st");
+    // Wait for the COMPOSER to echo the filter before pressing Enter. Absence
+    // checks are unsafe (Ink frames transiently drop content mid-render), and
+    // Enter uses the composer value at that moment: without this the test raced
+    // and submitted the unfiltered first entry (/exit).
+    await waitForFrame(view, /›\s*\/st\b/);
+    // Ink updates its key-handler ref in an effect that can land a paint after
+    // the rendered state, so give it two more ticks before Enter.
     await flush();
-    assert.match(view.lastFrame() ?? "", /\/status/);
-
+    await flush();
     await view.stdin.write("\r");
     await flush();
     assert.deepEqual(submitted, ["/status"]);
@@ -119,12 +143,10 @@ test("@ mention: lists workspace files and Tab completes the path", async () => 
   try {
     await flush();
     await view.stdin.write("@");
-    await flush();
-    assert.match(view.lastFrame() ?? "", /src\/a\.ts/);
+    await waitForFrame(view, /src\/a\.ts/);
 
     await view.stdin.write("\t");
-    await flush();
-    assert.match(view.lastFrame() ?? "", /@src\/a\.ts/);
+    await waitForFrame(view, /@src\/a\.ts/);
   } finally {
     view.unmount();
   }
