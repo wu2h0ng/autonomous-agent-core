@@ -73,6 +73,11 @@ from .c7_receipt import (
     C7ReceiptScopeMismatch,
     C7ReceiptVerifier,
 )
+from .outcome_learning_gate import (
+    OutcomeAdmissionDecision,
+    OutcomeAdmissionReason,
+    OutcomeLearningGate,
+)
 from .srl_execution import (
     ExecutionDenialReason,
     PlanRegistrationDenialReason,
@@ -436,6 +441,9 @@ __all__ = [
     "C7ReceiptScopeMismatch",
     "C7ReceiptVerifier",
     "ExecutionDenialReason",
+    "OutcomeAdmissionDecision",
+    "OutcomeAdmissionReason",
+    "OutcomeLearningGate",
     "PlanRegistrationDenialReason",
     "RegisteredSrlExecutionPlan",
     "SQLiteSrlExecutionPlanStore",
@@ -444,10 +452,10 @@ __all__ = [
     "SrlExecutionPlanRegistrationError",
     "SrlExecutionPlanRegistry",
     "SrlExecutionPlanStore",
-    "plan_binds",
     "SrlExecutionResult",
     "SrlTaskExecutionBridge",
     "TrustedSrlExecutionPlanPort",
+    "plan_binds",
     "CorrectionAuthority",
     "CorrectionGuard",
     "CorrectionReadPort",
