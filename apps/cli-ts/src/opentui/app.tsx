@@ -556,7 +556,16 @@ export function App({
           ]}
           onSubmit={() => {
             if (agentsPanelRef.current) return;
-            const text = composerRef.current?.plainText ?? "";
+            const raw = composerRef.current?.plainText ?? "";
+            // Complete an open @mention on submit: Tab with a non-empty draft is
+            // consumed by the textarea itself (measured), so completion cannot
+            // depend on Tab alone.
+            const token = activeMention(raw, raw.length);
+            const first = token ? filterMentions(files, token.query)[0] : undefined;
+            const text =
+              token && first !== undefined
+                ? applyMention(raw, raw.length, first).value
+                : raw;
             composerRef.current?.editBuffer.setText("");
             setInput("");
             submit(text);
