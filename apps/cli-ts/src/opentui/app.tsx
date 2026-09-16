@@ -103,20 +103,8 @@ export function App({
   const composerRef = useRef<TextareaRenderable | null>(null);
   /** Single text source of truth: the textarea owns the draft; this mirrors it
    * for the overlays (palette/mentions) and writes go through the buffer. */
-  const seqRef = useRef(0);
-  const dbg = (event: string, extra = ""): void => {
-    if (process.env.NOEM_KEY_DEBUG !== "1") return;
-    seqRef.current += 1;
-    process.stderr.write(
-      `DBGSEQ ${seqRef.current} ${event} mirror=${JSON.stringify(composerRef.current ? undefined : undefined)} ${extra}\n`,
-    );
-  };
   const suppressSyncRef = useRef(false);
   const setComposerText = (value: string): void => {
-    if (process.env.NOEM_KEY_DEBUG === "1") {
-      seqRef.current += 1;
-      process.stderr.write(`DBGSEQ ${seqRef.current} SET ${JSON.stringify(value)}\n`);
-    }
     const buffer = composerRef.current?.editBuffer;
     // The buffer write lands asynchronously; suppress the next mirror so it
     // cannot read the OLD text back (which kept a submitted draft "alive").
@@ -128,10 +116,6 @@ export function App({
     setInput(value);
   };
   const syncComposer = (): void => {
-    if (process.env.NOEM_KEY_DEBUG === "1") {
-      seqRef.current += 1;
-      process.stderr.write(`DBGSEQ ${seqRef.current} SYNC suppress=${suppressSyncRef.current} buf=${JSON.stringify(composerRef.current?.plainText ?? null)}\n`);
-    }
     if (suppressSyncRef.current) {
       suppressSyncRef.current = false;
       return;
@@ -304,10 +288,6 @@ export function App({
       sequence,
     });
 
-    if (process.env.NOEM_KEY_DEBUG === "1") {
-      seqRef.current += 1;
-      process.stderr.write(`DBGSEQ ${seqRef.current} KEY name=${name} layer=${owner.layer} buf=${JSON.stringify(composerRef.current?.plainText ?? null)}\n`);
-    }
     switch (owner.layer) {
       case "selector": {
         if (name === "escape") {
@@ -425,10 +405,6 @@ export function App({
     // Mirror the textarea for the overlays AFTER the renderable has applied the
     // key (a synchronous read can lag by one keystroke, which desynced the
     // palette/mention layers).
-    if (process.env.NOEM_KEY_DEBUG === "1") {
-      seqRef.current += 1;
-      process.stderr.write(`DBGSEQ ${seqRef.current} SCHEDULE_SYNC\n`);
-    }
     queueMicrotask(syncComposer);
   });
 
