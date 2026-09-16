@@ -107,7 +107,10 @@ export function App({
    * for the overlays (palette/mentions) and writes go through the buffer. */
   const setComposerText = (value: string): void => {
     const buffer = composerRef.current?.editBuffer;
-    buffer?.setText(value);
+    // Skip a no-op setText: the write is applied asynchronously and RESETS the
+    // caret to the start, so calling it with an unchanged value (vim's A/I
+    // motions) silently moved the caret before the following keystroke.
+    if (buffer !== undefined && buffer.getText() !== value) buffer.setText(value);
     // setText leaves the caret at the start; put it at the end so the next
     // keystroke appends (otherwise typing prepends and backspace does nothing).
     buffer?.setCursorByOffset(value.length);

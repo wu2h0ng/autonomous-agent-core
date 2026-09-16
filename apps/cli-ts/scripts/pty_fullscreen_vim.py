@@ -185,7 +185,9 @@ def main() -> None:
             time.sleep(0.4)
             frames2.append(read(fd2, 0.8))
             os.write(fd2, b"\x1b")                      # normal mode
-            time.sleep(1.2)                              # let the mode switch land
+            time.sleep(0.7)
+            os.write(fd2, b"\x1b")                      # no-op in normal mode; drains the race
+            time.sleep(0.7)
             read(fd2, 0.3)
             for byte in keys:
                 os.write(fd2, bytes([byte]))
@@ -201,12 +203,12 @@ def main() -> None:
 
         # shift+I goes to line start: "hello" + I + "p" -> "phello" (visible in
         # the composer echo, which is enough to prove the caret placement).
-        shift_i = flat(fresh_scenario(b"Ip"))
-        print("VIM_SHIFT_I_AT_LINE_START:", "phello" in shift_i)
-
-        # shift+A goes to line end: "hello" + A + "c" -> "helloc".
         shift_a = flat(fresh_scenario(b"Ac"))
         print("VIM_SHIFT_A_AT_LINE_END:", "helloc" in shift_a)
+
+        # shift+A goes to line end: "hello" + A + "c" -> "helloc".
+        shift_i = flat(fresh_scenario(b"Ip"))
+        print("VIM_SHIFT_I_AT_LINE_START:", "phello" in shift_i)
 
         # Ctrl-C in normal mode must still exit the process.
         pid3, fd3 = spawn(descriptor)
