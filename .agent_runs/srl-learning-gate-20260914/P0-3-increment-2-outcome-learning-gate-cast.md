@@ -1,6 +1,10 @@
 # P0-3 Increment 2 — OutcomeLearningGate (CTO gate issued 2026-09-14)
 
-> Status: `CTO_GATE_ISSUED / INCREMENT_2`
+> Status: `CTO_GATE_ISSUED / INCREMENT_2 / IMPLEMENTED_AND_TESTED_ONLY`
+>
+> **Claim scope (final review F4).** This is `implemented / tested`, NOT `integrated`:
+> the gate has no runtime consumer yet (it is exported and unit-tested only; the W1/W2
+> consumers are deferred). Do not describe it as integrated.
 > Track: product  primary_class: P  secondary_class: A/E
 > Base: origin/main `cd3e816a`; branch `feature/srl-outcome-learning-gate-20260914` (worktree `.worktrees/srl-learning-gate`)
 

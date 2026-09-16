@@ -263,6 +263,19 @@ def test_rejects_forgery_that_passes_the_evaluator(tmp_path):
     assert decision.reason_code is OutcomeAdmissionReason.OUTCOME_NOT_CURRENT
 
 
+def test_rejects_forged_superset_evidence_refs(tmp_path):
+    # Final-review F1: a superset of the genuine evidence_refs passes the evaluator's
+    # subset check, so it is rejected ONLY by the full-equality guard; fails if the
+    # equality guard regresses.
+    app, task_id, observed = _verified(tmp_path)
+    forged = observed.model_copy(
+        update={"evidence_refs": (*observed.evidence_refs, "forged-extra")}
+    )
+    decision = OutcomeLearningGate(app.tasks).admit(task_id, forged)
+    assert decision.admitted is False
+    assert decision.reason_code is OutcomeAdmissionReason.OUTCOME_NOT_CURRENT
+
+
 def test_rejects_non_current_outcome(tmp_path):
     app, task_id, observed = _verified(tmp_path)
     other = observed.model_copy(update={"observed_outcome_id": "observed:not-current"})
