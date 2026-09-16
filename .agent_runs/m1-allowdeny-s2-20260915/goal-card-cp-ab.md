@@ -52,3 +52,13 @@ untouched. The frozen matrix function is unchanged.
 - The pending-approval path only blocks APPROVE; REJECT stays resolvable (tested).
 - All reviews so far are **same-model** (builder == reviewer): they do NOT satisfy the
   independent-review gate. A different model/human must confirm before promotion.
+
+## 7. Final review residuals (2026-09-15)
+
+- **F4 (LOW): no product entry point for authoring rules.** Rules are created
+  programmatically via `SQLitePermissionRuleStore.save` and loaded by the app; there is no
+  operator-facing route/CLI to author or revoke them, and no end-to-end round-trip test.
+  The founder's DENY-only gate authorized the *rule layer*, not an authoring surface;
+  record as a residual for a future authoring slice.
+- **F6 (INFO):** on the pending-approval path the rule check precedes the C7-staleness
+  check; the action is still denied, only the recorded provenance differs.
