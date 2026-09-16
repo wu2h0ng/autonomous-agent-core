@@ -123,3 +123,67 @@ export function agentRowLine(row: AgentRow): string {
   const status = row.status === "" ? "" : `  ${row.status}`;
   return `${indent}${marker} ${row.id}${status}`;
 }
+
+/** Clamp a row cursor to the current tree (rows change on every refresh). */
+export function clampCursor(cursor: number, rowCount: number): number {
+  if (rowCount <= 0) return 0;
+  return Math.min(Math.max(cursor, 0), rowCount - 1);
+}
+
+export function moveCursor(cursor: number, delta: number, rowCount: number): number {
+  return clampCursor(cursor + delta, rowCount);
+}
+
+/** Only `session` rows are resumable; anything else must not trigger a switch. */
+export function resumableSessionId(
+  rows: readonly AgentRow[],
+  cursor: number,
+): string | null {
+  const row = rows[clampCursor(cursor, rows.length)];
+  return row !== undefined && row.kind === "session" ? row.id : null;
+}
+
+/** Stable identity of a row, so a refresh can keep the same row highlighted
+ * instead of the same index (rows can be inserted/removed by a refresh). */
+export function cursorKey(rows: readonly AgentRow[], cursor: number): string | null {
+  const row = rows[clampCursor(cursor, rows.length)];
+  return row === undefined ? null : `${row.kind}:${row.id}`;
+}
+
+export function repositionCursor(
+  rows: readonly AgentRow[],
+  previousKey: string | null,
+  fallback: number,
+): number {
+  if (previousKey !== null) {
+    const index = rows.findIndex((row) => `${row.kind}:${row.id}` === previousKey);
+    if (index >= 0) return index;
+  }
+  return clampCursor(fallback, rows.length);
+}
+
+export type EnterPlan =
+  | { kind: "resume"; sessionId: string }
+  | { kind: "submit"; text: string }
+  | { kind: "none" };
+
+/**
+ * Decide what Enter means for the current panel/cursor/composer text. Pure so
+ * the routing (which is otherwise only wired inside the renderer) is testable.
+ *   agents panel + session row -> switch session (reuses /resume)
+ *   agents panel + other row  -> fall through to the composer (no silent no-op)
+ *   any other panel           -> submit the composer
+ */
+export function planEnter(
+  activePanel: string,
+  rows: readonly AgentRow[],
+  cursor: number,
+  input: string,
+): EnterPlan {
+  if (activePanel === "agents") {
+    const sessionId = resumableSessionId(rows, cursor);
+    if (sessionId !== null) return { kind: "resume", sessionId };
+  }
+  const text = input.trim();
+  return text === "" ? { kind: "none" } : { kind: "submit", text };
+}

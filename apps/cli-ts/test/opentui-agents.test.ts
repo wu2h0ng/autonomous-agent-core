@@ -5,7 +5,16 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agentRowLine, buildAgentTree } from "../src/opentui/agents.js";
+import {
+  agentRowLine,
+  buildAgentTree,
+  clampCursor,
+  cursorKey,
+  moveCursor,
+  planEnter,
+  repositionCursor,
+  resumableSessionId,
+} from "../src/opentui/agents.js";
 
 const mandates = [
   { mandate_id: "mandate-b", status: "ACTIVE" },
@@ -83,4 +92,70 @@ test("agentRowLine renders depth, marker and status", () => {
     agentRowLine({ depth: 0, kind: "group", id: "(unlinked task)", status: "" }),
     "≡ (unlinked task)",
   );
+});
+
+test("cursor helpers clamp to the tree and only sessions are resumable", () => {
+  // Empty tree / out-of-range cursor must never yield an index into nothing.
+  assert.equal(clampCursor(5, 0), 0);
+  assert.equal(clampCursor(-2, 4), 0);
+  assert.equal(clampCursor(9, 4), 3);
+  assert.equal(moveCursor(0, -1, 4), 0);
+  assert.equal(moveCursor(3, 1, 4), 3);
+
+  const { rows } = buildAgentTree({ mandates, links, sessions });
+  const sessionIndex = rows.findIndex((r) => r.kind === "session");
+  const taskIndex = rows.findIndex((r) => r.kind === "task");
+  const mandateIndex = rows.findIndex((r) => r.kind === "mandate");
+  assert.equal(resumableSessionId(rows, sessionIndex), rows[sessionIndex]?.id);
+  // A task/mandate row must NOT switch sessions (no accidental resume).
+  assert.equal(resumableSessionId(rows, taskIndex), null);
+  assert.equal(resumableSessionId(rows, mandateIndex), null);
+  assert.equal(resumableSessionId([], 0), null);
+});
+
+test("the highlighted row survives a tree refresh (identity, not index)", () => {
+  const first = buildAgentTree({ mandates, links, sessions }).rows;
+  const target = first.findIndex((r) => r.kind === "session");
+  const key = cursorKey(first, target);
+  assert.equal(key, "session:s-1");
+
+  // A refresh that inserts a mandate row above shifts every index; the cursor
+  // must stay on the same row rather than silently highlight a different one.
+  const shiftedRows = [
+    ...buildAgentTree({
+      mandates: [{ mandate_id: "aaa", status: "ACTIVE" }, ...mandates],
+      links: [{ mandate_id: "aaa", task_id: "task-0" }, ...links],
+      sessions,
+    }).rows,
+  ];
+  const moved = repositionCursor(shiftedRows, key, target);
+  assert.equal(shiftedRows[moved]?.id, "s-1");
+  assert.notEqual(moved, target);
+  // A vanished row falls back to a clamped index.
+  assert.equal(repositionCursor(first, "session:gone", 99), first.length - 1);
+});
+
+test("planEnter routes Enter without silent no-ops", () => {
+  const { rows } = buildAgentTree({ mandates, links, sessions });
+  const sessionIndex = rows.findIndex((r) => r.kind === "session");
+  const taskIndex = rows.findIndex((r) => r.kind === "task");
+
+  // agents panel: a session row switches (reuses /resume).
+  assert.deepEqual(planEnter("agents", rows, sessionIndex, ""), {
+    kind: "resume",
+    sessionId: rows[sessionIndex]?.id,
+  });
+  // agents panel: a task row is not resumable -> composer text still submits.
+  assert.deepEqual(planEnter("agents", rows, taskIndex, "  hello  "), {
+    kind: "submit",
+    text: "hello",
+  });
+  // agents panel + non-resumable row + empty composer -> nothing happens.
+  assert.deepEqual(planEnter("agents", rows, taskIndex, "   "), { kind: "none" });
+  // transcript panel: normal submit / empty.
+  assert.deepEqual(planEnter("transcript", rows, 0, "hi"), {
+    kind: "submit",
+    text: "hi",
+  });
+  assert.deepEqual(planEnter("transcript", [], 0, ""), { kind: "none" });
 });

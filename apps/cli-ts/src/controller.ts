@@ -814,8 +814,14 @@ export class TuiController {
       Number.isInteger(index) && index >= 1 && index <= this.recentSessions.length
         ? (this.recentSessions[index - 1] as string)
         : arg;
-    if (this.busy) {
-      this.push({ role: "system", content: "turn in progress; cannot resume now" });
+    // Guard on the single "may a new turn start" predicate, not on `busy`:
+    // `busy` is cleared when a turn parks on an approval, so a `busy` check
+    // would let a switch move the approval surface out of view.
+    if (!this.canStartTurn()) {
+      this.push({
+        role: "system",
+        content: "cannot switch sessions while a turn or approval is pending",
+      });
       return;
     }
     const snapshot = await this.client.getSession(target);

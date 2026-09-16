@@ -26,7 +26,14 @@ import {
   type PanelId,
 } from "./panels.js";
 import { EMPTY_SAMPLE, sampleWorkspace, type WorkspaceSample } from "./workspace-panels.js";
-import { agentRowLine } from "./agents.js";
+import {
+  agentRowLine,
+  clampCursor,
+  cursorKey,
+  moveCursor,
+  planEnter,
+  repositionCursor,
+} from "./agents.js";
 import { fetchAgentTree, type AgentTreeResult } from "./agent-tree-source.js";
 import type { SurfaceClient } from "../client.js";
 
@@ -85,6 +92,8 @@ export function App({
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
   const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
+  const [cursor, setCursor] = useState(0);
+  const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
   const filesRef = useRef<ScrollBoxRenderable | null>(null);
@@ -131,6 +140,7 @@ export function App({
     };
   }, [workspace, withPanels]);
 
+  cursorKeyRef.current = cursorKey(tree.rows, cursor);
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
@@ -162,7 +172,13 @@ export function App({
       inFlight = true;
       const next = await fetchAgentTree(client);
       inFlight = false;
-      if (!cancelled) setTree(next);
+      if (!cancelled) {
+        setTree(next);
+        // Keep the same ROW highlighted across refreshes (index can shift).
+        setCursor((current) =>
+          repositionCursor(next.rows, cursorKeyRef.current, current),
+        );
+      }
     };
     void run();
     const timer = setInterval(() => void run(), TREE_INTERVAL_MS);
@@ -195,7 +211,22 @@ export function App({
       target?.scrollBy(delta, "absolute");
       return;
     }
-    if (name === "return") submit(input);
+    // The agents panel owns ctrl+up/down (cursor) and Enter (switch session).
+    // Plain arrows/letters stay with the composer, which keeps keyboard focus.
+    const down = name === "down" || name === "n";
+    const up = name === "up" || name === "p";
+    if (activePanel === "agents" && key.ctrl === true && (down || up)) {
+      setCursor((current) => moveCursor(current, down ? 1 : -1, tree.rows.length));
+      return;
+    }
+    if (name === "return") {
+      // Routing is a pure function (tested): a session row switches via the
+      // /resume path (the controller refuses it whenever a turn or an approval
+      // is pending), any other row / panel falls through to the composer.
+      const plan = planEnter(activePanel, tree.rows, cursor, input);
+      if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
+      else if (plan.kind === "submit") submit(plan.text);
+    }
   });
 
   const submit = (value: string): void => {
@@ -262,7 +293,11 @@ export function App({
       >
         <box style={{ flexDirection: "column", paddingLeft: 1 }}>
           {(tree.rows.length > 0
-            ? tree.rows.map(agentRowLine)
+            ? tree.rows.map((row, index) =>
+                index === clampCursor(cursor, tree.rows.length)
+                  ? `▌ ${agentRowLine(row)}`
+                  : `  ${agentRowLine(row)}`,
+              )
             : [tree.note ?? "(no mandates)"]
           )
             .concat(tree.truncated ? ["(truncated)"] : [])
@@ -321,7 +356,9 @@ export function App({
           : ""
       } · ${
         panels.length > 1
-          ? `[tab] panel: ${activePanel} · [pgup/pgdn] scroll`
+          ? activePanel === "agents"
+            ? `[tab] panel: agents · [ctrl+↑/↓] move · [enter] switch session`
+            : `[tab] panel: ${activePanel} · [pgup/pgdn] scroll`
           : "/help"
       }`}</text>
     </box>
