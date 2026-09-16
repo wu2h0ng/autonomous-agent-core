@@ -49,6 +49,9 @@ verified_paths:
     - "domain_packs/data_agent/metric_contracts.py"
   D-CONTRACTS-DOMAIN:
     - "domain_packs/data_agent/domain_contracts.py"
+  D-OSCORE-SEMANTIC: ["domain_packs/data_agent/semantic_runtime.py"]
+  D-OSCORE-INTENT: ["domain_packs/data_agent/intent_parser.py"]
+  D-OSCORE-NLQUERY: ["domain_packs/data_agent/nl_query.py"]
   D-OSCORE-CONSEQUENCE-PREVIEW:
     - "packages/os_core/src/agent_os_core/consequence_preview.py"
     - "packages/contracts/src/agent_os_contracts/consequence.py"
