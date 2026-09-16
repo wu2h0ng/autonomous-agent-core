@@ -109,3 +109,14 @@
 - **实测**（`scripts/pty_fullscreen_p3a.py`，连续两次一致）：`AGENTS_PANEL_PRESENT/TREE_ROWS_RENDERED/RESUMED/TYPABLE_WITH_AGENTS_PANEL = True`、`HAS_AGENTS_TITLE = False`（`--no-agents`）。其中 `RESUMED` 为在 session 行 `enter` 后 transcript 出现 `resumed session …`。
 - **测试**：`test/opentui-agents.test.ts` 增 `clampCursor/moveCursor/resumableSessionId/cursorKey/repositionCursor`（含 task/mandate 行不可切换、刷新后高亮按身份保持）；`test/controller.test.ts` 用**真实回合**驱动到 `awaiting_approval`，断言 `/resume` 被拒、未切换、审批面保留（该用例在旧守卫下会失败）；cli-ts 全量 **164 pass**。
 - **诚实边界**：hermetic daemon 只有 1 个会话，实测为"切换到同一会话"（走完整 `/resume` 路径并显示 resumed）；**多会话互切**未做端到端（需真实多会话/多 mandate 场景）。树内不显示会话内容预览（只标识/状态）。`RESUMED` 断言为规范化子串匹配（样式可能拆分单词）。
+
+## 10. OPEN 问题：多会话 e2e 未验证（2026-09-16）
+
+`scripts/pty_fullscreen_p3a_multisession.py` 是一个**诚实复现器**（无法证明跨会话切换时 `exit 1`），当前为 **FAIL**：
+
+- 现象（可复现，多次一致）：客户端完成一次真实回合（pty 显示流式回复、token 计数），但**fixture daemon 的会话 listing 看不到该回合创建的会话**；listing 只包含本 fixture 通过 HTTP `POST /v1/surface/sessions` 创建的会话。
+- 对照：单会话 P3a 脚本（`pty_fullscreen_p3a.py`）中 `RESUMED: True`，即在**无** fixture 会话时能出现会话行并被 `/resume`；`probe_listing.py` 连续两次 HTTP POST 也能列出 2 个会话 → listing 本身工作。
+- 影响：**跨会话（真实两个不同会话）切换未获 e2e 证据**，仅在单测层覆盖（`nextCursor`/`planEnter`/`resumableSessionId`）。P3a 之前的诚实边界（"仅切换回同一会话"）**继续成立**。
+- 未排除的可能原因（按优先级）：(a) 客户端实际连到了**另一个 daemon**（`ensureDaemon` 的复用判定/描述符路径交互）而 fixture 的 HTTP 只看到自己那份状态；(b) 回合创建的会话在 listing 的 `run is not None` 过滤下不可枚举；(c) fixture databse 与 daemon 实际使用的 store 不一致（`sqlite mode=ro` 读 WAL 可能读不到最新提交，故本次诊断未采信 DB 直读）。
+- 下一步（未执行）：用 `AGENT_OS_RUNTIME_DESCRIPTOR`/`AGENT_OS_RUNTIME_DATABASE` 显式把客户端与 fixture 钉到同一 daemon+store，或在 `ensureDaemon` 复用/自启路径加断言/测试；随后重跑本复现器。
+- 声明：`multi-session e2e = NOT_MET`；不得据此声称多会话能力已验证。
