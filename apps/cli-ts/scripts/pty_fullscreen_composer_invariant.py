@@ -151,10 +151,16 @@ def main() -> None:
             alive = False
         print("PROCESS_ALIVE_AFTER_ENTER:", alive)
 
+        # A double-submit (overlay Enter + textarea Enter) showed up as the raw
+        # "/stat" also being submitted, i.e. an unknown-command notice. A single
+        # execution can never produce it.
+        no_unknown = "unknowncommand" not in flat("".join(frames))
+        print("COMMAND_RAN_EXACTLY_ONCE:", no_unknown)
+
         os.write(fd, b"\x03")
         time.sleep(0.4)
         kill(pid)
-        print("INVARIANT_OK:", palette_ok and ran_status and alive)
+        print("INVARIANT_OK:", palette_ok and ran_status and alive and no_unknown)
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
