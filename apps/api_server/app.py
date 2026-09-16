@@ -130,6 +130,7 @@ from agent_os_core import (
     PolicyKernel,
     MandateSteward,
     RunCoordinator,
+    AgentOSCoreError,
     DomainCandidateSealer,
     DomainCandidateEvaluationRecorder,
     DomainCandidatePromotionService,
@@ -3076,6 +3077,9 @@ class AgentOSApplication:
         if projected.resumable_turn_id is not None:
             raise InvalidTransitionError("cannot undo edits while a turn is open")
         if projected.pending_continuation is not None:
+            # Unreachable today: the projector requires an exact open turn for
+            # any pending approval, so the branch above fires first. Kept as
+            # defense in depth in case that invariant ever changes.
             raise InvalidTransitionError(
                 "cannot undo edits while an approval is pending"
             )
@@ -3108,7 +3112,22 @@ class AgentOSApplication:
                     )
                 )
                 continue
-            record = self.undo_recorded_edit(task_id, action_id=action_id)
+            try:
+                record = self.undo_recorded_edit(task_id, action_id=action_id)
+            except (AgentOSCoreError, PermissionError, ValueError) as exc:
+                # one candidate that cannot run (stale lease, correction halt
+                # raising earlier, missing lease support) is reported as its
+                # own refusal; it never aborts the rest of the command and it
+                # never reaches the file
+                refused.append(
+                    SurfaceUndoEntry(
+                        action_id=action_id,
+                        path=path,
+                        status="REFUSED",
+                        reason=f"undo could not run: {exc}",
+                    )
+                )
+                continue
             if record.status.value == "COMPENSATED":
                 undone.append(
                     SurfaceUndoEntry(action_id=action_id, path=path, status="UNDONE")

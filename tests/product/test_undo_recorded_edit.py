@@ -17,6 +17,8 @@ import pytest
 
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
+    PrincipalIdentity,
+    PrincipalRole,
     ProviderToolProposal,
     SurfaceClientRef,
     SurfaceSetPermissionModeCommand,
@@ -24,6 +26,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     DeferredApprovalGateway,
     DeterministicProvider,
+    RunCoordinator,
     RunExecutionError,
 )
 
@@ -111,8 +114,21 @@ def test_undo_restores_the_before_image_and_records_the_compensation(
     events = [event.event_type.value for event in app.store.read(session.task_id)]
     assert "COMPENSATION_STARTED" in events
     assert "ACTION_COMPENSATED" in events
-    # the governed shape: the compensation went through policy + a receipt
-    assert "POLICY_DECIDED" in events
+    # D4: the policy decision that mattered binds the exact compensation action
+    # (an existence check alone would pass even if policy were skipped)
+    compensated = [
+        event.decoded_payload()["compensation"]
+        for event in app.store.read(session.task_id)
+        if event.event_type.value == "ACTION_COMPENSATED"
+    ]
+    assert len(compensated) == 1
+    decisions = [
+        event.decoded_payload()["decision"]
+        for event in app.store.read(session.task_id)
+        if event.event_type.value == "POLICY_DECIDED"
+    ]
+    assert decisions[-1]["action_id"] == compensated[0]["compensation_action_id"]
+    assert decisions[-1]["verdict"] == "ALLOW"
 
 
 def test_undo_unknown_action_is_refused(tmp_path: Path) -> None:
@@ -141,4 +157,69 @@ def test_undo_is_idempotent_through_the_sealed_replay(tmp_path: Path) -> None:
     assert second.compensation_id == first.compensation_id
     assert second.receipt_id == first.receipt_id
     assert second.reason == first.reason
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+def test_refused_undo_does_not_leak_the_run_lease(tmp_path: Path) -> None:
+    """Review D1: a pre-validation failure must not leave the run leased.
+
+    The lease is taken only after every check, so a refused request cannot
+    block the next legal undo for the lease's whole 5-minute lifetime.
+    """
+
+    app = _app(tmp_path)
+    session, loop = app.open_chat_session("undo probe", DeferredApprovalGateway())
+    _set_mode(app, session.session_id, "ACCEPT_IN_WORKSPACE")
+    session, loop = app.restore_chat_session(session.session_id, DeferredApprovalGateway())
+    loop.run_turn(session, "please edit fixture.txt")
+    action_id = _edit_action_id(app, session.task_id)
+
+    with pytest.raises(RunExecutionError, match="not found"):
+        app.undo_recorded_edit(session.task_id, action_id="action:missing")
+
+    # a refused request must not block the next legal undo
+    record = app.undo_recorded_edit(session.task_id, action_id=action_id)
+    assert record.status.value == "COMPENSATED"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+def test_manual_undo_requires_principal_authority(tmp_path: Path) -> None:
+    """MANUAL undo mirrors `_compensate_with_mode`: only a PRINCIPAL /
+    TENANT_ADMIN may trigger it, and the refusal happens before the lease is
+    taken (the operator can still undo afterwards)."""
+
+    app = _app(tmp_path)
+    session, loop = app.open_chat_session("undo probe", DeferredApprovalGateway())
+    _set_mode(app, session.session_id, "ACCEPT_IN_WORKSPACE")
+    session, loop = app.restore_chat_session(session.session_id, DeferredApprovalGateway())
+    loop.run_turn(session, "please edit fixture.txt")
+    action_id = _edit_action_id(app, session.task_id)
+
+    runner = RunCoordinator(
+        app.tasks,
+        app.sandbox,
+        app.execution_profile,
+        app.provider,
+        app.provider_profile,
+        app.policy,
+        app.correction,
+        app.grants,
+        compensation_grant=app.compensation_grant,
+    )
+    worker = PrincipalIdentity(
+        principal_id=app.principal.principal_id,
+        tenant_id=app.principal.tenant_id,
+        workspace_id=app.principal.workspace_id,
+        role=PrincipalRole.WORKER,
+        authenticated_at=datetime.now(timezone.utc),
+    )
+    with pytest.raises(PermissionError, match="principal authority"):
+        runner.compensate_recorded_edit(
+            session.task_id,
+            original_action_id=action_id,
+            principal=worker,
+        )
+
+    record = app.undo_recorded_edit(session.task_id, action_id=action_id)
+    assert record.status.value == "COMPENSATED"
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"

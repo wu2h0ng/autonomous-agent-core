@@ -10,6 +10,7 @@ from uuid import uuid4
 from agent_os_contracts import (
     ActionContract,
     ActionReceipt,
+    AgentRun,
     ApprovalDisposition,
     BindingStatus,
     CapabilityGrant,
@@ -770,24 +771,25 @@ class RunCoordinator:
         a chat session — which has no workflow — can be undone one edit at a
         time. Precondition violations raise; attempt outcomes are recorded as
         COMPENSATED / BLOCKED / FAILED and returned.
+
+        Ordering: every validation runs BEFORE the run lease is taken, and the
+        lease-held half is wrapped in `finally`, so a refused request can never
+        leave the run leased.
         """
 
         if not original_action_id.strip():
             raise ValueError("original_action_id must be non-empty")
+        if mode is CompensationMode.MANUAL and principal.role not in {
+            PrincipalRole.PRINCIPAL,
+            PrincipalRole.TENANT_ADMIN,
+        }:
+            raise PermissionError(
+                "manual compensation requires principal authority"
+            )
         aggregate = self.tasks.get_task(task_id)
         run = aggregate.run
         if run is None:
             raise RunExecutionError("compensation requires an active Run")
-        # MANUAL compensation must hold the run lease (mirrors
-        # `_compensate_with_mode`): the broker rejects a stale claim.
-        owner = f"compensator:{uuid4()}"
-        acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
-        if acquire_lease is None:
-            raise RunExecutionError(
-                "compensation requires a lease-capable event store"
-            )
-        lease_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
-        lease_fence = acquire_lease(run.run_id, owner, lease_expiry)
         original: ActionContract | None = None
         receipt: ActionReceipt | None = None
         effect: dict[str, Any] = {}
@@ -846,6 +848,61 @@ class RunCoordinator:
             raise RunExecutionError(
                 "durable external-exact Task compensation requires effect custody"
             )
+        # MANUAL compensation must hold the run lease (mirrors
+        # `_compensate_with_mode`): the broker rejects a stale claim. The lease
+        # is taken only AFTER every check above, so a refused request can never
+        # leave the run leased (a leaked lease blocks further undo for its
+        # whole 5-minute lifetime); the `finally` releases it on every path,
+        # and the lease-held half below never releases it itself.
+        acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
+        if acquire_lease is None:
+            raise RunExecutionError(
+                "compensation requires a lease-capable event store"
+            )
+        owner = f"compensator:{uuid4()}"
+        lease_expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        lease_fence = acquire_lease(run.run_id, owner, lease_expiry)
+        try:
+            return self._compensate_recorded_edit_with_lease(
+                task_id,
+                run=run,
+                original=original,
+                path=path,
+                compensation_ref=compensation_ref,
+                manifest_sha256=manifest_sha256,
+                principal=principal,
+                mode=mode,
+                effect_custody=effect_custody,
+                owner=owner,
+                lease_fence=lease_fence,
+                lease_expiry=lease_expiry,
+            )
+        finally:
+            self._release_lease(run.run_id, owner)
+
+    def _compensate_recorded_edit_with_lease(
+        self,
+        task_id: str,
+        *,
+        run: AgentRun,
+        original: ActionContract,
+        path: str,
+        compensation_ref: str,
+        manifest_sha256: str,
+        principal: PrincipalIdentity,
+        mode: CompensationMode,
+        effect_custody: EffectCustodyPort | None,
+        owner: str,
+        lease_fence: int,
+        lease_expiry: str,
+    ) -> PatchCompensationRecord:
+        """The lease-held half of `compensate_recorded_edit`.
+
+        The caller already validated the recorded binding and holds the run
+        lease; it releases the lease in `finally` on every path, so this method
+        never releases it itself.
+        """
+
         arguments = {
             "path": path,
             "original_action_key": original.idempotency_key,
@@ -918,7 +975,6 @@ class RunCoordinator:
                 TaskEventType.COMPENSATION_FAILED,
                 failed,
             )
-            self._release_lease(run.run_id, owner)
             return failed
         grant = self.compensation_grant
         if self.correction.halted(
@@ -943,7 +999,6 @@ class RunCoordinator:
                 TaskEventType.COMPENSATION_BLOCKED,
                 blocked,
             )
-            self._release_lease(run.run_id, owner)
             return blocked
         # A previously sealed compensation replays the original durable receipt
         # (mirrors the coordinator: minting a fresh decision/permit pair against
@@ -977,7 +1032,6 @@ class RunCoordinator:
                 TaskEventType.ACTION_COMPENSATED,
                 compensated,
             )
-            self._release_lease(run.run_id, owner)
             return compensated
         started = PatchCompensationRecord(
             **record_kwargs,
@@ -1027,6 +1081,15 @@ class RunCoordinator:
                 grant,
                 lease_fence=permit_fence,
             )
+            # Mirrors the coordinator's stale-lease re-read: the fence captured
+            # above must still be the run's live fence at permit time.
+            current_fence = getattr(
+                self.tasks._event_store,
+                "lease_fence",
+                lambda _run_id: permit_fence,
+            )(run.run_id)
+            if current_fence != permit.lease_fence:
+                raise PermissionError("stale worker lease for compensation")
             claim = ExecutionLease(
                 run_id=run.run_id,
                 owner=owner,
@@ -1076,7 +1139,6 @@ class RunCoordinator:
                 TaskEventType.ACTION_COMPENSATED,
                 compensated,
             )
-            self._release_lease(run.run_id, owner)
             return compensated
         except Exception as exc:
             blocked_by_correction = self.correction.halted(
@@ -1109,7 +1171,6 @@ class RunCoordinator:
                 ),
                 failed,
             )
-            self._release_lease(run.run_id, owner)
             return failed
 
     def _requires_effect_custody(self, task_id: str) -> bool:

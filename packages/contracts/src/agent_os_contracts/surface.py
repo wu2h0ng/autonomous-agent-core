@@ -315,7 +315,13 @@ class SurfaceCompactResponse(ContractModel):
 
 
 class SurfaceUndoCommand(ContractModel):
-    """S5a: undo the most recent recorded workspace edit(s) of one session."""
+    """S5a: undo the most recent recorded workspace edit(s) of one session.
+
+    `count` bounds how many of the newest eligible recorded edits are
+    EXAMINED, one by one, newest first: each examined candidate is either
+    undone or refused with its reason, and a refusal never pulls in an older
+    candidate in its place.
+    """
 
     protocol_version: Literal["1.1"]
     client: SurfaceClientRef

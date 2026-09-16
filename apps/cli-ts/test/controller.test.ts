@@ -1119,6 +1119,7 @@ test("/undo prints each undone and refused entry with its reason", async () => {
   (controller as never as { sessionId: string }).sessionId = "s:1";
   await controller.submit("/undo 2");
   const content = controller.messages.at(-1)?.content ?? "";
+  assert.match(content, /examined 2 recorded edit\(s\): 1 undone, 1 refused/);
   assert.match(content, /✓ undone b\.txt \(action:2\)/);
   assert.match(content, /✗ refused a\.txt: the file changed since this recorded edit/);
 });

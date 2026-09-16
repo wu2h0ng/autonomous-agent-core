@@ -93,12 +93,17 @@ export function contextBarText(used: number, budget: number): string {
 }
 
 /** `/undo` outcome lines (S5a): every entry names the exact recorded action;
- * a refusal always carries its reason and no file is ever silently skipped. */
+ * a refusal always carries its reason and no file is ever silently skipped.
+ * The first line states how many of the newest recorded edits were EXAMINED
+ * (a refusal does not pull in an older candidate in its place). */
 export function formatUndoOutcome(undo: SurfaceUndoResponse): string {
   if (undo.undone.length === 0 && undo.refused.length === 0) {
     return "nothing to undo: no recorded workspace edit of this session is outstanding";
   }
-  const lines: string[] = [];
+  const lines = [
+    `examined ${undo.undone.length + undo.refused.length} recorded edit(s): ` +
+      `${undo.undone.length} undone, ${undo.refused.length} refused`,
+  ];
   for (const entry of undo.undone) {
     lines.push(`✓ undone ${entry.path} (${entry.action_id})`);
   }

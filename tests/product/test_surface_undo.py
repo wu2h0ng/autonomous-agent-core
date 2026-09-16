@@ -33,6 +33,7 @@ from agent_os_core import (
     DeferredApprovalGateway,
     DeterministicProvider,
     InvalidTransitionError,
+    SurfaceProtocolError,
     SurfaceRuntime,
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
@@ -43,12 +44,14 @@ from apps.api_server.server import Handler
 from apps.api_server.surface_routes import SurfaceRoutes
 
 
-def _proposal(call_id: str, old: str, new: str) -> ProviderToolProposal:
+def _proposal(
+    call_id: str, old: str, new: str, path: str = "fixture.txt"
+) -> ProviderToolProposal:
     return ProviderToolProposal(
         proposal_id=call_id,
         capability_id="workspace.edit",
         arguments_json=json.dumps(
-            {"path": "fixture.txt", "old_string": old, "new_string": new}
+            {"path": path, "old_string": old, "new_string": new}
         ),
     )
 
@@ -160,7 +163,24 @@ def test_undo_restores_the_file_and_records_the_compensation(tmp_path: Path) -> 
     events = _event_types(app, session.task_id)
     assert "COMPENSATION_STARTED" in events
     assert "ACTION_COMPENSATED" in events
-    assert "POLICY_DECIDED" in events
+    # D4: the POLICY_DECIDED that mattered binds the exact compensation action
+    # the COMPENSATED record names — a mere existence check would pass even if
+    # this compensation had skipped the policy step
+    compensated = [
+        event.decoded_payload()["compensation"]
+        for event in app.store.read(session.task_id)
+        if event.event_type.value == "ACTION_COMPENSATED"
+    ]
+    assert len(compensated) == 1
+    compensation_action_id = compensated[0]["compensation_action_id"]
+    assert compensated[0]["receipt_id"]
+    decisions = [
+        event.decoded_payload()["decision"]
+        for event in app.store.read(session.task_id)
+        if event.event_type.value == "POLICY_DECIDED"
+    ]
+    assert decisions[-1]["action_id"] == compensation_action_id
+    assert decisions[-1]["verdict"] == "ALLOW"
 
     after = app.tasks.project_session(session.task_id, session.session_id)
     # append-only: the history, the index space and the original receipt survive
@@ -284,6 +304,45 @@ def test_undo_count_two_covers_both_edits_in_one_command(tmp_path: Path) -> None
     assert len(compensated) == 2
 
 
+def test_undo_mixed_candidates_examines_newest_first_without_backfill(
+    tmp_path: Path,
+) -> None:
+    """D3: `count` bounds how many of the newest eligible edits are EXAMINED;
+    a refused candidate is not replaced by an older one."""
+
+    app = _app(tmp_path)
+    (tmp_path / "second.txt").write_text("stable\n", encoding="utf-8")
+    app.provider = DeterministicProvider(
+        scripted=(
+            ("editing fixture.txt", (_proposal("call:1", "stable", "changed"),)),
+            ("done", ()),
+            (
+                "editing second.txt",
+                (_proposal("call:2", "stable", "edited", path="second.txt"),),
+            ),
+            ("done", ()),
+        ),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    session = _edited_session(app, ["first edit", "second edit"])
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == "edited\n"
+    # the newest edit's file is modified outside the session
+    (tmp_path / "second.txt").write_text("operator wrote this\n", encoding="utf-8")
+
+    response = SurfaceRuntime(app).undo_last_edits(
+        _command(app, session.session_id, count=2)
+    )
+
+    # newest-first: second.txt is examined and refused, fixture.txt is undone;
+    # with count=1 only the refusal would have been reported (no backfill)
+    assert [entry.path for entry in response.refused] == ["second.txt"]
+    assert [entry.path for entry in response.undone] == ["fixture.txt"]
+    assert (tmp_path / "second.txt").read_text(encoding="utf-8") == (
+        "operator wrote this\n"
+    )
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
 def test_session_keeps_working_after_undo(tmp_path: Path) -> None:
     app = _app(tmp_path)
     app.provider = DeterministicProvider(
@@ -325,6 +384,13 @@ def test_undo_requires_quiescence_and_an_open_session(tmp_path: Path) -> None:
     closed_app = _app(tmp_path / "closed")
     closed, _ = closed_app.open_chat_session("closing", DeferredApprovalGateway())
     closed_app.tasks.close_session(closed.task_id, closed.session_id)
+    # the user-facing runtime path refuses first (SurfaceProtocolError → HTTP
+    # 422, mirroring /compact); the app-layer guard below it is the same
+    # fail-closed check for direct callers
+    with pytest.raises(SurfaceProtocolError, match="closed"):
+        SurfaceRuntime(closed_app).undo_last_edits(
+            _command(closed_app, closed.session_id)
+        )
     with pytest.raises(InvalidTransitionError, match="closed"):
         closed_app.surface_undo_last_edits(
             _command(closed_app, closed.session_id)
@@ -401,6 +467,24 @@ def test_undo_route_requires_bearer_and_returns_entries(tmp_path: Path) -> None:
             assert payload["undo"]["undone"][0]["path"] == "fixture.txt"
             assert payload["undo"]["refused"] == []
 
+        # D7: the body must bind the route (a mismatched session_id is refused
+        # before the command runs — 422, never a silent no-op)
+        mismatched = _command(app, session.session_id).model_dump(mode="json")
+        mismatched["session_id"] = "s:someone-else"
+        unbound = urllib.request.Request(
+            url,
+            data=json.dumps(mismatched).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
+            },
+        )
+        with pytest.raises(urllib.error.HTTPError) as binding:
+            urllib.request.urlopen(unbound)
+        assert binding.value.code == 422
+
         anonymous = urllib.request.Request(
             url, data=json.dumps(body).encode("utf-8"), method="POST",
             headers={"Content-Type": "application/json"},
@@ -428,3 +512,81 @@ def test_undo_route_requires_bearer_and_returns_entries(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_undo_route_hides_a_foreign_session_with_404(tmp_path: Path) -> None:
+    owner = _app(tmp_path)
+    session = _edited_session(owner, ["please edit fixture.txt"])
+
+    # a second app over the same durable store, bound to another principal
+    other = _app(
+        tmp_path,
+        PrincipalIdentity(
+            principal_id="user:other",
+            tenant_id="tenant:other",
+            workspace_id="workspace:other",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=datetime.now(timezone.utc),
+        ),
+    )
+    token = "test-local-token"
+    handler = type(
+        "TestUndoForeignHandler",
+        (Handler,),
+        {
+            "application": other,
+            "local_token": token,
+            "surface_routes": SurfaceRoutes(other.surface, token),
+        },
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = (
+        f"http://127.0.0.1:{server.server_address[1]}"
+        f"/v1/surface/sessions/{session.session_id}/undo"
+    )
+    # the second app's fixture builder rewrote the file; judge the refusal on
+    # the bytes that are on disk at the moment of the refused command
+    before_bytes = (tmp_path / "fixture.txt").read_bytes()
+    try:
+        body = _command(other, session.session_id).model_dump(mode="json")
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
+            },
+        )
+        with pytest.raises(urllib.error.HTTPError) as foreign:
+            urllib.request.urlopen(request)
+        # invisible, not merely forbidden: the same shape as a missing session
+        assert foreign.value.code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert (tmp_path / "fixture.txt").read_bytes() == before_bytes
+
+
+def test_undo_after_a_correction_halt_is_refused_with_reason(tmp_path: Path) -> None:
+    """D7: a halted scope records a BLOCKED compensation, surfaced as a
+    refusal with the reason — the file is untouched."""
+
+    app = _app(tmp_path)
+    session = _edited_session(app, ["please edit fixture.txt"])
+    app.correct_task(session.task_id, "operator halt")
+
+    response = SurfaceRuntime(app).undo_last_edits(_command(app, session.session_id))
+
+    assert response.undone == ()
+    assert len(response.refused) == 1
+    entry = response.refused[0]
+    assert entry.path == "fixture.txt"
+    assert "correction" in entry.reason
+    # a halted compensation never touches the file or rewrites the receipt
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "changed\n"
+    events = _event_types(app, session.task_id)
+    assert "ACTION_COMPENSATED" not in events
+    assert "COMPENSATION_BLOCKED" in events
