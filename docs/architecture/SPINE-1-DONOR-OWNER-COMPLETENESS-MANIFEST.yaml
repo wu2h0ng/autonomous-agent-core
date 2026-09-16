@@ -115,6 +115,9 @@ founder_accepted_reductions:
     D-OSCORE-MCP: "no MCP consumer; capability/provider/connector contracts cover the external boundary"
     D-OSCORE-AGENTRUNTIME: "superseded by capability.specs() (tools), event_store/recovery (checkpoints), typed contracts (validation)"
     D-CONTRACTS-GENERIC: "governance_decision_seam done; configuration/observability ported; donor workflow/domain_pack superseded by core workflow.py/domain.py; the rest have no consumer"
+    D-APISERVER-APP: "monorepo already owns apps/api_server (7076 L) + the extracted domain report/situated surface; a second 3492-L app duplicates the runtime; mcp_transport depends on the reduced MCP gateway"
+    D-APISERVER-HEAVY-INFRA: "Temporal/OPA/Trino adapters over the reduced heavy_infrastructure contract; no consumer"
+    D-APISERVER-DOMAIN: "service/cli/factory superseded by the monorepo app + extracted domain surface; the real-warehouse executors (postgres/mysql/clickhouse/feishu) need external infra and have no consumer -> implement on demand (each ~100-155 L)"
 
 entries:
   - id: "D-OSCORE-SQLSAFETY"
@@ -464,7 +467,7 @@ entries:
     target: "domain_packs/data_agent"
     globs: ["examples/**"]
   - id: "D-APISERVER-DOMAIN"
-    disposition: "EXTRACT_TO_DOMAIN_PACK"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     confidence: "high"
     rationale: "Review round 3: domain executors and services bound to QueryPlan/QueryResult/MetricContract/business actions."
@@ -480,7 +483,7 @@ entries:
       - "apps/api_server/src/agent_os_api/runtime_factory.py"
       - "apps/api_server/src/agent_os_api/staged_out_service.py"
   - id: "D-APISERVER-APP"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     confidence: "medium"
     rationale: "Review round 3: FastAPI composition host + MCP transport belong to the app/composition layer (target apps/api_server), not a domain pack; domain route handlers must rebind to extension slots."
@@ -489,7 +492,7 @@ entries:
       - "apps/api_server/src/agent_os_api/http_app.py"
       - "apps/api_server/src/agent_os_api/mcp_transport.py"
   - id: "D-APISERVER-HEAVY-INFRA"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     confidence: "medium"
     rationale: "Review round 3: domain-neutral fail-closed Temporal/OPA/Trino adapters over heavy_infrastructure contracts; no Metric/SQL semantics."

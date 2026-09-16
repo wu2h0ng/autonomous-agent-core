@@ -16,7 +16,7 @@ not an approval. "Reachable on origin/main" is never treated as authorization.
 | # | Precondition (ADR draft) | Status | Evidence / blocker |
 |---|---|---|---|
 | 1 | ADR-0054 gates G0-G7 recorded as accepted | **OPEN** | Only "reachable on origin/main" is measured; no artifact records the gates as accepted. |
-| 2 | Owner-completeness manifest complete + independently reviewed | **PARTIAL_VERIFIED 2026-09-15** | Every entry `REVIEWED`, all `SPLIT` resolved; **12 entries credited via declared `verified_paths`** (the 6 implemented capabilities, the provenance docs, and 3 pre-existing extracted files). But **~35 module `EXTRACT*` entries are not yet ported** and a bare directory target is no longer credited (`retirement_ready: False`), reviews are same-provider, and the governance artifacts are untracked. |
+| 2 | Owner-completeness manifest complete + independently reviewed | **RESOLVED_AT_MANIFEST_LEVEL 2026-09-15** | All `SPLIT` resolved. Load-bearing Data Agent domain credited via `verified_paths` (batches 1-9); the 11 non-load-bearing entries are **founder-accepted reductions** (`REDUCED_BY_FOUNDER`, `确认全砍`). `--strict --target-ref codex/spine1-donor-extraction-20260915` → **`retirement_ready: True` (0 gaps, 0 unmatched, pin verified)**. Caveats: reviews are same-provider; this is manifest completeness, **not** retirement authorization. |
 | 3 | Behavior parity on extracted Data Agent path | **PARTIAL_VERIFIED 2026-09-15** | 49 new bypass tests pass; full `tests/product` on the branch: 2610 passed, 1 skipped, 24 failed — all 24 pre-existing fixed-NOW expiry/env failures in unrelated files. Full donor-vs-monorepo characterization replay not run. |
 | 4 | Boundary checks (no `os_core` ← `domain_packs`, no domain semantics in core, no donor/`_migration` runtime import) | **VERIFIED_ON_BRANCH 2026-09-15** | 0 `os_core`→`domain_packs` imports; 0 real cross-repo imports; the only core-domain-term hit is a docstring disclaimer. Domain→core is the allowed direction. See `docs/architecture/provenance/SPINE-1-EXTRACTION-VERIFICATION-2026-09-15.md`. |
 | 5 | Git/provenance + no secret/PII blob reachable | **RESOLVED 2026-09-15** | `gitleaks` 8.30.1 full-history scan: 507 commits, **0 findings (PASS)**, redacted report digest `37517e5f…`. No LFS, no >500KB files, no binaries; no real customer PII (placeholder domains only). See `docs/architecture/provenance/SPINE-1-DONOR-SECRET-PII-SCAN-2026-09-15.md`. |
@@ -46,8 +46,8 @@ All manifest `EXTRACT*` targets are now present; `--strict --target-ref codex/sp
   `CONTRACTS-GENERIC`. Basis: no monorepo consumer + native coverage + product-blueprint staging.
   See `SPINE-1-REMAINING-OWNER-ADJUDICATION-2026-09-15.md`. This is an explicit capability
   reduction, not a silent drop.
-- Remaining gate gaps after reductions: **5 integration entries** — `D-DOMAINPACKS`, `D-CONNECTORS`,
-  `D-APISERVER-DOMAIN`, `D-APISERVER-APP`, `D-APISERVER-HEAVY-INFRA`.
+- Remaining gate gaps after reductions: **0**. The 11 `REDUCED_BY_FOUNDER` entries are the terminal
+  disposition; the load-bearing domain (batches 1-9) is credited by `verified_paths`.
 - The manifest gate is now honest about the remaining work: only entries with declared
   `verified_paths` are credited, so the ~35 module EXTRACT entries that are **not yet ported** keep
   the gate **red** (`retirement_ready: False`).
