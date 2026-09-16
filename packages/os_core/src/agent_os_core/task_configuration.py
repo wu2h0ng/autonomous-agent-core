@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
@@ -74,6 +74,36 @@ class ReentrantConfigurationLock(Protocol):
     def acquire(self) -> bool: ...
 
     def release(self) -> None: ...
+
+
+@contextmanager
+def _nested_correction_guards(
+    correction: object,
+    task_id: str,
+    run_id: str,
+    capability_ids: tuple[str, ...],
+) -> Iterator[None]:
+    """Hold ``guard_unchanged`` for several capabilities in one atomic region.
+
+    The observed epoch vector is read PER capability at entry, so each scope is
+    guarded against its own baseline (not another scope's epochs), and all guards
+    use the same RLock, so the config->authority lock order is never inverted.
+    """
+    with ExitStack() as stack:
+        for capability_id in capability_ids:
+            observed = correction.snapshot(  # type: ignore[attr-defined]
+                task_id, run_id, capability_id
+            )
+            unchanged = stack.enter_context(
+                correction.guard_unchanged(  # type: ignore[attr-defined]
+                    task_id, run_id, capability_id, observed
+                )
+            )
+            if not unchanged:
+                raise TaskConfigurationDenied(
+                    "correction epoch changed before bound Run start"
+                )
+        yield
 
 
 @contextmanager
@@ -291,6 +321,8 @@ class TaskConfigurationSnapshotService:
         principal: PrincipalIdentity,
         task_id: str,
         snapshot_id: str,
+        *,
+        additional_capability_ids: tuple[str, ...] = (),
     ) -> TaskAggregate:
         with _locked(self._configuration_lock):
             task = self._tasks.get_task(task_id)
@@ -306,16 +338,20 @@ class TaskConfigurationSnapshotService:
                 reserved_run_id=snapshot.reserved_run_id,
             )
             self._assert_snapshot_matches_bindings(snapshot, bindings)
-            with self._correction.guard_unchanged(
+            guarded_capabilities = (
+                TASK_CONFIGURATION_CAPABILITY,
+                *(
+                    capability
+                    for capability in additional_capability_ids
+                    if capability != TASK_CONFIGURATION_CAPABILITY
+                ),
+            )
+            with _nested_correction_guards(
+                self._correction,
                 task_id,
                 snapshot.reserved_run_id,
-                TASK_CONFIGURATION_CAPABILITY,
-                snapshot.observed_correction_epochs,
-            ) as unchanged:
-                if not unchanged:
-                    raise TaskConfigurationDenied(
-                        "correction epoch changed before bound Run start"
-                    )
+                guarded_capabilities,
+            ):
                 linearization_now = self._clock()
                 current_task = self._tasks.get_task(task_id)
                 current_snapshot = self._require_snapshot(
