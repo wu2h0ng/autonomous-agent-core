@@ -833,16 +833,22 @@ export class TuiController {
   }
 
   /** Bounded workspace file list, fetched once per session and cached for
-   * `@` mention completion. Read-only; returns [] before a session exists. */
+   * `@` mention completion. Read-only; returns [] before a session exists.
+   *
+   * An EMPTY result is deliberately not cached: the first fetch can legitimately
+   * happen before the workspace has any listable file (or before the task is
+   * fully bound), and caching [] would disable `@` mentions for the rest of the
+   * session. Non-empty results are cached as before. */
   async workspaceFiles(): Promise<SurfaceFileEntry[]> {
-    if (this.filesCache) return this.filesCache;
+    if (this.filesCache && this.filesCache.length > 0) return this.filesCache;
     if (!this.taskId) return [];
     try {
-      this.filesCache = await this.client.files(this.taskId);
+      const files = await this.client.files(this.taskId);
+      if (files.length > 0) this.filesCache = files;
+      return files;
     } catch {
       return [];
     }
-    return this.filesCache;
   }
 
   /** Bounded workspace listing (server-side depth/noise bounded; client caps

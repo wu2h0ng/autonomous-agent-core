@@ -103,8 +103,20 @@ export function App({
   const composerRef = useRef<TextareaRenderable | null>(null);
   /** Single text source of truth: the textarea owns the draft; this mirrors it
    * for the overlays (palette/mentions) and writes go through the buffer. */
+  const seqRef = useRef(0);
+  const dbg = (event: string, extra = ""): void => {
+    if (process.env.NOEM_KEY_DEBUG !== "1") return;
+    seqRef.current += 1;
+    process.stderr.write(
+      `DBGSEQ ${seqRef.current} ${event} mirror=${JSON.stringify(composerRef.current ? undefined : undefined)} ${extra}\n`,
+    );
+  };
   const suppressSyncRef = useRef(false);
   const setComposerText = (value: string): void => {
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      seqRef.current += 1;
+      process.stderr.write(`DBGSEQ ${seqRef.current} SET ${JSON.stringify(value)}\n`);
+    }
     const buffer = composerRef.current?.editBuffer;
     // The buffer write lands asynchronously; suppress the next mirror so it
     // cannot read the OLD text back (which kept a submitted draft "alive").
@@ -116,6 +128,10 @@ export function App({
     setInput(value);
   };
   const syncComposer = (): void => {
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      seqRef.current += 1;
+      process.stderr.write(`DBGSEQ ${seqRef.current} SYNC suppress=${suppressSyncRef.current} buf=${JSON.stringify(composerRef.current?.plainText ?? null)}\n`);
+    }
     if (suppressSyncRef.current) {
       suppressSyncRef.current = false;
       return;
@@ -217,7 +233,11 @@ export function App({
     return () => {
       cancelled = true;
     };
-  }, [mention?.query, controller]);
+    // Fetch ONCE per open mention session. Depending on the query made every
+    // keystroke cancel the previous fetch, so the last one could resolve into a
+    // cleaned-up closure and `files` stayed empty (the completion then had
+    // nothing to complete with).
+  }, [mention !== null, controller]);
 
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
@@ -284,6 +304,10 @@ export function App({
       sequence,
     });
 
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      seqRef.current += 1;
+      process.stderr.write(`DBGSEQ ${seqRef.current} KEY name=${name} layer=${owner.layer} buf=${JSON.stringify(composerRef.current?.plainText ?? null)}\n`);
+    }
     switch (owner.layer) {
       case "selector": {
         if (name === "escape") {
@@ -401,11 +425,22 @@ export function App({
     // Mirror the textarea for the overlays AFTER the renderable has applied the
     // key (a synchronous read can lag by one keystroke, which desynced the
     // palette/mention layers).
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      seqRef.current += 1;
+      process.stderr.write(`DBGSEQ ${seqRef.current} SCHEDULE_SYNC\n`);
+    }
     queueMicrotask(syncComposer);
   });
 
+  const completeMention = (value: string): string => {
+    const token = activeMention(value, value.length);
+    if (token === null) return value;
+    const first = filterMentions(files, token.query)[0];
+    return first === undefined ? value : applyMention(value, value.length, first).value;
+  };
+
   const submit = (value: string): void => {
-    const text = value.trim();
+    const text = completeMention(value).trim();
     if (!text) return;
     historyRef.current?.add(text);
     // Single clearing point: every submit path (textarea onSubmit, palette
@@ -570,17 +605,7 @@ export function App({
           ]}
           onSubmit={() => {
             if (agentsPanelRef.current || overlayOwnsEnterRef.current) return;
-            const raw = composerRef.current?.plainText ?? "";
-            // Complete an open @mention on submit: Tab with a non-empty draft is
-            // consumed by the textarea itself (measured), so completion cannot
-            // depend on Tab alone.
-            const token = activeMention(raw, raw.length);
-            const first = token ? filterMentions(files, token.query)[0] : undefined;
-            const text =
-              token && first !== undefined
-                ? applyMention(raw, raw.length, first).value
-                : raw;
-            submit(text);
+            submit(composerRef.current?.plainText ?? "");
           }}
         />
       </box>
