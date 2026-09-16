@@ -272,6 +272,7 @@ class AgentLoop:
         self._permission_mode: PermissionMode = permission_mode
         self._permission_mode_event_id = permission_mode_event_id
         self._deny_rules = tuple(deny_rules)
+        self._last_compaction: tuple[object, object] | None = None
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -1184,12 +1185,14 @@ class AgentLoop:
             )
             if self._correction.halted(session.task_id, session.run_id, "provider"):
                 raise RunExecutionError("chat provider invocation is correction halted")
+            messages, compaction = self._compact_history()
+            self._maybe_record_compaction(session, compaction)
             request = ProviderRequest(
                 request_id=f"request-{uuid4()}",
                 task_id=session.task_id,
                 run_id=session.run_id,
                 provider_profile_id=self._profile.profile_id,
-                messages=tuple(self._trimmed_history()),
+                messages=tuple(messages),
                 allowed_capability_ids=CHAT_CAPABILITY_IDS,
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
@@ -1548,13 +1551,50 @@ class AgentLoop:
             tool_call_id=proposal.proposal_id,
         )
 
-    def _trimmed_history(self) -> list[ProviderMessage]:
+    def _maybe_record_compaction(
+        self, session: ChatSession, compaction: dict[str, object] | None
+    ) -> None:
+        """Record a compaction durably (M1 S4), once per distinct result."""
+
+        if compaction is None:
+            return
+        key = (compaction["dropped_messages"], compaction["chars_after"])
+        if key == self._last_compaction:
+            return
+        self._last_compaction = key
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.SESSION_CONTEXT_COMPACTED,
+            compaction,
+            correlation_id=session.run_id,
+        )
+
+    def _compact_history(
+        self,
+    ) -> tuple[list[ProviderMessage], dict[str, object] | None]:
+        """Deterministically compact history to ``max_context_chars`` (M1 S4).
+
+        Returns the messages to send and, when a compaction actually happened, a
+        deterministic payload describing it (so the caller can record it durably as a
+        ``SESSION_CONTEXT_COMPACTED`` event). Cutting happens only at USER boundaries
+        so an ASSISTANT tool_calls message and its TOOL replies are never split apart.
+        The system prompt (index 0) is never dropped.
+        """
+
         history = self._history
-        total = sum(len(message.content) for message in history)
-        if total <= self._config.max_context_chars:
-            return history
+        chars_before = sum(len(message.content) for message in history)
+        if chars_before <= self._config.max_context_chars:
+            return history, None
+        # The active request must survive compaction: never drop messages from the
+        # most recent USER turn onward.
+        last_user = 0
+        for index in range(1, len(history)):
+            if history[index].role is ProviderMessageRole.USER:
+                last_user = index
         cut = 1  # never drop the system prompt
-        while cut < len(history) and total > self._config.max_context_chars:
+        limit = last_user if last_user > 0 else len(history)
+        total = chars_before
+        while cut < limit and total > self._config.max_context_chars:
             # Only cut at USER boundaries so ASSISTANT tool_calls and their
             # TOOL replies are never split apart.
             if history[cut].role is not ProviderMessageRole.USER:
@@ -1562,12 +1602,30 @@ class AgentLoop:
                 continue
             total -= len(history[cut].content)
             cut += 1
-            while (
-                cut < len(history) and history[cut].role is not ProviderMessageRole.USER
-            ):
+            while cut < limit and history[cut].role is not ProviderMessageRole.USER:
                 total -= len(history[cut].content)
                 cut += 1
-        return [history[0], *history[cut:]]
+        kept = [history[0], *history[cut:]]
+        payload: dict[str, object] = {
+            "chars_before": chars_before,
+            "chars_after": sum(len(message.content) for message in kept),
+            "dropped_messages": cut - 1,
+            "kept_from_index": cut,
+            "retained_digest": _history_digest(kept),
+        }
+        return kept, payload
+
+
+def _history_digest(messages: "list[ProviderMessage]") -> str:
+    """Deterministic digest of the retained history (roles + content)."""
+
+    hasher = hashlib.sha256()
+    for message in messages:
+        hasher.update(message.role.value.encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update(message.content.encode("utf-8"))
+        hasher.update(b"\x00")
+    return hasher.hexdigest()
 
 
 def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:

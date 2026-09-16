@@ -453,6 +453,7 @@ class TaskAggregate:
             TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
             TaskEventType.SESSION_APPROVAL_RESOLVED,
             TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
+            TaskEventType.SESSION_CONTEXT_COMPACTED,
             TaskEventType.SESSION_PERMISSION_MODE_SET,
             TaskEventType.POLICY_VERDICT_RECORDED,
             TaskEventType.SESSION_CLOSED,
