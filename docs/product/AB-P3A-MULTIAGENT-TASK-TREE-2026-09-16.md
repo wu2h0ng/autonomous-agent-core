@@ -110,13 +110,26 @@
 - **测试**：`test/opentui-agents.test.ts` 增 `clampCursor/moveCursor/resumableSessionId/cursorKey/repositionCursor`（含 task/mandate 行不可切换、刷新后高亮按身份保持）；`test/controller.test.ts` 用**真实回合**驱动到 `awaiting_approval`，断言 `/resume` 被拒、未切换、审批面保留（该用例在旧守卫下会失败）；cli-ts 全量 **164 pass**。
 - **诚实边界**：hermetic daemon 只有 1 个会话，实测为"切换到同一会话"（走完整 `/resume` 路径并显示 resumed）；**多会话互切**未做端到端（需真实多会话/多 mandate 场景）。树内不显示会话内容预览（只标识/状态）。`RESUMED` 断言为规范化子串匹配（样式可能拆分单词）。
 
-## 10. OPEN 问题：多会话 e2e 未验证（2026-09-16）
+## 10. 多会话 e2e 结果（2026-09-16，PASS）与 fixture 复盘
 
-`scripts/pty_fullscreen_p3a_multisession.py` 是一个**诚实复现器**（无法证明跨会话切换时 `exit 1`），当前为 **FAIL**：
+`scripts/pty_fullscreen_p3a_multisession.py`：hermetic daemon 内，客户端先跑一个真实回合（自建会话 A），随后 fixture 通过 HTTP 再建一个会话 B；客户端在 `agents` 面板中下移并 `Enter` → 切换。**连续 3 次 PASS**：
 
-- 现象（可复现，多次一致）：客户端完成一次真实回合（pty 显示流式回复、token 计数），但**fixture daemon 的会话 listing 看不到该回合创建的会话**；listing 只包含本 fixture 通过 HTTP `POST /v1/surface/sessions` 创建的会话。
-- 对照：单会话 P3a 脚本（`pty_fullscreen_p3a.py`）中 `RESUMED: True`，即在**无** fixture 会话时能出现会话行并被 `/resume`；`probe_listing.py` 连续两次 HTTP POST 也能列出 2 个会话 → listing 本身工作。
-- 影响：**跨会话（真实两个不同会话）切换未获 e2e 证据**，仅在单测层覆盖（`nextCursor`/`planEnter`/`resumableSessionId`）。P3a 之前的诚实边界（"仅切换回同一会话"）**继续成立**。
-- 未排除的可能原因（按优先级）：(a) 客户端实际连到了**另一个 daemon**（`ensureDaemon` 的复用判定/描述符路径交互）而 fixture 的 HTTP 只看到自己那份状态；(b) 回合创建的会话在 listing 的 `run is not None` 过滤下不可枚举；(c) fixture databse 与 daemon 实际使用的 store 不一致（`sqlite mode=ro` 读 WAL 可能读不到最新提交，故本次诊断未采信 DB 直读）。
-- 下一步（未执行）：用 `AGENT_OS_RUNTIME_DESCRIPTOR`/`AGENT_OS_RUNTIME_DATABASE` 显式把客户端与 fixture 钉到同一 daemon+store，或在 `ensureDaemon` 复用/自启路径加断言/测试；随后重跑本复现器。
-- 声明：`multi-session e2e = NOT_MET`；不得据此声称多会话能力已验证。
+```
+CLIENT_SESSION: session-12a4764f-...        # 客户端自建（A）
+FIXTURE_SESSION: session-845c843f-...       # fixture 经 HTTP 创建（B）
+resumed ids   : ['session-845c843f-...']    # 实际切换到的会话 = B（!= A）
+fixture-daemon listing: [A, B]
+SWITCHED_TO_OTHER_SESSION: True
+PROVEN_CROSS_SESSION_SWITCH: True
+```
+
+这**取代**了同日的 "OPEN/NOT_MET" 结论——那个结论是**我的 fixture bug** 造成的误判，不是产品问题：
+
+1. **根因一（关键）**：脚本把解析后的 descriptor **dict** 当路径传给客户端（`spawn(descriptor)` 而非 `spawn(descriptor_path)`）→ 客户端 `--descriptor` 收到非法值 → `ensureDaemon` **自启了它自己的 runtime**（默认路径），于是 fixture 的 HTTP 只看到自己那份状态，客户端的会话自然不在其中。这也说明"客户端会话不在 listing"是 harness 假象。
+2. **根因二**：断言正则 `resumed session (session-…)` 依赖单词与 id 之间有空隙，而渲染器按样式分段会去掉空隙（实际为 `resumedsessionsession-…`）→ 切换**其实已在发生**但未被识别。改为规范化匹配（`[^a-z0-9-]` 剥离后找 `resumedsession<id>`）。
+3. **偶发失败（已消除）**：导航可能在树的下一次 5s 轮询之前发生 → 面板尚无会话 B 行。现改为：先轮询 daemon 直到列出 2 个会话，再等一个完整刷新周期，并把导航改为**时间窗轮询**（≤45s），连续 3 次确定性通过。
+4. **顺带确认**：`GET /v1/mandates` 在该 daemon 返回 200；`DAEMON_STABLE: True`（单一 daemon）。
+
+**教训（写进证据规范）**：pty 证据必须先**证明 daemon 身份**（描述符路径 → pid/port 稳定），否则"客户端连了另一个 runtime"会被误读成产品缺陷。已在脚本中保留 `DAEMON_BEFORE_BOOT/AFTER_BOOT/STABLE` 与 `PROBE_MANDATES_STATUS/PROBE_SESSIONS` 诊断行。
+
+**结论**：跨会话切换（两个真实不同会话）获得 **e2e 证据**；配合单测（`planEnter`/`resumableSessionId`/`nextCursor`/`cursorKey`）覆盖。未做：多会话**同时**流式（仍为活动流=1，其余轮询）。

@@ -62,6 +62,10 @@ def spawn(descriptor: Path, args: list[str]) -> tuple[int, int]:
     env = dict(os.environ)
     env["PATH"] = os.path.expanduser("~/.bun/bin") + ":" + env.get("PATH", "")
     env["TERM"] = "xterm-256color"
+    # Pin the client to THIS fixture daemon and its store, so the fixture's HTTP
+    # calls and the client cannot end up on different runtimes.
+    env["AGENT_OS_RUNTIME_DESCRIPTOR"] = str(descriptor)
+    env["AGENT_OS_RUNTIME_DATABASE"] = str(descriptor.parent / "a.sqlite3")
     pid = os.fork()
     if pid == 0:
         os.setsid()
@@ -136,13 +140,11 @@ def main() -> None:
             break
         time.sleep(0.5)
     time.sleep(1.5)
-    descriptor = json.loads(descriptor_path.read_text())
-
     frames: list[str] = []
     try:
         before = json.loads(descriptor_path.read_text())
         print("DAEMON_BEFORE_BOOT:", before["pid"], before["port"])
-        pid, fd = spawn(descriptor, [])
+        pid, fd = spawn(descriptor_path, [])
         frames.append(read(fd, 4))
         after = json.loads(descriptor_path.read_text())
         print("DAEMON_AFTER_BOOT:", after["pid"], after["port"])
@@ -181,28 +183,57 @@ def main() -> None:
         print("OWN_SESSION_LISTED:", own_id in after_ids)
         print("SESSIONS_FULL:", json.dumps(after_turn["sessions"], ensure_ascii=False)[:600])
 
+        # Determinism: wait until the daemon lists both sessions and the panel
+        # has had a full 5s refresh cycle after that, so the tree rows exist
+        # before we navigate (otherwise a fast navigation can race the poll).
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            ids = [x["session_id"] for x in api(
+                descriptor_path, "GET", "/v1/surface/sessions?limit=50")["sessions"]]
+            if len(ids) >= 2:
+                break
+            time.sleep(1)
+        time.sleep(6)
+
+        os.write(fd, b"x")  # liveness probe: input must echo in the composer
+        time.sleep(0.4)
+        print("LIVENESS_ECHO:", "x" in read(fd, 1.2))
+        os.write(fd, b"\x7f")  # backspace the probe char
+        time.sleep(0.3)
         os.write(fd, b"\t")  # select the agents panel
         time.sleep(1.5)
         # Let the 5s tree poll pick up the new session before navigating.
         time.sleep(5)
         frames.append(read(fd, 1.5))
 
-        # Walk the tree to a session row and switch. ctrl+n / ctrl+p move the row
-        # cursor inside the panel; Enter switches when the row is a session.
+        # Walk DOWN the tree one row at a time; Enter switches when the row is a
+        # session. (Monotonic: the cursor clamps at the last row, which is a
+        # session when the tree has any.)
+        print("===== TREE (after refresh) =====")
+        print(read(fd, 0.5))
+        # Direct read-only probes: does the tree source have data at all?
+        print("PROBE_MANDATES_STATUS:", end=" ")
+        try:
+            api(descriptor_path, "GET", "/v1/mandates")
+            print("200")
+        except Exception as exc:  # noqa: BLE001 - diagnostic only
+            print(type(exc).__name__, exc)
+        print("PROBE_SESSIONS:", sorted(
+            s["session_id"] for s in api(
+                descriptor_path, "GET", "/v1/surface/sessions?limit=50")["sessions"]))
         resumed: list[str] = []
-        for attempt in range(6):
-            os.write(fd, b"\x0e" if attempt % 2 == 0 else b"\x10")
+        nav_deadline = time.time() + 45
+        while time.time() < nav_deadline and not any(rid != own_id for rid in resumed):
+            os.write(fd, b"\x0e")  # ctrl+n = move down inside the panel
             time.sleep(0.3)
-            read(fd, 0.4)
+            read(fd, 0.3)
             os.write(fd, b"\r")
             out = read(fd, 3)
             frames.append(out)
-            found = [
-                m.group(1)
-                for m in re.finditer(
-                    r"resumed session (session-[0-9a-f-]{36})", ANSI.sub("", out)
-                )
-            ]
+            # Styling splits words across escape sequences, so normalise to
+            # [a-z0-9-] before matching the resumed-session id.
+            flat = re.sub(r"[^a-z0-9-]", "", ANSI.sub("", out).lower())
+            found = re.findall(r"resumedsession(session-[0-9a-f-]{36})", flat)
             if found:
                 resumed.append(found[-1])
             if any(rid != own_id for rid in resumed):
