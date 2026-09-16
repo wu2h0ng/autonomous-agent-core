@@ -179,8 +179,9 @@ export function App({
   }, [workspace, withPanels]);
 
   cursorKeyRef.current = cursorKey(tree.rows, cursor);
-  // The full-screen composer is a single-line input, so the caret is taken to be
-  // at the end of the text (adequate for `@path` completion while typing).
+  // The composer is a textarea (multiline), but the overlay caret is still taken
+  // to be at the end of the text: palette/mention completion therefore triggers at
+  // the END of the draft only (a mid-text `@` does not complete).
   const mention = activeMention(input, input.length);
   const mentionMatches = mention ? filterMentions(files, mention.query) : [];
 

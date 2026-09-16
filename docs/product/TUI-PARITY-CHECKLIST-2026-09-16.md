@@ -85,5 +85,6 @@
 - **后续会话定位的根因（HISTORY/MENTION 长期为红）**：`overlayOwnsEnterRef` 用了 `selector !== undefined`，而 `pendingSelector` 关闭时是 **null** → 判定恒真 → textarea `onSubmit` **永远早退**，**根本没有可用提交路径**（无历史条目→无会话→无文件→无 mentions）。修为 `!== null` 后整网转绿。同 `viewkeys.ts` 已记录的 null/undefined 陷阱。
 - **产品级修复**：`controller.workspaceFiles()` 曾缓存**空文件列表** → 一次过早抓取即可让整个会话的 `@` mentions 失效；改为**只缓存非空结果**。视图侧亦改为「每次打开的 mention 只抓一次」（原先按 query 依赖会 cancel 上一次抓取）。
 - **已知显示缺口**：transcript 用 `<text>` 渲染会**折叠内嵌换行**；多行**输入/提交**正确（`/export` 可见 `\n`），**显示**为一行，待修。
-- **证据**：`pty_fullscreen_composer_invariant.py`（/stat → 面板 → Enter 执行 `/status` → **进程存活**）连续 2 次 `INVARIANT_OK: True`；`parity_a` 四项、`parity_b` 四项（`HISTORY_PREVIOUS`/`MENTION_TAB_COMPLETED`/`MARKDOWN_RENDER_PATH_OK`/`SLICE_B_ALL`）、`parity_c` `EDITOR_ROUNDTRIP`、`p3a` `RESUMED`/`TYPABLE`、多会话 `PROVEN_CROSS_SESSION_SWITCH` 全 True；单测 **158 + 19**。
+- **证据**：`pty_fullscreen_composer_invariant.py`（/stat → 面板 → Enter 执行 `/status` → **进程存活**）连续 2 次 `INVARIANT_OK: True`；`parity_a` 四项、`parity_b` 四项（`HISTORY_PREVIOUS`/`MENTION_COMPLETED_ON_SUBMIT`（信号由 `MENTION_TAB_COMPLETED` 更名）/`MARKDOWN_RENDER_PATH_OK`/`SLICE_B_ALL`）、`parity_c` `EDITOR_ROUNDTRIP`、`p3a` `RESUMED`/`TYPABLE`、多会话 `PROVEN_CROSS_SESSION_SWITCH` 全 True；单测 **158 + 19**。
 - **未做**：**vim 模态层**（下一个独立切片 #11）；多行滚动/高度自适应；textarea 的 paste/undo 语义专项验证。
+- **已知限制（复审记录）**：① palette/mention 以 `input.length` 当光标 → 仅在**文末**触发（多行草稿中间输入 `@` 不补全）；② 空工作区时（不缓存空结果）Ink 路径会**每击键**发一次 `client.files()` GET（轻微、待优化）；③ `setCursorByOffset(value.length)` 用 UTF-16 长度对原生 offset，**非 ASCII（中文）草稿可能有光标偏移**（未构造出复现，仅提示）。
