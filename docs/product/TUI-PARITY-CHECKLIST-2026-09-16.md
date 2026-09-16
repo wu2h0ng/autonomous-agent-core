@@ -24,7 +24,7 @@
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
-| 16 | 代码语法高亮（彩色） | ✓ | △ | **部分** | `SyntaxStyle` 已按主题注册 `keyword/string/comment/function` 颜色，但**尚未用含代码块的回复验证**（当前确定性 stub 不返回代码）；需一条 code-block 证据 |
+| 16 | 代码语法高亮（彩色） | ✓ | ✗ | **未生效（已实测）** | stub 现在返回 fenced python 块且**渲染正常**，但代码 token 的 fg 全为默认白 → 注册的 `SyntaxStyle` scope **未被 markdown 渲染器应用**；诚实复现器 `scripts/pty_highlight_check.py`（`CODE_COLOURED: False`，未修好前 exit 1）|
 | 17 | 主题真正生效（颜色） | ✓ | ✓ | **DONE** | `theme-colors.ts` 把 `THEMES` 的 Ink 颜色名解析为 hex，并接到 transcript（按角色）、审批卡、顶栏、footer、composer 边框；pty `THEME_APPLIED` 断言 footer 的 SGR 随 `/theme mono` 变化 |
 | 18 | 首页/欢迎面板 | ✓ | ✗ | **缺失** | `HomeView` 仅 Ink |
 | 19 | `/status`、`/cost`、todo 面板 | ✓ | ✓ | DONE | 面板消息已渲染（`line()` 处理 `message.panel`） |
@@ -110,3 +110,13 @@
 - **接线**：顶栏（`accent`）、footer（`footer`）、transcript 按角色（`user`/`assistant`/`system`/工具三态/`notice`）、审批卡边框（`approvalBorder`）、composer 边框（`border`）、markdown 文本（`assistant`）+ `SyntaxStyle` 主题化作用域。
 - **证据**：`scripts/pty_theme_check.py`（基于 `frame_reader`）——同一 token 的 SGR 在 `/theme mono` 前后不同：连续 2 次 `THEME_APPLIED: True`（footer `ASK`：default 灰 → mono 白）。整网回归同批全绿（不变式/parity_a/b/vim/p3a/多会话）。
 - **诚实边界**：① header token（`noem`）在该抓帧中未被工具定位到（`None`），故断言只覆盖 footer；② #16 的作用域颜色**已注册但未验证**（需要含代码块的回复）。
+
+### 11.1 #16 实测结论（2026-09-17，未生效）
+
+- 为验证给 hermetic stub 的回复加了 fenced python 代码块（`dev_daemon.py`，仅测试夹具）。
+- 用 `frame_reader` 断言：代码块**确实渲染**（`FENCED_CODE_RENDERED: True`，26 个代码 token 可见），
+  但 **`CODE_COLOURED: False`** —— 所有 token 的 fg 都是默认 `(255,255,255)`。
+- 结论：`SyntaxStyle.registerStyle("keyword"/"string"/"comment"/"function")` **没有被 markdown 渲染器应用**。
+  下一步需查 opentui 高亮器期望的 **scope 词表/样式形状**（core 里出现过 `comment`/`function`/`string`/`string.special.url`
+  等名字，但显然还需正确的注册形状或 `SyntaxStyle.fromStyles(...)` 用法）。
+- 保留 `scripts/pty_highlight_check.py` 作为**诚实复现器**：修好前它 exit 1，修好后应打印 `CODE_COLOURED: True`。
