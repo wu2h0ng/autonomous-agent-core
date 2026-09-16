@@ -194,22 +194,33 @@ def test_no_compaction_when_within_budget(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_compaction_is_recorded_over_the_turn_path(tmp_path: Path) -> None:
-    # Drive one real turn; the todo tool result pushes history over the tiny budget,
-    # so the run-path records the compaction exactly once.
-    app, session, loop = _open(tmp_path, max_context_chars=60)
+def test_single_turn_records_no_compaction_event(tmp_path: Path) -> None:
+    # The active request is never dropped, so a single over-budget turn is NOT a
+    # compaction and must not be recorded as one (evidence honesty).
+    app, session, _loop = _open(tmp_path, max_context_chars=1)
     _set_workspace_mode(app, session.session_id)
     _run_turn(app, session.session_id, "one")
-    events = _compaction_events(app, session.task_id)
-    assert events, "expected a SESSION_CONTEXT_COMPACTED event"
-    payload = events[0]
-    assert int(payload["chars_before"]) >= int(payload["chars_after"])  # type: ignore[arg-type]
-    assert len(str(payload["retained_digest"])) == 64
-    # idempotent within a loop instance: a repeat on the same loop records nothing new
-    before = len(events)
-    loop._maybe_record_compaction(session, payload)
-    loop._maybe_record_compaction(session, payload)
-    assert len(_compaction_events(app, session.task_id)) == before + 1
+    assert _compaction_events(app, session.task_id) == []
+
+
+def test_compaction_digest_is_deterministic(tmp_path: Path) -> None:
+    def digest() -> str:
+        _, _, loop = _open(tmp_path, max_context_chars=1000)
+        loop._history = [
+            _msg(ProviderMessageRole.SYSTEM, "S"),
+            _msg(ProviderMessageRole.USER, "u1" + "x" * 80),
+            _msg(ProviderMessageRole.ASSISTANT, "a1"),
+            _msg(ProviderMessageRole.USER, "u2" + "y" * 80),
+        ]
+        loop._config = AgentLoopConfig(system_prompt="S", max_context_chars=120)
+        _, payload = loop._compact_history()
+        assert payload is not None
+        return str(payload["retained_digest"])
+
+    first = digest()
+    second = digest()
+    assert first == second
+    assert len(first) == 64
 
 
 def test_maybe_record_compaction_writes_exactly_one_event(tmp_path: Path) -> None:

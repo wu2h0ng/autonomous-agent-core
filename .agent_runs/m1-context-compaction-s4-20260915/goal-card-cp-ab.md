@@ -16,10 +16,11 @@ durable record of the compaction.
 
 - `contracts/runtime.py`: additive `TaskEventType.SESSION_CONTEXT_COMPACTED`.
 - `agent_loop.py`:
-  - `_compact_history()` returns the messages to send plus (when over budget) a
-    deterministic payload: `chars_before`, `chars_after`, `dropped_messages`,
-    `kept_from_index`, `retained_digest` (sha256 over roles+content of the retained
-    history).
+  - `_compact_history()` returns the messages to send plus, **only when it actually
+    dropped messages**, a deterministic payload: `chars_before`, `chars_after`,
+    `dropped_messages`, `kept_from_index`, `retained_digest` (sha256 over roles, tool
+    call ids/calls and content of the retained history). A no-drop evaluation returns
+    `None` and records nothing (evidence honesty).
   - **The active request always survives**: cuts happen only at USER boundaries and
     never from the most recent USER message onward (`limit = last_user`), so an
     ASSISTANT `tool_calls` message and its TOOL replies are never split, and the
@@ -47,8 +48,12 @@ durable record of the compaction.
 
 ## 5. Residual / honesty
 
-- The per-instance dedup means a fresh loop per turn can record one event per turn even
-  when the retained history is unchanged; events are bounded by turns, not steps.
+- **`max_context_chars` is a soft target, not a hard cap**: the active turn (from the
+  most recent USER message onward) is never dropped, so a single over-budget turn is
+  kept in full and no event is recorded. Compaction only removes whole *completed*
+  turns older than the active one.
+- One event is recorded per distinct `(dropped_messages, kept_from_index)` per loop
+  instance; events are bounded by turns, not steps.
 - Compaction drops whole pre-active turns only; it does not summarise/rewrite content
   (that would need a model and a different gate). "Manual" compaction is out of scope.
 - Independent exact-diff review still required before promotion.

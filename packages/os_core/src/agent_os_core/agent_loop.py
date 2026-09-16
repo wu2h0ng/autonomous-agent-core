@@ -1558,7 +1558,7 @@ class AgentLoop:
 
         if compaction is None:
             return
-        key = (compaction["dropped_messages"], compaction["chars_after"])
+        key = (compaction["dropped_messages"], compaction["kept_from_index"])
         if key == self._last_compaction:
             return
         self._last_compaction = key
@@ -1582,6 +1582,8 @@ class AgentLoop:
         """
 
         history = self._history
+        if not history or self._config.max_context_chars <= 0:
+            return history, None
         chars_before = sum(len(message.content) for message in history)
         if chars_before <= self._config.max_context_chars:
             return history, None
@@ -1605,6 +1607,10 @@ class AgentLoop:
             while cut < limit and history[cut].role is not ProviderMessageRole.USER:
                 total -= len(history[cut].content)
                 cut += 1
+        if cut <= 1:
+            # Nothing actually dropped (the active turn is preserved): this is NOT a
+            # compaction and must not be recorded as one.
+            return history, None
         kept = [history[0], *history[cut:]]
         payload: dict[str, object] = {
             "chars_before": chars_before,
@@ -1617,11 +1623,20 @@ class AgentLoop:
 
 
 def _history_digest(messages: "list[ProviderMessage]") -> str:
-    """Deterministic digest of the retained history (roles + content)."""
+    """Deterministic digest of the retained history (roles, ids, tool calls, content)."""
 
     hasher = hashlib.sha256()
     for message in messages:
         hasher.update(message.role.value.encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update((message.tool_call_id or "").encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update(
+            json.dumps(
+                [call.model_dump(mode="json") for call in message.tool_calls],
+                sort_keys=True,
+            ).encode("utf-8")
+        )
         hasher.update(b"\x00")
         hasher.update(message.content.encode("utf-8"))
         hasher.update(b"\x00")
