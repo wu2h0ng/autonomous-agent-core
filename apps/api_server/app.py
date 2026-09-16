@@ -92,6 +92,7 @@ from agent_os_core import (
     C7ReceiptIssuer,
     C7ReceiptVerifier,
     PlanRegistrationDenialReason,
+    SQLitePermissionRuleStore,
     SQLiteSrlExecutionPlanStore,
     SrlExecutionPlan,
     SrlExecutionPlanRegistrationError,
@@ -105,9 +106,9 @@ from agent_os_core import (
     SurfaceStreamGone,
     AgentLoop,
     AgentLoopConfig,
-    agents_markdown_system_section,
     apply_trusted_shell_profile,
-    discover_agents_markdown,
+    discover_agents_markdown_layers,
+    layered_agents_markdown_system_section,
     CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
@@ -214,18 +215,19 @@ def _env_truthy(name: str) -> bool:
 
 
 def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentLoopConfig:
-    """Attach bounded workspace AGENTS.md context to the chat system prompt.
+    """Attach bounded, layered workspace AGENTS.md/CLAUDE.md context (S3).
 
-    Fail-closed discovery (symlink or out-of-workspace -> None) is enforced by
-    `discover_agents_markdown`; this only injects prompt context and never
-    widens authority. Missing AGENTS.md is a no-op.
+    Fail-closed, bounded discovery (symlink / out-of-workspace / oversized skipped)
+    is enforced by `discover_agents_markdown_layers`; this only injects prompt
+    context and never widens authority. No instruction files is a no-op.
     """
-    context = discover_agents_markdown(workspace)
-    if context is None:
+    layers = discover_agents_markdown_layers(workspace)
+    if not layers:
         return config
     return replace(
         config,
-        system_prompt=config.system_prompt + agents_markdown_system_section(context),
+        system_prompt=config.system_prompt
+        + layered_agents_markdown_system_section(layers),
     )
 
 
@@ -375,6 +377,12 @@ class AgentOSApplication:
             else None
         )
         self.tasks = TaskService(self.store, clock=self._clock)
+        # S2: durable, operator-authored, DENY-only permission rules (fail-closed;
+        # consulted after the frozen E2 gate, can only restrict).
+        self.permission_rule_store = SQLitePermissionRuleStore(
+            canonical_database,
+            uri=canonical_database_uri,
+        )
         self.mandate_responsibility_store = SQLiteMandateResponsibilityStore(
             canonical_database,
             clock=self._clock,
@@ -2044,6 +2052,10 @@ class AgentOSApplication:
             initial_history=(system_message,),
             message_sink=self._record_chat_message,
             collaboration_preflight=self.collaboration_preflight,
+            deny_rules=self.permission_rule_store.list_active(
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+            ),
         )
         self.tasks.append_event(
             task.task_id,
@@ -2165,6 +2177,10 @@ class AgentOSApplication:
             reasoning_delta_sink=reasoning_delta_sink,
             permission_mode=projected.permission_mode,
             permission_mode_event_id=projected.permission_mode_event_id,
+            deny_rules=self.permission_rule_store.list_active(
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+            ),
         )
         return session, loop
 

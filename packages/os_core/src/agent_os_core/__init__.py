@@ -213,6 +213,8 @@ from .agent_context import (
     agent_context_status_payload,
     agents_markdown_system_section,
     discover_agents_markdown,
+    discover_agents_markdown_layers,
+    layered_agents_markdown_system_section,
 )
 from .trusted_commands import TRUSTED_SHELL_PROFILE_V1, apply_trusted_shell_profile
 from .mandate_terminal import (
@@ -239,6 +241,18 @@ from .terminal_session import (
     messages_from_history,
     save_terminal_session,
     session_path,
+)
+from .permission_gate import (
+    PermissionGateOutcome,
+    apply_deny_rules,
+    evaluate_permission_gate,
+)
+from .permission_rules import (
+    PermissionDenyRule,
+    PermissionRuleKind,
+    SQLitePermissionRuleStore,
+    active_deny_rule,
+    rule_matches,
 )
 from .agent_loop import (
     ACTION_RISK_TIERS,
@@ -534,6 +548,8 @@ __all__ = [
     "agent_context_status_payload",
     "agents_markdown_system_section",
     "discover_agents_markdown",
+    "discover_agents_markdown_layers",
+    "layered_agents_markdown_system_section",
     "TRUSTED_SHELL_PROFILE_V1",
     "apply_trusted_shell_profile",
     "MandateAttachSession",
@@ -558,6 +574,14 @@ __all__ = [
     "save_terminal_session",
     "session_path",
     "ACTION_RISK_TIERS",
+    "PermissionDenyRule",
+    "PermissionGateOutcome",
+    "PermissionRuleKind",
+    "SQLitePermissionRuleStore",
+    "active_deny_rule",
+    "apply_deny_rules",
+    "evaluate_permission_gate",
+    "rule_matches",
     "CHAT_CAPABILITY_IDS",
     "CHAT_GRANT_MAX_RISK_TIERS",
     "AgentLoop",

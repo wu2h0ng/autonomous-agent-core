@@ -473,6 +473,10 @@ def _strict_project(
                 )
                 continue
 
+            if event.event_type is TaskEventType.SESSION_CONTEXT_COMPACTED:
+                # Audit-only marker: carries no projected session state.
+                continue
+
             if event.event_type is TaskEventType.SESSION_CLOSED:
                 if closed:
                     raise SessionProjectionError("duplicate close for session")

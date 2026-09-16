@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
@@ -48,8 +48,10 @@ from .governance import CorrectionReadPort, PolicyKernel
 from .permission_gate import (
     ACTION_RISK_TIERS,
     PermissionGateOutcome,
+    apply_deny_rules,
     evaluate_permission_gate,
 )
+from .permission_rules import PermissionDenyRule, active_deny_rule
 from .proposal_engine import build_provider_execution_receipt
 from .provider import ProviderPort
 from .responsibility_loop import ResponsibilityLoopStaleFence
@@ -222,6 +224,7 @@ class AgentLoop:
         reasoning_delta_sink: Callable[[str], None] | None = None,
         permission_mode: PermissionMode = "ASK",
         permission_mode_event_id: str | None = None,
+        deny_rules: Sequence[PermissionDenyRule] = (),
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -268,6 +271,8 @@ class AgentLoop:
         self._reasoning_delta_sink = reasoning_delta_sink
         self._permission_mode: PermissionMode = permission_mode
         self._permission_mode_event_id = permission_mode_event_id
+        self._deny_rules = tuple(deny_rules)
+        self._last_compaction: tuple[object, ...] | None = None
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -567,6 +572,28 @@ class AgentLoop:
                 stop_reason="unknown_requires_review",
                 total_tokens=unknown_tokens,
             )
+        # Fail closed: a durable operator DENY rule forbids *executing* a previously
+        # escalated pending action. Only APPROVE executes, so only APPROVE is
+        # blocked — a REJECT is always safe and must stay resolvable (no wedging).
+        if approval.disposition is ApprovalDisposition.APPROVE:
+            deny_rule = active_deny_rule(
+                self._deny_rules,
+                pending.action.capability_id,
+                self._principal.tenant_id,
+                self._principal.workspace_id,
+            )
+            if deny_rule is not None:
+                self._record_policy_verdict(
+                    session,
+                    pending.action,
+                    verdict="DENY",
+                    basis="rule",
+                    reason="denied by an operator permission rule",
+                    rule_id=deny_rule.rule_id,
+                )
+                raise RunExecutionError(
+                    "denied by an operator permission rule: pending action is blocked"
+                )
         self._validate_pending_runtime(
             session,
             pending,
@@ -1158,12 +1185,14 @@ class AgentLoop:
             )
             if self._correction.halted(session.task_id, session.run_id, "provider"):
                 raise RunExecutionError("chat provider invocation is correction halted")
+            messages, compaction = self._compact_history()
+            self._maybe_record_compaction(session, compaction)
             request = ProviderRequest(
                 request_id=f"request-{uuid4()}",
                 task_id=session.task_id,
                 run_id=session.run_id,
                 provider_profile_id=self._profile.profile_id,
-                messages=tuple(self._trimmed_history()),
+                messages=tuple(messages),
                 allowed_capability_ids=CHAT_CAPABILITY_IDS,
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
@@ -1296,21 +1325,43 @@ class AgentLoop:
             mode=self._permission_mode,
             mode_event_id=self._permission_mode_event_id,
         )
-        if gate.outcome is PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST:
+        # Purely-restrictive operator DENY rules (S2): they can only downgrade the
+        # frozen matrix to DENY_BY_RULE; they can never allow or pre-empt C7.
+        gate = apply_deny_rules(
+            gate,
+            capability_id=capability_id,
+            rules=self._deny_rules,
+            tenant_id=self._principal.tenant_id,
+            workspace_id=self._principal.workspace_id,
+        )
+        if gate.outcome in (
+            PermissionGateOutcome.DENY_OUT_OF_ALLOWLIST,
+            PermissionGateOutcome.DENY_BY_RULE,
+        ):
             # Fail closed in every mode: never executable, not approvable.
             # No ApprovalDecision, human or otherwise, can authorize it; the
             # denial is recorded durably with reason and the action digest.
+            denied_by_rule = gate.outcome is PermissionGateOutcome.DENY_BY_RULE
             self._record_policy_verdict(
                 session,
                 action,
                 verdict="DENY",
-                basis="out_of_allowlist",
-                reason="capability is outside the frozen session allowlist",
+                basis="rule" if denied_by_rule else "out_of_allowlist",
+                reason=(
+                    "denied by an operator permission rule"
+                    if denied_by_rule
+                    else "capability is outside the frozen session allowlist"
+                ),
+                rule_id=gate.rule_id if denied_by_rule else None,
             )
             return self._tool_message(
                 proposal,
                 {
-                    "error": "denied: capability is outside the allowlist",
+                    "error": (
+                        "denied: an operator permission rule forbids this capability"
+                        if denied_by_rule
+                        else "denied: capability is outside the allowlist"
+                    ),
                     "denied": True,
                 },
             )
@@ -1440,10 +1491,12 @@ class AgentLoop:
         basis: str | None,
         reason: str | None,
         mode_event_id: str | None = None,
+        rule_id: str | None = None,
     ) -> None:
         """E2 durable policy verdict: an auto-allowance is recorded with
         provenance (basis=permission_mode + mode_event_id), never as an
-        ApprovalDecision; an out-of-allowlist denial is recorded with reason."""
+        ApprovalDecision; an out-of-allowlist denial is recorded with reason; a
+        DENY-by-rule records the exact rule_id."""
         self._tasks.append_event(
             session.task_id,
             TaskEventType.POLICY_VERDICT_RECORDED,
@@ -1451,6 +1504,7 @@ class AgentLoop:
                 "verdict": verdict,
                 "basis": basis,
                 "mode_event_id": mode_event_id,
+                "rule_id": rule_id,
                 "capability_id": action.capability_id,
                 "risk_tier": action.risk_tier,
                 "action_digest": action.action_digest(),
@@ -1497,13 +1551,60 @@ class AgentLoop:
             tool_call_id=proposal.proposal_id,
         )
 
-    def _trimmed_history(self) -> list[ProviderMessage]:
+    def _maybe_record_compaction(
+        self, session: ChatSession, compaction: dict[str, object] | None
+    ) -> None:
+        """Record a compaction durably (M1 S4), once per distinct result."""
+
+        if compaction is None:
+            return
+        # Key on the drop BOUNDARY (dropped_messages, kept_from_index), which does not
+        # move back as the retained content grows step to step, so a compaction is not
+        # re-recorded on every provider step. If the boundary advances mid-turn (a very
+        # large tool result pushes the cut further), an additional event is recorded;
+        # cardinality is therefore per distinct boundary, not strictly per turn.
+        key = (compaction["dropped_messages"], compaction["kept_from_index"])
+        if key == self._last_compaction:
+            return
+        self._last_compaction = key
+        self._tasks.append_event(
+            session.task_id,
+            TaskEventType.SESSION_CONTEXT_COMPACTED,
+            compaction,
+            correlation_id=session.run_id,
+        )
+
+    def _compact_history(
+        self,
+    ) -> tuple[list[ProviderMessage], dict[str, object] | None]:
+        """Deterministically compact history to ``max_context_chars`` (M1 S4).
+
+        Returns the messages to send and, when a compaction actually happened, a
+        deterministic payload describing it (so the caller can record it durably as a
+        ``SESSION_CONTEXT_COMPACTED`` event). Cutting happens only at USER boundaries
+        so an ASSISTANT tool_calls message and its TOOL replies are never split apart.
+        The system prompt (index 0) is never dropped.
+        """
+
         history = self._history
-        total = sum(len(message.content) for message in history)
-        if total <= self._config.max_context_chars:
-            return history
+        if not history or self._config.max_context_chars <= 0:
+            return history, None
+        chars_before = sum(len(message.content) for message in history)
+        if chars_before <= self._config.max_context_chars:
+            return history, None
+        # The active request must survive compaction: never drop messages from the
+        # most recent USER turn onward.
+        last_user = 0
+        for index in range(1, len(history)):
+            if history[index].role is ProviderMessageRole.USER:
+                last_user = index
+        if last_user == 0:
+            # No user turn to anchor on: do not attempt a cut (avoid dropping the tail).
+            return history, None
         cut = 1  # never drop the system prompt
-        while cut < len(history) and total > self._config.max_context_chars:
+        limit = last_user if last_user > 0 else len(history)
+        total = chars_before
+        while cut < limit and total > self._config.max_context_chars:
             # Only cut at USER boundaries so ASSISTANT tool_calls and their
             # TOOL replies are never split apart.
             if history[cut].role is not ProviderMessageRole.USER:
@@ -1511,12 +1612,43 @@ class AgentLoop:
                 continue
             total -= len(history[cut].content)
             cut += 1
-            while (
-                cut < len(history) and history[cut].role is not ProviderMessageRole.USER
-            ):
+            while cut < limit and history[cut].role is not ProviderMessageRole.USER:
                 total -= len(history[cut].content)
                 cut += 1
-        return [history[0], *history[cut:]]
+        if cut <= 1:
+            # Nothing actually dropped (the active turn is preserved): this is NOT a
+            # compaction and must not be recorded as one.
+            return history, None
+        kept = [history[0], *history[cut:]]
+        payload: dict[str, object] = {
+            "chars_before": chars_before,
+            "chars_after": sum(len(message.content) for message in kept),
+            "dropped_messages": cut - 1,
+            "kept_from_index": cut,
+            "retained_digest": _history_digest(kept),
+        }
+        return kept, payload
+
+
+def _history_digest(messages: "list[ProviderMessage]") -> str:
+    """Deterministic digest of the retained history (roles, ids, tool calls, content)."""
+
+    hasher = hashlib.sha256()
+    for message in messages:
+        hasher.update(message.role.value.encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update((message.tool_call_id or "").encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update(
+            json.dumps(
+                [call.model_dump(mode="json") for call in message.tool_calls],
+                sort_keys=True,
+            ).encode("utf-8")
+        )
+        hasher.update(b"\x00")
+        hasher.update(message.content.encode("utf-8"))
+        hasher.update(b"\x00")
+    return hasher.hexdigest()
 
 
 def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:
