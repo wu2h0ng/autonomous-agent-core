@@ -7,7 +7,7 @@
  */
 import { SIDEBAR_MIN_WIDTH } from "../layout.js";
 
-export type PanelId = "transcript" | "files" | "diff";
+export type PanelId = "transcript" | "agents" | "files" | "diff";
 export interface FileEntry {
   status: string;
   path: string;
@@ -18,12 +18,15 @@ export interface ViewFlags {
   noAnimation: boolean;
   /** --no-panels: force the single transcript panel. */
   withPanels: boolean;
+  /** --no-agents: hide the read-only agents/task tree panel. */
+  withAgents: boolean;
 }
 
 export function parseViewFlags(argv: readonly string[]): ViewFlags {
   return {
     noAnimation: argv.includes("--no-animation"),
     withPanels: !argv.includes("--no-panels"),
+    withAgents: !argv.includes("--no-agents"),
   };
 }
 
@@ -34,9 +37,13 @@ export function parseViewFlags(argv: readonly string[]): ViewFlags {
 export function visiblePanels(
   width: number,
   withPanels: boolean,
+  withAgents = true,
 ): PanelId[] {
-  if (withPanels && width >= SIDEBAR_MIN_WIDTH)
-    return ["transcript", "files", "diff"];
+  if (withPanels && width >= SIDEBAR_MIN_WIDTH) {
+    return withAgents
+      ? ["transcript", "agents", "files", "diff"]
+      : ["transcript", "files", "diff"];
+  }
   return ["transcript"];
 }
 

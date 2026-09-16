@@ -1,6 +1,6 @@
 # AB — P3a 多 Agent / 任务树（架构简报，2026-09-16）
 
-- **状态**：`DESIGN_ONLY / DOCS_ONLY / AWAITING_CTO_GATE / NO_IMPLEMENTATION_AUTHORITY`
+- **状态**：`DESIGN_ONLY / IMPLEMENTED_IN_REVIEW / AWAITING_INDEPENDENT_REVIEW_AND_CTO_GATE`（P3a-1 已实现于 PR，见 §8）
 - **上游**：`GC-P3-MULTIAGENT-TASK-TREE-2026-09-16.md`（P3a 范围已由 founder 批准 2026-09-16）。
 - **本文件解决上游 OPEN#1 / OPEN#3，并给出可直接开工的实现边界与评审材料。**
 
@@ -78,3 +78,19 @@
 
 `specified: GC 包 + 本 AB` / `implemented: NO` / `tested: NO` / `integrated: NO` / `verified: NO` / `released: NO`。
 未执行架构评审通过与 CTO gate 前，**不得**编写 P3a 运行时代码，也不得声称多 Agent 能力。
+
+## 8. P3a-1 实现结果（2026-09-16，PASS，待独立复审）
+
+- **改动**（全部在终端客户端，**零协议/零内核改动**）：
+  - `src/opentui/agents.ts`（纯）：`buildAgentTree` + `agentRowLine`，确定性排序/分组、孤儿任务归入 `(unlinked task)`、上限截断并置 `truncated`。
+  - `src/opentui/agent-tree-source.ts`：只读拼接 `GET /v1/mandates` + `GET /v1/mandates/{id}/task-links` + `SurfaceClient.listSessions`；宽松解析（只取所需字段）、失败降级为 note、mandate 扇出上限 20。
+  - `SurfaceClient.getReadOnly(path)`：仅 GET、无 body、沿用同一 bearer/错误映射；**不做任何治理操作**。
+  - `app.tsx`：侧栏新增 `agents` 面板（`Tab` 选中、独立滚动，复用 P2）；`--no-agents` 关闭（关闭后不拉取树）。面板只渲染标识/状态，**不渲染 mission/statement 文本或凭证**。
+- **实测**（`scripts/pty_fullscreen_p3a.py`，120×40，hermetic daemon）：
+  `AGENTS_PANEL_SELECTED: True`、`TREE_ROWS_RENDERED: True`、`TYPABLE_WITH_AGENTS_PANEL: True`（选中面板不抢 composer 焦点）、`HAS_AGENTS_TITLE: False`（`--no-agents` 无面板）。
+- **测试**：`test/opentui-agents.test.ts` 4 pass（bypass-detecting：忽略 links 的扁平实现、丢孤儿会话、不截断都会失败）；`test/opentui-panels.test.ts` 更新为 4 面板 + `--no-agents`；cli-ts 全量 **160 pass**。
+- **诚实边界**：
+  - hermetic daemon 无 mandate，实测走的是"`(unlinked task)` 分组 + 真实 task/session"路径；**mandate→task→session 三层**路径仅由单元测试覆盖，**未做端到端 live**（需要真实 mandate bootstrap）。
+  - 活动流仍为 1（仅活动会话订阅）；树内不显示 pending 审批计数（需 P3a-2 附加字段 `1.2`，未做）。
+  - 树面板刷新 5s 轮询；未做增量/事件驱动。
+- **声明分级**：`specified+implemented+tested`（目标测试）；`integrated: 终端内已接入`；`verified: 待独立复审`；`released: NO`。

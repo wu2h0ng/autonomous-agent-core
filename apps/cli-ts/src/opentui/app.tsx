@@ -26,6 +26,9 @@ import {
   type PanelId,
 } from "./panels.js";
 import { EMPTY_SAMPLE, sampleWorkspace, type WorkspaceSample } from "./workspace-panels.js";
+import { agentRowLine } from "./agents.js";
+import { fetchAgentTree, type AgentTreeResult } from "./agent-tree-source.js";
+import type { SurfaceClient } from "../client.js";
 
 export interface FullscreenAppProps {
   controller: TuiController;
@@ -33,8 +36,13 @@ export interface FullscreenAppProps {
   branch: string | null;
   version: string;
   model: string | null;
+  client: SurfaceClient;
   withPanels?: boolean;
+  withAgents?: boolean;
 }
+
+const EMPTY_TREE: AgentTreeResult = { rows: [], truncated: false, note: null };
+const TREE_INTERVAL_MS = 5000;
 
 const PANEL_SCROLL_LINES = 5;
 const SAMPLE_INTERVAL_MS = 3000;
@@ -67,14 +75,18 @@ export function App({
   branch,
   version,
   model,
+  client,
   withPanels = true,
+  withAgents = true,
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [input, setInput] = useState("");
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
+  const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
+  const agentsRef = useRef<ScrollBoxRenderable | null>(null);
   const filesRef = useRef<ScrollBoxRenderable | null>(null);
   const diffRef = useRef<ScrollBoxRenderable | null>(null);
 
@@ -119,11 +131,33 @@ export function App({
     };
   }, [workspace, withPanels]);
 
+  useEffect(() => {
+    if (!withAgents || !withPanels) {
+      setTree(EMPTY_TREE);
+      return;
+    }
+    let cancelled = false;
+    let inFlight = false;
+    const run = async (): Promise<void> => {
+      if (inFlight) return;
+      inFlight = true;
+      const next = await fetchAgentTree(client);
+      inFlight = false;
+      if (!cancelled) setTree(next);
+    };
+    void run();
+    const timer = setInterval(() => void run(), TREE_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [client, withAgents, withPanels]);
+
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
 
-  const panels = visiblePanels(width, withPanels);
+  const panels = visiblePanels(width, withPanels, withAgents);
   // Approvals are global and must stay in front: force the transcript selected.
   const activePanel: PanelId = awaiting
     ? "transcript"
@@ -132,6 +166,7 @@ export function App({
       : "transcript";
   const scrollRefs: Record<PanelId, React.RefObject<ScrollBoxRenderable | null>> = {
     transcript: transcriptRef,
+    agents: agentsRef,
     files: filesRef,
     diff: diffRef,
   };
@@ -217,6 +252,25 @@ export function App({
 
   const sidebar = (
     <box style={{ flexDirection: "column", width: 40 }}>
+      {panels.includes("agents") ? (
+      <scrollbox
+        ref={agentsRef}
+        style={{ flexGrow: 2, border: true }}
+        title={`agents${activePanel === "agents" ? " · selected" : ""}`}
+      >
+        <box style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {(tree.rows.length > 0
+            ? tree.rows.map(agentRowLine)
+            : [tree.note ?? "(no mandates)"]
+          )
+            .concat(tree.truncated ? ["(truncated)"] : [])
+            .concat(tree.note && tree.rows.length > 0 ? [tree.note] : [])
+            .map((row, index) => (
+              <text key={`g${index}`}>{row}</text>
+            ))}
+        </box>
+      </scrollbox>
+      ) : null}
       <scrollbox
         ref={filesRef}
         style={{ flexGrow: 1, border: true }}

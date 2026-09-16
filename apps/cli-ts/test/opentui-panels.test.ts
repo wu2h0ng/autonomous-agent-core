@@ -19,19 +19,32 @@ test("parseViewFlags: panels default on, animation default on", () => {
   assert.deepEqual(parseViewFlags([]), {
     noAnimation: false,
     withPanels: true,
+    withAgents: true,
   });
   assert.deepEqual(parseViewFlags(["--no-animation"]), {
     noAnimation: true,
     withPanels: true,
+    withAgents: true,
   });
-  assert.deepEqual(parseViewFlags(["--no-panels"]), {
+  assert.deepEqual(parseViewFlags(["--no-panels", "--no-agents"]), {
     noAnimation: false,
     withPanels: false,
+    withAgents: false,
   });
 });
 
-test("visiblePanels: sidebar needs width and must be requested", () => {
-  assert.deepEqual(visiblePanels(120, true), ["transcript", "files", "diff"]);
+test("visiblePanels: sidebar needs width; agents panel is opt-out", () => {
+  assert.deepEqual(visiblePanels(120, true), [
+    "transcript",
+    "agents",
+    "files",
+    "diff",
+  ]);
+  assert.deepEqual(visiblePanels(120, true, false), [
+    "transcript",
+    "files",
+    "diff",
+  ]);
   assert.deepEqual(visiblePanels(99, true), ["transcript"]);
   assert.deepEqual(visiblePanels(120, false), ["transcript"]);
 });

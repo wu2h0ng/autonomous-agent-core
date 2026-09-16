@@ -62,6 +62,8 @@ createRoot(renderer).render(
     branch={gitBranch(workspace)}
     version={agentVersion()}
     model={model}
+    client={client}
     withPanels={flags.withPanels}
+    withAgents={flags.withAgents}
   />,
 );
