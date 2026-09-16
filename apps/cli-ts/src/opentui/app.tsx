@@ -32,6 +32,21 @@ import { activeMention, applyMention, filterMentions } from "../mentions.js";
 import { InputHistory } from "../history.js";
 import { openExternalEditor } from "../editor.js";
 import {
+  backspace,
+  cursorLineCol,
+  deleteForward,
+  deleteLine,
+  deleteToLineEnd,
+  deleteWordForward,
+  insertNewline,
+  insertText,
+  lineCount,
+  isMultiline,
+  move,
+  moveWord,
+  type ComposerState,
+} from "../composer.js";
+import {
   filePanelLines,
   nextPanel,
   visiblePanels,
@@ -99,7 +114,14 @@ export function App({
   withAgents = true,
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
-  const [input, setInput] = useState("");
+  // Self-owned composer: value + caret. The native <input> was single-line and
+  // consumed most keys, which blocked multiline editing and vim; owning it lets
+  // composer.ts drive every edit and gives mentions a real caret.
+  const [composer, setComposer] = useState<ComposerState>({ value: "", cursor: 0 });
+  const input = composer.value;
+  const setComposerValue = (value: string, caret = value.length): void => {
+    setComposer({ value, cursor: caret });
+  };
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
@@ -162,7 +184,7 @@ export function App({
   cursorKeyRef.current = cursorKey(tree.rows, cursor);
   // The full-screen composer is a single-line input, so the caret is taken to be
   // at the end of the text (adequate for `@path` completion while typing).
-  const mention = activeMention(input, input.length);
+  const mention = activeMention(input, composer.cursor);
   const mentionMatches = mention ? filterMentions(files, mention.query) : [];
 
   const selector = controller.pendingSelector;
@@ -191,6 +213,17 @@ export function App({
       cancelled = true;
     };
   }, [mention?.query, controller]);
+
+  // Render the draft with a visible caret block; a caret at the end of a line
+  // is shown after the last character.
+  const caret = cursorLineCol(composer);
+  const composerLines = composer.value.split("\n").map((row, index) => {
+    if (index !== caret.line) return row;
+    const before = row.slice(0, caret.column);
+    const after = row.slice(caret.column);
+    return `${before}▌${after}`;
+  });
+  const composerHeight = Math.min(2 + composerLines.length, 8);
 
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
@@ -244,6 +277,9 @@ export function App({
     const name = key.name ?? "";
     const ctrl = key.ctrl === true;
     const sequence = key.sequence ?? "";
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      process.stderr.write(`DBGKEY name=${name} seq=${JSON.stringify(sequence)} ctrl=${ctrl}\n`);
+    }
     const owner = resolveViewKey({
       selectorOpen: selector,
       awaitingApproval: awaiting,
@@ -255,6 +291,9 @@ export function App({
       sequence,
     });
 
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      process.stderr.write(`DBGLAYER ${owner.layer} ${JSON.stringify(owner)}\n`);
+    }
     switch (owner.layer) {
       case "selector": {
         if (name === "escape") {
@@ -311,8 +350,9 @@ export function App({
         if (owner.action === "complete" || owner.action === "submit") {
           const pick = palette[Math.min(paletteIndex, palette.length - 1)];
           if (pick === undefined) return;
+          process.stderr.write(`DBGPALETTE input=${JSON.stringify(input)} pick=${pick.name} n=${palette.length}\n`);
           if (owner.action === "complete") {
-            setInput(`${pick.name} `);
+            setComposerValue(`${pick.name} `);
             setPaletteIndex(0);
           } else {
             submit(pick.name);
@@ -325,20 +365,25 @@ export function App({
         if (owner.action === "complete" && mention !== null) {
           const pick = mentionMatches[0];
           if (pick !== undefined) {
-            const applied = applyMention(input, input.length, pick);
-            setInput(applied.value);
+            const applied = applyMention(input, composer.cursor, pick);
+            setComposer({ value: applied.value, cursor: applied.cursor });
           }
         }
         return;
       }
       case "history": {
         if (historyRef.current === null) return;
-        setInput(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
+        // A multiline draft keeps the arrows for caret movement (Ink parity).
+        if (isMultiline(composer)) {
+          setComposer((c) => move(c, owner.action === "prev" ? "up" : "down"));
+          return;
+        }
+        setComposerValue(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
         return;
       }
       case "editor": {
         const result = openExternalEditor(input);
-        if (result !== null && result.changed) setInput(result.text);
+        if (result !== null && result.changed) setComposerValue(result.text);
         return;
       }
       case "panel": {
@@ -360,6 +405,48 @@ export function App({
         setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
         return;
       }
+      case "composer": {
+        if (owner.action === "insert") {
+          const pasted = sequence
+            .replace(/\r\n?/g, "\n")
+            .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "");
+          if (pasted !== "") setComposer((c) => insertText(c, pasted));
+          return;
+        }
+        if (owner.action === "newline") {
+          setComposer((c) => insertNewline(c));
+          return;
+        }
+        if (owner.action === "backspace") {
+          setComposer((c) => backspace(c));
+          return;
+        }
+        if (owner.action === "delete") {
+          setComposer((c) => deleteForward(c));
+          return;
+        }
+        if (owner.action === "delete-word") {
+          setComposer((c) => deleteWordForward(c));
+          return;
+        }
+        if (owner.action === "delete-to-line-end") {
+          setComposer((c) => deleteToLineEnd(c));
+          return;
+        }
+        if (owner.action === "delete-line") {
+          setComposer((c) => deleteLine(c));
+          return;
+        }
+        if (owner.action === "move") {
+          if (owner.dir !== undefined) setComposer((c) => move(c, owner.dir!));
+          return;
+        }
+        if (owner.action === "move-word") {
+          if (owner.motion !== undefined) setComposer((c) => moveWord(c, owner.motion!));
+          return;
+        }
+        return;
+      }
       case "enter": {
         const plan = planEnter(activePanel, tree.rows, cursor, input);
         if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
@@ -375,7 +462,7 @@ export function App({
     const text = value.trim();
     if (!text) return;
     historyRef.current?.add(text);
-    setInput("");
+    setComposer({ value: "", cursor: 0 });
     void controller.submit(text);
   };
 
@@ -522,15 +609,16 @@ export function App({
           })()}
         </box>
       ) : null}
-      <box border title="message" style={{ height: 3, paddingLeft: 1 }}>
-        <input
-          placeholder="Tell Noem what to do… (Enter to send)"
-          focused={!awaiting}
-          value={input}
-          onInput={setInput}
-        />
+      <box
+        border
+        title={`message${isMultiline(composer) ? ` (${lineCount(composer.value)} lines)` : ""}`}
+        style={{ height: composerHeight, paddingLeft: 1, flexDirection: "column" }}
+      >
+        {composerLines.map((line, index) => (
+          <text key={`c${index}`}>{`${index === caret.line ? "› " : "  "}${line}`}</text>
+        ))}
       </box>
-      <text>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
+      <text>{`${input === "" ? "[ctrl+j] newline · [ctrl+g] $EDITOR · " : ""}❯ ${controller.mode}${model ? ` · ${model}` : ""}${
         snapshot && layout.footerFields
           ? ` · ${controller.tokensTotal} tok · cost UNKNOWN · ev ${snapshot.event_sequence}`
           : ""

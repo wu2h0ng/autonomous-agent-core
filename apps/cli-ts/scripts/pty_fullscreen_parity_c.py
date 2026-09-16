@@ -110,8 +110,9 @@ CANDIDATES = [
     ("ctrl-o", b"\x0f"),
     ("f2", b"\x1bOQ"),
     ("alt-g", b"\x1bg"),
+    ("plain-a", b"a"),
     ("plain-g", b"g"),
-    ("plain-j", b"j"),
+    ("word-abc", b"abc"),
 ]
 
 

@@ -16,6 +16,21 @@ export type ViewKeyOwner =
   | { layer: "mention"; action: "complete" | "ignore" }
   | { layer: "history"; action: "prev" | "next" }
   | { layer: "editor" }
+  | {
+      layer: "composer";
+      action:
+        | "insert"
+        | "newline"
+        | "backspace"
+        | "delete"
+        | "delete-word"
+        | "delete-to-line-end"
+        | "delete-line"
+        | "move"
+        | "move-word";
+      dir?: "left" | "right" | "home" | "end";
+      motion?: "forward" | "backward" | "end";
+    }
   | { layer: "agents"; action: "move"; delta: 1 | -1 }
   | { layer: "enter" }
   | { layer: "ignore" };
@@ -113,7 +128,32 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   // 9. Plain Enter submits the composer.
   if (name === "return") return { layer: "enter" };
 
-  // 10. Anything else (letters, plain arrows) belongs to the composer input.
+  // 10. Composer editing (self-owned draft): every remaining key edits the text
+  //     via composer.ts (readline/multiline semantics mirrored from the Ink view).
+  if (name === "linefeed" || sequence === "\n") {
+    return { layer: "composer", action: "newline" };
+  }
+  if (name === "backspace") return { layer: "composer", action: "backspace" };
+  if (name === "delete") return { layer: "composer", action: "delete" };
+  if (ctrl && name === "w") return { layer: "composer", action: "delete-word" };
+  if (ctrl && name === "u") return { layer: "composer", action: "delete-to-line-end" };
+  if (ctrl && name === "k") return { layer: "composer", action: "delete-line" };
+  if (ctrl && name === "a") return { layer: "composer", action: "move", dir: "home" };
+  if (ctrl && name === "e") return { layer: "composer", action: "move", dir: "end" };
+  if (ctrl && (name === "left" || name === "right")) {
+    return {
+      layer: "composer",
+      action: "move-word",
+      motion: name === "right" ? "forward" : "backward",
+    };
+  }
+  if (name === "left" || name === "right" || name === "home" || name === "end") {
+    return { layer: "composer", action: "move", dir: name };
+  }
+  // Printable text (single char or a paste burst) is inserted verbatim.
+  if (!ctrl && sequence.length >= 1) return { layer: "composer", action: "insert" };
+
+  // 11. Nothing consumed the key.
   void sequence;
   return { layer: "ignore" };
 }
