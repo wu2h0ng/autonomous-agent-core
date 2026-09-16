@@ -58,6 +58,9 @@ change digest.
   case-insensitive filesystems (macOS) — documented, not asserted.
 - Per-dir cap (500): a loose-cased instruction file past entry 500 in a directory is
   not found (intended bound; untested on case-insensitive macOS).
+- "Root-only byte-identical to legacy" holds only for root files ≤128 KiB. A root file
+  **>128 KiB** is SKIPPED by the layered path (fail closed) whereas the legacy function
+  truncates it to 12000 chars — an intentional bounded-read divergence.
 - Legacy `discover_agents_markdown` on an oversize (>128 KiB) file now (a) truncates at
   the cap with `errors="ignore"` and (b) digests only the read prefix, so two files
   differing only past the cap share a digest. Bounded-read consequences; the layered
