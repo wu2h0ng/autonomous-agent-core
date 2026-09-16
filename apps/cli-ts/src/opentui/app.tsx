@@ -230,7 +230,9 @@ export function App({
   const panels = visiblePanels(width, withPanels, withAgents);
   // Approvals are global and must stay in front: force the transcript selected.
   agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
-  overlayOwnsEnterRef.current = awaiting || selector !== undefined || palette.length > 0;
+  // `selector` is `null` (not `undefined`) when closed (controller.pendingSelector);
+  // test `!== null`, otherwise this is always true and the composer can never submit.
+  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0;
   const activePanel: PanelId = awaiting
     ? "transcript"
     : panels.includes(selected)
