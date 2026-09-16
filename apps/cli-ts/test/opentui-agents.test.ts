@@ -11,6 +11,7 @@ import {
   clampCursor,
   cursorKey,
   moveCursor,
+  planEnter,
   repositionCursor,
   resumableSessionId,
 } from "../src/opentui/agents.js";
@@ -132,4 +133,29 @@ test("the highlighted row survives a tree refresh (identity, not index)", () => 
   assert.notEqual(moved, target);
   // A vanished row falls back to a clamped index.
   assert.equal(repositionCursor(first, "session:gone", 99), first.length - 1);
+});
+
+test("planEnter routes Enter without silent no-ops", () => {
+  const { rows } = buildAgentTree({ mandates, links, sessions });
+  const sessionIndex = rows.findIndex((r) => r.kind === "session");
+  const taskIndex = rows.findIndex((r) => r.kind === "task");
+
+  // agents panel: a session row switches (reuses /resume).
+  assert.deepEqual(planEnter("agents", rows, sessionIndex, ""), {
+    kind: "resume",
+    sessionId: rows[sessionIndex]?.id,
+  });
+  // agents panel: a task row is not resumable -> composer text still submits.
+  assert.deepEqual(planEnter("agents", rows, taskIndex, "  hello  "), {
+    kind: "submit",
+    text: "hello",
+  });
+  // agents panel + non-resumable row + empty composer -> nothing happens.
+  assert.deepEqual(planEnter("agents", rows, taskIndex, "   "), { kind: "none" });
+  // transcript panel: normal submit / empty.
+  assert.deepEqual(planEnter("transcript", rows, 0, "hi"), {
+    kind: "submit",
+    text: "hi",
+  });
+  assert.deepEqual(planEnter("transcript", [], 0, ""), { kind: "none" });
 });

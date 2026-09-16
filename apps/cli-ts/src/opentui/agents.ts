@@ -161,3 +161,29 @@ export function repositionCursor(
   }
   return clampCursor(fallback, rows.length);
 }
+
+export type EnterPlan =
+  | { kind: "resume"; sessionId: string }
+  | { kind: "submit"; text: string }
+  | { kind: "none" };
+
+/**
+ * Decide what Enter means for the current panel/cursor/composer text. Pure so
+ * the routing (which is otherwise only wired inside the renderer) is testable.
+ *   agents panel + session row -> switch session (reuses /resume)
+ *   agents panel + other row  -> fall through to the composer (no silent no-op)
+ *   any other panel           -> submit the composer
+ */
+export function planEnter(
+  activePanel: string,
+  rows: readonly AgentRow[],
+  cursor: number,
+  input: string,
+): EnterPlan {
+  if (activePanel === "agents") {
+    const sessionId = resumableSessionId(rows, cursor);
+    if (sessionId !== null) return { kind: "resume", sessionId };
+  }
+  const text = input.trim();
+  return text === "" ? { kind: "none" } : { kind: "submit", text };
+}

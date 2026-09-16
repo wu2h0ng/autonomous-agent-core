@@ -31,8 +31,8 @@ import {
   clampCursor,
   cursorKey,
   moveCursor,
+  planEnter,
   repositionCursor,
-  resumableSessionId,
 } from "./agents.js";
 import { fetchAgentTree, type AgentTreeResult } from "./agent-tree-source.js";
 import type { SurfaceClient } from "../client.js";
@@ -220,19 +220,12 @@ export function App({
       return;
     }
     if (name === "return") {
-      if (activePanel === "agents") {
-        const target = resumableSessionId(tree.rows, cursor);
-        // Only a session row switches; on any other row Enter falls through so
-        // composer text can still be submitted.
-        if (target !== null) {
-          // Reuses the /resume path. The controller refuses it whenever a turn
-          // or an approval is pending, so a switch can never abandon a turn or
-          // move an approval surface out of view.
-          void controller.submit(`/resume ${target}`);
-          return;
-        }
-      }
-      submit(input);
+      // Routing is a pure function (tested): a session row switches via the
+      // /resume path (the controller refuses it whenever a turn or an approval
+      // is pending), any other row / panel falls through to the composer.
+      const plan = planEnter(activePanel, tree.rows, cursor, input);
+      if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
+      else if (plan.kind === "submit") submit(plan.text);
     }
   });
 
