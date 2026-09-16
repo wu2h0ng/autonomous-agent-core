@@ -394,13 +394,9 @@ export function App({
             <text key={`f${index}`}>{line(message)}</text>
           ),
         )}
-        {active.map((message, index) =>
-          message.role === "assistant" && !message.panel && !message.tool ? (
-            <markdown key={`a${index}`} content={message.content} syntaxStyle={syntaxStyle} />
-          ) : (
-            <text key={`a${index}`}>{line(message)}</text>
-          ),
-        )}
+        {active.map((message, index) => (
+          <text key={`a${index}`}>{line(message)}</text>
+        ))}
         {controller.reasoningText ? (
           <text>{`🧠 ${controller.reasoningText}`}</text>
         ) : null}

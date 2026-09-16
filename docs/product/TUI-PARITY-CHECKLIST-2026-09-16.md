@@ -60,7 +60,8 @@
 ## 6. 切片 B（2026-09-16，已完成）
 
 - **代码**：`viewkeys.ts` 新增 `mention`/`history` 键层（优先级：selector > approval > 冻结全局键 > palette > **mention** > panel(Tab) > agents > **history(↑/↓)** > 提交）；`app.tsx` 接 `workspaceFiles()`+`mentions.ts` 的 `@` 补全、`InputHistory` 的 ↑/↓、assistant 文本改用 opentui `<markdown>`（`SyntaxStyle.create()`）。
-- **证据**（`scripts/pty_fullscreen_parity_b.py`，连续 2 次一致）：`HISTORY_PREVIOUS: True`、`MENTION_TAB_COMPLETED: True`、`MARKDOWN_TRANSCRIPT_OK: True`、`MENTION_VERIFIED_BY_PTY: True`。
+- **证据**（`scripts/pty_fullscreen_parity_b.py`，连续 2 次一致）：`HISTORY_PREVIOUS: True`、`MENTION_TAB_COMPLETED: True`（断言仅针对**提交窗口**，避免跨帧假阳性）、`MARKDOWN_RENDER_PATH_OK: True`（**smoke**：证明回复经 markdown 路径仍落入 transcript，**不是**格式测试）、`SLICE_B_ALL_SIGNALS_VERIFIED: True`（独立聚合，非复制单信号）。
+- **复审条件（已修）**：① mention 列表打开时 **Enter 仍提交**（与 Ink 一致；此前被吞为 no-op）；② markdown 只作用于 **finalized** 消息（与 Ink 一致，避免流式半截 markdown 畸形）；③ 断言收紧 + 诚实标签 + 独立聚合信号。
 - **证据方法论（重要，写进规范）**：**观测 composer 行的变化不可靠**（cell-diff 渲染器对单行改动可能不重发）；**观测新 transcript 内容可靠**（提交的消息、回复必然是新单元格）。因此 mention 补全通过"补全后提交 → 新用户消息出现在 transcript"来验证。
 - 单测：`test/opentui-viewkeys.test.ts` 新增 mention/history 优先级用例（含"mention 打开时字母仍归 composer""agents 面板优先于 history"）；全量 **157 + 19 = 176 pass**。
 - **未做**：彩色语法高亮（#16）、vim、多行 composer/外部编辑器、`ctrl+r` 历史搜索、主题配色、首页（切片 C/D）。

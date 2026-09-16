@@ -164,6 +164,10 @@ test("an open @mention list takes Tab but leaves typing to the composer", () => 
     layer: "mention",
     action: "ignore",
   });
+  // Enter must still submit (Ink parity): the list does not trap the key.
+  assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "return" })), {
+    layer: "enter",
+  });
   // The palette still wins over the mention list.
   assert.deepEqual(
     resolveViewKey(ctx({ mentionOpen: true, paletteOpen: true, name: "tab" })),
@@ -178,7 +182,8 @@ test("up/down are history for the composer unless the agents panel owns them", (
     resolveViewKey(ctx({ activePanel: "agents", name: "up" })),
     { layer: "agents", action: "move", delta: -1 },
   );
-  // An open mention list leaves arrows to the composer/history as well.
+  // An open mention list leaves arrows to the composer input (no-op there for a
+  // single-line composer), i.e. they are not routed to history.
   assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "up" })), {
     layer: "mention",
     action: "ignore",

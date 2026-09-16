@@ -75,6 +75,9 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   //    keys to the composer/history.
   if (ctx.mentionOpen) {
     if (name === "tab") return { layer: "mention", action: "complete" };
+    // Enter must still submit (Ink parity); anything else (letters, arrows)
+    // stays with the composer input.
+    if (name === "return") return { layer: "enter" };
     return { layer: "mention", action: "ignore" };
   }
 

@@ -157,7 +157,9 @@ def main() -> None:
         frames.append(submitted)
         print("===== AFTER ENTER (submitted mention) =====")
         print(submitted)
-        mention_ok = "zzmentionfile" in flat_alpha("".join(frames))
+        # Narrow assertion: the token must appear in the SUBMITTED window (the
+        # new transcript line), not merely somewhere in the accumulated frames.
+        mention_ok = "zzmentionfile" in flat_alpha(submitted)
         print("MENTION_TAB_COMPLETED:", mention_ok)
 
         os.write(fd, b"\x03")
@@ -166,9 +168,11 @@ def main() -> None:
 
         # Assistant text is rendered through the markdown renderable; the
         # deterministic reply landing in the transcript proves that path renders.
+        # Smoke check: the assistant reply still lands in the transcript through
+        # the markdown path. It does NOT verify markdown formatting itself.
         md_ok = "deterministicreply" in flat_alpha("".join(frames))
-        print("MARKDOWN_TRANSCRIPT_OK:", md_ok)
-        print("MENTION_VERIFIED_BY_PTY:", mention_ok)
+        print("MARKDOWN_RENDER_PATH_OK (smoke, not a formatting test):", md_ok)
+        print("SLICE_B_ALL_SIGNALS_VERIFIED:", mention_ok and hist_ok and md_ok)
         # Evidence methodology note: observing a COMPOSER change is unreliable
         # under cell diffing; observing NEW transcript content (a submitted
         # message, a reply) is reliable. This script only asserts the latter.
