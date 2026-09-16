@@ -72,7 +72,6 @@ def spawn(descriptor: Path, extra_env: dict[str, str] | None = None) -> tuple[in
     env["AGENT_OS_RUNTIME_DATABASE"] = str(descriptor.parent / "a.sqlite3")
     # The probe only works with the instrumentation enabled in the build; without
     # it the app prints nothing and the probe reports no observed keys.
-    env["NOEM_KEY_DEBUG"] = "1"
     if extra_env:
         env.update(extra_env)
     pid = os.fork()
@@ -111,6 +110,8 @@ CANDIDATES = [
     ("ctrl-o", b"\x0f"),
     ("f2", b"\x1bOQ"),
     ("alt-g", b"\x1bg"),
+    ("plain-g", b"g"),
+    ("plain-j", b"j"),
 ]
 
 
@@ -172,12 +173,25 @@ def main() -> None:
             out = read(fd, 0.6)
             if "DBGKEY" in out:
                 observed.append(label)
-                print(f"  {label}: {out.strip().splitlines()[-1][:60]}")
+                line = [row for row in out.splitlines() if "DBGKEY" in row]
+                print(f"  {label}: {line[-1][:70] if line else ''}")
             os.write(fd, b"\x03")
             time.sleep(0.3)
             kill(pid)
-        print("DELIVERED_KEYS (composer focused):", observed)
-        print("NOT_DELIVERED:", [label for label, _ in CANDIDATES if label not in observed])
+        if observed:
+            print("DELIVERED_KEYS (composer focused):", observed)
+            print(
+                "NOT_DELIVERED:",
+                [label for label, _ in CANDIDATES if label not in observed],
+            )
+        else:
+            # The matrix needs the env-gated instrumentation (NOEM_KEY_DEBUG) to
+            # be present in the build; the editor round trip above does not.
+            print(
+                "DELIVERY_MATRIX_SKIPPED: build has no NOEM_KEY_DEBUG instrumentation\n"
+                "(add it temporarily to re-measure the matrix; the measured result\n"
+                "is recorded in this file's docstring and in the parity checklist)."
+            )
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)

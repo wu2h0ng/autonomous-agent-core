@@ -242,9 +242,6 @@ export function App({
 
   useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
-    if (process.env.NOEM_KEY_DEBUG === "1") {
-      process.stderr.write(`DBGKEY name=${name}\n`);
-    }
     const ctrl = key.ctrl === true;
     const sequence = key.sequence ?? "";
     const owner = resolveViewKey({

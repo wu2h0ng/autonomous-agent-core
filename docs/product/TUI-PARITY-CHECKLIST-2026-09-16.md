@@ -68,8 +68,8 @@
 
 ## 7. 切片 C（2026-09-16）：外部编辑器 DONE；多行/vim 的真实阻塞点
 
-- **DONE — 外部编辑器（#12 部分）**：Ctrl-G 打开 `$EDITOR` 编辑草稿并回填（复用 `editor.ts`）。绑定修复过程：最初按 `ctrl && name === "g"` 绑定 → 死绑定；**opentui 对控制字节不置 `ctrl` 标志**（Ctrl-G 到达时 `name="g"`），改为按 name 绑定后 pty `EDITOR_ROUNDTRIP: True`（连续 2 次）。
-- **键投递矩阵（`scripts/pty_fullscreen_parity_c.py`，每个候选键**独立重启**应用）**：`return / tab / escape / up / down / ctrl-n / ctrl-p / ctrl-j(name=linefeed) / ctrl-g(name=g) / ctrl-o / f2 / alt-g` **均可到达**。
+- **DONE — 外部编辑器（#12 部分）**：Ctrl-G 打开 `$EDITOR` 编辑草稿并回填（复用 `editor.ts`）；pty `EDITOR_ROUNDTRIP: True`（连续多次）。绑定历经三次修正（记录供追溯）：① `ctrl && name === "g"` → **死绑定**（opentui 对控制字节不置 `ctrl` 标志）；② 仅按 `name === "g"` → **回归风险**（Tab 后输入框失焦时普通 `g` 也会命中、误开编辑器）；③ 最终按 **控制字节 `sequence === "\u0007"`** 绑定（普通 `g` 的 sequence 为 `"g"`），并加"普通 g 不开编辑器"的回归测试。
+- **键投递矩阵（`scripts/pty_fullscreen_parity_c.py`，每个候选键**独立重启**应用）**：`return / tab / escape / up / down / ctrl-n / ctrl-p / ctrl-j(name=linefeed) / ctrl-g(name=g) / ctrl-o / f2 / alt-g` **均可到达**（矩阵测量需要临时开启 `NOEM_KEY_DEBUG` 仪器；脚本无仪器时打印 `DELIVERY_MATRIX_SKIPPED`，不谎报）。`sequence` 可用于区分：Ctrl-G 为 `\u0007`、普通 `g` 为 `g`。
 - **方法论教训**：同一实例连续投递会因 Tab/Enter 改变焦点而**污染**矩阵（初版探针因此误报"全部可达"，我据此得出过错误结论并在本轮更正）。
 - **真实阻塞点（多行 + vim）**：不是键投递，而是 **composer 形态**——当前用 opentui 原生**单行 `<input>`**，因此 `ctrl+j` 换行**无法显示**，vim 的模态编辑也无法接管原生编辑。需要"自持 composer"（自绘文本+光标，接 `composer.ts`）或改 `textarea`，属更大改动，**未做**。
 - 因此 **#11 vim 仍缺失、#12 多行仍缺失**；Ink 退役继续阻塞。

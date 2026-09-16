@@ -83,9 +83,11 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   }
 
   // 7. Ctrl-G opens the external editor on the composer draft (Ink parity).
-  //    opentui delivers the Ctrl-G control byte as name="g"; a plain "g" is
-  //    consumed by the focused input and never reaches this resolver.
-  if (name === "g") return { layer: "editor" };
+  //    Match the CONTROL BYTE, not the name: opentui reports Ctrl-G as
+  //    name="g" with sequence="\u0007", while a plain "g" (name="g",
+  //    sequence="g") reaches this resolver whenever the input is blurred (e.g.
+  //    after Tab) and must stay composer text, never open an editor.
+  if (sequence === "\u0007") return { layer: "editor" };
 
   // 8. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
   //    come after the palette (Tab completes commands while it is open) and
