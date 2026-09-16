@@ -157,6 +157,81 @@ def main() -> None:
         os.write(fd, b"\x03")
         time.sleep(0.5)
         kill(pid)
+
+        # --- shift+I / shift+A / Ctrl-C, each in a FRESH app -------------
+        # (a second submission in the same app parks on an approval, which blurs
+        # the composer and would swallow the next scenario's keys.)
+        def wait_ready(fd_: int) -> None:
+            """The UI must be on screen before typing, otherwise keys are lost
+            (which silently left vim disabled and produced e.g. "helloip")."""
+            deadline = time.time() + 25
+            while time.time() < deadline:
+                if "message" in read(fd_, 0.6):
+                    return
+
+        def fresh_scenario(keys: bytes) -> str:
+            pid2, fd2 = spawn(descriptor)
+            frames2: list[str] = [read(fd2, 4)]
+            wait_ready(fd2)
+            for ch in b"/vim":
+                os.write(fd2, bytes([ch]))
+                time.sleep(0.06)
+            os.write(fd2, b"\r")
+            time.sleep(1.0)
+            frames2.append(read(fd2, 1.2))
+            for ch in b"hello":
+                os.write(fd2, bytes([ch]))
+                time.sleep(0.06)
+            time.sleep(0.4)
+            frames2.append(read(fd2, 0.8))
+            os.write(fd2, b"\x1b")                      # normal mode
+            time.sleep(1.2)                              # let the mode switch land
+            read(fd2, 0.3)
+            for byte in keys:
+                os.write(fd2, bytes([byte]))
+                time.sleep(0.3)
+            frames2.append(read(fd2, 1.2))
+            # Submit: the user message is NEW transcript content and therefore
+            # reliably painted (a repainted composer line is not).
+            os.write(fd2, b"\r")
+            time.sleep(1.0)
+            frames2.append(read(fd2, 4.5))
+            kill(pid2)
+            return "".join(frames2)
+
+        # shift+I goes to line start: "hello" + I + "p" -> "phello" (visible in
+        # the composer echo, which is enough to prove the caret placement).
+        shift_i = flat(fresh_scenario(b"Ip"))
+        print("VIM_SHIFT_I_AT_LINE_START:", "phello" in shift_i)
+
+        # shift+A goes to line end: "hello" + A + "c" -> "helloc".
+        shift_a = flat(fresh_scenario(b"Ac"))
+        print("VIM_SHIFT_A_AT_LINE_END:", "helloc" in shift_a)
+
+        # Ctrl-C in normal mode must still exit the process.
+        pid3, fd3 = spawn(descriptor)
+        read(fd3, 4)
+        wait_ready(fd3)
+        for ch in b"/vim":
+            os.write(fd3, bytes([ch]))
+            time.sleep(0.06)
+        os.write(fd3, b"\r")
+        time.sleep(1.0)
+        read(fd3, 1.0)
+        os.write(fd3, b"\x1b")        # normal mode
+        time.sleep(0.8)
+        read(fd3, 0.5)
+        exited = False
+        try:
+            os.write(fd3, b"\x03")
+            time.sleep(1.5)
+            os.write(fd3, b"x")        # EIO once the process is gone
+            time.sleep(0.4)
+            os.write(fd3, b"y")
+        except OSError:
+            exited = True
+        print("CTRL_C_EXITS_IN_NORMAL_MODE:", exited)
+        kill(pid3)
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
