@@ -39,10 +39,12 @@ durable record of the compaction.
 
 ## 4. Verification
 
-- `tests/product/test_context_compaction.py` (6): drops the oldest turn and keeps the
-  active request; never splits a tool group; no compaction within budget; the event is
-  recorded on the real turn path; `_maybe_record_compaction` writes exactly one event
-  per distinct result; no event for a large budget.
+- `tests/product/test_context_compaction.py` (9): drops the oldest turn and keeps the
+  active request; never splits a tool group; no compaction within budget; a single
+  over-budget turn records no event; digest determinism; `_maybe_record_compaction`
+  writes exactly one event per distinct result; two distinct compactions are both
+  recorded; the projection replays a compaction event safely; no event for a large
+  budget.
 - Full `tests/product` 24 failed == base + 1 order-sensitive flaky mode-matrix test
   that passes in isolation (zero real new). Ruff clean; pyright 0.
 
