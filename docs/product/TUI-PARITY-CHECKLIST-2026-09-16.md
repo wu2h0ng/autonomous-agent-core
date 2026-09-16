@@ -20,7 +20,7 @@
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
 | 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_TAB_COMPLETED`（经**提交后的新 transcript 行**观测） |
 | 11 | vim 模式 | ✓ | ✗ | **缺失** | 需接 `controller.vimMode` + 运动键 |
-| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | △ | **外部编辑器 DONE；多行缺失** | ctrl+g → `openExternalEditor`（pty `EDITOR_ROUNDTRIP: True`）；多行受限于单行 `<input>` |
+| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 DONE** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8 |
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_TRANSCRIPT_OK` |
@@ -73,3 +73,13 @@
 - **方法论教训**：同一实例连续投递会因 Tab/Enter 改变焦点而**污染**矩阵（初版探针因此误报"全部可达"，我据此得出过错误结论并在本轮更正）。
 - **真实阻塞点（多行 + vim）**：不是键投递，而是 **composer 形态**——当前用 opentui 原生**单行 `<input>`**，因此 `ctrl+j` 换行**无法显示**，vim 的模态编辑也无法接管原生编辑。需要"自持 composer"（自绘文本+光标，接 `composer.ts`）或改 `textarea`，属更大改动，**未做**。
 - 因此 **#11 vim 仍缺失、#12 多行仍缺失**；Ink 退役继续阻塞。
+
+## 8. 切片 C2（2026-09-16）：textarea 单文本真源（多行完成）
+
+- **底座**：composer 由原生单行 `<input>` 改为 opentui **`<textarea>`**（原生多行编辑、光标、词移动），视图只保留 **overlay/提交/模态** 的键归属。
+- **单一文本真源**：文本以 textarea（`plainText`）为准，视图用**微任务**同步镜像给 overlay（同步读会**滞后一键**并导致 overlay 失同步）；历史召回/补全/编辑器回填统一走 `editBuffer.setText(...)` + **`setCursorByOffset(len)`**（`setText` 会把光标留在行首，否则下一次击键变成前置插入、backspace 失效）。
+- **Enter 单一归属**：`onSubmit` 提交（Enter 绑定为 `submit`，`ctrl+j` 为 `newline`）；**agents 面板是唯一例外**（`agentsPanelRef` 抑制 textarea 提交，改由 resolver 执行会话切换），且 textarea 始终聚焦（面板选中时仍可打字）。
+- **overlay 只拥有自己的键**：palette 仅 `↑/↓/Tab/Enter`、mention 仅 `Tab` —— **可打印键一律穿透**。这修掉了 `/exit` 陷阱：此前 overlay 吞字符 → `/stat` 只进 `/` → Enter 执行默认项 `/exit`（干净退出，被误读为渲染崩溃）。
+- **deviation（诚实记录）**：textarea 有内容时 **Tab 被其自身消费**（空文本时才会到达 handler，这解释了 p3a 的 Tab 可用而 mention 的 Tab 不可用），无可用 keybinding 覆盖。因此 **mention 补全同时绑定在提交时**（提交前自动补全打开的 `@token`）；Tab 补全在空/短草稿下仍可用。
+- **证据**：`pty_fullscreen_composer_invariant.py`（/stat → 面板 → Enter 执行 `/status` → **进程存活**）连续 2 次 `INVARIANT_OK: True`；`parity_a` 四项、`parity_b` 四项（`HISTORY_PREVIOUS`/`MENTION_TAB_COMPLETED`/`MARKDOWN_RENDER_PATH_OK`/`SLICE_B_ALL`）、`parity_c` `EDITOR_ROUNDTRIP`、`p3a` `RESUMED`/`TYPABLE`、多会话 `PROVEN_CROSS_SESSION_SWITCH` 全 True；单测 **158 + 19**。
+- **未做**：**vim 模态层**（下一个独立切片 #11）；多行滚动/高度自适应；textarea 的 paste/undo 语义专项验证。

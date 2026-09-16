@@ -16,7 +16,7 @@
 /** @jsxImportSource @opentui/react */
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { SyntaxStyle, type ScrollBoxRenderable } from "@opentui/core";
+import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
@@ -100,6 +100,33 @@ export function App({
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [input, setInput] = useState("");
+  const composerRef = useRef<TextareaRenderable | null>(null);
+  /** Single text source of truth: the textarea owns the draft; this mirrors it
+   * for the overlays (palette/mentions) and writes go through the buffer. */
+  const suppressSyncRef = useRef(false);
+  const setComposerText = (value: string): void => {
+    const buffer = composerRef.current?.editBuffer;
+    // The buffer write lands asynchronously; suppress the next mirror so it
+    // cannot read the OLD text back (which kept a submitted draft "alive").
+    suppressSyncRef.current = true;
+    buffer?.setText(value);
+    // setText leaves the caret at the start; put it at the end so the next
+    // keystroke appends (otherwise typing prepends and backspace does nothing).
+    buffer?.setCursorByOffset(value.length);
+    setInput(value);
+  };
+  const syncComposer = (): void => {
+    if (suppressSyncRef.current) {
+      suppressSyncRef.current = false;
+      return;
+    }
+    setInput(composerRef.current?.plainText ?? "");
+  };
+  // Read by the textarea's onSubmit: whenever the VIEW owns Enter (agents panel
+  // session switch, or an overlay such as the palette/selector), the textarea
+  // must not also submit - otherwise one Enter runs the action twice.
+  const agentsPanelRef = useRef(false);
+  const overlayOwnsEnterRef = useRef(false);
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
@@ -190,7 +217,11 @@ export function App({
     return () => {
       cancelled = true;
     };
-  }, [mention?.query, controller]);
+    // Fetch ONCE per open mention session. Depending on the query made every
+    // keystroke cancel the previous fetch, so the last one could resolve into a
+    // cleaned-up closure and `files` stayed empty (the completion then had
+    // nothing to complete with).
+  }, [mention !== null, controller]);
 
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
@@ -198,6 +229,10 @@ export function App({
 
   const panels = visiblePanels(width, withPanels, withAgents);
   // Approvals are global and must stay in front: force the transcript selected.
+  agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
+  // `selector` is `null` (not `undefined`) when closed (controller.pendingSelector);
+  // test `!== null`, otherwise this is always true and the composer can never submit.
+  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0;
   const activePanel: PanelId = awaiting
     ? "transcript"
     : panels.includes(selected)
@@ -312,7 +347,7 @@ export function App({
           const pick = palette[Math.min(paletteIndex, palette.length - 1)];
           if (pick === undefined) return;
           if (owner.action === "complete") {
-            setInput(`${pick.name} `);
+            setComposerText(`${pick.name} `);
             setPaletteIndex(0);
           } else {
             submit(pick.name);
@@ -326,19 +361,19 @@ export function App({
           const pick = mentionMatches[0];
           if (pick !== undefined) {
             const applied = applyMention(input, input.length, pick);
-            setInput(applied.value);
+            setComposerText(applied.value);
           }
         }
         return;
       }
       case "history": {
         if (historyRef.current === null) return;
-        setInput(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
+        setComposerText(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
         return;
       }
       case "editor": {
         const result = openExternalEditor(input);
-        if (result !== null && result.changed) setInput(result.text);
+        if (result !== null && result.changed) setComposerText(result.text);
         return;
       }
       case "panel": {
@@ -367,15 +402,29 @@ export function App({
         return;
       }
       default:
-        return;
+        break;
     }
+    // Mirror the textarea for the overlays AFTER the renderable has applied the
+    // key (a synchronous read can lag by one keystroke, which desynced the
+    // palette/mention layers).
+    queueMicrotask(syncComposer);
   });
 
+  const completeMention = (value: string): string => {
+    const token = activeMention(value, value.length);
+    if (token === null) return value;
+    const first = filterMentions(files, token.query)[0];
+    return first === undefined ? value : applyMention(value, value.length, first).value;
+  };
+
   const submit = (value: string): void => {
-    const text = value.trim();
+    const text = completeMention(value).trim();
     if (!text) return;
     historyRef.current?.add(text);
-    setInput("");
+    // Single clearing point: every submit path (textarea onSubmit, palette
+    // command, agents-panel fall-through) must empty the textarea buffer too,
+    // otherwise the stale draft is mirrored back on the next keystroke.
+    setComposerText("");
     void controller.submit(text);
   };
 
@@ -522,12 +571,20 @@ export function App({
           })()}
         </box>
       ) : null}
-      <box border title="message" style={{ height: 3, paddingLeft: 1 }}>
-        <input
-          placeholder="Tell Noem what to do… (Enter to send)"
+      <box border title="message" style={{ height: 5, paddingLeft: 1 }}>
+        <textarea
+          ref={composerRef}
+          placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"
           focused={!awaiting}
-          value={input}
-          onInput={setInput}
+          keyBindings={[
+            { name: "return", action: "submit" },
+            { name: "kpenter", action: "submit" },
+            { name: "linefeed", action: "newline" },
+          ]}
+          onSubmit={() => {
+            if (agentsPanelRef.current || overlayOwnsEnterRef.current) return;
+            submit(composerRef.current?.plainText ?? "");
+          }}
         />
       </box>
       <text>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${

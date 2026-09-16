@@ -65,21 +65,20 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   // 4. Command palette beats the agents panel: typing "/st" + Enter must run the
   //    highlighted command, not switch sessions.
   if (ctx.paletteOpen) {
+    // OWNED keys only. Printable keys must FALL THROUGH to the composer: an
+    // overlay that swallowed them made "/stat" enter just "/" and Enter run the
+    // palette's default item (/exit), which exited the app.
     if (name === "up") return { layer: "palette", action: "up" };
     if (name === "down") return { layer: "palette", action: "down" };
     if (name === "tab") return { layer: "palette", action: "complete" };
     if (name === "return") return { layer: "palette", action: "submit" };
-    return { layer: "palette", action: "ignore" };
   }
 
   // 5. An open @mention list takes Tab (to complete the path) but leaves other
   //    keys to the composer/history.
   if (ctx.mentionOpen) {
+    // Owns Tab (path completion) only; letters keep typing and Enter submits.
     if (name === "tab") return { layer: "mention", action: "complete" };
-    // Enter must still submit (Ink parity); anything else (letters, arrows)
-    // stays with the composer input.
-    if (name === "return") return { layer: "enter" };
-    return { layer: "mention", action: "ignore" };
   }
 
   // 7. Ctrl-G opens the external editor on the composer draft (Ink parity).
@@ -110,8 +109,11 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
     return { layer: "history", action: name === "down" ? "next" : "prev" };
   }
 
-  // 9. Plain Enter submits the composer.
-  if (name === "return") return { layer: "enter" };
+  // 9. Enter belongs to the composer (the textarea submits on Enter). The
+  //    agents panel is the exception: its Enter resumes the highlighted
+  //    session, and the composer is blurred while that panel is selected so the
+  //    two can never both fire.
+  if (name === "return" && ctx.activePanel === "agents") return { layer: "enter" };
 
   // 10. Anything else (letters, plain arrows) belongs to the composer input.
   void sequence;
