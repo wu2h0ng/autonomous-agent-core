@@ -12,6 +12,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from .configuration import (
+    AutoExecutionPolicy as AutoExecutionPolicy,
+    AutoExecutionRule as AutoExecutionRule,
+    PolicyApprovalRecord as PolicyApprovalRecord,
+    RuntimeFeatureFlags as RuntimeFeatureFlags,
+)
+
 
 class TelemetryDimension(StrEnum):
     BUSINESS = "business"

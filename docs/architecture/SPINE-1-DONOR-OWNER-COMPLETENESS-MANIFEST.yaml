@@ -52,6 +52,18 @@ verified_paths:
   D-OSCORE-SEMANTIC: ["domain_packs/data_agent/semantic_runtime.py"]
   D-OSCORE-INTENT: ["domain_packs/data_agent/intent_parser.py"]
   D-OSCORE-NLQUERY: ["domain_packs/data_agent/nl_query.py"]
+  D-OSCORE-DATA-ACCESS: ["domain_packs/data_agent/data_access_plane.py"]
+  D-OSCORE-DATA-COMPILER: ["domain_packs/data_agent/data_product_compiler/__init__.py"]
+  D-OSCORE-KNOWLEDGE:
+    - "domain_packs/data_agent/knowledge_memory.py"
+    - "domain_packs/data_agent/knowledge_retrieval.py"
+  D-OSCORE-EMBEDDING: ["domain_packs/data_agent/embedding.py"]
+  D-OSCORE-EVALHUB: ["domain_packs/data_agent/eval_hub.py"]
+  D-OSCORE-FEEDBACK: ["domain_packs/data_agent/feedback.py"]
+  D-OSCORE-ADOPTION: ["domain_packs/data_agent/adoption.py"]
+  D-OSCORE-ALERT: ["domain_packs/data_agent/alert_agent.py"]
+  D-OSCORE-DASHBOARD: ["domain_packs/data_agent/dashboard.py"]
+  D-OSCORE-CONVERSATION: ["domain_packs/data_agent/conversation.py"]
   D-OSCORE-CONSEQUENCE-PREVIEW:
     - "packages/os_core/src/agent_os_core/consequence_preview.py"
     - "packages/contracts/src/agent_os_contracts/consequence.py"
