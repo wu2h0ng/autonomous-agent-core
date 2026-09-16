@@ -53,8 +53,11 @@ export async function fetchAgentTree(
   } catch {
     return { rows: [], truncated: false, note: "(mandate projection unavailable)" };
   }
+  // Deterministic subset: sort by id before capping so the same mandates are
+  // chosen on every run (server order is not guaranteed stable).
+  mandates.sort((a, b) => (a.mandate_id < b.mandate_id ? -1 : a.mandate_id > b.mandate_id ? 1 : 0));
   if (mandates.length > maxMandates) {
-    notes.push(`showing ${maxMandates}/${mandates.length} mandates`);
+    notes.push(`mandates truncated at ${maxMandates}/${mandates.length}`);
     mandates = mandates.slice(0, maxMandates);
   }
 

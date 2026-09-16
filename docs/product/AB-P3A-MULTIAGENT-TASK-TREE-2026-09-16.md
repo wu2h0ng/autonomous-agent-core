@@ -79,7 +79,7 @@
 `specified: GC 包 + 本 AB` / `implemented: NO` / `tested: NO` / `integrated: NO` / `verified: NO` / `released: NO`。
 未执行架构评审通过与 CTO gate 前，**不得**编写 P3a 运行时代码，也不得声称多 Agent 能力。
 
-## 8. P3a-1 实现结果（2026-09-16，PASS，待独立复审）
+## 8. P3a-1 实现结果（2026-09-16，IMPLEMENTED_IN_REVIEW / PENDING_INDEPENDENT_REVIEW）
 
 - **改动**（全部在终端客户端，**零协议/零内核改动**）：
   - `src/opentui/agents.ts`（纯）：`buildAgentTree` + `agentRowLine`，确定性排序/分组、孤儿任务归入 `(unlinked task)`、上限截断并置 `truncated`。
@@ -88,9 +88,10 @@
   - `app.tsx`：侧栏新增 `agents` 面板（`Tab` 选中、独立滚动，复用 P2）；`--no-agents` 关闭（关闭后不拉取树）。面板只渲染标识/状态，**不渲染 mission/statement 文本或凭证**。
 - **实测**（`scripts/pty_fullscreen_p3a.py`，120×40，hermetic daemon）：
   `AGENTS_PANEL_SELECTED: True`、`TREE_ROWS_RENDERED: True`、`TYPABLE_WITH_AGENTS_PANEL: True`（选中面板不抢 composer 焦点）、`HAS_AGENTS_TITLE: False`（`--no-agents` 无面板）。
-- **测试**：`test/opentui-agents.test.ts` 4 pass（bypass-detecting：忽略 links 的扁平实现、丢孤儿会话、不截断都会失败）；`test/opentui-panels.test.ts` 更新为 4 面板 + `--no-agents`；cli-ts 全量 **160 pass**。
+- **测试**：`test/opentui-agents.test.ts` 4 pass（bypass-detecting：忽略 links 的扁平实现、丢孤儿会话、不截断都会失败）；`test/opentui-panels.test.ts` 更新为 4 面板 + `--no-agents`；`test/client.test.ts` 新增 `getReadOnly` 仅 GET/无 body 断言；cli-ts 全量 **161 pass**。
 - **诚实边界**：
   - hermetic daemon 无 mandate，实测走的是"`(unlinked task)` 分组 + 真实 task/session"路径；**mandate→task→session 三层**路径仅由单元测试覆盖，**未做端到端 live**（需要真实 mandate bootstrap）。
   - 活动流仍为 1（仅活动会话订阅）；树内不显示 pending 审批计数（需 P3a-2 附加字段 `1.2`，未做）。
   - 树面板刷新 5s 轮询；未做增量/事件驱动。
-- **声明分级**：`specified+implemented+tested`（目标测试）；`integrated: 终端内已接入`；`verified: 待独立复审`；`released: NO`。
+- **声明的证据修复（R1 复审条件）**：pty 脚本断言改为对**累计帧**判定（渲染器逐格 diff，标题可能落在更早的帧）→ 本机复跑 `AGENTS_PANEL_SELECTED/TREE_ROWS_RENDERED/TYPABLE_WITH_AGENTS_PANEL = True`、`HAS_AGENTS_TITLE = False`；mandate 子集先按 id 排序再截断（确定性）；树轮询改由**面板可见性**门控（窄终端不再空拉）。
+- **声明分级**：`specified+implemented+tested`（目标测试）；`integrated: 终端内已接入`；`verified: 待独立复审（R1=APPROVE_WITH_CONDITIONS，条件已修，待 R2 确认）`；`released: NO`。

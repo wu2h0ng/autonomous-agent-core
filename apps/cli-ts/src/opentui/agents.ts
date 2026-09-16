@@ -30,9 +30,14 @@ export interface AgentTree {
 
 export const AGENT_TREE_MAX_ROWS = 500;
 
+/** Code-point comparison: locale-independent, so the tree is identical on
+ * every machine (localeCompare would vary with the runtime locale). */
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function byId<T extends { [k: string]: unknown }>(key: string) {
-  return (a: T, b: T): number =>
-    String(a[key]).localeCompare(String(b[key]));
+  return (a: T, b: T): number => compareIds(String(a[key]), String(b[key]));
 }
 
 /**

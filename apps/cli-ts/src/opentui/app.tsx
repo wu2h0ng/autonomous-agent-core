@@ -131,8 +131,27 @@ export function App({
     };
   }, [workspace, withPanels]);
 
+  const snapshot = controller.currentSnapshot;
+  const pending = snapshot?.pending_approval;
+  const awaiting = controller.status === "awaiting_approval";
+
+  const panels = visiblePanels(width, withPanels, withAgents);
+  // Approvals are global and must stay in front: force the transcript selected.
+  const activePanel: PanelId = awaiting
+    ? "transcript"
+    : panels.includes(selected)
+      ? selected
+      : "transcript";
+  const scrollRefs: Record<PanelId, React.RefObject<ScrollBoxRenderable | null>> = {
+    transcript: transcriptRef,
+    agents: agentsRef,
+    files: filesRef,
+    diff: diffRef,
+  };
+
+  const showAgentsPanel = panels.includes("agents");
   useEffect(() => {
-    if (!withAgents || !withPanels) {
+    if (!showAgentsPanel) {
       setTree(EMPTY_TREE);
       return;
     }
@@ -151,25 +170,8 @@ export function App({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [client, withAgents, withPanels]);
+  }, [client, showAgentsPanel]);
 
-  const snapshot = controller.currentSnapshot;
-  const pending = snapshot?.pending_approval;
-  const awaiting = controller.status === "awaiting_approval";
-
-  const panels = visiblePanels(width, withPanels, withAgents);
-  // Approvals are global and must stay in front: force the transcript selected.
-  const activePanel: PanelId = awaiting
-    ? "transcript"
-    : panels.includes(selected)
-      ? selected
-      : "transcript";
-  const scrollRefs: Record<PanelId, React.RefObject<ScrollBoxRenderable | null>> = {
-    transcript: transcriptRef,
-    agents: agentsRef,
-    files: filesRef,
-    diff: diffRef,
-  };
 
   useKeyboard((key: { name?: string; ctrl?: boolean }) => {
     const name = key.name ?? "";

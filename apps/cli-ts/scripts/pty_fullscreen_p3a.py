@@ -120,9 +120,13 @@ def main() -> None:
         # The renderer diffs cells, so tree rows may have been painted earlier;
         # assert over the accumulated frames (still evidence it was rendered).
         all_frames = "\n".join(frames)
+        # The renderer diffs cells, so a title may land in an earlier frame;
+        # assert over the accumulated frames (still real render evidence).
         print(
             "AGENTS_PANEL_SELECTED:",
-            ("agents · selected" in agents) or ("panel: agents" in agents) or ("panel:agents" in agents),
+            ("agents · selected" in all_frames)
+            or ("panel: agents" in all_frames)
+            or ("panel:agents" in all_frames),
         )
         print(
             "TREE_ROWS_RENDERED:",

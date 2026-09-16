@@ -336,3 +336,20 @@ test("clearProvider posts to the provider clear route", async () => {
     },
   );
 });
+
+test("getReadOnly issues a GET with no body (read-only projections only)", async () => {
+  const seen: { method: string; body?: string; auth: string | null }[] = [];
+  await withServer(
+    (req) => {
+      seen.push({ method: req.method, ...(req.body ? { body: req.body } : {}), auth: req.auth });
+      return { status: 200, json: { mandates: [] } };
+    },
+    async (client) => {
+      const body = await client.getReadOnly("/v1/mandates");
+      assert.deepEqual(body, { mandates: [] });
+    },
+  );
+  assert.equal(seen[0]?.method, "GET");
+  assert.equal(seen[0]?.body, undefined);
+  assert.equal(seen[0]?.auth, `Bearer ${TOKEN}`);
+});
