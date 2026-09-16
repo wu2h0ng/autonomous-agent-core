@@ -61,7 +61,9 @@ def test_loose_cased_name_is_found(tmp_path: Path) -> None:
 
 
 def test_huge_directory_does_not_stall(tmp_path: Path) -> None:
-    # A directory with very many entries must not stall discovery.
+    # Smoke test: discovery over a 3000-entry directory completes promptly. NOTE this
+    # does NOT exercise the loose-cased entry budget — on a case-insensitive FS the
+    # exact-name probe short-circuits before the fallback scan.
     big = tmp_path / "big"
     big.mkdir()
     for index in range(3000):

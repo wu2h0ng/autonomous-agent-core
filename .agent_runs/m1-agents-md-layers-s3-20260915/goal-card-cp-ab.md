@@ -32,9 +32,11 @@ change digest.
 
 ## 4. Verification
 
-- `tests/product/test_agents_markdown_layers.py` (9): ordering, CLAUDE.md, per-layer
-  digest changes on edit, hidden/.git skipped, symlink ignored, layer/char caps, root-only
-  render identity, chat prompt includes nested layers, explicit config wins.
+- `tests/product/test_agents_markdown_layers.py` (17): ordering, CLAUDE.md, per-layer
+  digest changes on edit, hidden/.git/pruned-dir skips, symlink ignored, layer/char/dir
+  caps, nested-only provenance, root CLAUDE.md label, oversized-file skip, huge-dir
+  smoke, root-only render identity, chat prompt includes nested layers, explicit config
+  wins.
 - Existing `test_chat_agents_markdown.py` (5) still passes.
 - Full `tests/product` 23 failed == base, zero new. Ruff clean; pyright 0.
 
@@ -50,6 +52,15 @@ change digest.
 
 - "On-demand" (path-targeted) layering is NOT implemented; this is a bounded whole-tree
   scan. A target-path variant can be added later if a real caller needs it.
-- The global scan budget can be consumed by instruction-free directories; nested
-  discovery then stops (bounded, tested via `max_entries=0`).
-- Independent exact-diff review still required before promotion.
+- The directory budget is tested (`max_dirs=0` -> root only). The entry budget
+  (`max_entries`) bounds only the loose-cased fallback scan; an exact-case `AGENTS.md`
+  is always found by the cheap O(1) probe, so the budget is not exercised on
+  case-insensitive filesystems (macOS) — documented, not asserted.
+- Per-dir cap (500): a loose-cased instruction file past entry 500 in a directory is
+  not found (intended bound; untested on case-insensitive macOS).
+- Legacy `discover_agents_markdown` on an oversize (>128 KiB) file now (a) truncates at
+  the cap with `errors="ignore"` and (b) digests only the read prefix, so two files
+  differing only past the cap share a digest. Bounded-read consequences; the layered
+  path refuses oversize instead (fail closed).
+- All S3 reviews are same-model; a provider-independent reviewer is required before
+  promotion.
