@@ -103,12 +103,8 @@ export function App({
   const composerRef = useRef<TextareaRenderable | null>(null);
   /** Single text source of truth: the textarea owns the draft; this mirrors it
    * for the overlays (palette/mentions) and writes go through the buffer. */
-  const suppressSyncRef = useRef(false);
   const setComposerText = (value: string): void => {
     const buffer = composerRef.current?.editBuffer;
-    // The buffer write lands asynchronously; suppress the next mirror so it
-    // cannot read the OLD text back (which kept a submitted draft "alive").
-    suppressSyncRef.current = true;
     buffer?.setText(value);
     // setText leaves the caret at the start; put it at the end so the next
     // keystroke appends (otherwise typing prepends and backspace does nothing).
@@ -116,10 +112,6 @@ export function App({
     setInput(value);
   };
   const syncComposer = (): void => {
-    if (suppressSyncRef.current) {
-      suppressSyncRef.current = false;
-      return;
-    }
     setInput(composerRef.current?.plainText ?? "");
   };
   // Read by the textarea's onSubmit: whenever the VIEW owns Enter (agents panel

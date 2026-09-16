@@ -18,12 +18,12 @@
 | 7 | 命令面板（`/` 过滤 + Tab 补全 + Enter 执行） | ✓ | ✓ | **切片 A** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN` + 行为断言 `PALETTE_ENTER_RAN_STATUS`（Enter 真的执行 `/status`） |
 | 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED` |
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
-| 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_TAB_COMPLETED`（经**提交后的新 transcript 行**观测） |
+| 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B/C2** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_COMPLETED_ON_SUBMIT`（经**提交后的新 transcript 行**观测；Tab 在有内容时被 textarea 自身消费） |
 | 11 | vim 模式 | ✓ | ✗ | **缺失** | 需接 `controller.vimMode` + 运动键 |
 | 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 DONE** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8 |
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
-| 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_TRANSCRIPT_OK` |
+| 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
 | 16 | 代码语法高亮（彩色） | ✓ | ✗ | **缺失** | 现为 `<markdown>` 默认样式，未接配色 |
 | 17 | 主题真正生效（颜色） | ✓ | △ | **部分** | 全屏只显示主题名，未应用 `THEMES` 配色 |
 | 18 | 首页/欢迎面板 | ✓ | ✗ | **缺失** | `HomeView` 仅 Ink |
@@ -80,6 +80,10 @@
 - **单一文本真源**：文本以 textarea（`plainText`）为准，视图用**微任务**同步镜像给 overlay（同步读会**滞后一键**并导致 overlay 失同步）；历史召回/补全/编辑器回填统一走 `editBuffer.setText(...)` + **`setCursorByOffset(len)`**（`setText` 会把光标留在行首，否则下一次击键变成前置插入、backspace 失效）。
 - **Enter 单一归属**：`onSubmit` 提交（Enter 绑定为 `submit`，`ctrl+j` 为 `newline`）；**agents 面板是唯一例外**（`agentsPanelRef` 抑制 textarea 提交，改由 resolver 执行会话切换），且 textarea 始终聚焦（面板选中时仍可打字）。
 - **overlay 只拥有自己的键**：palette 仅 `↑/↓/Tab/Enter`、mention 仅 `Tab` —— **可打印键一律穿透**。这修掉了 `/exit` 陷阱：此前 overlay 吞字符 → `/stat` 只进 `/` → Enter 执行默认项 `/exit`（干净退出，被误读为渲染崩溃）。
-- **deviation（诚实记录）**：textarea 有内容时 **Tab 被其自身消费**（空文本时才会到达 handler，这解释了 p3a 的 Tab 可用而 mention 的 Tab 不可用），无可用 keybinding 覆盖。因此 **mention 补全同时绑定在提交时**（提交前自动补全打开的 `@token`）；Tab 补全在空/短草稿下仍可用。
+- **deviation（诚实记录，已更正）**：textarea 有内容时 **Tab 被其自身消费**（空文本时才会到达 handler，这解释了 p3a 的 Tab 可用而 mention 的 Tab 不可用），无可用 keybinding 覆盖。因此 **mention 补全实际发生在提交时**（提交前自动补全打开的 `@token`）。此前文档"Tab 在空/短草稿下仍可用"的说法**不成立**（空草稿不会有打开的 mention），已撤回；证据信号 `MENTION_TAB_COMPLETED` 亦更名为 `MENTION_COMPLETED_ON_SUBMIT`（原名误导）。
+- **复审发现并修复的 P1 回归**：textarea 的 `onSubmit` 与 resolver 的 palette Enter **双触发** → 命令执行两次（`/status` 出现两次 + 一条 `unknown command: /stat`）。修法：`overlayOwnsEnterRef`（palette/selector/approval 打开时抑制 textarea 提交）；不变式脚本新增 **`COMMAND_RAN_EXACTLY_ONCE`**。
+- **后续会话定位的根因（HISTORY/MENTION 长期为红）**：`overlayOwnsEnterRef` 用了 `selector !== undefined`，而 `pendingSelector` 关闭时是 **null** → 判定恒真 → textarea `onSubmit` **永远早退**，**根本没有可用提交路径**（无历史条目→无会话→无文件→无 mentions）。修为 `!== null` 后整网转绿。同 `viewkeys.ts` 已记录的 null/undefined 陷阱。
+- **产品级修复**：`controller.workspaceFiles()` 曾缓存**空文件列表** → 一次过早抓取即可让整个会话的 `@` mentions 失效；改为**只缓存非空结果**。视图侧亦改为「每次打开的 mention 只抓一次」（原先按 query 依赖会 cancel 上一次抓取）。
+- **已知显示缺口**：transcript 用 `<text>` 渲染会**折叠内嵌换行**；多行**输入/提交**正确（`/export` 可见 `\n`），**显示**为一行，待修。
 - **证据**：`pty_fullscreen_composer_invariant.py`（/stat → 面板 → Enter 执行 `/status` → **进程存活**）连续 2 次 `INVARIANT_OK: True`；`parity_a` 四项、`parity_b` 四项（`HISTORY_PREVIOUS`/`MENTION_TAB_COMPLETED`/`MARKDOWN_RENDER_PATH_OK`/`SLICE_B_ALL`）、`parity_c` `EDITOR_ROUNDTRIP`、`p3a` `RESUMED`/`TYPABLE`、多会话 `PROVEN_CROSS_SESSION_SWITCH` 全 True；单测 **158 + 19**。
 - **未做**：**vim 模态层**（下一个独立切片 #11）；多行滚动/高度自适应；textarea 的 paste/undo 语义专项验证。

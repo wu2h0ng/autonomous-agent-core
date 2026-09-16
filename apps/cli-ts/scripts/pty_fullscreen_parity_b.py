@@ -160,7 +160,7 @@ def main() -> None:
         # Narrow assertion: the token must appear in the SUBMITTED window (the
         # new transcript line), not merely somewhere in the accumulated frames.
         mention_ok = "zzmentionfile" in flat_alpha(submitted)
-        print("MENTION_TAB_COMPLETED:", mention_ok)
+        print("MENTION_COMPLETED_ON_SUBMIT:", mention_ok)
 
         os.write(fd, b"\x03")
         time.sleep(0.5)
