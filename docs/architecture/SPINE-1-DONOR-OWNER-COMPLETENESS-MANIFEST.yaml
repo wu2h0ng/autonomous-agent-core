@@ -40,6 +40,10 @@ verified_paths:
   D-OSCORE-SQLSAFETY: ["domain_packs/data_agent/sql_safety.py"]
   D-OSCORE-EVIDENCE: ["domain_packs/data_agent/evidence.py"]
   D-OSCORE-REPORT: ["domain_packs/data_agent/report_adapter.py"]
+  D-OSCORE-METRIC-ALIASES: ["domain_packs/data_agent/metric_aliases.py"]
+  D-OSCORE-METRICLOADER:
+    - "domain_packs/data_agent/metric_contract_loader.py"
+    - "domain_packs/data_agent/metric_contracts.py"
   D-OSCORE-CONSEQUENCE-PREVIEW:
     - "packages/os_core/src/agent_os_core/consequence_preview.py"
     - "packages/contracts/src/agent_os_contracts/consequence.py"
