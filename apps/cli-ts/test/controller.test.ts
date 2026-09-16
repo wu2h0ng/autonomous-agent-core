@@ -572,6 +572,23 @@ test("/resume: prefers the server session list, falls back to local MRU", async 
   assert.ok(fallback.pendingSelector?.items.includes("s:1"));
 });
 
+test("/resume is refused while a turn is in flight (no abandoned turn, no hidden approval)", async () => {
+  // Session switching relies on this guard: a switch must never abandon an
+  // in-flight turn or move the approval surface out of view.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { busy: boolean }).busy = true;
+  const before = controller.messages.length;
+  await controller.submit("/resume session:other");
+  assert.ok(
+    controller.messages
+      .slice(before)
+      .some((m) => m.content.includes("turn in progress")),
+    "refusal must be surfaced to the user",
+  );
+  assert.equal(controller.currentSessionId, null, "no session switch while busy");
+});
+
 test("/theme /mode /resume selectors: open, choose, cancel", async () => {
   const client = new FakeClient();
   const controller = new TuiController(client as never, { pollMs: 1 });

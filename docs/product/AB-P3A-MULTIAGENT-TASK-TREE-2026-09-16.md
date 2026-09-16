@@ -96,3 +96,14 @@
   - 树面板刷新 5s 轮询；未做增量/事件驱动。
 - **证据口径（R1/R2 复审条件）**：pty 只断言确定性可观察事实 → 本机连续两次 `AGENTS_PANEL_PRESENT/TREE_ROWS_RENDERED/TYPABLE_WITH_AGENTS_PANEL = True`、`HAS_AGENTS_TITLE = False`（`--no-agents`）；**面板选中不做帧断言**，由 `nextPanel/visiblePanels` 单测覆盖（含 4 面板含 `agents` 的循环用例）。另：mandate 子集先按 id 排序再截断（确定性）；树轮询由**面板可见性**门控（窄终端不再空拉）。
 - **声明分级**：`specified+implemented+tested`（目标测试）；`integrated: 终端内已接入`；`verified: 待独立复审（R1=APPROVE_WITH_CONDITIONS，条件已修，待 R2 确认）`；`released: NO`。
+
+## 9. P3a-1 收尾：会话切换（2026-09-16，IMPLEMENTED_IN_REVIEW）
+
+- **交互**：`agents` 面板被选中时，`ctrl+↑/↓`（或 `ctrl+p/n`）在树内移动高亮；`enter` 在**session 行**上切换活动会话。
+  - 普通字母与方向键仍归 composer（输入框始终持有焦点，P2 焦点策略不变）；因此只有"面板被选中 + ctrl 组合键/Enter"会改变行为，并在 footer 提示。
+- **实现路径（零协议/零内核改动）**：直接复用**既有** `/resume <session-id>` 命令（`controller.ts:788`），不在视图层重实现会话绑定。
+- **安全性质（关键）**：`/resume` 在 `busy`（`controller.ts:986-1044`，覆盖整个回合 **包括审批挂起**）时拒绝并提示 `turn in progress; cannot resume now` → 切换**不可能**遗弃在途回合，**不可能**把审批面移出视野。非 session 行（mandate/task/组）**不可**触发切换（`resumableSessionId`）。
+- **有界**：树刷新（5s）后游标自动 clamp（`clampCursor`），行数变化不会越界。
+- **实测**（`scripts/pty_fullscreen_p3a.py`，连续两次一致）：`AGENTS_PANEL_PRESENT/TREE_ROWS_RENDERED/RESUMED/TYPABLE_WITH_AGENTS_PANEL = True`、`HAS_AGENTS_TITLE = False`（`--no-agents`）。其中 `RESUMED` 为在 session 行 `enter` 后 transcript 出现 `resumed session …`。
+- **测试**：`test/opentui-agents.test.ts` 增 `clampCursor/moveCursor/resumableSessionId`（含"task/mandate 行不可切换"）；`test/controller.test.ts` 增 `/resume` 在 `busy` 时的拒绝用例（并断言**未**发生会话切换）；cli-ts 全量 **163 pass**。
+- **诚实边界**：hermetic daemon 只有 1 个会话，实测为"切换到同一会话"（走完整 `/resume` 路径并显示 resumed）；**多会话互切**未做端到端（需真实多会话/多 mandate 场景）。树内不显示会话内容预览（只标识/状态）。`RESUMED` 断言为规范化子串匹配（样式可能拆分单词）。

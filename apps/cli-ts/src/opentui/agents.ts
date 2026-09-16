@@ -123,3 +123,22 @@ export function agentRowLine(row: AgentRow): string {
   const status = row.status === "" ? "" : `  ${row.status}`;
   return `${indent}${marker} ${row.id}${status}`;
 }
+
+/** Clamp a row cursor to the current tree (rows change on every refresh). */
+export function clampCursor(cursor: number, rowCount: number): number {
+  if (rowCount <= 0) return 0;
+  return Math.min(Math.max(cursor, 0), rowCount - 1);
+}
+
+export function moveCursor(cursor: number, delta: number, rowCount: number): number {
+  return clampCursor(cursor + delta, rowCount);
+}
+
+/** Only `session` rows are resumable; anything else must not trigger a switch. */
+export function resumableSessionId(
+  rows: readonly AgentRow[],
+  cursor: number,
+): string | null {
+  const row = rows[clampCursor(cursor, rows.length)];
+  return row !== undefined && row.kind === "session" ? row.id : null;
+}

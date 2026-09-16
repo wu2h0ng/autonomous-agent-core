@@ -131,6 +131,24 @@ def main() -> None:
             "TREE_ROWS_RENDERED:",
             any(g in "\n".join(frames) for g in ("▸", "•", "◆", "(unlinked task)", "(no mandates)")),
         )
+        # --- session switching via the agents panel (P3a closing step) ---
+        #  = ctrl+n: move the highlight down inside the panel (the composer
+        # keeps focus, so letters/plain arrows stay typeable).
+        os.write(fd, b"\x0e")
+        time.sleep(0.3)
+        os.write(fd, b"\x0e")
+        time.sleep(0.3)
+        read(fd, 0.4)
+        os.write(fd, b"\r")
+        switched = read(fd, 4)
+        frames.append(switched)
+        print("===== ENTER on the session row (switch) =====")
+        print(switched)
+        # Styling can split a word across escape sequences, so normalise before
+        # matching (the notice itself is new appended text, hence contiguous).
+        flat = re.sub(r"[^a-z0-9]", "", "\n".join(frames).lower())
+        print("RESUMED:", "resumedsession" in flat)
+
         # Regression guard: selecting a panel must not steal composer focus.
         os.write(fd, b"zzz")
         time.sleep(0.4)

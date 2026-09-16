@@ -5,7 +5,13 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agentRowLine, buildAgentTree } from "../src/opentui/agents.js";
+import {
+  agentRowLine,
+  buildAgentTree,
+  clampCursor,
+  moveCursor,
+  resumableSessionId,
+} from "../src/opentui/agents.js";
 
 const mandates = [
   { mandate_id: "mandate-b", status: "ACTIVE" },
@@ -83,4 +89,23 @@ test("agentRowLine renders depth, marker and status", () => {
     agentRowLine({ depth: 0, kind: "group", id: "(unlinked task)", status: "" }),
     "≡ (unlinked task)",
   );
+});
+
+test("cursor helpers clamp to the tree and only sessions are resumable", () => {
+  // Empty tree / out-of-range cursor must never yield an index into nothing.
+  assert.equal(clampCursor(5, 0), 0);
+  assert.equal(clampCursor(-2, 4), 0);
+  assert.equal(clampCursor(9, 4), 3);
+  assert.equal(moveCursor(0, -1, 4), 0);
+  assert.equal(moveCursor(3, 1, 4), 3);
+
+  const { rows } = buildAgentTree({ mandates, links, sessions });
+  const sessionIndex = rows.findIndex((r) => r.kind === "session");
+  const taskIndex = rows.findIndex((r) => r.kind === "task");
+  const mandateIndex = rows.findIndex((r) => r.kind === "mandate");
+  assert.equal(resumableSessionId(rows, sessionIndex), rows[sessionIndex]?.id);
+  // A task/mandate row must NOT switch sessions (no accidental resume).
+  assert.equal(resumableSessionId(rows, taskIndex), null);
+  assert.equal(resumableSessionId(rows, mandateIndex), null);
+  assert.equal(resumableSessionId([], 0), null);
 });
