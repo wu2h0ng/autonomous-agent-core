@@ -42,9 +42,15 @@ test("a closed selector is null/undefined and must NOT own keys (regression)", (
   // The controller returns `pendingSelector: null` when closed; treating that as
   // "open" routed every key to the selector layer and disabled Enter/movement.
   for (const closed of [null, undefined, false]) {
+    // Enter belongs to the composer (the textarea submits); the agents panel is
+    // the exception, where the view resumes the highlighted session.
     assert.deepEqual(resolveViewKey(ctx({ selectorOpen: closed, name: "return" })), {
-      layer: "enter",
+      layer: "ignore",
     });
+    assert.deepEqual(
+      resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "return" })),
+      { layer: "enter" },
+    );
     assert.deepEqual(
       resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "down", ctrl: true })),
       { layer: "agents", action: "move", delta: 1 },
@@ -100,9 +106,20 @@ test("an open palette beats the agents panel and plain Enter", () => {
     resolveViewKey(ctx({ paletteOpen: true, activePanel: "agents", name: "return" })),
     { layer: "palette", action: "submit" },
   );
+  // Anti-trap rule: the palette owns ONLY its four keys. Printable keys and
+  // ctrl+<letter> fall through to their real owners, so a draft can never lose
+  // characters to an open overlay (the "/stat" -> "/" -> /exit trap).
   assert.deepEqual(
     resolveViewKey(ctx({ paletteOpen: true, activePanel: "agents", name: "n", ctrl: true })),
-    { layer: "palette", action: "ignore" },
+    { layer: "agents", action: "move", delta: 1 },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ paletteOpen: true, name: "s", sequence: "s" })),
+    { layer: "ignore" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ paletteOpen: true, name: "a", sequence: "a" })),
+    { layer: "ignore" },
   );
 });
 
@@ -150,7 +167,11 @@ test("agents panel moves on ctrl+arrows/pn or plain arrows; Enter submits otherw
   assert.deepEqual(resolveViewKey(ctx({ activePanel: "agents", name: "j" })), {
     layer: "ignore",
   });
-  assert.deepEqual(resolveViewKey(ctx({ name: "return" })), { layer: "enter" });
+  assert.deepEqual(resolveViewKey(ctx({ name: "return" })), { layer: "ignore" });
+  assert.deepEqual(
+    resolveViewKey(ctx({ activePanel: "agents", name: "return" })),
+    { layer: "enter" },
+  );
   assert.deepEqual(resolveViewKey(ctx({ name: "x", sequence: "x" })), { layer: "ignore" });
 });
 
@@ -183,14 +204,13 @@ test("an open @mention list takes Tab but leaves typing to the composer", () => 
     layer: "mention",
     action: "complete",
   });
-  // A letter must still reach the composer while the mention list is open.
+  // A letter keeps typing (falls through to the composer/textarea).
   assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "a", sequence: "a" })), {
-    layer: "mention",
-    action: "ignore",
+    layer: "ignore",
   });
-  // Enter must still submit (Ink parity): the list does not trap the key.
+  // Enter submits through the composer; the list does not trap it.
   assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "return" })), {
-    layer: "enter",
+    layer: "ignore",
   });
   // The palette still wins over the mention list.
   assert.deepEqual(
@@ -206,10 +226,9 @@ test("up/down are history for the composer unless the agents panel owns them", (
     resolveViewKey(ctx({ activePanel: "agents", name: "up" })),
     { layer: "agents", action: "move", delta: -1 },
   );
-  // An open mention list leaves arrows to the composer input (no-op there for a
-  // single-line composer), i.e. they are not routed to history.
+  // An open mention list does not own the arrows, so they reach history.
   assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "up" })), {
-    layer: "mention",
-    action: "ignore",
+    layer: "history",
+    action: "prev",
   });
 });
