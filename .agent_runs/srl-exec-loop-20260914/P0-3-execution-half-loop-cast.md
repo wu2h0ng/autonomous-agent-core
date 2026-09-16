@@ -82,3 +82,24 @@ tests/product/test_srl_execution_bridge.py
 - Status: **`integrated`** at the product composition root (the `AgentOSApplication` composes the bridge over the real ports and exposes `register_srl_execution_plan` / `commit_and_start_srl_task`; the plan source is a composition-root-owned trusted registry, never caller-injectable). F1/F2/F3 are CLOSED; a same-model subagent review across rounds 1-5 ended APPROVE.
 - Honest residuals (LOW, non-blocking): no non-test organ caller yet (true end-to-end behavior is Increment 2); `register_srl_execution_plan` is trusted-by-convention (harden before an SRL organ shares the app); the registry is in-memory/not restart-durable; a cross-tenant-through-app-method test is still owed.
 - Promotion still requires a CROSS-PROVIDER review at the exact head (G6), which the codex channel cannot provide until Sep 19.
+
+## Final review residual (2026-09-15, same-model final review F-A)
+
+**F-A (MEDIUM): the bridge is not the sole start authority.** The generic HTTP start
+path (`AgentOSApplication.start_run` -> `task_configurations.start_run`) passes no
+`additional_capability_ids`, so it guards only the configuration capability. Because the
+bridge deliberately leaves a sealed `COMMITTED` task when a *tool-capability* C7 halt
+occurs, a later generic start CAN start the Run.
+
+- **No effect bypass.** Every executed action still passes
+  `PolicyKernel.decide` -> `ActionPermit` -> `CapabilityBroker`; a halted tool capability
+  yields `CORRECTION_HALTED` at dispatch (existing coverage:
+  `tests/product/test_terminal_chat_loop.py`, `test_surface_api.py`,
+  `test_surface_runtime.py`). The tool cannot be executed.
+- **Claim scope corrected:** "no path starts without a valid receipt" is true **within
+  the bridge path** (`commit_and_start_srl_task`), not as a global
+  application-wide statement. The config-capability guard is the start authority; the
+  tool-capability guard blocks the bridge's own start and (defense-in-depth) the
+  dispatch.
+- LOW-1..4 (registry validation only at the app layer; store not closed; untyped
+  escapes; weak tests) are recorded residuals to address before Increment 2.
