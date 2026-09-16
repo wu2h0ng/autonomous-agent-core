@@ -38,8 +38,18 @@ change digest.
 - Existing `test_chat_agents_markdown.py` (5) still passes.
 - Full `tests/product` 23 failed == base, zero new. Ruff clean; pyright 0.
 
-## 5. Residual / honesty
+## 5. Bounds (explicit)
+
+- Per file: **128 KiB hard cap** (`_MAX_BYTES_PER_FILE`). A layered file over the cap is
+  **skipped** (fail closed); the legacy `discover_agents_markdown` **truncates** to the
+  cap to preserve its pre-existing truncate contract.
+- Per loose-cased directory probe: 500 entries (`_MAX_ENTRIES_PER_DIR`); global scan
+  budget 20 000 entries + 2 000 directories; 8 layers; 24 000 total chars.
+
+## 6. Residual / honesty
 
 - "On-demand" (path-targeted) layering is NOT implemented; this is a bounded whole-tree
   scan. A target-path variant can be added later if a real caller needs it.
+- The global scan budget can be consumed by instruction-free directories; nested
+  discovery then stops (bounded, tested via `max_entries=0`).
 - Independent exact-diff review still required before promotion.

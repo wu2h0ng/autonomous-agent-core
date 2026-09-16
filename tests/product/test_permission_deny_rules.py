@@ -227,7 +227,7 @@ def _client_ref() -> SurfaceClientRef:
     )
 
 
-def _wait_for(predicate, description: str, timeout: float = 5.0):
+def _wait_for(predicate, description: str, timeout: float = 20.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = predicate()

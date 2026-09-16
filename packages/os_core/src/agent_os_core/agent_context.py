@@ -67,11 +67,14 @@ def discover_agents_markdown(
         resolved.relative_to(root)
     except ValueError:
         return None
-    data = _read_bounded(path)
-    if data is None:
+    read = _read_bounded(path)
+    if read is None:
         return None
+    data, oversized = read
+    # Legacy contract: truncate (do not refuse) a large file. A byte-cap boundary can
+    # split a multi-byte character; only in the truncated case is that tolerated.
     try:
-        raw = data.decode("utf-8")
+        raw = data.decode("utf-8", errors="ignore" if oversized else "strict")
     except UnicodeDecodeError:
         # Fail closed: an unreadable or non-UTF-8 AGENTS.md is ignored, never
         # allowed to abort session open.
@@ -89,12 +92,12 @@ def agents_markdown_system_section(ctx: AgentsMarkdownContext) -> str:
     return f"\n\n# Project AGENTS.md (sha256={ctx.sha256})\n{ctx.content}"
 
 
-def _read_bounded(path: Path) -> bytes | None:
-    """Read at most ``_MAX_BYTES_PER_FILE`` bytes, refusing a larger file.
+def _read_bounded(path: Path) -> tuple[bytes, bool] | None:
+    """Read up to ``_MAX_BYTES_PER_FILE`` bytes; report whether the file was larger.
 
     Opens with ``O_NOFOLLOW`` where available (closing the symlink->read TOCTOU) and
-    loops (a single ``os.read`` may return short) up to the cap. Returns ``None`` on
-    any failure, oversize, or symlink.
+    loops (a single ``os.read`` may return short) up to the cap, then probes one extra
+    byte to detect oversize. Returns ``None`` on any failure or symlink.
     """
 
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -117,9 +120,8 @@ def _read_bounded(path: Path) -> bytes | None:
     finally:
         os.close(fd)
     data = b"".join(chunks)
-    if len(data) > _MAX_BYTES_PER_FILE:
-        return None
-    return data
+    oversized = len(data) > _MAX_BYTES_PER_FILE
+    return data[:_MAX_BYTES_PER_FILE], oversized
 
 
 def _read_layer(
@@ -134,8 +136,12 @@ def _read_layer(
         resolved.relative_to(root)
     except (OSError, ValueError):
         return None
-    data = _read_bounded(path)
-    if data is None:
+    read = _read_bounded(path)
+    if read is None:
+        return None
+    data, oversized = read
+    if oversized:
+        # Layered contract: a file over the hard cap is skipped (fail closed).
         return None
     try:
         raw = data.decode("utf-8")
@@ -161,7 +167,9 @@ def _pick(directory: Path, budget: list[int], max_entries: int) -> Path | None:
     matches: list[Path] = []
     try:
         with os.scandir(directory) as iterator:
-            for entry in iterator:
+            for index, entry in enumerate(iterator):
+                if index >= _MAX_ENTRIES_PER_DIR:
+                    break
                 budget[0] += 1
                 if budget[0] > max_entries:
                     break

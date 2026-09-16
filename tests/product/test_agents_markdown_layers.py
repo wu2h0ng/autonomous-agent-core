@@ -60,8 +60,8 @@ def test_loose_cased_name_is_found(tmp_path: Path) -> None:
     assert layers[0].content == "lower\n"
 
 
-def test_huge_directory_is_bounded(tmp_path: Path) -> None:
-    # A directory with very many entries must not stall discovery (budgeted scan).
+def test_huge_directory_does_not_stall(tmp_path: Path) -> None:
+    # A directory with very many entries must not stall discovery.
     big = tmp_path / "big"
     big.mkdir()
     for index in range(3000):
@@ -69,6 +69,16 @@ def test_huge_directory_is_bounded(tmp_path: Path) -> None:
     (big / "AGENTS.md").write_text("found\n", encoding="utf-8")
     layers = discover_agents_markdown_layers(tmp_path)
     assert [layer.path for layer in layers] == ["big/AGENTS.md"]
+
+
+def test_directory_budget_stops_nested_traversal(tmp_path: Path) -> None:
+    # The directory budget bounds traversal: with max_dirs=0, nested discovery stops
+    # while the O(1) root probe still succeeds.
+    (tmp_path / "AGENTS.md").write_text("root\n", encoding="utf-8")
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "AGENTS.md").write_text("nested\n", encoding="utf-8")
+    layers = discover_agents_markdown_layers(tmp_path, max_dirs=0)
+    assert [layer.path for layer in layers] == ["AGENTS.md"]
 
 
 def test_nested_only_is_not_mislabeled_as_root(tmp_path: Path) -> None:
