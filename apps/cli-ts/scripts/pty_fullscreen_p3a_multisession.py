@@ -28,7 +28,6 @@ import subprocess
 import tempfile
 import termios
 import time
-import sys
 import urllib.request
 from pathlib import Path
 
