@@ -105,6 +105,30 @@ test("an open palette beats the agents panel and plain Enter", () => {
   );
 });
 
+test("Tab switches panels and PgUp/PgDn scroll, unless a palette is open", () => {
+  // Regression pin: an earlier revision dropped these branches entirely and
+  // silently disabled panel switching/scrolling (and with it agents navigation).
+  assert.deepEqual(resolveViewKey(ctx({ name: "tab" })), {
+    layer: "panel",
+    action: "switch",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ name: "pageup" })), {
+    layer: "panel",
+    action: "scroll",
+    delta: -1,
+  });
+  assert.deepEqual(resolveViewKey(ctx({ name: "pagedown" })), {
+    layer: "panel",
+    action: "scroll",
+    delta: 1,
+  });
+  // An open palette keeps Tab for command completion.
+  assert.deepEqual(resolveViewKey(ctx({ name: "tab", paletteOpen: true })), {
+    layer: "palette",
+    action: "complete",
+  });
+});
+
 test("agents panel moves on ctrl+arrows/pn or plain arrows; Enter submits otherwise", () => {
   assert.deepEqual(resolveViewKey(ctx({ activePanel: "agents", name: "down", ctrl: true })), {
     layer: "agents",

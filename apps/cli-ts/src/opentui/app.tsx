@@ -7,10 +7,11 @@
  * Focus policy (regression fix): the composer input owns keyboard focus at all
  * times — opentui focus is exclusive, so giving a panel `focused` would blur
  * the input and steal typing. `Tab` therefore only changes the *selected*
- * panel (shown in the title/header); keyboard scrolling of a panel is done
- * explicitly via `scrollBy` on the selected panel, and the mouse wheel scrolls
- * whichever panel it is over. Approvals stay global (y/n) and force the
- * transcript to be selected so they remain in front.
+ * panel (shown in the title/header); `pgup`/`pgdn` scroll the selected panel via
+ * an explicit `scrollBy`, and the mouse wheel scrolls whichever panel it is over.
+ * Approvals stay global (y/n) and force the transcript to be selected so they
+ * remain in front. Key ownership/precedence is resolved by the pure
+ * `resolveViewKey` (src/opentui/viewkeys.ts) so the order is testable.
  */
 /** @jsxImportSource @opentui/react */
 import { useEffect, useReducer, useRef, useState } from "react";
@@ -289,6 +290,21 @@ export function App({
           } else {
             submit(pick.name);
           }
+          return;
+        }
+        return;
+      }
+      case "panel": {
+        if (owner.action === "switch") {
+          setSelected(nextPanel(activePanel, panels));
+          return;
+        }
+        if (owner.action === "scroll") {
+          const target = scrollRefs[activePanel]?.current;
+          target?.scrollBy(
+            (owner.delta ?? 1) * PANEL_SCROLL_LINES,
+            "absolute",
+          );
           return;
         }
         return;

@@ -12,6 +12,7 @@ export type ViewKeyOwner =
   | { layer: "approval"; action: "approve" | "reject" | "ignore" }
   | { layer: "global" }
   | { layer: "palette"; action: "up" | "down" | "complete" | "submit" | "ignore" }
+  | { layer: "panel"; action: "switch" | "scroll"; delta?: -1 | 1 }
   | { layer: "agents"; action: "move"; delta: 1 | -1 }
   | { layer: "enter" }
   | { layer: "ignore" };
@@ -66,7 +67,14 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
     return { layer: "palette", action: "ignore" };
   }
 
-  // 5. The agents panel owns list movement (ctrl+arrows / ctrl+p|n).
+  // 5. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
+  //    come after the palette (Tab completes commands while it is open) and
+  //    after the frozen globals, but before the agents-panel/Enter handling.
+  if (name === "tab") return { layer: "panel", action: "switch" };
+  if (name === "pageup") return { layer: "panel", action: "scroll", delta: -1 };
+  if (name === "pagedown") return { layer: "panel", action: "scroll", delta: 1 };
+
+  // 6. The agents panel owns list movement (ctrl+arrows / ctrl+p|n).
   if (ctx.activePanel === "agents" && ctrl && ["up", "down", "p", "n"].includes(name)) {
     return { layer: "agents", action: "move", delta: name === "down" || name === "n" ? 1 : -1 };
   }
@@ -74,10 +82,10 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
     return { layer: "agents", action: "move", delta: name === "down" ? 1 : -1 };
   }
 
-  // 6. Plain Enter submits the composer.
+  // 7. Plain Enter submits the composer.
   if (name === "return") return { layer: "enter" };
 
-  // 7. Anything else (letters, plain arrows) belongs to the composer input.
+  // 8. Anything else (letters, plain arrows) belongs to the composer input.
   void sequence;
   return { layer: "ignore" };
 }
