@@ -19,6 +19,14 @@ import type { ScrollBoxRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
+import { filterCommands } from "../commands.js";
+import {
+  filterSelectorItems,
+  moveSelector,
+  numberedChoice,
+  selectorChoice,
+} from "../selector.js";
+import { sliceWindow } from "./overlays.js";
 import {
   filePanelLines,
   nextPanel,
@@ -93,6 +101,9 @@ export function App({
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
   const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
   const [cursor, setCursor] = useState(0);
+  const [selectorQuery, setSelectorQuery] = useState("");
+  const [selectorIndex, setSelectorIndex] = useState(0);
+  const [paletteIndex, setPaletteIndex] = useState(0);
   const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
@@ -141,6 +152,15 @@ export function App({
   }, [workspace, withPanels]);
 
   cursorKeyRef.current = cursorKey(tree.rows, cursor);
+  const selector = controller.pendingSelector;
+  const selectorItems = selector
+    ? filterSelectorItems(selector.items, selectorQuery)
+    : [];
+  const selectorState = { items: selectorItems, index: selectorIndex };
+  const palette = input.startsWith("/") && !input.includes(" ")
+    ? filterCommands(input)
+    : [];
+
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
@@ -189,8 +209,63 @@ export function App({
   }, [client, showAgentsPanel]);
 
 
-  useKeyboard((key: { name?: string; ctrl?: boolean }) => {
+  useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
+    // Selector overlay (/resume, /theme, /mode): owns every key while open, so
+    // Esc cancels the picker instead of reaching the frozen global mapping.
+    if (selector) {
+      if (name === "escape") {
+        controller.cancelSelector();
+        setSelectorQuery("");
+        setSelectorIndex(0);
+        return;
+      }
+      if (palette.length > 0 && (name === "up" || name === "down")) {
+      const step = name === "down" ? 1 : -1;
+      setPaletteIndex((i) => (i + step + palette.length) % palette.length);
+      return;
+    }
+    if (name === "tab" && palette.length > 0) {
+      const pick = palette[Math.min(paletteIndex, palette.length - 1)];
+      if (pick !== undefined) setInput(`${pick.name} `);
+      return;
+    }
+    if (name === "return") {
+      if (palette.length > 0) {
+        const pick = palette[Math.min(paletteIndex, palette.length - 1)];
+        if (pick !== undefined && pick.name === input.trim()) {
+          submit(pick.name);
+          return;
+        }
+      }
+        const pick = selectorChoice(selectorState);
+        if (pick !== undefined) controller.chooseSelector(pick);
+        setSelectorQuery("");
+        return;
+      }
+      if (name === "up" || name === "down") {
+        const next = moveSelector(selectorState, name === "down" ? 1 : -1);
+        setSelectorIndex(next.index);
+        return;
+      }
+      if (name === "backspace") {
+        setSelectorQuery((q) => q.slice(0, -1));
+        setSelectorIndex(0);
+        return;
+      }
+      const printable = key.sequence ?? "";
+      if (/^[1-9]$/.test(printable) && selectorQuery === "") {
+        const pick = numberedChoice(selectorState, Number(printable));
+        if (pick !== undefined) controller.chooseSelector(pick);
+        return;
+      }
+      if (/^[\x20-\x7e]$/.test(printable)) {
+        setSelectorQuery((q) => q + printable);
+        setSelectorIndex(0);
+        return;
+      }
+      return;
+    }
     // Reuse the tested frozen mapping: Esc (streaming/stalled) and Ctrl-C ->
     // controller.interrupt(); Esc is always consumed and never approves/rejects.
     if (handleGlobalKey(controller, name, { ctrl: key.ctrl === true, escape: name === "escape" })) {
@@ -342,6 +417,25 @@ export function App({
         {transcript}
         {panels.length > 1 ? sidebar : null}
       </box>
+      {selector ? (
+        <box border title={selector.title} style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {sliceWindow(selectorItems, selectorIndex, 8).items.map((item, index) => (
+            <text key={`s${index}`}>
+              {`${item === selectorChoice(selectorState) ? "▌ " : "  "}${item}`}
+            </text>
+          ))}
+          <text>{`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}</text>
+        </box>
+      ) : null}
+      {palette.length > 0 ? (
+        <box title="commands" style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {sliceWindow(palette, paletteIndex, 6).items.map((command, index) => (
+            <text key={`c${index}`}>
+              {`${command === palette[Math.min(paletteIndex, palette.length - 1)] ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
+            </text>
+          ))}
+        </box>
+      ) : null}
       <box border title="message" style={{ height: 3, paddingLeft: 1 }}>
         <input
           placeholder="Tell Noem what to do… (Enter to send)"
