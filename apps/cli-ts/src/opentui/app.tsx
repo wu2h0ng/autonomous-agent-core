@@ -18,6 +18,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
+import type { ComposerState } from "../composer.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
 import { filterCommands } from "../commands.js";
@@ -28,6 +29,7 @@ import {
 } from "../selector.js";
 import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
+import { applyVimAction, offsetFromCursor, resolveVimKey } from "./vim.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
 import { InputHistory } from "../history.js";
 import { openExternalEditor } from "../editor.js";
@@ -127,6 +129,8 @@ export function App({
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
+  const [vimInsert, setVimInsert] = useState(true);
+  const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const syntaxStyle = useMemo(() => SyntaxStyle.create(), []);
   const historyRef = useRef<InputHistory | null>(null);
@@ -220,6 +224,24 @@ export function App({
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
 
+  const vimNormal =
+    controller.vimMode &&
+    !vimInsert &&
+    !awaiting &&
+    selector === null &&
+    palette.length === 0;
+
+  /** Current draft + caret as a composer state (for the vim edits). */
+  const composerState = (): ComposerState => {
+    const buffer = composerRef.current;
+    const value = buffer?.plainText ?? input;
+    const cursor = buffer
+      ? offsetFromCursor(value, buffer.editBuffer.getCursorPosition().row, buffer.editBuffer.getCursorPosition().col)
+      : value.length;
+    return { value, cursor };
+  };
+
+
   const panels = visiblePanels(width, withPanels, withAgents);
   // Approvals are global and must stay in front: force the transcript selected.
   agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
@@ -278,6 +300,9 @@ export function App({
       paletteOpen: palette.length > 0,
       mentionOpen: mentionMatches.length > 0,
       activePanel,
+      vimNormal,
+      vimInsertMode: controller.vimMode && vimInsert,
+      streaming: controller.status === "streaming" || controller.status === "stalled",
       name,
       ctrl,
       sequence,
@@ -386,6 +411,38 @@ export function App({
       }
       case "agents": {
         setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
+        return;
+      }
+      case "vim": {
+        if (owner.action === "normal") {
+          // Leave editing for vim normal mode (the textarea blurs, so letters
+          // reach this handler instead of being inserted).
+          setVimInsert(false);
+          setPendingOp(null);
+          return;
+        }
+        const action = resolveVimKey(name, pendingOp);
+        if (action.kind === "submit") {
+          submit(composerRef.current?.plainText ?? input);
+          return;
+        }
+        if (action.kind === "clearPending") {
+          setPendingOp(null);
+          return;
+        }
+        if (action.kind === "pending") {
+          setPendingOp(action.op);
+          return;
+        }
+        if (action.kind === "ignore") return;
+        const result = applyVimAction(composerState(), action);
+        setComposerText(result.state.value);
+        composerRef.current?.editBuffer.setCursorByOffset(result.state.cursor);
+        setPendingOp(null);
+        if (result.insert) {
+          setVimInsert(true);
+          composerRef.current?.focus();
+        }
         return;
       }
       case "enter": {
@@ -568,7 +625,7 @@ export function App({
         <textarea
           ref={composerRef}
           placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"
-          focused={!awaiting}
+          focused={!awaiting && !vimNormal}
           keyBindings={[
             { name: "return", action: "submit" },
             { name: "kpenter", action: "submit" },
