@@ -92,7 +92,7 @@ class SQLiteQueryExecutor:
         if connection is not None and database is not None:
             raise ValueError("Provide exactly one of 'connection' or 'database', not both.")
         if connection is None:
-            connection = sqlite3.connect(database)
+            connection = sqlite3.connect(database)  # type: ignore[arg-type]
         connection.row_factory = sqlite3.Row
         self._connection = connection
 
