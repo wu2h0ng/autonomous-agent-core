@@ -15,8 +15,8 @@
 | 4 | 窄终端降级 | ✓ | ✓ | DONE | `layoutFor`/`SIDEBAR_MIN_WIDTH` |
 | 5 | 独立滚动面板 | ✗（Ink 无） | ✓ | 全屏领先 | P2（files/diff） |
 | 6 | agents 树 + 会话切换 | ✗ | ✓ | 全屏领先 | P3a（+多会话 e2e） |
-| 7 | 命令面板（`/` 过滤 + Tab 补全） | ✓ | ✓ | **切片 A（本 PR）** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN/TAB_COMPLETED` |
-| 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A（本 PR）** | `selector.ts` 复用；pty `SELECTOR_SHOWN/CANCELLED` |
+| 7 | 命令面板（`/` 过滤 + Tab 补全 + Enter 执行） | ✓ | ✓ | **切片 A** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN` + 行为断言 `PALETTE_ENTER_RAN_STATUS`（Enter 真的执行 `/status`） |
+| 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED` |
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
 | 10 | `@` mentions 列表 + 补全 | ✓ | ✗ | **缺失** | 需接 `mentions.ts` + files 列表 |
 | 11 | vim 模式 | ✓ | ✗ | **缺失** | 需接 `controller.vimMode` + 运动键 |
@@ -40,3 +40,14 @@
 1. 切片 B：mentions + 输入历史 + Markdown/高亮（纯模块已存在，视图接线为主）。
 2. 切片 C：多行 composer + 光标运动 + 外部编辑器 + vim。
 3. 切片 D：主题配色 + 首页/欢迎面板 → 之后退役 Ink。
+
+## 4. 切片 A 的复审教训（已修，保留供追溯）
+
+独立复审 R1 = REVISE，发现两个**真实**缺陷（均已修复并有测试）：
+
+1. **死代码**：palette 的 `↑/↓`/`Tab`/`Enter` 分支被误嵌进 `if (selector)` 内 → 命令面板导航/补全完全不可达。根因是键路由只存在于组件里、无纯函数可测；现抽出 `src/opentui/viewkeys.ts`（键归属优先级：selector > approval > 冻结全局键 > palette > agents > 纯提交）并单测覆盖优先级（含"palette 打开时 Enter 不得切换会话"）。
+2. **null 误判**：`selectorOpen: pendingSelector !== undefined`，而控制器在关闭时返回 **null** → 所有键都被判给 selector 层 → Enter/移动**全部失效**（连普通回合都无法提交）。改为真值判断，并加 `null/undefined/false` 回归测试。
+
+**证据纪律**：切片 A 第一版的 pty 断言是**假阳性**（"commands" 取自命令描述文本、"Tab 补全"取自残留帧）。现改为：面板标题 `─commands`（有边框）+ **行为断言**（Enter 后面板出现 `session status … turns 0`）。
+
+**残留风险（诚实）**：Ink `palette` 用例的 `useInput` 处理器引用可能滞后一帧，并行负载下偶发；现改为 UI 用例串行 + 等待 composer 回显 + 额外两拍，连续 8 次干净。Ink 退役后此风险消失。

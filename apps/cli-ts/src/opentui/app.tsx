@@ -24,9 +24,9 @@ import {
   filterSelectorItems,
   moveSelector,
   numberedChoice,
-  selectorChoice,
 } from "../selector.js";
 import { sliceWindow } from "./overlays.js";
+import { resolveViewKey } from "./viewkeys.js";
 import {
   filePanelLines,
   nextPanel,
@@ -161,6 +161,10 @@ export function App({
     ? filterCommands(input)
     : [];
 
+  useEffect(() => {
+    setPaletteIndex(0);
+  }, [input]);
+
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
@@ -211,96 +215,96 @@ export function App({
 
   useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
-    // Selector overlay (/resume, /theme, /mode): owns every key while open, so
-    // Esc cancels the picker instead of reaching the frozen global mapping.
-    if (selector) {
-      if (name === "escape") {
-        controller.cancelSelector();
-        setSelectorQuery("");
-        setSelectorIndex(0);
-        return;
-      }
-      if (palette.length > 0 && (name === "up" || name === "down")) {
-      const step = name === "down" ? 1 : -1;
-      setPaletteIndex((i) => (i + step + palette.length) % palette.length);
-      return;
-    }
-    if (name === "tab" && palette.length > 0) {
-      const pick = palette[Math.min(paletteIndex, palette.length - 1)];
-      if (pick !== undefined) setInput(`${pick.name} `);
-      return;
-    }
-    if (name === "return") {
-      if (palette.length > 0) {
-        const pick = palette[Math.min(paletteIndex, palette.length - 1)];
-        if (pick !== undefined && pick.name === input.trim()) {
-          submit(pick.name);
+    const ctrl = key.ctrl === true;
+    const sequence = key.sequence ?? "";
+    const owner = resolveViewKey({
+      selectorOpen: selector,
+      awaitingApproval: awaiting,
+      paletteOpen: palette.length > 0,
+      activePanel,
+      name,
+      ctrl,
+      sequence,
+    });
+
+    switch (owner.layer) {
+      case "selector": {
+        if (name === "escape") {
+          controller.cancelSelector();
+          setSelectorQuery("");
+          setSelectorIndex(0);
           return;
         }
-      }
-        const pick = selectorChoice(selectorState);
-        if (pick !== undefined) controller.chooseSelector(pick);
-        setSelectorQuery("");
+        if (name === "return") {
+          const pick = selectorItems[
+            Math.min(selectorIndex, Math.max(0, selectorItems.length - 1))
+          ];
+          if (pick !== undefined) controller.chooseSelector(pick);
+          setSelectorQuery("");
+          return;
+        }
+        if (name === "up" || name === "down") {
+          const next = moveSelector(selectorState, name === "down" ? 1 : -1);
+          setSelectorIndex(next.index);
+          return;
+        }
+        if (name === "backspace") {
+          setSelectorQuery((q) => q.slice(0, -1));
+          setSelectorIndex(0);
+          return;
+        }
+        if (/^[1-9]$/.test(sequence) && selectorQuery === "") {
+          const pick = numberedChoice(selectorState, Number(sequence));
+          if (pick !== undefined) controller.chooseSelector(pick);
+          return;
+        }
+        if (/^[\x20-\x7e]$/.test(sequence)) {
+          setSelectorQuery((q) => q + sequence);
+          setSelectorIndex(0);
+          return;
+        }
         return;
       }
-      if (name === "up" || name === "down") {
-        const next = moveSelector(selectorState, name === "down" ? 1 : -1);
-        setSelectorIndex(next.index);
+      case "approval": {
+        if (owner.action === "approve") void controller.approve();
+        else if (owner.action === "reject") void controller.reject();
         return;
       }
-      if (name === "backspace") {
-        setSelectorQuery((q) => q.slice(0, -1));
-        setSelectorIndex(0);
+      case "global": {
+        handleGlobalKey(controller, name, { ctrl, escape: name === "escape" });
         return;
       }
-      const printable = key.sequence ?? "";
-      if (/^[1-9]$/.test(printable) && selectorQuery === "") {
-        const pick = numberedChoice(selectorState, Number(printable));
-        if (pick !== undefined) controller.chooseSelector(pick);
+      case "palette": {
+        if (owner.action === "up" || owner.action === "down") {
+          const step = owner.action === "down" ? 1 : -1;
+          setPaletteIndex((i) => (i + step + palette.length) % palette.length);
+          return;
+        }
+        if (owner.action === "complete" || owner.action === "submit") {
+          const pick = palette[Math.min(paletteIndex, palette.length - 1)];
+          if (pick === undefined) return;
+          if (owner.action === "complete") {
+            setInput(`${pick.name} `);
+            setPaletteIndex(0);
+          } else {
+            submit(pick.name);
+          }
+          return;
+        }
         return;
       }
-      if (/^[\x20-\x7e]$/.test(printable)) {
-        setSelectorQuery((q) => q + printable);
-        setSelectorIndex(0);
+      case "agents": {
+        setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
         return;
       }
-      return;
-    }
-    // Reuse the tested frozen mapping: Esc (streaming/stalled) and Ctrl-C ->
-    // controller.interrupt(); Esc is always consumed and never approves/rejects.
-    if (handleGlobalKey(controller, name, { ctrl: key.ctrl === true, escape: name === "escape" })) {
-      return;
-    }
-    if (awaiting) {
-      if (name === "y") void controller.approve();
-      else if (name === "n") void controller.reject();
-      return;
-    }
-    if (name === "tab") {
-      setSelected(nextPanel(activePanel, panels));
-      return;
-    }
-    if (name === "pageup" || name === "pagedown") {
-      const target = scrollRefs[activePanel]?.current;
-      const delta = name === "pageup" ? -PANEL_SCROLL_LINES : PANEL_SCROLL_LINES;
-      target?.scrollBy(delta, "absolute");
-      return;
-    }
-    // The agents panel owns ctrl+up/down (cursor) and Enter (switch session).
-    // Plain arrows/letters stay with the composer, which keeps keyboard focus.
-    const down = name === "down" || name === "n";
-    const up = name === "up" || name === "p";
-    if (activePanel === "agents" && key.ctrl === true && (down || up)) {
-      setCursor((current) => moveCursor(current, down ? 1 : -1, tree.rows.length));
-      return;
-    }
-    if (name === "return") {
-      // Routing is a pure function (tested): a session row switches via the
-      // /resume path (the controller refuses it whenever a turn or an approval
-      // is pending), any other row / panel falls through to the composer.
-      const plan = planEnter(activePanel, tree.rows, cursor, input);
-      if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
-      else if (plan.kind === "submit") submit(plan.text);
+      case "enter": {
+        const plan = planEnter(activePanel, tree.rows, cursor, input);
+        if (plan.kind === "resume") void controller.submit(`/resume ${plan.sessionId}`);
+        else if (plan.kind === "submit") submit(plan.text);
+        return;
+      }
+      default:
+        return;
     }
   });
 
@@ -419,21 +423,27 @@ export function App({
       </box>
       {selector ? (
         <box border title={selector.title} style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {sliceWindow(selectorItems, selectorIndex, 8).items.map((item, index) => (
-            <text key={`s${index}`}>
-              {`${item === selectorChoice(selectorState) ? "▌ " : "  "}${item}`}
-            </text>
-          ))}
+          {(() => {
+            const window = sliceWindow(selectorItems, selectorIndex, 8);
+            return window.items.map((item, index) => (
+              <text key={`s${index}`}>
+                {`${index === window.index ? "▌ " : "  "}${item}`}
+              </text>
+            ));
+          })()}
           <text>{`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}</text>
         </box>
       ) : null}
       {palette.length > 0 ? (
-        <box title="commands" style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {sliceWindow(palette, paletteIndex, 6).items.map((command, index) => (
-            <text key={`c${index}`}>
-              {`${command === palette[Math.min(paletteIndex, palette.length - 1)] ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
-            </text>
-          ))}
+        <box border title="commands" style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {(() => {
+            const window = sliceWindow(palette, paletteIndex, 6);
+            return window.items.map((command, index) => (
+              <text key={`c${index}`}>
+                {`${index === window.index ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
+              </text>
+            ));
+          })()}
         </box>
       ) : null}
       <box border title="message" style={{ height: 3, paddingLeft: 1 }}>

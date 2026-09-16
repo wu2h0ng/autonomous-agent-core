@@ -108,30 +108,31 @@ def main() -> None:
         pid, fd = spawn(descriptor)
         frames.append(read(fd, 4))
 
-        # 1) Command palette: typing "/" must list commands.
-        os.write(fd, b"/")
-        time.sleep(0.6)
+        # 1) Command palette: typing "/stat" must open the titled, bordered
+        #    palette (asserted on its border+title, which only the palette has).
+        for ch in b"/stat":
+            os.write(fd, bytes([ch]))
+            time.sleep(0.05)
+        time.sleep(0.8)
         palette = read(fd, 2)
         frames.append(palette)
-        print("===== PALETTE (after typing '/') =====")
+        print("===== PALETTE (after typing '/stat') =====")
         print(palette)
-        # The renderer diffs cells and the window shows 6 of the matching
-        # commands, so assert on the palette title plus any in-window command.
-        WINDOW = ("/exit", "/status", "/cost", "/provider", "/mode", "/resume")
-        shown = flat("".join(frames))  # accumulated: the renderer diffs cells
-        print("PALETTE_SHOWN:", ("commands" in shown) and any(n in shown for n in WINDOW))
+        print("PALETTE_SHOWN:", "─commands" in palette)
 
-        # 2) Tab completes the highlighted command into the composer.
-        os.write(fd, b"\t")
-        time.sleep(0.5)
-        completed = read(fd, 1.5)
-        frames.append(completed)
-        print("===== TAB COMPLETION =====")
-        print(completed)
-        print(
-            "PALETTE_TAB_COMPLETED:",
-            any(n in flat(completed) for n in WINDOW),
-        )
+        # 2) Enter on the palette must RUN the highlighted command. /status emits
+        #    a "session status" panel, so its presence proves the palette routed
+        #    Enter to the command instead of submitting raw text.
+        os.write(fd, b"\r")
+        time.sleep(0.8)
+        ran = read(fd, 2.5)
+        frames.append(ran)
+        print("===== ENTER ON PALETTE =====")
+        print(ran)
+        # The status panel is appended to the transcript; the renderer diffs
+        # cells, so evaluate over the accumulated frames.
+        allflat_ran = flat("".join(frames))
+        print("PALETTE_ENTER_RAN_STATUS:", "sessionstatus" in allflat_ran and "turns" in allflat_ran)
 
         # 3) Clear the composer, then /theme opens the selector overlay.
         for _ in range(12):
@@ -149,7 +150,10 @@ def main() -> None:
         frames.append(overlay)
         print("===== SELECTOR OVERLAY (/theme) =====")
         print(overlay)
-        print("SELECTOR_SHOWN:", "select" in flat(overlay) and "esc" in flat(overlay))
+        # Selector-specific tokens (the hint line), so the home help text's
+        # "Esc during a turn" cannot produce a false positive.
+        allflat_sel = flat("".join(frames))
+        print("SELECTOR_SHOWN:", "19pick" in allflat_sel and "esccancel" in allflat_sel)
 
         # 4) Esc cancels the selector (and must not reach the global handler).
         os.write(fd, b"\x1b")
@@ -158,11 +162,13 @@ def main() -> None:
         frames.append(cancelled)
         print("===== AFTER ESC =====")
         print(cancelled)
-        print("SELECTOR_CANCELLED:", "esc" not in flat(cancelled))
+        print("SELECTOR_CANCELLED:", "19pick" not in flat(cancelled))
 
         os.write(fd, b"\x03")
         time.sleep(0.5)
         kill(pid)
+        print("===== ALL FRAMES (debug) =====")
+        print(flat("".join(frames))[:1500])
         allflat = flat("".join(frames))
         print("SUMMARY:", {
             "palette_title": "commands" in allflat,

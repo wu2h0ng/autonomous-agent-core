@@ -86,23 +86,6 @@ class FakeClient {
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
 
-/** Wait until the frame does NOT match (used to prove a filter took effect). */
-async function waitForNoMatch(
-  view: { lastFrame: () => string | undefined },
-  pattern: RegExp,
-  timeoutMs = 3000,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  let frame = view.lastFrame() ?? "";
-  while (Date.now() < deadline) {
-    frame = view.lastFrame() ?? "";
-    if (!pattern.test(frame)) return frame;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  assert.doesNotMatch(frame, pattern);
-  return frame;
-}
-
 /** Wait until the rendered frame matches. Ink renders asynchronously, so a fixed
  * sleep is load-sensitive (this test flaked only when the machine was busy);
  * polling keeps the assertion strict while removing the timing dependency. */
@@ -141,8 +124,11 @@ test("palette: `/` lists commands; typing filters; Enter runs the selection", as
     // Enter uses the composer value at that moment: without this the test raced
     // and submitted the unfiltered first entry (/exit).
     await waitForFrame(view, /›\s*\/st\b/);
+    // Ink updates its key-handler ref in an effect that can land a paint after
+    // the rendered state, so give it two more ticks before Enter.
+    await flush();
+    await flush();
     await view.stdin.write("\r");
-    await waitForFrame(view, /›\s*\/st\b/, 1); // one more render tick
     await flush();
     assert.deepEqual(submitted, ["/status"]);
   } finally {
