@@ -237,6 +237,36 @@ def test_maybe_record_compaction_writes_exactly_one_event(tmp_path: Path) -> Non
     assert _compaction_events(app, session.task_id) == [payload]
 
 
+def test_projection_ignores_a_recorded_compaction(tmp_path: Path) -> None:
+    # Replay safety: a durable SESSION_CONTEXT_COMPACTED event must not break the
+    # session projection (it carries no projected state).
+    app, session, loop = _open(tmp_path, max_context_chars=1_000_000)
+    loop._maybe_record_compaction(
+        session,
+        {
+            "chars_before": 100,
+            "chars_after": 40,
+            "dropped_messages": 2,
+            "kept_from_index": 3,
+            "retained_digest": "b" * 64,
+        },
+    )
+    projected = app.tasks.project_session(session.task_id, session.session_id)
+    assert projected.ref.session_id == session.session_id
+
+
+def test_two_distinct_compactions_are_both_recorded(tmp_path: Path) -> None:
+    app, session, loop = _open(tmp_path, max_context_chars=1_000_000)
+    base = {"kept_from_index": 3, "dropped_messages": 2, "chars_before": 100}
+    loop._maybe_record_compaction(
+        session, {**base, "chars_after": 40, "retained_digest": "a" * 64}
+    )
+    loop._maybe_record_compaction(
+        session, {**base, "chars_after": 45, "retained_digest": "c" * 64}
+    )
+    assert len(_compaction_events(app, session.task_id)) == 2
+
+
 def test_no_compaction_event_for_a_large_budget(tmp_path: Path) -> None:
     app, session, _loop = _open(tmp_path, max_context_chars=1_000_000)
     _set_workspace_mode(app, session.session_id)

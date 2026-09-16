@@ -272,7 +272,7 @@ class AgentLoop:
         self._permission_mode: PermissionMode = permission_mode
         self._permission_mode_event_id = permission_mode_event_id
         self._deny_rules = tuple(deny_rules)
-        self._last_compaction: tuple[object, object] | None = None
+        self._last_compaction: tuple[object, ...] | None = None
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -1558,7 +1558,11 @@ class AgentLoop:
 
         if compaction is None:
             return
-        key = (compaction["dropped_messages"], compaction["kept_from_index"])
+        key = (
+            compaction["dropped_messages"],
+            compaction["kept_from_index"],
+            compaction["retained_digest"],
+        )
         if key == self._last_compaction:
             return
         self._last_compaction = key
@@ -1593,6 +1597,9 @@ class AgentLoop:
         for index in range(1, len(history)):
             if history[index].role is ProviderMessageRole.USER:
                 last_user = index
+        if last_user == 0:
+            # No user turn to anchor on: do not attempt a cut (avoid dropping the tail).
+            return history, None
         cut = 1  # never drop the system prompt
         limit = last_user if last_user > 0 else len(history)
         total = chars_before
