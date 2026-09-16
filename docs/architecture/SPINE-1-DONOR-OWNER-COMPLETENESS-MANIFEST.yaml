@@ -26,6 +26,8 @@ donor:
 #   RETAIN_AS_HISTORY       stays with the donor archive as history/evidence (c)
 #   DROP_SUPERSEDED         intentionally not carried forward; superseded (d)
 #   DROP_OPERATIONAL        build/CI/ops scaffolding, not product behavior (d)
+#   REDUCED_BY_FOUNDER      founder explicitly accepted not carrying this capability forward (terminal)
+#   SPLIT                   spans generic + domain ownership; must be resolved before retirement
 # status: MACHINE_VERIFIED | REVIEWED | PROPOSED_UNREVIEWED
 #   MACHINE_VERIFIED  only valid for disposition EXTRACTED and only when the target path exists
 #   REVIEWED          requires a `reviewed_by` identity distinct from the drafter
@@ -88,6 +90,23 @@ verified_paths:
     - "domain_packs/data_agent/policy_approvals.py"
   D-DOCS-EXTRACT-INVARIANTS: ["docs/architecture/provenance/README.md"]
   D-DOCS-EXTRACT-DOMAIN-BEHAVIOR: ["domain_packs/data_agent/docs/provenance/README.md"]
+
+# Founder/CTO 2026-09-15: "确认全砍" — accepted NOT carrying these forward. Deep analysis:
+# no monorepo consumer (grep 0) + native coverage exists + product blueprint stages them as the
+# later "Operational body". Recorded as explicit capability reductions (not silent drops); each can
+# be implemented later if a named consumer appears.
+founder_accepted_reductions:
+  date: "2026-09-15"
+  authority: "founder/CTO confirmation in-session (this record)"
+  entries:
+    D-OSCORE-TRUSTEDLOOP: "monolith superseded by agent_loop + action_pipeline + capability + governance; its load-bearing invariants are already implemented natively"
+    D-OSCORE-POLICY: "R4/R5 auto-execution engine unused (ADR-0012 default proposal-only); the approval-record lifecycle is already in policy_approvals.py"
+    D-OSCORE-TENANT: "tenant identity is server-bound in core; metadata registry is app-layer with no consumer"
+    D-OSCORE-USAGE: "rolling tenant metering/quota has no consumer; ResourceBudget + srl_budget_ledger cover current needs"
+    D-OSCORE-WORKFLOW: "no BPM consumer; monorepo uses single-step digest-bound approval + HelpRequest escalation"
+    D-OSCORE-MCP: "no MCP consumer; capability/provider/connector contracts cover the external boundary"
+    D-OSCORE-AGENTRUNTIME: "superseded by capability.specs() (tools), event_store/recovery (checkpoints), typed contracts (validation)"
+    D-CONTRACTS-GENERIC: "governance_decision_seam done; configuration/observability ported; donor workflow/domain_pack superseded by core workflow.py/domain.py; the rest have no consumer"
 
 entries:
   - id: "D-OSCORE-SQLSAFETY"
@@ -263,7 +282,7 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/trace/**", "packages/os_core/src/agent_os_core/operation_trace/**"]
   - id: "D-OSCORE-TENANT"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     reviewed_by: "spine1-subagent-review-r1-2026-09-15 (same-provider; founder waived re-review)"
     confidence: "medium"
@@ -271,7 +290,7 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/tenant/**"]
   - id: "D-OSCORE-USAGE"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     reviewed_by: "spine1-subagent-review-r1-2026-09-15 (same-provider; founder waived re-review)"
     confidence: "high"
@@ -279,7 +298,7 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/usage/**", "packages/os_core/src/agent_os_core/quota_gate.py"]
   - id: "D-OSCORE-WORKFLOW"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     reviewed_by: "spine1-subagent-review-r1-2026-09-15 (same-provider; founder waived re-review)"
     confidence: "high"
@@ -287,7 +306,7 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/workflow.py", "packages/os_core/src/agent_os_core/workflow_store.py"]
   - id: "D-OSCORE-TRUSTEDLOOP"
-    disposition: "EXTRACT_TO_DOMAIN_PACK"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     reviewed_by: "spine1-subagent-review-r1-2026-09-15 (same-provider; founder waived re-review)"
     confidence: "high"
@@ -295,7 +314,7 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/trusted_loop.py"]
   - id: "D-OSCORE-POLICY"
-    disposition: "EXTRACT_TO_DOMAIN_PACK"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     reviewed_by: "spine1-subagent-review-r1-2026-09-15 (same-provider; founder waived re-review)"
     confidence: "high"
@@ -343,14 +362,14 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/corrigibility/**"]
   - id: "D-OSCORE-MCP"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     confidence: "medium"
     rationale: "MCP gateway is a generic external boundary primitive."
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/mcp_gateway/**"]
   - id: "D-OSCORE-AGENTRUNTIME"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     reviewed_by: "spine1-subagent-review-r1-2026-09-15 (same-provider; founder waived re-review)"
     confidence: "high"
@@ -366,7 +385,7 @@ entries:
     target: "packages/os_core"
     globs: ["packages/os_core/src/agent_os_core/__init__.py"]
   - id: "D-CONTRACTS-GENERIC"
-    disposition: "EXTRACT_TO_PACKAGE"
+    disposition: "REDUCED_BY_FOUNDER"
     status: "REVIEWED"
     confidence: "high"
     rationale: "Domain-neutral donor contracts (review round 2): observability, usage, mcp_gateway, workflow, configuration, heavy_infrastructure, governance_decision_seam, causal_discovery_seam, domain_pack (borderline). Safe Product-core candidates; neutralize before porting."

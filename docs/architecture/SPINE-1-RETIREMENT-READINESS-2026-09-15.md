@@ -41,6 +41,13 @@ All manifest `EXTRACT*` targets are now present; `--strict --target-ref codex/sp
 - **Customer-0 withdrawn**; unrun task pack removed, ledger retained.
 - Boundary checks: see precondition 4. Secret/PII full-history scan: **RESOLVED** (gitleaks PASS).
 - Open founder item: `D-WORKSPACE` reconciliation with `M-WORKSPACE = REUSE_PRODUCT_SHELL`.
+- **Founder reductions (`确认全砍`, 2026-09-15):** 8 entries recorded as `REDUCED_BY_FOUNDER`
+  (terminal): `TRUSTEDLOOP`, `POLICY`, `TENANT`, `USAGE`, `WORKFLOW`, `MCP`, `AGENTRUNTIME`,
+  `CONTRACTS-GENERIC`. Basis: no monorepo consumer + native coverage + product-blueprint staging.
+  See `SPINE-1-REMAINING-OWNER-ADJUDICATION-2026-09-15.md`. This is an explicit capability
+  reduction, not a silent drop.
+- Remaining gate gaps after reductions: **5 integration entries** — `D-DOMAINPACKS`, `D-CONNECTORS`,
+  `D-APISERVER-DOMAIN`, `D-APISERVER-APP`, `D-APISERVER-HEAVY-INFRA`.
 - The manifest gate is now honest about the remaining work: only entries with declared
   `verified_paths` are credited, so the ~35 module EXTRACT entries that are **not yet ported** keep
   the gate **red** (`retirement_ready: False`).

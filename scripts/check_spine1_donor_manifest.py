@@ -45,6 +45,8 @@ VALID_DISPOSITIONS = {
     "DROP_SUPERSEDED",
     "DROP_OPERATIONAL",
     "SPLIT",
+    # Terminal: the founder explicitly accepted NOT carrying this capability forward.
+    "REDUCED_BY_FOUNDER",
 }
 EXTRACT_DISPOSITIONS = {"EXTRACTED", "EXTRACT_TO_PACKAGE", "EXTRACT_TO_DOMAIN_PACK"}
 # SPLIT means the module spans generic (package) and domain (domain pack) ownership and
