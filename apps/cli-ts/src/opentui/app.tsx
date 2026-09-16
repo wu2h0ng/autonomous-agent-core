@@ -30,6 +30,7 @@ import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
 import { InputHistory } from "../history.js";
+import { openExternalEditor } from "../editor.js";
 import {
   filePanelLines,
   nextPanel,
@@ -241,6 +242,9 @@ export function App({
 
   useKeyboard((key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
+    if (process.env.NOEM_KEY_DEBUG === "1") {
+      process.stderr.write(`DBGKEY name=${name}\n`);
+    }
     const ctrl = key.ctrl === true;
     const sequence = key.sequence ?? "";
     const owner = resolveViewKey({
@@ -333,6 +337,11 @@ export function App({
       case "history": {
         if (historyRef.current === null) return;
         setInput(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
+        return;
+      }
+      case "editor": {
+        const result = openExternalEditor(input);
+        if (result !== null && result.changed) setInput(result.text);
         return;
       }
       case "panel": {

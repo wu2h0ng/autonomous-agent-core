@@ -20,7 +20,7 @@
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
 | 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_TAB_COMPLETED`（经**提交后的新 transcript 行**观测） |
 | 11 | vim 模式 | ✓ | ✗ | **缺失** | 需接 `controller.vimMode` + 运动键 |
-| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✗ | **缺失** | 全屏目前是单行 `input`；需接 `composer.ts`/`editor.ts` |
+| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | △ | **外部编辑器 DONE；多行缺失** | ctrl+g → `openExternalEditor`（pty `EDITOR_ROUNDTRIP: True`）；多行受限于单行 `<input>` |
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_TRANSCRIPT_OK` |
@@ -65,3 +65,11 @@
 - **证据方法论（重要，写进规范）**：**观测 composer 行的变化不可靠**（cell-diff 渲染器对单行改动可能不重发）；**观测新 transcript 内容可靠**（提交的消息、回复必然是新单元格）。因此 mention 补全通过"补全后提交 → 新用户消息出现在 transcript"来验证。
 - 单测：`test/opentui-viewkeys.test.ts` 新增 mention/history 优先级用例（含"mention 打开时字母仍归 composer""agents 面板优先于 history"）；全量 **157 + 19 = 176 pass**。
 - **未做**：彩色语法高亮（#16）、vim、多行 composer/外部编辑器、`ctrl+r` 历史搜索、主题配色、首页（切片 C/D）。
+
+## 7. 切片 C（2026-09-16）：外部编辑器 DONE；多行/vim 的真实阻塞点
+
+- **DONE — 外部编辑器（#12 部分）**：Ctrl-G 打开 `$EDITOR` 编辑草稿并回填（复用 `editor.ts`）。绑定修复过程：最初按 `ctrl && name === "g"` 绑定 → 死绑定；**opentui 对控制字节不置 `ctrl` 标志**（Ctrl-G 到达时 `name="g"`），改为按 name 绑定后 pty `EDITOR_ROUNDTRIP: True`（连续 2 次）。
+- **键投递矩阵（`scripts/pty_fullscreen_parity_c.py`，每个候选键**独立重启**应用）**：`return / tab / escape / up / down / ctrl-n / ctrl-p / ctrl-j(name=linefeed) / ctrl-g(name=g) / ctrl-o / f2 / alt-g` **均可到达**。
+- **方法论教训**：同一实例连续投递会因 Tab/Enter 改变焦点而**污染**矩阵（初版探针因此误报"全部可达"，我据此得出过错误结论并在本轮更正）。
+- **真实阻塞点（多行 + vim）**：不是键投递，而是 **composer 形态**——当前用 opentui 原生**单行 `<input>`**，因此 `ctrl+j` 换行**无法显示**，vim 的模态编辑也无法接管原生编辑。需要"自持 composer"（自绘文本+光标，接 `composer.ts`）或改 `textarea`，属更大改动，**未做**。
+- 因此 **#11 vim 仍缺失、#12 多行仍缺失**；Ink 退役继续阻塞。

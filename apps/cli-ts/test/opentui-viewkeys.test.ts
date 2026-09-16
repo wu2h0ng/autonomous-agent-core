@@ -154,6 +154,23 @@ test("agents panel moves on ctrl+arrows/pn or plain arrows; Enter submits otherw
   assert.deepEqual(resolveViewKey(ctx({ name: "x", sequence: "x" })), { layer: "ignore" });
 });
 
+test("the Ctrl-G control byte (name \"g\") opens the external editor", () => {
+  // opentui delivers Ctrl-G as name="g" with the control byte; a plain "g" is
+  // consumed by the focused input, so binding on the name alone is safe.
+  assert.deepEqual(resolveViewKey(ctx({ name: "g" })), { layer: "editor" });
+  assert.deepEqual(resolveViewKey(ctx({ name: "g", selectorOpen: {} })), {
+    layer: "selector",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ name: "g", paletteOpen: true })), {
+    layer: "palette",
+    action: "ignore",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ name: "g", awaitingApproval: true })), {
+    layer: "approval",
+    action: "ignore",
+  });
+});
+
 test("an open @mention list takes Tab but leaves typing to the composer", () => {
   assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "tab" })), {
     layer: "mention",
