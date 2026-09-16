@@ -36,7 +36,12 @@ sys.path.insert(0, str(REPO_ROOT / "packages" / "os_core" / "src"))
 TURN1_TEXT = (
     "cli-ts spike deterministic reply: the surface protocol carries these "
     "streaming chunks end to end, with begin-turn reservation, per-frame "
-    "binding and honest gap semantics. 终端流式验证通过。"
+    "binding and honest gap semantics. 终端流式验证通过。\n\n"
+    "```python\n"
+    "# highlighted fixture for the syntax-scope check\n"
+    'def greet(name: str) -> str:\n'
+    '    return "hello " + name\n'
+    "```\n"
 )
 TURN2_TEXT = "edit applied: fixture.txt updated after human approval"
 TURN3_TEXT = "second edit applied: auto-allowed under ACCEPT_IN_WORKSPACE"
