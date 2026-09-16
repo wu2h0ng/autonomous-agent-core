@@ -16,7 +16,7 @@
 /** @jsxImportSource @opentui/react */
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { SyntaxStyle, type ScrollBoxRenderable } from "@opentui/core";
+import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
@@ -100,6 +100,23 @@ export function App({
 }: FullscreenAppProps) {
   const [, bump] = useReducer((tick: number) => tick + 1, 0);
   const [input, setInput] = useState("");
+  const composerRef = useRef<TextareaRenderable | null>(null);
+  /** Single text source of truth: the textarea owns the draft; this mirrors it
+   * for the overlays (palette/mentions) and writes go through the buffer. */
+  const setComposerText = (value: string): void => {
+    const buffer = composerRef.current?.editBuffer;
+    buffer?.setText(value);
+    // setText leaves the caret at the start; put it at the end so the next
+    // keystroke appends (otherwise typing prepends and backspace does nothing).
+    buffer?.setCursorByOffset(value.length);
+    setInput(value);
+  };
+  const syncComposer = (): void => {
+    setInput(composerRef.current?.plainText ?? "");
+  };
+  // Read by the textarea's onSubmit: while the agents panel is selected the
+  // resolver owns Enter (session switch), so the draft must not also submit.
+  const agentsPanelRef = useRef(false);
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
@@ -198,6 +215,7 @@ export function App({
 
   const panels = visiblePanels(width, withPanels, withAgents);
   // Approvals are global and must stay in front: force the transcript selected.
+  agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
   const activePanel: PanelId = awaiting
     ? "transcript"
     : panels.includes(selected)
@@ -312,7 +330,7 @@ export function App({
           const pick = palette[Math.min(paletteIndex, palette.length - 1)];
           if (pick === undefined) return;
           if (owner.action === "complete") {
-            setInput(`${pick.name} `);
+            setComposerText(`${pick.name} `);
             setPaletteIndex(0);
           } else {
             submit(pick.name);
@@ -333,12 +351,12 @@ export function App({
       }
       case "history": {
         if (historyRef.current === null) return;
-        setInput(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
+        setComposerText(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
         return;
       }
       case "editor": {
         const result = openExternalEditor(input);
-        if (result !== null && result.changed) setInput(result.text);
+        if (result !== null && result.changed) setComposerText(result.text);
         return;
       }
       case "panel": {
@@ -367,8 +385,12 @@ export function App({
         return;
       }
       default:
-        return;
+        break;
     }
+    // Mirror the textarea for the overlays AFTER the renderable has applied the
+    // key (a synchronous read can lag by one keystroke, which desynced the
+    // palette/mention layers).
+    queueMicrotask(syncComposer);
   });
 
   const submit = (value: string): void => {
@@ -522,12 +544,23 @@ export function App({
           })()}
         </box>
       ) : null}
-      <box border title="message" style={{ height: 3, paddingLeft: 1 }}>
-        <input
-          placeholder="Tell Noem what to do… (Enter to send)"
+      <box border title="message" style={{ height: 5, paddingLeft: 1 }}>
+        <textarea
+          ref={composerRef}
+          placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"
           focused={!awaiting}
-          value={input}
-          onInput={setInput}
+          keyBindings={[
+            { name: "return", action: "submit" },
+            { name: "kpenter", action: "submit" },
+            { name: "linefeed", action: "newline" },
+          ]}
+          onSubmit={() => {
+            if (agentsPanelRef.current) return;
+            const text = composerRef.current?.plainText ?? "";
+            composerRef.current?.editBuffer.setText("");
+            setInput("");
+            submit(text);
+          }}
         />
       </box>
       <text>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
