@@ -24,8 +24,8 @@
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
-| 16 | 代码语法高亮（彩色） | ✓ | ✗ | **缺失** | 现为 `<markdown>` 默认样式，未接配色 |
-| 17 | 主题真正生效（颜色） | ✓ | △ | **部分** | 全屏只显示主题名，未应用 `THEMES` 配色 |
+| 16 | 代码语法高亮（彩色） | ✓ | △ | **部分** | `SyntaxStyle` 已按主题注册 `keyword/string/comment/function` 颜色，但**尚未用含代码块的回复验证**（当前确定性 stub 不返回代码）；需一条 code-block 证据 |
+| 17 | 主题真正生效（颜色） | ✓ | ✓ | **DONE** | `theme-colors.ts` 把 `THEMES` 的 Ink 颜色名解析为 hex，并接到 transcript（按角色）、审批卡、顶栏、footer、composer 边框；pty `THEME_APPLIED` 断言 footer 的 SGR 随 `/theme mono` 变化 |
 | 18 | 首页/欢迎面板 | ✓ | ✗ | **缺失** | `HomeView` 仅 Ink |
 | 19 | `/status`、`/cost`、todo 面板 | ✓ | ✓ | DONE | 面板消息已渲染（`line()` 处理 `message.panel`） |
 
@@ -103,3 +103,10 @@
 `scripts/frame_reader.py`：把 pty 原始字节重建成**真实屏幕**（`ESC[r;cH` 定位 + SGR 颜色/加粗 + 文本/CR/LF/擦除 + UTF-8 宽字符），提供 `text_rows()`/`row_text(i)`/`spans(i)`/`token_style(token)`。用途：行结构断言（多行是否真分行）、颜色断言（#16/#17：同一 token 在不同主题下 SGR 应不同）、可视化检查（`--demo`；`--self-test` 自检 0 失败）。
 
 实测结论：① 提交两行草稿后 transcript 的 `line1`/`line2` 分属不同行 → 多行显示正常；② opentui 自带默认调色（placeholder `fg=(102,102,102)`），`THEMES` 需显式覆盖才生效。
+
+## 11. 切片 E（2026-09-17）：主题真正生效（#17 DONE）
+
+- **纯模块** `src/opentui/theme-colors.ts`：`INK_HEX` 映射 + `hexFor()` + `viewTheme(name)`（把 `src/theme.ts` 的 Ink 颜色名解析为具体 hex；opentui 对 hex 解析可靠）。单测 `test/opentui-theme-colors.test.ts`（断言每个 token 都是 hex，且 `default`/`mono`/`ansi` 之间确实可区分——否则 `/theme` 只改名字）。
+- **接线**：顶栏（`accent`）、footer（`footer`）、transcript 按角色（`user`/`assistant`/`system`/工具三态/`notice`）、审批卡边框（`approvalBorder`）、composer 边框（`border`）、markdown 文本（`assistant`）+ `SyntaxStyle` 主题化作用域。
+- **证据**：`scripts/pty_theme_check.py`（基于 `frame_reader`）——同一 token 的 SGR 在 `/theme mono` 前后不同：连续 2 次 `THEME_APPLIED: True`（footer `ASK`：default 灰 → mono 白）。整网回归同批全绿（不变式/parity_a/b/vim/p3a/多会话）。
+- **诚实边界**：① header token（`noem`）在该抓帧中未被工具定位到（`None`），故断言只覆盖 footer；② #16 的作用域颜色**已注册但未验证**（需要含代码块的回复）。

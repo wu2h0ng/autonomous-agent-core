@@ -29,6 +29,8 @@ import {
 } from "../selector.js";
 import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
+import { viewTheme } from "./theme-colors.js";
+import type { ThemeColors } from "../theme.js";
 import { applyVimAction, offsetFromCursor, resolveVimKey } from "./vim.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
 import { InputHistory } from "../history.js";
@@ -86,6 +88,16 @@ function line(message: ChatMessage): string {
   return prefix + message.content;
 }
 
+function roleColour(theme: ThemeColors, message: ChatMessage): string {
+  if (message.role === "user") return theme.user;
+  if (message.role === "system") return theme.system;
+  if (message.tool?.status === "failed") return theme.toolFailed;
+  if (message.tool?.status === "done") return theme.toolDone;
+  if (message.tool) return theme.toolPending;
+  if (message.panel) return theme.notice;
+  return theme.assistant;
+}
+
 function terminalWidth(): number {
   return process.stdout.columns ?? 80;
 }
@@ -138,7 +150,20 @@ export function App({
   const vimInsertRef = useRef(true);
   const [pendingOp, setPendingOp] = useState<"d" | "c" | null>(null);
   const [files, setFiles] = useState<string[]>([]);
-  const syntaxStyle = useMemo(() => SyntaxStyle.create(), []);
+  const theme = viewTheme(controller.themeName);
+  const syntaxStyle = useMemo(() => {
+    const style = SyntaxStyle.create();
+    // #16: colour the code/markdown scopes from the active theme.
+    for (const [scope, colour] of [
+      ["keyword", theme.accent],
+      ["string", theme.toolDone],
+      ["comment", theme.notice],
+      ["function", theme.user],
+    ] as const) {
+      style.registerStyle(scope, { fg: colour });
+    }
+    return style;
+  }, [controller.themeName]);
   const historyRef = useRef<InputHistory | null>(null);
   if (historyRef.current === null) historyRef.current = new InputHistory();
   const cursorKeyRef = useRef<string | null>(null);
@@ -515,13 +540,22 @@ export function App({
       <box style={{ flexDirection: "column", paddingLeft: 1 }}>
         {finalized.map((message, index) =>
           message.role === "assistant" && !message.panel && !message.tool ? (
-            <markdown key={`f${index}`} content={message.content} syntaxStyle={syntaxStyle} />
+            <markdown
+              key={`f${index}`}
+              content={message.content}
+              syntaxStyle={syntaxStyle}
+              fg={theme.assistant}
+            />
           ) : (
-            <text key={`f${index}`}>{line(message)}</text>
+            <text key={`f${index}`} fg={roleColour(theme, message)}>
+              {line(message)}
+            </text>
           ),
         )}
         {active.map((message, index) => (
-          <text key={`a${index}`}>{line(message)}</text>
+          <text key={`a${index}`} fg={roleColour(theme, message)}>
+            {line(message)}
+          </text>
         ))}
         {controller.reasoningText ? (
           <text>{`🧠 ${controller.reasoningText}`}</text>
@@ -533,6 +567,7 @@ export function App({
         {pending ? (
           <box
             border
+            borderColor={theme.approvalBorder}
             title="approval"
             style={{ flexDirection: "column", paddingLeft: 1 }}
           >
@@ -604,7 +639,7 @@ export function App({
 
   return (
     <box style={{ flexDirection: "column", width: "100%", height: "100%" }}>
-      <text>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
+      <text fg={theme.accent}>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
       <box style={{ flexDirection: "row", flexGrow: 1 }}>
         {transcript}
         {panels.length > 1 ? sidebar : null}
