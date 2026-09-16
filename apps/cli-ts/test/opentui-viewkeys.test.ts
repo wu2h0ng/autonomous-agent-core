@@ -154,6 +154,30 @@ test("agents panel moves on ctrl+arrows/pn or plain arrows; Enter submits otherw
   assert.deepEqual(resolveViewKey(ctx({ name: "x", sequence: "x" })), { layer: "ignore" });
 });
 
+test("only the Ctrl-G CONTROL BYTE opens the external editor", () => {
+  // opentui reports Ctrl-G as name="g" + sequence="\u0007"; a plain "g" has
+  // sequence="g" and DOES reach the resolver once the input is blurred (e.g.
+  // after Tab), so binding on the name alone would open an editor on a letter.
+  assert.deepEqual(
+    resolveViewKey(ctx({ name: "g", sequence: "\u0007" })),
+    { layer: "editor" },
+  );
+  assert.deepEqual(resolveViewKey(ctx({ name: "g", sequence: "g" })), { layer: "ignore" });
+  assert.deepEqual(
+    resolveViewKey(ctx({ activePanel: "agents", name: "g", sequence: "g" })),
+    { layer: "ignore" },
+  );
+  // Overlays still own the key first.
+  assert.deepEqual(
+    resolveViewKey(ctx({ name: "g", sequence: "\u0007", selectorOpen: {} })),
+    { layer: "selector" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ name: "g", sequence: "\u0007", awaitingApproval: true })),
+    { layer: "approval", action: "ignore" },
+  );
+});
+
 test("an open @mention list takes Tab but leaves typing to the composer", () => {
   assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "tab" })), {
     layer: "mention",

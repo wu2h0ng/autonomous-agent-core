@@ -15,6 +15,7 @@ export type ViewKeyOwner =
   | { layer: "panel"; action: "switch" | "scroll"; delta?: -1 | 1 }
   | { layer: "mention"; action: "complete" | "ignore" }
   | { layer: "history"; action: "prev" | "next" }
+  | { layer: "editor" }
   | { layer: "agents"; action: "move"; delta: 1 | -1 }
   | { layer: "enter" }
   | { layer: "ignore" };
@@ -81,7 +82,14 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
     return { layer: "mention", action: "ignore" };
   }
 
-  // 6. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
+  // 7. Ctrl-G opens the external editor on the composer draft (Ink parity).
+  //    Match the CONTROL BYTE, not the name: opentui reports Ctrl-G as
+  //    name="g" with sequence="\u0007", while a plain "g" (name="g",
+  //    sequence="g") reaches this resolver whenever the input is blurred (e.g.
+  //    after Tab) and must stay composer text, never open an editor.
+  if (sequence === "\u0007") return { layer: "editor" };
+
+  // 8. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
   //    come after the palette (Tab completes commands while it is open) and
   //    after the frozen globals, but before the agents-panel/Enter handling.
   if (name === "tab") return { layer: "panel", action: "switch" };

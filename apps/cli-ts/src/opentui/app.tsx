@@ -30,6 +30,7 @@ import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
 import { InputHistory } from "../history.js";
+import { openExternalEditor } from "../editor.js";
 import {
   filePanelLines,
   nextPanel,
@@ -333,6 +334,11 @@ export function App({
       case "history": {
         if (historyRef.current === null) return;
         setInput(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
+        return;
+      }
+      case "editor": {
+        const result = openExternalEditor(input);
+        if (result !== null && result.changed) setInput(result.text);
         return;
       }
       case "panel": {
