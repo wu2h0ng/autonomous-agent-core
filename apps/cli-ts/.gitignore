@@ -3,4 +3,4 @@ dist/
 
 # A runtime descriptor accidentally written under a parsed-dict filename
 # (contains the local bearer token). Never commit descriptors.
-{*
+[{]*

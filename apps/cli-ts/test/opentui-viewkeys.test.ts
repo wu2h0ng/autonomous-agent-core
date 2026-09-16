@@ -15,6 +15,7 @@ function ctx(overrides: Partial<ViewKeyContext> = {}): ViewKeyContext {
     selectorOpen: false,
     awaitingApproval: false,
     paletteOpen: false,
+    mentionOpen: false,
     activePanel: "transcript",
     name: "",
     ctrl: false,
@@ -151,4 +152,40 @@ test("agents panel moves on ctrl+arrows/pn or plain arrows; Enter submits otherw
   });
   assert.deepEqual(resolveViewKey(ctx({ name: "return" })), { layer: "enter" });
   assert.deepEqual(resolveViewKey(ctx({ name: "x", sequence: "x" })), { layer: "ignore" });
+});
+
+test("an open @mention list takes Tab but leaves typing to the composer", () => {
+  assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "tab" })), {
+    layer: "mention",
+    action: "complete",
+  });
+  // A letter must still reach the composer while the mention list is open.
+  assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "a", sequence: "a" })), {
+    layer: "mention",
+    action: "ignore",
+  });
+  // Enter must still submit (Ink parity): the list does not trap the key.
+  assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "return" })), {
+    layer: "enter",
+  });
+  // The palette still wins over the mention list.
+  assert.deepEqual(
+    resolveViewKey(ctx({ mentionOpen: true, paletteOpen: true, name: "tab" })),
+    { layer: "palette", action: "complete" },
+  );
+});
+
+test("up/down are history for the composer unless the agents panel owns them", () => {
+  assert.deepEqual(resolveViewKey(ctx({ name: "up" })), { layer: "history", action: "prev" });
+  assert.deepEqual(resolveViewKey(ctx({ name: "down" })), { layer: "history", action: "next" });
+  assert.deepEqual(
+    resolveViewKey(ctx({ activePanel: "agents", name: "up" })),
+    { layer: "agents", action: "move", delta: -1 },
+  );
+  // An open mention list leaves arrows to the composer input (no-op there for a
+  // single-line composer), i.e. they are not routed to history.
+  assert.deepEqual(resolveViewKey(ctx({ mentionOpen: true, name: "up" })), {
+    layer: "mention",
+    action: "ignore",
+  });
 });

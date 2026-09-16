@@ -14,9 +14,9 @@
  * `resolveViewKey` (src/opentui/viewkeys.ts) so the order is testable.
  */
 /** @jsxImportSource @opentui/react */
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import type { ScrollBoxRenderable } from "@opentui/core";
+import { SyntaxStyle, type ScrollBoxRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor } from "../layout.js";
@@ -28,6 +28,8 @@ import {
 } from "../selector.js";
 import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
+import { activeMention, applyMention, filterMentions } from "../mentions.js";
+import { InputHistory } from "../history.js";
 import {
   filePanelLines,
   nextPanel,
@@ -105,6 +107,10 @@ export function App({
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
+  const [files, setFiles] = useState<string[]>([]);
+  const syntaxStyle = useMemo(() => SyntaxStyle.create(), []);
+  const historyRef = useRef<InputHistory | null>(null);
+  if (historyRef.current === null) historyRef.current = new InputHistory();
   const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
@@ -153,6 +159,11 @@ export function App({
   }, [workspace, withPanels]);
 
   cursorKeyRef.current = cursorKey(tree.rows, cursor);
+  // The full-screen composer is a single-line input, so the caret is taken to be
+  // at the end of the text (adequate for `@path` completion while typing).
+  const mention = activeMention(input, input.length);
+  const mentionMatches = mention ? filterMentions(files, mention.query) : [];
+
   const selector = controller.pendingSelector;
   const selectorItems = selector
     ? filterSelectorItems(selector.items, selectorQuery)
@@ -165,6 +176,20 @@ export function App({
   useEffect(() => {
     setPaletteIndex(0);
   }, [input]);
+
+  useEffect(() => {
+    if (mention === null) return;
+    let cancelled = false;
+    void controller
+      .workspaceFiles()
+      .then((entries) => {
+        if (!cancelled) setFiles(entries.map((entry) => entry.path));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [mention?.query, controller]);
 
   const snapshot = controller.currentSnapshot;
   const pending = snapshot?.pending_approval;
@@ -222,6 +247,7 @@ export function App({
       selectorOpen: selector,
       awaitingApproval: awaiting,
       paletteOpen: palette.length > 0,
+      mentionOpen: mentionMatches.length > 0,
       activePanel,
       name,
       ctrl,
@@ -294,6 +320,21 @@ export function App({
         }
         return;
       }
+      case "mention": {
+        if (owner.action === "complete" && mention !== null) {
+          const pick = mentionMatches[0];
+          if (pick !== undefined) {
+            const applied = applyMention(input, input.length, pick);
+            setInput(applied.value);
+          }
+        }
+        return;
+      }
+      case "history": {
+        if (historyRef.current === null) return;
+        setInput(owner.action === "prev" ? historyRef.current.prev(input) : historyRef.current.next());
+        return;
+      }
       case "panel": {
         if (owner.action === "switch") {
           setSelected(nextPanel(activePanel, panels));
@@ -327,6 +368,7 @@ export function App({
   const submit = (value: string): void => {
     const text = value.trim();
     if (!text) return;
+    historyRef.current?.add(text);
     setInput("");
     void controller.submit(text);
   };
@@ -345,9 +387,13 @@ export function App({
       stickyStart="bottom"
     >
       <box style={{ flexDirection: "column", paddingLeft: 1 }}>
-        {finalized.map((message, index) => (
-          <text key={`f${index}`}>{line(message)}</text>
-        ))}
+        {finalized.map((message, index) =>
+          message.role === "assistant" && !message.panel && !message.tool ? (
+            <markdown key={`f${index}`} content={message.content} syntaxStyle={syntaxStyle} />
+          ) : (
+            <text key={`f${index}`}>{line(message)}</text>
+          ),
+        )}
         {active.map((message, index) => (
           <text key={`a${index}`}>{line(message)}</text>
         ))}
@@ -437,6 +483,14 @@ export function App({
         {transcript}
         {panels.length > 1 ? sidebar : null}
       </box>
+      {mentionMatches.length > 0 ? (
+        <box border title="files" style={{ flexDirection: "column", paddingLeft: 1 }}>
+          {mentionMatches.slice(0, 8).map((path, index) => (
+            <text key={`m${index}`}>{`${index === 0 ? "▌ " : "  "}@${path}`}</text>
+          ))}
+          <text>{"[tab] complete"}</text>
+        </box>
+      ) : null}
       {selector ? (
         <box border title={selector.title} style={{ flexDirection: "column", paddingLeft: 1 }}>
           {(() => {

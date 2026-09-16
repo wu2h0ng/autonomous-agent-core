@@ -13,6 +13,8 @@ export type ViewKeyOwner =
   | { layer: "global" }
   | { layer: "palette"; action: "up" | "down" | "complete" | "submit" | "ignore" }
   | { layer: "panel"; action: "switch" | "scroll"; delta?: -1 | 1 }
+  | { layer: "mention"; action: "complete" | "ignore" }
+  | { layer: "history"; action: "prev" | "next" }
   | { layer: "agents"; action: "move"; delta: 1 | -1 }
   | { layer: "enter" }
   | { layer: "ignore" };
@@ -29,6 +31,8 @@ export interface ViewKeyContext {
   awaitingApproval: boolean;
   /** The command palette is showing matches. */
   paletteOpen: boolean;
+  /** An `@` mention list is showing matches. */
+  mentionOpen: boolean;
   /** Currently selected panel id. */
   activePanel: string;
   /** opentui key name, e.g. "escape", "return", "tab", "up", "c", "n". */
@@ -67,14 +71,24 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
     return { layer: "palette", action: "ignore" };
   }
 
-  // 5. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
+  // 5. An open @mention list takes Tab (to complete the path) but leaves other
+  //    keys to the composer/history.
+  if (ctx.mentionOpen) {
+    if (name === "tab") return { layer: "mention", action: "complete" };
+    // Enter must still submit (Ink parity); anything else (letters, arrows)
+    // stays with the composer input.
+    if (name === "return") return { layer: "enter" };
+    return { layer: "mention", action: "ignore" };
+  }
+
+  // 6. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
   //    come after the palette (Tab completes commands while it is open) and
   //    after the frozen globals, but before the agents-panel/Enter handling.
   if (name === "tab") return { layer: "panel", action: "switch" };
   if (name === "pageup") return { layer: "panel", action: "scroll", delta: -1 };
   if (name === "pagedown") return { layer: "panel", action: "scroll", delta: 1 };
 
-  // 6. The agents panel owns list movement (ctrl+arrows / ctrl+p|n).
+  // 7. The agents panel owns list movement (ctrl+arrows / ctrl+p|n).
   if (ctx.activePanel === "agents" && ctrl && ["up", "down", "p", "n"].includes(name)) {
     return { layer: "agents", action: "move", delta: name === "down" || name === "n" ? 1 : -1 };
   }
@@ -82,10 +96,16 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
     return { layer: "agents", action: "move", delta: name === "down" ? 1 : -1 };
   }
 
-  // 7. Plain Enter submits the composer.
+  // 8. Readline-style history for the composer (only when no panel owns the
+  //    arrows, so the agents panel keeps plain up/down).
+  if (ctx.activePanel !== "agents" && (name === "up" || name === "down")) {
+    return { layer: "history", action: name === "down" ? "next" : "prev" };
+  }
+
+  // 9. Plain Enter submits the composer.
   if (name === "return") return { layer: "enter" };
 
-  // 8. Anything else (letters, plain arrows) belongs to the composer input.
+  // 10. Anything else (letters, plain arrows) belongs to the composer input.
   void sequence;
   return { layer: "ignore" };
 }
