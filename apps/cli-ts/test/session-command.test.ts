@@ -10,7 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { runSessionCommand } from "../src/session-command.js";
 
-function snapshot(sessionId: string) {
+function snapshot(sessionId: string, overrides: Record<string, unknown> = {}) {
   return {
     protocol_version: "1.1",
     session: {
@@ -28,6 +28,7 @@ function snapshot(sessionId: string) {
     pending_approval: null,
     permission_mode: "ASK",
     updated_at: new Date().toISOString(),
+    ...overrides,
   };
 }
 
@@ -114,12 +115,25 @@ test("session show prints snapshot fields", async () => {
   );
 });
 
-test("session pause posts the pause route with a reason", async () => {
+test("session pause refreshes the event cursor before posting the pause route", async () => {
+  const calls: string[] = [];
   await withServer(
     (path, method, body) => {
+      calls.push(`${method} ${path}`);
+      if (method === "GET") {
+        assert.equal(path, "/v1/surface/sessions/s:1");
+        return { status: 200, json: snapshot("s:1") };
+      }
       assert.equal(method, "POST");
       assert.equal(path, "/v1/surface/sessions/s:1/pause");
       assert.equal((body as { reason?: string }).reason, "hold on");
+      // The cursor must come from durable truth read in THIS process: a fresh
+      // client starts with an empty map and would send 0, which the kernel
+      // rejects with 409 (that is why `noem session pause` never took effect).
+      assert.equal(
+        (body as { expected_event_sequence?: number }).expected_event_sequence,
+        3,
+      );
       return { status: 200, json: { snapshot: snapshot("s:1") } };
     },
     async (descriptorPath) => {
@@ -128,6 +142,10 @@ test("session pause posts the pause route with a reason", async () => {
       );
       assert.equal(result, 0);
       assert.equal(JSON.parse(out).status, "ACTIVE");
+      assert.deepEqual(calls, [
+        "GET /v1/surface/sessions/s:1",
+        "POST /v1/surface/sessions/s:1/pause",
+      ]);
     },
   );
 });
@@ -143,6 +161,7 @@ test("session requires a session id and a known subcommand", async () => {
 test("session correct posts the correction route with the default reason", async () => {
   await withServer(
     (path, method, body) => {
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
       assert.equal(method, "POST");
       assert.equal(path, "/v1/surface/sessions/s:1/correction");
       assert.equal((body as { reason?: string }).reason, "operator correction");
@@ -153,6 +172,68 @@ test("session correct posts the correction route with the default reason", async
         runSessionCommand({ descriptorPath, args: ["correct", "s:1"] }),
       );
       assert.equal(result, 0);
+    },
+  );
+});
+
+test("session resume resends from a fresh read when the cursor went stale", async () => {
+  // The refresh and the command are two round trips: a durable event landing
+  // between them makes the command's cursor stale even though the refresh was
+  // correct when it was read. The resend must re-read, never reuse or guess.
+  const posted: { expected_event_sequence?: number }[] = [];
+  let reads = 0;
+  await withServer(
+    (path, method, body) => {
+      if (method === "GET") {
+        reads += 1;
+        return { status: 200, json: snapshot("s:1", { event_sequence: 9 + 2 * reads }) };
+      }
+      assert.equal(path, "/v1/surface/sessions/s:1/resume");
+      posted.push(body as { expected_event_sequence?: number });
+      if (posted.length === 1) {
+        return {
+          status: 409,
+          json: { message: "expected event sequence 11 does not match current sequence 13" },
+        };
+      }
+      return { status: 200, json: { snapshot: snapshot("s:1", { status: "ACTIVE" }) } };
+    },
+    async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["resume", "s:1", "go"] }),
+      );
+      assert.equal(result, 0);
+      assert.equal(JSON.parse(out).status, "ACTIVE");
+      assert.equal(err, "");
+      assert.equal(posted.length, 2, "the stale-cursor rejection must be retried");
+      assert.deepEqual(
+        posted.map((p) => p.expected_event_sequence),
+        [11, 13],
+        "the resend must carry a freshly read cursor, not the stale one",
+      );
+    },
+  );
+});
+
+test("a control command the kernel keeps rejecting exits non-zero and says so", async () => {
+  await withServer(
+    (path, method) => {
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      assert.equal(path, "/v1/surface/sessions/s:1/correction");
+      return {
+        status: 409,
+        json: { message: "expected event sequence 3 does not match current sequence 9" },
+      };
+    },
+    async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["correct", "s:1", "stop"] }),
+      );
+      assert.equal(result, 1, "a correction that did not land must exit non-zero");
+      assert.equal(out, "", "nothing may be printed as if the kernel had taken it");
+      assert.match(err, /does not match current sequence 9/);
+      assert.match(err, /HTTP 409/);
+      assert.match(err, /the correct was NOT applied to s:1/);
     },
   );
 });
