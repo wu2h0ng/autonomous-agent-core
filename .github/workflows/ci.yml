@@ -107,7 +107,8 @@ jobs:
           # and only the run line narrowed to one file, the step printed "collected 2642
           # items (floor 2500)", executed 4 of them and still exited 0.
           # tests/product/test_ci_gate_wiring.py asserts the two invocations expand to
-          # the same command modulo --collect-only, so a -k/--ignore/--deselect added to
+          # the same command once `--collect-only` and the reporting-only flags (`-rs`,
+          # `--junitxml=`) are normalised away, so a -k/--ignore/--deselect added to
           # one of them alone fails the wiring test as well.
           PRODUCT_ARGS="tests/product"
           # Collection floor, checked BEFORE the run. `pytest $PRODUCT_ARGS` exits 5
@@ -180,11 +181,20 @@ jobs:
           find tests/product -maxdepth 1 -type f -name 'test_*.py' | sed 's|^\./||' | sort -u > "$EXPECTED_LIST"
           awk -F'::' '/::/ { print $1 }' "$COLLECT_LOG" | sed 's|^\./||' | sort -u > "$COLLECTED_LIST"
           # Modules that legitimately live in tests/product and collect no items are listed here,
-          # one basename at a time, each with its reason in the comment right above this line.
-          # The list is LITERAL by construction: a value holding a glob character or a path
-          # separator fails the step below, because a wildcard entry exempts every module it
-          # matches from this gate -- which is the hole being closed, not a way to pass it. The
-          # list is EMPTY today, and that is a measurement, not an assumption: every test_*.py
+          # one PATH at a time, spelled exactly as the disk listing above spells it
+          # (`tests/product/test_x.py`), each with its reason in the comment right above this line.
+          # The path form is not a style choice: both lists this gate compares hold paths, and the
+          # filter below is a whole-line match against that list, so an entry written as a bare
+          # `test_x.py` can never match and the exemption silently does nothing. That is exactly
+          # how the list failed before -- a real exemption could not take effect, and the only way
+          # left to pass was to weaken the comparison, which is the hole this gate closes. The
+          # loop below therefore also fails the step on an entry that matches nothing on disk, so
+          # a dead exemption is loud instead of inert.
+          # The list is LITERAL by construction: a value holding a glob character fails the step
+          # below, because a wildcard entry -- read by a human as "everything is exempt" -- is the
+          # hole being closed, not a way to pass it. (A path separator is NOT a wildcard and is
+          # required, see above.)
+          # The list is EMPTY today, and that is a measurement, not an assumption: every test_*.py
           # on disk collected items.
           ALLOWED_UNCOLLECTED=""
           # This test reads the value as ONE WORD, and it has to. The obvious form -- a `case`
@@ -196,16 +206,21 @@ jobs:
           # passed and the step went on to run the whole suite. Quoting the tested word is what
           # keeps the value whole -- `case` does not field-split or glob its word.
           case "$ALLOWED_UNCOLLECTED" in
-            *[\*\?\[]*|*/*)
-              echo "::error::ALLOWED_UNCOLLECTED holds a glob character or a path separator, so it is not a list of literal file names: a wildcard entry would exempt every module it matches from the file-set gate. List one file name at a time, each with its reason in the comment above."
+            *[\*\?\[]*)
+              echo "::error::ALLOWED_UNCOLLECTED holds a glob character, so it is not a list of literal file paths: a wildcard entry would read as 'every module is exempt' from the file-set gate. List one path at a time, spelled as the disk listing spells it, each with its reason in the comment above."
               exit 1
               ;;
           esac
           for allowed in $ALLOWED_UNCOLLECTED; do
-            if grep -q -x -F -- "$allowed" "$EXPECTED_LIST"; then
-              grep -v -x -F -- "$allowed" "$EXPECTED_LIST" > "$FILTERED_LIST"
-              cp "$FILTERED_LIST" "$EXPECTED_LIST"
+            # A dead entry is the failure this list already had once: written in a form the
+            # expectation list never uses, it matched nothing, exempted nothing, and left the
+            # gate failing with no working way to record the exemption. Fail loudly instead.
+            if ! grep -q -x -F -- "$allowed" "$EXPECTED_LIST"; then
+              echo "::error::ALLOWED_UNCOLLECTED lists '$allowed', which is not a module on disk under tests/product. Exemptions are matched whole-line against the disk listing, so this entry does nothing -- write the path exactly as `find tests/product ...` prints it (e.g. tests/product/test_x.py), or delete the entry."
+              exit 1
             fi
+            grep -v -x -F -- "$allowed" "$EXPECTED_LIST" > "$FILTERED_LIST"
+            cp "$FILTERED_LIST" "$EXPECTED_LIST"
           done
           MISSING_FILES="$(comm -23 "$EXPECTED_LIST" "$COLLECTED_LIST")"
           if [ -n "$MISSING_FILES" ]; then
@@ -213,7 +228,35 @@ jobs:
             echo "$MISSING_FILES"
             exit 1
           fi
-          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q
+          # --- the run, with skip accounting ---------------------------------------------------
+          # `-rs` prints a SKIPPED line plus its REASON for every skipped test. Without it the
+          # skip count appears only inside pytest's summary line, and the reasons appear nowhere:
+          # the floor and the file-set gate above both count COLLECTED items, and a skipped test
+          # is still collected, so a suite that quietly grew skips stays green against both.
+          # Measured on this tree (2026-09-18): 1 skipped on macOS, 7 on the Linux runner, none of
+          # them attributable from the log because the run was `-q` alone.
+          # The count itself comes from JUnit XML rather than from the summary line, for the same
+          # reason the item count above is taken from the per-item lines: the summary's wording is
+          # a pytest-version detail. `--junitxml` is a core pytest option, no plugin needed.
+          TEST_XML="$(mktemp)"
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q -rs --junitxml="$TEST_XML"
+          TEST_STATUS=$?
+          # A missing or empty report would make the count below read 0 no matter what the suite
+          # did -- the skip bound would then be silently decorative. Check the report first.
+          if [ ! -s "$TEST_XML" ] || ! grep -q '<testsuite' "$TEST_XML"; then
+            echo "::error::the governed product run wrote no usable JUnit report to $TEST_XML, so the skip count cannot be read and would default to 0 (a dropped --junitxml= flag, or a report file pytest never wrote)."
+            exit 1
+          fi
+          SKIPPED="$(awk '/<skipped/ { skipped++ } END { print skipped + 0 }' "$TEST_XML")"
+          echo "$PRODUCT_ARGS: pytest exit $TEST_STATUS, $SKIPPED skipped test(s) (bound 12)"
+          if [ "$SKIPPED" -gt 12 ]; then
+            echo "::error::the governed product suite reports $SKIPPED skipped tests, above the bound of 12. The floor and the file-set gate above both count COLLECTED items and a skipped test is still collected, so unlimited skipping keeps this step green while less and less of the gate actually runs. Each skip's reason is in the SKIPPED lines -rs printed above: either the environment they need is genuinely absent (say so in the skip reason and raise this bound deliberately, in review) or the skip is hiding a test that should run."
+            exit 1
+          fi
+          if [ "$TEST_STATUS" -ne 0 ]; then
+            echo "::error::the governed product suite failed (pytest exit $TEST_STATUS). The floor and the file-set gates above passed, so the collection is whole and this is a real test failure, not a narrowed gate -- see the failures printed above."
+            exit "$TEST_STATUS"
+          fi
 
   # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
   # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it
@@ -278,6 +321,14 @@ jobs:
         # attribution - the last log line was whichever test had passed last, and
         # the job sat until its 20-minute wall clock fired. Per-file deadlines make
         # a hang report itself as "this file timed out".
+        # The step is bounded by a SUITE budget (720 s by default): every file gets
+        # `min(TEST_FILE_TIMEOUT_MS, budget still unspent)`, the run stops when the
+        # budget is gone, and files it never reached are reported as failures -- so the
+        # 20-minute job cannot be outlived however many files hang. Both knobs
+        # (TEST_FILE_TIMEOUT_MS, TEST_SUITE_BUDGET_MS) are rejected rather than clamped
+        # when they fall outside the script's enforced range. The file list comes from
+        # scripts.test and is cross-checked against a recursive scan of test/, so the
+        # files CI runs and the files `npm test` runs are the same set by construction.
         run: npm run test:ci
       # tsc -p tsconfig.json --noEmit over src/**, scripts/**/*.ts and test/** -- the view and the
       # protocol client are typed contracts, so a type error is a gate failure, not a warning.

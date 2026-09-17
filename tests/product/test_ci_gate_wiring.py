@@ -21,16 +21,36 @@ and still toothless in any of those ways, so each is asserted separately below.
 Both jobs are also bounded in time. GitHub's default job cap is 360 minutes, so a
 job that declares no ``timeout-minutes`` turns a hung step into six hours of runner
 time; the bound is asserted per job, not once for the file.
+
+Wiring the step is not the whole claim, which is why two more layers are judged
+here. The cli-ts step runs ``npm run test:ci``, and that indirection used to be
+unguarded in both directions: the step could name a silent script that does
+nothing (``echo``, ``true``), and the cli-ts job's 20-minute bound could be exceeded by
+the very deadlines meant to enforce it (34 files x 180 s = 102 minutes, with
+``TEST_FILE_TIMEOUT_MS`` checked by nothing). So ``scripts["test:ci"]`` is parsed
+and executed here -- through the same argv ci.yml runs, with a ``--list`` probe
+that reports the file list and the deadlines the script will really use -- and
+asserted against the workflow, against the files on disk, and against the job's
+own wall clock. Finally, the product gate's own breadth can shrink without
+failing it: skipped tests are still *collected*, so neither the floor nor the
+file-set gate notices them, and the run was ``-q`` with no ``-rs``, so the skip
+reasons never reached the log. The skip count and its bound are asserted below.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shlex
+import shutil
+import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -245,9 +265,20 @@ _SET_DIFFERENCE = re.compile(
     r"\s+\"?\$\{?(?P<right>\w+)\}?\"?\s*\)\"?",
     re.MULTILINE,
 )
-# The explicit exemption list: one literal basename at a time, never a pattern.
+# The explicit exemption list: one literal path at a time, never a pattern. The entry form is
+# the form of the DISK LISTING above (`find tests/product ...` prints `tests/product/x.py`) and
+# not a bare basename: both sides of the comparison hold paths and the filter is a whole-line
+# match, so `test_x.py` can never match `tests/product/test_x.py` -- the list then exempts
+# nothing, silently, and the pressure is to weaken the comparison instead. Asserting the form
+# here is what keeps a second "exemption that cannot take effect" out of the file.
 _ALLOWLIST = re.compile(r"^\s*ALLOWED_UNCOLLECTED=(?P<value>.*)$", re.MULTILINE)
-_ALLOWED_ENTRY = re.compile(r"[A-Za-z0-9_.-]+")
+_ALLOWED_ENTRY = re.compile(rf"{re.escape(GOVERNED_ROOT)}/[A-Za-z0-9_.-]+\.py")
+
+# The governed run's skip accounting: `-rs` puts every skip's REASON in the log, and the count
+# is read out of a machine-readable report rather than pytest's summary line.
+SKIP_REPORT_FLAG = re.compile(r"(?:^|\s)-r[a-z]*s[a-z]*\b")
+JUNIT_XML = re.compile(r"--junitxml=\"?\$\{?(?P<out>[A-Za-z_]\w*)\}?\"?")
+MAX_SKIPS_ALLOWED = 20
 
 
 @dataclass(frozen=True)
@@ -263,19 +294,36 @@ class PytestInvocation:
 
     @property
     def shape(self) -> str:
-        """The command with everything that cannot change WHAT runs normalised away."""
+        """The command with everything that cannot change WHAT runs normalised away.
+
+        ``--collect-only``, pytest's skip report (``-rs``/``-ra``) and the JUnit report
+        (``--junitxml=...``) are reporting-only: they change what the log and the report file
+        contain, never which tests execute. They are stripped so the running line and the
+        measuring line can be compared on the words that DO decide what runs.
+        """
         text = re.sub(r"^\s*if\s+!\s*", "", self.line)
         text = re.sub(r";\s*then\s*$", "", text)
         text = re.sub(r"\s*>\s*\S+\s*$", "", text)
+        text = re.sub(r"--junitxml(?:=|\s+)\S+", " ", text)
+        text = re.sub(r"(?<=\s)-r[a-z]*\b", " ", text)
         text = re.sub(r"--collect-only\b", " ", text)
         return " ".join(text.split())
+
+
+# A real pytest invocation, judged by POSITION: a command word at the start of a statement
+# (optionally `if !`-guarded and preceded by env assignments such as PYTHONPATH=...), never the
+# word `pytest` inside an error message -- `echo "::error::... pytest exit $status"` is a line
+# about a run, not a run.
+_PYTEST_COMMAND = re.compile(
+    r"(?:^|[;&|]|\bthen\b)\s*(?:if\s+!\s*)?(?:[A-Za-z_]\w*=[^\s]*\s+)*(?:python3?\s+-m\s+)?pytest\b(.*)$"
+)
 
 
 def _pytest_invocations(command: str) -> list[PytestInvocation]:
     """Every pytest line in a run block, with the positional (target) words it names."""
     invocations: list[PytestInvocation] = []
     for line in command.splitlines():
-        match = re.search(r"\bpytest\b(.*)$", line)
+        match = _PYTEST_COMMAND.search(line)
         if match is None:
             continue
         targets: list[str] = []
@@ -651,17 +699,29 @@ def test_ci_product_gate_collects_every_module_on_disk() -> None:
         f"CI FILE-SET GATE EXEMPTION INDIRECT: {step.label} sets ALLOWED_UNCOLLECTED to "
         f"{allowlist.group('value').strip()!r}, which is not a literal list. An exemption "
         f"list that is computed, expanded from a variable or built by a command is one "
-        f"more place where a wildcard can hide; write the file names out."
+        f"more place where a wildcard can hide; write the paths out."
     )
     entries = literal.group("inner").split()
     for entry in entries:
-        assert _ALLOWED_ENTRY.fullmatch(entry), (
+        assert not re.search(r"[*?\[\]{}]", entry), (
             f"CI FILE-SET GATE EXEMPTION TOO BROAD: {step.label} exempts {entry!r} via "
-            f"ALLOWED_UNCOLLECTED, but an entry must be one literal file name. A glob "
-            f"(`*`, `test_*`) or a path prefix exempts every module it matches from the "
-            f"disk/collection comparison -- the wildcard would silently restore exactly "
-            f"the hole this gate closes. Exempt one file at a time, each with its reason "
-            f"in the comment above the list. Entries judged: {entries}"
+            f"ALLOWED_UNCOLLECTED, but an entry must be one literal path. A glob entry "
+            f"(`*`, `test_*`) reads as 'every module is exempt' and is the wildcard this "
+            f"list is explicitly not allowed to hold. Exempt one module at a time, each "
+            f"with its reason in the comment above the list. Entries judged: {entries}"
+        )
+        assert _ALLOWED_ENTRY.fullmatch(entry), (
+            f"CI FILE-SET GATE EXEMPTION INERT: {step.label} exempts {entry!r} via "
+            f"ALLOWED_UNCOLLECTED, but an entry must be spelled the way the DISK LISTING "
+            f"spells the file -- `{GOVERNED_ROOT}/<name>.py`. Both sides of this comparison "
+            f"hold paths and the filter is a whole-line match against the disk listing, so "
+            f"a bare basename (`{entry}`) matches nothing, exempts nothing and leaves the "
+            f"step failing with a list that looks like it should work: that is exactly how "
+            f"this exemption mechanism was broken before (no entry could ever take effect), "
+            f"and the only way out of it was to weaken the comparison. Write the path as "
+            f"`{GOVERNED_ROOT}/{entry.strip('/')}` (a live entry is also checked by the step "
+            f"itself, which fails on an entry that matches nothing on disk). "
+            f"Entries judged: {entries}"
         )
     assert re.search(r"for\s+\w+\s+in\s+\$\{?ALLOWED_UNCOLLECTED\}?", command), (
         f"CI FILE-SET GATE EXEMPTION UNUSED: {step.label} declares ALLOWED_UNCOLLECTED but "
@@ -709,6 +769,166 @@ def test_ci_product_gate_collects_every_module_on_disk() -> None:
         f"in its `for` loop before the `case` that rejects a wildcard value, so the list is "
         f"already filtered into the expectation by the time the rejection would fire. The "
         f"guard must come first."
+    )
+    # A well-formed entry can still be inert: the loop used to filter only when the entry
+    # matched, so an entry written in the wrong shape did nothing at all, silently. The loop
+    # body must therefore FAIL on an entry that matches nothing in the disk listing, which is
+    # what turns "the exemption did not take effect" into a red step instead of a mystery.
+    loop_body = re.search(
+        r"for\s+\w+\s+in\s+\$\{?ALLOWED_UNCOLLECTED\}?[^\n]*\n(?P<body>(?:[ \t]+[^\n]*\n?)*)",
+        command,
+    )
+    assert loop_body is not None, (
+        f"CI FILE-SET GATE EXEMPTION UNREADABLE: could not read the body of the "
+        f"ALLOWED_UNCOLLECTED loop in {step.label}."
+    )
+    body = loop_body.group("body")
+    assert re.search(rf"grep\s+-q\s+-x\s+-F[^\n]*\$allowed[^\n]*\$\{{?{re.escape(expected_var)}\}}?", body), (
+        f"CI FILE-SET GATE EXEMPTION INERT: the loop over ALLOWED_UNCOLLECTED in "
+        f"{step.label} does not test each entry against the disk listing ${expected_var} "
+        f"before using it, so an entry that matches nothing (the wrong path form, a "
+        f"deleted module) is indistinguishable from a working exemption: the step keeps "
+        f"failing and the list keeps claiming the module is excused. Loop body judged: "
+        f"{body.strip()!r}"
+    )
+    assert re.search(r"^\s*exit\s+(?!0\b)\S+", body, re.MULTILINE), (
+        f"CI FILE-SET GATE EXEMPTION INERT: the loop over ALLOWED_UNCOLLECTED in "
+        f"{step.label} never exits non-zero, so an entry that matches no module on disk "
+        f"is accepted without effect. A dead exemption is the failure this list already "
+        f"had once -- it could not take effect and the only way to pass was to weaken the "
+        f"comparison -- so the step must reject an entry that matches nothing. Loop body "
+        f"judged: {body.strip()!r}"
+    )
+
+
+def _guarded_branch(command: str, needs: Sequence[str]) -> str | None:
+    """The body of the first `if` whose condition line mentions every string in `needs`.
+
+    Used where the assertion's point is "this comparison exists, and the branch it guards
+    actually fails the step": the condition is judged by the variables it reads, not by the
+    exact wording of the test operator.
+    """
+    for match in re.finditer(
+        r"^[ \t]*if\b[^\n]*;\s*then\b[^\n]*\n(?P<body>(?:[ \t]+[^\n]*\n?)*)",
+        command,
+        re.MULTILINE,
+    ):
+        if all(token in match.group(0) for token in needs):
+            return match.group("body")
+    return None
+
+
+def test_ci_product_gate_bounds_and_reports_skips() -> None:
+    """A skipped test is still COLLECTED, so neither gate above can see one appear.
+
+    The floor counts items and the file-set gate counts modules; a module whose tests all
+    skip passes both while running nothing at all. Until this was fixed the run was `-q`
+    with no `-rs`, so even the summary count was the only trace and the reasons were nowhere,
+    and nothing bounded the number: the suite could lose test after test to skips with every
+    wiring assertion above still green.
+    """
+    step = _collect_guarded_step()
+    command = step.command
+    running = [inv for inv in _pytest_invocations(command) if not inv.collects_only]
+    assert running, (
+        f"CI SKIP GATE VACUOUS: {step.label} has no running pytest line to check for skip "
+        f"reporting. pytest lines seen: "
+        f"{[inv.line.strip() for inv in _pytest_invocations(command)]}"
+    )
+    run_line = running[-1].line
+
+    assert SKIP_REPORT_FLAG.search(run_line), (
+        f"CI SKIP REASONS UNREPORTED: the run line of {step.label} does not ask pytest for "
+        f"the skipped tests (`-rs`), so the log shows a count at best and never the REASON -- "
+        f"which is what a reader needs to tell `this platform cannot run it` from `this test "
+        f"was quietly turned off`. Running line: `{run_line.strip()}`"
+    )
+
+    xml = JUNIT_XML.search(run_line)
+    assert xml is not None, (
+        f"CI SKIP COUNT UNREADABLE: the run line of {step.label} writes no machine-readable "
+        f"result (`--junitxml=\"$FILE\"`), so the skip count would have to be parsed out of "
+        f"pytest's summary line -- whose wording is a pytest-version detail, the same reason "
+        f"the item count is taken from the per-item lines. Running line: `{run_line.strip()}`"
+    )
+    xml_var = xml.group("out")
+    liveness = _guarded_branch(command, (xml_var, "testsuite"))
+    assert liveness is not None and re.search(r"exit\s+(?!0\b)\S+", liveness), (
+        f"CI SKIP COUNT VACUOUS: {step.label} counts skips out of ${xml_var} without first "
+        f"failing on a missing or empty report, so a dropped report makes the count read 0 "
+        f"and the bound below decorative. Expected an `if [ ! -s \"${xml_var}\" ] || ! grep "
+        f"-q '<testsuite' \"${xml_var}\"; then ... exit 1; fi` before the count."
+    )
+
+    counter = next(
+        (
+            line
+            for line in command.splitlines()
+            if re.match(r"\s*[A-Za-z_]\w*=", line)
+            and "awk" in line
+            and "<skipped" in line
+            and f"${xml_var}" in line
+        ),
+        None,
+    )
+    assert counter is not None, (
+        f"CI SKIP COUNT MISSING: nothing in {step.label} counts the `<skipped` entries of "
+        f"${xml_var}, so no skip total is ever computed and the bound is only decorative. "
+        f"Expected a line like `SKIPPED=\"$(awk '/<skipped/ {{ skipped++ }} END {{ print "
+        f"skipped + 0 }}' \"${xml_var}\")\"`."
+    )
+    counted_var = re.match(r"\s*([A-Za-z_]\w*)=", counter).group(1)
+
+    bounded = re.search(
+        r"\bif\s+\[\s*\"?\$\{?"
+        + re.escape(counted_var)
+        + r"\}?\"?\s+-(?P<op>gt|ge|lt|le)\s+(?P<bound>\d+)\s*\]\s*;\s*then\b"
+        + r"(?P<body>(?:\n[ \t]+[^\n]*)*)",
+        command,
+    )
+    assert bounded is not None, (
+        f"CI SKIP BOUND MISSING: {step.label} counts skips into ${counted_var} but never "
+        f"compares them with a literal bound -- there is no `if [ \"${counted_var}\" -gt "
+        f"<max> ]; then ... exit 1` between the count and the end of the step. That "
+        f"comparison is the protection: without it the count is printed for nobody and the "
+        f"suite can hollow out to skips with this step green, because both gates above count "
+        f"items and a skipped test is still collected."
+    )
+    assert bounded.group("op") in {"gt", "ge"}, (
+        f"CI SKIP BOUND INVERTED: {step.label} uses `-{bounded.group('op')}` on "
+        f"${counted_var}, which does not bound the skip count from above. A skip bound is "
+        f"only a bound as `-gt`/`-ge` against a maximum."
+    )
+    assert re.search(r"exit\s+(?!0\b)\S+", bounded.group("body")), (
+        f"CI SKIP BOUND DOES NOT BITE: the above-the-bound branch of {step.label} does not "
+        f"exit non-zero, so more skips than allowed leaves the step green. Branch judged: "
+        f"{bounded.group('body').strip()!r}"
+    )
+    bound = int(bounded.group("bound"))
+    assert bound <= MAX_SKIPS_ALLOWED, (
+        f"CI SKIP BOUND TOO HIGH: {step.label} tolerates {bound} skipped tests, above the "
+        f"{MAX_SKIPS_ALLOWED} this guard allows. Measured on this tree (2026-09-18): 1 "
+        f"skipped on macOS and 7 on the Linux runner, so a bound near either number is a "
+        f"real bound while a bound in the hundreds is a formality. Lower the literal in the "
+        f"comparison; do not raise this threshold."
+    )
+
+    captured = re.search(r"^\s*(?P<var>[A-Za-z_]\w*)=\$\?\s*$", command, re.MULTILINE)
+    assert captured is not None, (
+        f"CI RUN STATUS LOST: {step.label} no longer captures pytest's exit status right "
+        f"after the run (`STATUS=$?`). The run line stopped being the last command in the "
+        f"step when the skip accounting was added, so without the capture the step's verdict "
+        f"comes from whatever ran last -- a failing suite would then exit 0. Expected a "
+        f"`<VAR>=$?` on its own line directly after the run."
+    )
+    status_var = captured.group("var")
+    assert re.search(
+        r"\bexit\s+\"?\$\{?" + re.escape(status_var) + r"\}?\"?", command
+    ), (
+        f"CI RUN STATUS IGNORED: {step.label} captures pytest's exit status into "
+        f"${status_var} but never exits with it, so a failing suite is only as red as "
+        f"whatever the step does afterwards. Exit with `${status_var}` (non-zero) when it "
+        f"is non-zero."
     )
 
 
@@ -766,3 +986,408 @@ def test_ci_test_job_bounds_its_wall_clock() -> None:
         "suite is 2646 items in about 3.5 minutes; the deterministic unittest step and the "
         "installs are the rest.",
     )
+
+
+# --- the cli-ts gate's own entry point ---------------------------------------------------------
+# The cli-ts step runs `npm run test:ci`, one hop more than the product gate has:
+# ci.yml -> package.json scripts["test:ci"] -> scripts/test-ci.mjs. Every assertion above stops
+# at the workflow, so that hop used to be unguarded in BOTH directions.
+#
+# Downward: `test:ci` could be `echo ci tests skipped` -- CI would then run zero tests and exit
+# 0 while all ten wiring assertions above passed, because nothing in the repo read the script's
+# CONTENT, and any other name in package.json could be swapped in for it.
+#
+# Upward: what the script itself collects and how long it allows. Its file list was a
+# single-level `readdirSync`, so a test file added under `test/<subdir>/` and registered in
+# scripts.test was run by `npm test` (an explicit list), accepted by test/test-list-guard.test.ts
+# (a recursive scan) and never executed by CI; and 34 files x a 180 s per-file deadline is 102
+# minutes of permitted wall clock inside a job bounded at 20, so hung files still ended as an
+# anonymous cancellation and TEST_FILE_TIMEOUT_MS was checked by nothing at all. The bound that
+# fixes the second one is the suite budget in the entry point (every file gets
+# `min(per_file, budget left)`, unseen files are failures), asserted against the job below --
+# NOT a smaller per-file deadline, which a healthy file can trip under load.
+#
+# The entry point is therefore parsed out of package.json and EXECUTED here (its `--list` mode
+# resolves the plan and exits without running the suite), and the answers are judged against the
+# files on disk, against the workflow, and against the job's own bound.
+CLI_TS_ROOT = REPO_ROOT / "apps" / "cli-ts"
+CLI_TS_PACKAGE = CLI_TS_ROOT / "package.json"
+CLI_TS_TEST_DIR = CLI_TS_ROOT / "test"
+CLI_TS_ENTRY = re.compile(r"(?:^|\s)(test/[A-Za-z0-9._/-]+\.test\.tsx?)(?=\s|$)")
+CLI_TS_SCRIPT_FILE = re.compile(r"^[\w./-]+\.(?:mjs|cjs|js|ts|tsx|sh)$")
+# Commands that cannot fail and cannot run anything: a `test:ci` built out of these is the
+# "ci tests skipped" hole in its purest form.
+SILENT_VERBS = frozenset({"echo", "true", ":", "printf", "exit", "sleep"})
+# The ceiling this guard puts on the entry point's own deadlines, and the room the cli-ts job
+# must keep for its install / typecheck / install-smoke steps on top of the suite's budget.
+MAX_CLI_TS_PER_FILE_MS = 300_000
+CLI_TS_JOB_RESERVE_MS = 300_000
+_NODE = shutil.which("node")
+
+
+def _cli_ts_scripts() -> Mapping[str, Any]:
+    assert CLI_TS_PACKAGE.is_file(), (
+        f"CLI-TS GATE MISSING: {CLI_TS_PACKAGE} is missing, so the npm script the cli-ts job "
+        f"runs cannot be checked and the suite it is supposed to gate has no entry point to "
+        f"judge."
+    )
+    manifest = json.loads(CLI_TS_PACKAGE.read_text(encoding="utf-8"))
+    scripts = manifest.get("scripts")
+    assert isinstance(scripts, Mapping) and scripts, (
+        f"CLI-TS GATE MISSING: {CLI_TS_PACKAGE} declares no `scripts`, so `npm run test:ci` "
+        f"in the cli-ts job resolves to nothing and npm would fail (or, with --if-present, "
+        f"silently succeed) instead of running the suite."
+    )
+    return scripts
+
+
+def _cli_ts_entry_argv() -> list[str]:
+    """The argv `npm run test:ci` resolves to, read out of package.json."""
+    command = _cli_ts_scripts().get("test:ci")
+    assert isinstance(command, str) and command.strip(), (
+        f"CLI-TS GATE HOLLOW: {CLI_TS_PACKAGE} has no non-empty `scripts.test:ci`. It is the "
+        f"script the cli-ts job runs, so without it the job runs nothing -- and the ten "
+        f"wiring assertions above all still pass, because they only know the workflow "
+        f"invokes the name."
+    )
+    return shlex.split(command)
+
+
+def _cli_ts_files_on_disk() -> list[str]:
+    """Every *.test.ts(x) under apps/cli-ts/test, at any depth, as `test/<rel>`.
+
+    Recursive on purpose: this is the criterion test/test-list-guard.test.ts uses for
+    `scripts.test`, and the whole point of the assertions below is that the entry point CI runs
+    agrees with it at every depth.
+    """
+    return sorted(
+        f"test/{path.relative_to(CLI_TS_TEST_DIR).as_posix()}"
+        for path in CLI_TS_TEST_DIR.rglob("*")
+        if path.is_file() and re.search(r"\.test\.tsx?$", path.name)
+    )
+
+
+def _cli_ts_entry_plan(env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Run the entry point in its `--list` mode: the real plan, without running the suite."""
+    return subprocess.run(
+        [*_cli_ts_entry_argv(), "--list"],
+        cwd=CLI_TS_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, **(env or {})},
+    )
+
+
+def test_cli_ts_gate_runs_the_test_ci_entry_point() -> None:
+    """ci.yml must invoke the entry point judged below -- not another script by another name."""
+    steps = [step for step in _all_steps() if _runs_cli_ts_tests(step)]
+    assert steps, (
+        f"CI gate MISSING: the {CLI_TS_GATE} is not wired in {WORKFLOW_PATH}. Steps actually "
+        f"parsed: {_describe(_all_steps())}"
+    )
+    invoked = {
+        match.group("name")
+        for step in steps
+        for match in re.finditer(r"\bnpm\s+run\s+(?P<name>[A-Za-z0-9:_-]+)", step.command)
+    }
+    assert "test:ci" in invoked, (
+        f"CLI-TS GATE UNPINNED: the cli-ts suite is run in {WORKFLOW_PATH} by "
+        f"{[step.summary for step in steps]}, which invokes "
+        f"{sorted(invoked) or ['<no `npm run <script>` at all>']} instead of `npm run "
+        f"test:ci`. The script NAME is the join between this workflow and the entry point the "
+        f"assertions below judge (its collection, its deadlines, its disk cross-check); while "
+        f"ci.yml may name any other script, swapping it for one that does nothing -- and "
+        f"adding that name to package.json -- leaves every wiring assertion above green. Run "
+        f"`npm run test:ci`."
+    )
+
+
+def test_cli_ts_test_ci_entry_point_is_not_a_noop() -> None:
+    """The script ci.yml runs must be a real one: it can fail, and it runs a file on disk.
+
+    Nothing else in the repo reads this value. A `test:ci` of `echo ci tests skipped` gives
+    CI a green cli-ts job that ran zero tests, and the workflow-side assertions cannot see the
+    difference because they judge the workflow, not the script.
+    """
+    command = _cli_ts_scripts().get("test:ci")
+    assert isinstance(command, str) and command.strip(), (
+        f"CLI-TS GATE HOLLOW: {CLI_TS_PACKAGE} has no non-empty `scripts.test:ci`."
+    )
+    verbs = [
+        words[0].strip("\"'")
+        for statement in re.split(r"[;&|\n]+", command)
+        if (words := statement.strip().split())
+    ]
+    assert verbs, (
+        f"CLI-TS GATE HOLLOW: `test:ci` is {command!r}, which has no command in it at all."
+    )
+    assert any(verb not in SILENT_VERBS for verb in verbs), (
+        f"CLI-TS GATE SILENT: `test:ci` is {command!r}, built only out of "
+        f"{sorted(set(verbs))} -- commands that report success without running a test. CI "
+        f"would then finish the cli-ts job green having executed nothing, which is the exact "
+        f"failure this gate exists to prevent. Point it at a real runner."
+    )
+    referenced = [token for token in shlex.split(command) if CLI_TS_SCRIPT_FILE.fullmatch(token)]
+    assert referenced, (
+        f"CLI-TS GATE UNREADABLE: `test:ci` is {command!r}, which names no script file in "
+        f"{CLI_TS_ROOT.name}/. The gate's decisions -- which files are collected, how long each "
+        f"may take, whether the collection matches the files on disk -- are made by a script in "
+        f"this package (scripts/test-ci.mjs), and this guard drives that script to check them. "
+        f"An entry point that is not a file here cannot be judged, so it is rejected rather "
+        f"than trusted."
+    )
+    for relative in referenced:
+        assert (CLI_TS_ROOT / relative).is_file(), (
+            f"CLI-TS GATE DANGLING: `test:ci` is {command!r}, but "
+            f"{CLI_TS_ROOT / relative} does not exist, so the script CI runs is a path that "
+            f"resolves to nothing (npm exits 1, and the suite never runs)."
+        )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the cli-ts entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_entry_point_collects_every_test_file_on_disk() -> None:
+    """The files CI executes must be the files on disk -- at every depth, both directions.
+
+    A single-level `readdirSync` failed this silently: `test/<subdir>/x.test.ts` was on disk,
+    registered in scripts.test, run by `npm test` and accepted by test/test-list-guard.test.ts
+    (which scans recursively), while `npm run test:ci` -- the command CI actually runs -- never
+    executed it. Judging the entry point's own answer against a recursive scan is what makes
+    that red instead of a green CI that skipped a file.
+    """
+    result = _cli_ts_entry_plan()
+    assert result.returncode == 0, (
+        f"CLI-TS ENTRY POINT FAILED: `{_cli_ts_entry_argv()!r} --list` exited "
+        f"{result.returncode}. stdout: {result.stdout[-2000:]!r} stderr: "
+        f"{result.stderr[-2000:]!r}"
+    )
+    plan = json.loads(result.stdout)
+    listed = list(plan["files"])
+    on_disk = _cli_ts_files_on_disk()
+    registered = list(CLI_TS_ENTRY.findall(str(_cli_ts_scripts().get("test", ""))))
+
+    assert on_disk, (
+        f"CLI-TS DISK SCAN BROKEN: no *.test.ts(x) found under {CLI_TS_TEST_DIR}, so the "
+        f"comparison below would be vacuous."
+    )
+    not_run = sorted(set(on_disk) - set(listed))
+    not_on_disk = sorted(set(listed) - set(on_disk))
+    assert not not_run and not not_on_disk, (
+        f"CLI-TS FILE SET MISMATCH: the entry point CI runs would execute {len(listed)} "
+        f"files, but {len(on_disk)} *.test.ts(x) exist under {CLI_TS_TEST_DIR}. On disk and "
+        f"not run: {not_run} | run but not on disk: {not_on_disk}. A file in the first list is "
+        f"a test that no CI run executes -- the collection must descend into every "
+        f"subdirectory, exactly as test/test-list-guard.test.ts does when it pins "
+        f"scripts.test."
+    )
+    assert listed == registered, (
+        f"CLI-TS ENTRY POINT DIVERGES from scripts.test: the entry point would run "
+        f"{len(listed)} files where apps/cli-ts/package.json scripts.test names "
+        f"{len(registered)}. Only in scripts.test: {sorted(set(registered) - set(listed))} | "
+        f"only in the entry point: {sorted(set(listed) - set(registered))}. Running a "
+        f"different list than `npm test` does is how a file ends up executed locally and "
+        f"skipped by CI (or the reverse); the two must be the same list."
+    )
+    assert len(listed) == len(set(listed)), (
+        f"CLI-TS ENTRY POINT REPEATS FILES: {len(listed)} entries, {len(set(listed))} distinct."
+    )
+    assert sorted(registered) == on_disk, (
+        f"CLI-TS FILE SET MISMATCH: apps/cli-ts/package.json scripts.test names "
+        f"{len(registered)} files, but {len(on_disk)} *.test.ts(x) exist under "
+        f"{CLI_TS_TEST_DIR}. Not registered (npm test would never run them): "
+        f"{sorted(set(on_disk) - set(registered))} | registered but missing on disk: "
+        f"{sorted(set(registered) - set(on_disk))}."
+    )
+    for relative in listed:
+        assert (CLI_TS_ROOT / relative).is_file(), (
+            f"CLI-TS FILE SET DANGLING: the entry point would run {relative!r}, which is not "
+            f"a file under {CLI_TS_ROOT}."
+        )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the cli-ts entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_entry_point_bounds_every_deadline_inside_the_job() -> None:
+    """The step's wall clock must be bounded by the suite budget, inside the job's bound.
+
+    A per-file deadline is what turns a hang into an attributable failure, and it is also what
+    decides how long a hang is PERMITTED to last: 34 files x 180 s is 102 minutes of permitted
+    wall clock inside a job bounded at 20, so seven hung files still ended as the anonymous
+    cancellation the deadlines were meant to replace. The bound that fixes it is the suite
+    budget -- every file gets `min(per_file, budget left)` and the unseen files are reported as
+    failures -- so what has to stay under the job's bound is the WORST CASE the entry point
+    reports, with room left for the job's other steps (install, typecheck, install smoke).
+
+    The withdrawn alternative is asserted against below too: deriving per_file as
+    `budget / file count` (21 s for 34 files) makes a healthy `test/controller.test.ts` fail as
+    a hang under load, measured on this tree (2026-09-18) at load average 8.
+    """
+    job_minutes = _assert_job_timeout(
+        "cli-ts",
+        30,
+        "It runs the cli-ts suite through per-file deadlines, so this job's bound is the "
+        "wall clock those deadlines have to fit inside.",
+    )
+    job_ms = job_minutes * 60_000
+    result = _cli_ts_entry_plan()
+    assert result.returncode == 0, (
+        f"CLI-TS ENTRY POINT FAILED: `{_cli_ts_entry_argv()!r} --list` exited "
+        f"{result.returncode}. stdout: {result.stdout[-2000:]!r} stderr: "
+        f"{result.stderr[-2000:]!r}"
+    )
+    plan = json.loads(result.stdout)
+    file_count = int(plan["fileCount"])
+    per_file = int(plan["perFileTimeoutMs"])
+    budget = int(plan["suiteBudgetMs"])
+    worst_case = int(plan["worstCaseSuiteMs"])
+
+    assert file_count == len(list(plan["files"])) > 0, (
+        f"CLI-TS PLAN INCONSISTENT: the entry point reports fileCount={file_count} for "
+        f"{len(list(plan['files']))} files."
+    )
+    assert 0 < per_file <= MAX_CLI_TS_PER_FILE_MS, (
+        f"CLI-TS PER-FILE DEADLINE UNBOUNDED: the entry point would give each test file "
+        f"{per_file} ms, above the {MAX_CLI_TS_PER_FILE_MS} ms this guard allows. Every file "
+        f"that hangs is given that long, so the deadline is a bound on how long a broken run "
+        f"may take before the suite budget stops it."
+    )
+    assert per_file <= budget, (
+        f"CLI-TS PER-FILE DEADLINE OUTLIVES THE SUITE: the entry point would let one file run "
+        f"for {per_file} ms inside a {budget} ms suite budget. A per-file deadline longer than "
+        f"the budget means a single hanging file consumes the whole suite's allowance, so no "
+        f"other file's failure can be attributed."
+    )
+    assert worst_case == min(file_count * per_file, budget), (
+        f"CLI-TS PLAN INCONSISTENT: the entry point reports a worst case of {worst_case} ms for "
+        f"{file_count} files x {per_file} ms inside a {budget} ms budget. The worst case is "
+        f"what this guard compares against the job, so it must be the product of the two, "
+        f"capped by the budget the run actually enforces."
+    )
+    assert worst_case <= budget, (
+        f"CLI-TS DEADLINES OUTGROW THE SUITE: the entry point's worst case is {worst_case} ms, "
+        f"above the {budget} ms suite budget it claims to enforce. The per-file deadline must be "
+        f"clamped by the budget still unspent, or a suite of hung files runs for hours while "
+        f"reporting each hang as a timeout -- and the files it never reached are lost."
+    )
+    assert worst_case < job_ms, (
+        f"CLI-TS DEADLINES OUTGROW THE JOB: the entry point's worst case is {worst_case} ms, at "
+        f"or above the cli-ts job's own {job_ms} ms (timeout-minutes: {job_minutes}). The "
+        f"deadlines decide how long the runner is busy, so the worst case has to fit inside the "
+        f"bound that is supposed to end the job -- otherwise hung files still end as an "
+        f"anonymous cancellation at the job limit."
+    )
+    assert budget <= job_ms - CLI_TS_JOB_RESERVE_MS, (
+        f"CLI-TS SUITE BUDGET OUTGROWS THE JOB: the entry point budgets {budget} ms for the "
+        f"suite inside the cli-ts job's {job_ms} ms (timeout-minutes: {job_minutes}), leaving "
+        f"{job_ms - budget} ms for the install, typecheck and install-smoke steps. Those need "
+        f"at least {CLI_TS_JOB_RESERVE_MS} ms; lower the budget or raise the job's "
+        f"timeout-minutes deliberately, in review."
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the cli-ts entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_entry_point_clamps_each_file_to_the_budget_left() -> None:
+    """The worst case is only real while each file's deadline is clamped by the budget left.
+
+    This is the one assertion in this group made on the entry point's SOURCE, and the reason is
+    that no cheap behaviour probe can see the difference: firing it requires a test file that is
+    still running when the suite budget expires, and the only files on disk finish in seconds.
+    The probe above proves the accounting around the budget (nothing runs, everything is
+    reported as never-run, exit non-zero); this asserts the clamp that makes the reported worst
+    case -- and the job-level bound computed from it -- true. Without it a single hung file is
+    given its full per-file deadline even when the suite has already spent its budget, which is
+    the arrangement this whole bound exists to replace.
+    """
+    source = (CLI_TS_ROOT / "scripts" / "test-ci.mjs").read_text(encoding="utf-8")
+    assert re.search(r"const remaining = deadline - Date\.now\(\)", source), (
+        "CLI-TS SUITE BUDGET UNTRACKED: apps/cli-ts/scripts/test-ci.mjs no longer computes how "
+        "much of the suite budget is left before running each file, so there is nothing for a "
+        "file's deadline to be clamped to."
+    )
+    assert re.search(r"if\s*\(\s*remaining\s*<=\s*0\s*\)", source), (
+        "CLI-TS SUITE BUDGET UNENFORCED: apps/cli-ts/scripts/test-ci.mjs no longer has a branch "
+        "for an exhausted suite budget, so the files that never ran are not reported -- a "
+        "truncated run would look like a complete one."
+    )
+    assert re.search(r"\brun\(\s*file\s*,\s*Math\.min\(\s*perFileMs\s*,\s*remaining\s*\)\s*\)", source), (
+        "CLI-TS SUITE BUDGET NOT CLAMPED: apps/cli-ts/scripts/test-ci.mjs runs each file with "
+        "its full per-file deadline instead of `Math.min(perFileMs, remaining)`, so the suite "
+        "can spend more wall clock than TEST_SUITE_BUDGET_MS allows -- and the worst case this "
+        "guard compares against the cli-ts job's timeout-minutes would be a number the run does "
+        "not honour."
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the cli-ts entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_entry_point_stops_at_the_suite_budget_and_reports_the_rest_as_failures() -> None:
+    """The budget must be ENFORCED, and a file that never ran must not count as a pass.
+
+    Everything above judges the numbers the entry point reports about itself; this one drives
+    it. With a 1 ms budget the loop has no time left before its first file, so a correct entry
+    point runs nothing, names every file as never-run, and exits non-zero -- there is no way to
+    report success for a suite it did not run. (1 ms is the budget bound's floor on purpose; see
+    the constants in apps/cli-ts/scripts/test-ci.mjs.)
+    """
+    result = subprocess.run(
+        _cli_ts_entry_argv(),
+        cwd=CLI_TS_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "TEST_SUITE_BUDGET_MS": "1"},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, (
+        f"CLI-TS SUITE BUDGET IGNORED: the entry point exited 0 with a 1 ms suite budget, so "
+        f"the budget does not stop the run -- or a suite that ran out of budget is reported as "
+        f"success. Output: {output[-1500:]!r}"
+    )
+    assert "NOT RUN" in output, (
+        f"CLI-TS SUITE BUDGET UNREPORTED: the entry point burned through its 1 ms budget "
+        f"without naming the files it never reached, so a truncated run is indistinguishable "
+        f"from a full one to whoever reads the log. Output: {output[-1500:]!r}"
+    )
+    assert "all test files passed" not in output, (
+        f"CLI-TS SUITE BUDGET IGNORED: the entry point printed 'all test files passed' with a "
+        f"1 ms budget and files it never ran. Output: {output[-1500:]!r}"
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the cli-ts entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_entry_point_rejects_an_unbounded_deadline_override() -> None:
+    """TEST_FILE_TIMEOUT_MS / TEST_SUITE_BUDGET_MS must be rejected, not clamped.
+
+    These are the knobs the previous revision left unchecked: any value was accepted, so the
+    bound the assertions above compute from the plan is only worth something while an
+    out-of-range override fails the run instead of quietly becoming the runtime's deadline.
+    """
+    for name, value in (
+        ("TEST_FILE_TIMEOUT_MS", "999999999"),
+        ("TEST_FILE_TIMEOUT_MS", "0"),
+        ("TEST_FILE_TIMEOUT_MS", "-1"),
+        ("TEST_FILE_TIMEOUT_MS", "not-a-number"),
+        ("TEST_SUITE_BUDGET_MS", "999999999"),
+        ("TEST_SUITE_BUDGET_MS", "0"),
+    ):
+        result = _cli_ts_entry_plan({name: value})
+        assert result.returncode != 0, (
+            f"CLI-TS DEADLINE OVERRIDE UNCHECKED: the entry point accepted {name}={value!r} "
+            f"(exit 0). An unbounded per-file deadline is how a hang turns into an anonymously "
+            f"cancelled job, and a bound that any environment variable can move is not a "
+            f"bound: the value must be rejected, not clamped. stdout: "
+            f"{result.stdout[-500:]!r} stderr: {result.stderr[-500:]!r}"
+        )
