@@ -17,6 +17,15 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Wall-clock bound. Like `cli-ts` below, this job declared none, so GitHub's 360-minute
+    # default applied to it: one hung child (a pip install stalled on the network, or the
+    # product suite blocked on a socket) would burn six hours of runner time before anyone
+    # saw a red build -- and the slower a job is allowed to be, the less often that shows.
+    # Measured healthy cost on this tree (2026-09-18): the governed product suite is 2646
+    # items in ~3.5 min, the deterministic unittest step is well under a minute, and the
+    # dependency installs are the rest, so 30 minutes is a hang detector with a wide margin,
+    # not a performance gate.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -137,6 +146,71 @@ jobs:
           echo "$PRODUCT_ARGS collected $COLLECTED items (floor 2500)"
           if [ "$COLLECTED" -lt 2500 ]; then
             echo "::error::the governed product gate now collects only $COLLECTED items, below the floor of 2500. $PRODUCT_ARGS was narrowed -- a -k/--deselect filter, a moved path, or deleted modules -- so most of the gate would silently stop running while this step stayed green."
+            exit 1
+          fi
+          # --- file-set gate: the floor above is a MAGNITUDE gate, not a coverage one ------------
+          # A count cannot see a narrowing that keeps the count high, and three such narrowings
+          # stay green against the floor alone: the target replaced by a subset of files (the
+          # whole suite is 2646 items and the largest single module collects 148, so a dozen or
+          # so big modules clear 2500), an `--ignore` added to BOTH invocations (the floor
+          # measures the same narrowed command, so it agrees with the run), and modules deleted
+          # from disk in small numbers (below-the-floor only after roughly 146 items are gone).
+          # This gate compares SETS instead of magnitudes: every test module sitting on disk
+          # under the governed suite root must also appear in the collection, and the ones that
+          # are missing are printed before the step exits 1.
+          # "Must be collected" is judged by the file name `test_*.py`, which already excludes
+          # this directory's non-test modules: conftest.py, mandate_observation_support.py and
+          # the underscore-prefixed _situated_epoch.py / _steward_app.py.
+          # The root in the `find` below is the LITERAL tests/product, deliberately NOT
+          # $PRODUCT_ARGS. Reading the expectation from the same variable as the target would
+          # let a narrowed target shrink the disk list to match it and leave the diff empty --
+          # exactly the hole this gate closes. This does not weaken the single-source-of-truth
+          # rule above: that rule is about the collect line and the run line expanding to the
+          # same command, and both still read $PRODUCT_ARGS. It is the EXPECTATION that is
+          # pinned to the governed root. If the governed suite is ever really moved, this root
+          # moves with it, under review.
+          # `./` is stripped from both sides because pytest echoes node ids exactly as the target
+          # was spelled; without that, a `./tests/product` target would look like 156 missing
+          # files.
+          # Measured on this tree 2026-09-18: 156 modules on disk, 156 in the collection, both
+          # diffs empty.
+          EXPECTED_LIST="$(mktemp)"
+          COLLECTED_LIST="$(mktemp)"
+          FILTERED_LIST="$(mktemp)"
+          find tests/product -maxdepth 1 -type f -name 'test_*.py' | sed 's|^\./||' | sort -u > "$EXPECTED_LIST"
+          awk -F'::' '/::/ { print $1 }' "$COLLECT_LOG" | sed 's|^\./||' | sort -u > "$COLLECTED_LIST"
+          # Modules that legitimately live in tests/product and collect no items are listed here,
+          # one basename at a time, each with its reason in the comment right above this line.
+          # The list is LITERAL by construction: a value holding a glob character or a path
+          # separator fails the step below, because a wildcard entry exempts every module it
+          # matches from this gate -- which is the hole being closed, not a way to pass it. The
+          # list is EMPTY today, and that is a measurement, not an assumption: every test_*.py
+          # on disk collected items.
+          ALLOWED_UNCOLLECTED=""
+          # This test reads the value as ONE WORD, and it has to. The obvious form -- a `case`
+          # on each entry inside the `for` loop below -- does NOT see the wildcard: `for x in
+          # $ALLOWED_UNCOLLECTED` expands an unquoted `*` into the working directory's file
+          # names before any per-entry test runs, so `ALLOWED_UNCOLLECTED="*"` was accepted and
+          # the loop walked over the repository's own file names instead. Verified by mutation
+          # on this tree (2026-09-18): with the test inside the loop, the wildcard silently
+          # passed and the step went on to run the whole suite. Quoting the tested word is what
+          # keeps the value whole -- `case` does not field-split or glob its word.
+          case "$ALLOWED_UNCOLLECTED" in
+            *[\*\?\[]*|*/*)
+              echo "::error::ALLOWED_UNCOLLECTED holds a glob character or a path separator, so it is not a list of literal file names: a wildcard entry would exempt every module it matches from the file-set gate. List one file name at a time, each with its reason in the comment above."
+              exit 1
+              ;;
+          esac
+          for allowed in $ALLOWED_UNCOLLECTED; do
+            if grep -q -x -F -- "$allowed" "$EXPECTED_LIST"; then
+              grep -v -x -F -- "$allowed" "$EXPECTED_LIST" > "$FILTERED_LIST"
+              cp "$FILTERED_LIST" "$EXPECTED_LIST"
+            fi
+          done
+          MISSING_FILES="$(comm -23 "$EXPECTED_LIST" "$COLLECTED_LIST")"
+          if [ -n "$MISSING_FILES" ]; then
+            echo "::error::the governed product gate is not collecting every module on disk under tests/product. Missing from the collection (a module deleted out of the collected path, an added --ignore, or a target narrowed away from the governed root):"
+            echo "$MISSING_FILES"
             exit 1
           fi
           PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q
