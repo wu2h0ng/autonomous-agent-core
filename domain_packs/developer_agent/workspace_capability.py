@@ -1051,6 +1051,19 @@ class DeveloperWorkspaceAdapter:
     )
     _SEARCH_MAX_RESULTS = 200
     _SEARCH_MAX_OUTPUT_CHARS = 20000
+    _SEARCH_MAX_SCANNED_FILES = 1000
+    # ``truncated`` alone cannot distinguish three different caps, and an empty
+    # ``matches`` list under the scan cap reads exactly like "not found".
+    # ``truncated_reason`` names the cap that stopped the search, or ``None``
+    # when the search was complete: "scan_cap" (only the first
+    # ``_SEARCH_MAX_SCANNED_FILES`` candidate files were searched, so a missing
+    # match is not evidence of absence), "result_cap" (the match list is full)
+    # and "output_cap" (the returned text exceeded the character budget). The
+    # upstream cap wins: a scan that stopped early is reported as "scan_cap"
+    # even when the returned lines were trimmed afterwards.
+    _SEARCH_TRUNCATED_SCAN_CAP = "scan_cap"
+    _SEARCH_TRUNCATED_RESULT_CAP = "result_cap"
+    _SEARCH_TRUNCATED_OUTPUT_CAP = "output_cap"
 
     def _search(self, args: dict[str, object]) -> dict[str, object]:
         mode = str(args.get("mode", ""))
@@ -1067,8 +1080,11 @@ class DeveloperWorkspaceAdapter:
             truncated = len(entries) > self._SEARCH_MAX_RESULTS
             return {
                 "mode": "ls",
-                "entries": entries[: self._SEARCH_MAX_RESULTS],
                 "truncated": truncated,
+                "truncated_reason": (
+                    self._SEARCH_TRUNCATED_RESULT_CAP if truncated else None
+                ),
+                "entries": entries[: self._SEARCH_MAX_RESULTS],
             }
         if mode == "glob":
             pattern = str(args.get("pattern", ""))
@@ -1088,7 +1104,14 @@ class DeveloperWorkspaceAdapter:
                 if len(matches) >= self._SEARCH_MAX_RESULTS:
                     break
             truncated = len(matches) >= self._SEARCH_MAX_RESULTS
-            return {"mode": "glob", "matches": matches, "truncated": truncated}
+            return {
+                "mode": "glob",
+                "truncated": truncated,
+                "truncated_reason": (
+                    self._SEARCH_TRUNCATED_RESULT_CAP if truncated else None
+                ),
+                "matches": matches,
+            }
         if mode == "grep":
             pattern = str(args.get("pattern", ""))
             if not pattern:
@@ -1098,19 +1121,22 @@ class DeveloperWorkspaceAdapter:
             except re.error as exc:
                 raise CapabilityDenied(f"invalid grep pattern: {exc}") from exc
             matches = []
-            scanned = 0
-            truncated = False
-            for candidate in sorted(base.rglob("*") if base.is_dir() else [base]):
+            candidates = sorted(base.rglob("*") if base.is_dir() else [base])
+            scanned_files = 0
+            truncated_reason: str | None = None
+            unexamined_paths = 0
+            for index, candidate in enumerate(candidates):
                 if any(
                     part in self._SEARCH_SKIP_DIRS for part in candidate.parts
                 ) or not self._is_safe_search_candidate(candidate):
                     continue
                 if not candidate.is_file() or candidate.stat().st_size > 1_000_000:
                     continue
-                scanned += 1
-                if scanned > 1000:
-                    truncated = True
+                if scanned_files >= self._SEARCH_MAX_SCANNED_FILES:
+                    truncated_reason = self._SEARCH_TRUNCATED_SCAN_CAP
+                    unexamined_paths = self._unexamined_search_paths(candidates, index)
                     break
+                scanned_files += 1
                 try:
                     text = candidate.read_text(encoding="utf-8")
                 except (UnicodeDecodeError, OSError):
@@ -1121,9 +1147,12 @@ class DeveloperWorkspaceAdapter:
                             f"{candidate.relative_to(self.root)}:{lineno}:{line[:500]}"
                         )
                         if len(matches) >= self._SEARCH_MAX_RESULTS:
-                            truncated = True
+                            truncated_reason = self._SEARCH_TRUNCATED_RESULT_CAP
                             break
-                if truncated:
+                if truncated_reason is not None:
+                    unexamined_paths = self._unexamined_search_paths(
+                        candidates, index + 1
+                    )
                     break
             output = matches
             total = 0
@@ -1131,10 +1160,41 @@ class DeveloperWorkspaceAdapter:
                 total += len(line) + 1
                 if total > self._SEARCH_MAX_OUTPUT_CHARS:
                     output = matches[:index]
-                    truncated = True
+                    if truncated_reason is None:
+                        truncated_reason = self._SEARCH_TRUNCATED_OUTPUT_CAP
                     break
-            return {"mode": "grep", "matches": output, "truncated": truncated}
+            # The diagnostic keys precede the payload on purpose: the chat loop
+            # replaces any tool result longer than its 8000-char budget with a
+            # raw ``preview`` of the serialized JSON, so a reason placed behind
+            # ``matches`` would be cut off exactly when it is needed.
+            return {
+                "mode": "grep",
+                "truncated": truncated_reason is not None,
+                "truncated_reason": truncated_reason,
+                "scanned_files": scanned_files,
+                "unexamined_paths": unexamined_paths,
+                "matches": output,
+            }
         raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
+
+    def _unexamined_search_paths(self, candidates: list[Path], start: int) -> int:
+        """Enumerated paths from ``start`` on that were never searched.
+
+        ``sorted(base.rglob("*"))`` materialises the walk before the first file
+        is read, so counting the remainder costs string work only and never adds
+        the file reads the scan cap exists to avoid. ``start`` is the index of
+        the first path whose contents were not read: for the scan cap that is
+        the path that hit the cap, for the result cap the path after the match
+        that filled the list. It counts enumerated paths that survive the
+        skip-directory rule, not files: classifying the remainder as files
+        would require exactly the per-path stat/resolve work the cap bounds.
+        """
+
+        return sum(
+            1
+            for candidate in candidates[start:]
+            if not any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
+        )
 
     def _is_safe_search_candidate(self, candidate: Path) -> bool:
         if candidate.is_symlink():
