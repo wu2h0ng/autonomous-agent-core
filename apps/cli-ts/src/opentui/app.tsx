@@ -18,6 +18,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
+import { toolState } from "../controller.js";
 import type { ComposerState } from "../composer.js";
 import { handleGlobalKey } from "../keys.js";
 import { layoutFor, composerRows } from "../layout.js";
@@ -110,25 +111,37 @@ function line(message: ChatMessage): string {
     return [message.panel.title, ...message.panel.lines].join("  ");
   }
   if (message.tool) {
-    const icon =
-      message.tool.status === "done"
-        ? "☑"
-        : message.tool.status === "failed"
-          ? "✗"
-          : "⏵";
-    return `${icon} ${message.tool.capabilityId} · ${message.tool.argsSummary}`;
+    const result = message.tool.resultSummary ? ` · ${message.tool.resultSummary}` : "";
+    return `${TOOL_MARKER[toolState(message.tool)]} ${message.tool.capabilityId} · ${message.tool.argsSummary}${result}`;
   }
   const prefix =
     message.role === "user" ? "› " : message.role === "system" ? "⏵ " : "";
   return prefix + message.content;
 }
 
+/**
+ * Tool-card marker. `☑` is a confirmed success; `⚠` is a confirmed dispatch
+ * whose OWN result reported failure (non-zero exit code / tool-reported error)
+ * — rendering a failing `workspace.run_tests` with the same `☑` as a passing
+ * one was the S1 audit defect; `✗` is a dispatch that did not succeed; `⏵` is
+ * not yet confirmed.
+ */
+const TOOL_MARKER: Record<ReturnType<typeof toolState>, string> = {
+  pending: "⏵",
+  done: "☑",
+  error: "⚠",
+  failed: "✗",
+};
+
 function roleColour(theme: ThemeColors, message: ChatMessage): string {
   if (message.role === "user") return theme.user;
   if (message.role === "system") return theme.system;
-  if (message.tool?.status === "failed") return theme.toolFailed;
-  if (message.tool?.status === "done") return theme.toolDone;
-  if (message.tool) return theme.toolPending;
+  if (message.tool) {
+    const state = toolState(message.tool);
+    if (state === "failed" || state === "error") return theme.toolFailed;
+    if (state === "done") return theme.toolDone;
+    return theme.toolPending;
+  }
   if (message.panel) return theme.notice;
   return theme.assistant;
 }

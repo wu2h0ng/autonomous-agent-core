@@ -5,7 +5,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TuiController, STALL_DEFAULT_MS } from "../src/controller.js";
+import { TuiController, STALL_DEFAULT_MS, renderTranscript, toolState } from "../src/controller.js";
+import type { ChatMessage } from "../src/controller.js";
 import type {
   PermissionMode,
   SurfaceSessionSnapshot,
@@ -832,4 +833,209 @@ test("/provider set reads the key from env and never echoes it into the transcri
   // The key was present and used, yet must not appear in the transcript.
   assert.equal(client.configureCalls, 1);
   assert.ok(!JSON.stringify(controller.messages).includes(sentinel));
+});
+
+/** Durable event helpers for the tool-card projection tests below. Shaped
+ * after the real records measured from a live daemon run (S1 audit
+ * 2026-09-18, /tmp/p2/s1): the receipt proves the dispatch happened and says
+ * nothing about the exit code; the NODE_COMPLETED output is where the tool's
+ * own result lives. */
+function proposedEvent(seq: number, actionId: string, capabilityId: string, args: string) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_PROPOSED",
+    payload_json: JSON.stringify({
+      action: { action_id: actionId, node_id: `node:${actionId}`, capability_id: capabilityId, arguments_json: args },
+    }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function receiptEvent(seq: number, actionId: string, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_RECEIPT_RECORDED",
+    payload_json: JSON.stringify({ decision: { action_id: actionId }, ...body }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function completedEvent(seq: number, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "NODE_COMPLETED",
+    payload_json: JSON.stringify(body),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function applyDurable(
+  controller: TuiController,
+): (next: number, events: unknown[]) => void {
+  const internal = controller as never as {
+    applyDurable: (next: number, events: unknown[]) => void;
+  };
+  return internal.applyDurable.bind(controller);
+}
+
+test("a non-zero tool exit code is not rendered as a plain success (S1 defect)", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:run", "workspace.run_tests", '{"command":"python -m pytest"}')]);
+  apply(2, [
+    receiptEvent(2, "a:run", {
+      receipt: {
+        action_id: "a:run",
+        status: "SUCCEEDED",
+        error_code: "error:none",
+        output_artifact_ids: ["artifact:deadbeef"],
+      },
+    }),
+  ]);
+
+  // Receipt only: the dispatch is confirmed and nothing says the tests failed.
+  assert.equal(controller.messages[0]?.tool?.status, "done");
+  assert.equal(toolState(controller.messages[0]!.tool!), "done");
+
+  // The tool's own result (measured shape: {"exit_code":1,"artifact_ids":[…]}).
+  apply(3, [
+    completedEvent(3, {
+      action_id: "a:run",
+      node_id: "node:a:run",
+      agent_loop_dynamic_action: true,
+      output: { exit_code: 1, digest: "deadbeef", artifact_ids: ["artifact:deadbeef"] },
+    }),
+  ]);
+  const tool = controller.messages[0]?.tool;
+  // The receipt's dispatch status is NOT rewritten...
+  assert.equal(tool?.status, "done");
+  // ...but the card is no longer indistinguishable from a passing run.
+  assert.equal(tool?.exitCode, 1);
+  assert.equal(toolState(tool!), "error");
+  assert.match(tool?.resultSummary ?? "", /exit 1/);
+  assert.match(tool?.resultSummary ?? "", /artifacts 1/);
+
+  // /export must report the failure too, with a state that is not "done".
+  const exported = renderTranscript(controller.messages, {
+    sessionId: "s:1",
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(exported, /- tool \[error\] workspace\.run_tests \(python -m pytest\) — exit 1/);
+  assert.ok(!exported.includes("tool [done] workspace.run_tests"), "the failing run must not export as [done]");
+});
+
+test("a passing tool exit code keeps the card and /export unchanged", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:ok", "workspace.run_tests", '{"command":"python -m pytest"}')]);
+  apply(2, [
+    receiptEvent(2, "a:ok", {
+      receipt: { action_id: "a:ok", status: "SUCCEEDED", error_code: "error:none", output_artifact_ids: ["artifact:1"] },
+    }),
+  ]);
+  apply(3, [
+    completedEvent(3, {
+      action_id: "a:ok",
+      output: { exit_code: 0, artifact_ids: ["artifact:1"] },
+    }),
+  ]);
+  const tool = controller.messages[0]?.tool;
+  assert.equal(toolState(tool!), "done");
+  assert.equal(tool?.exitCode, 0);
+  assert.equal(tool?.resultSummary, "artifacts 1", "exit 0 adds no failure text");
+});
+
+test("a tool-reported error string is surfaced, and a failed dispatch stays failed", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+
+  apply(1, [proposedEvent(1, "a:err", "workspace.run_tests", "{}")]);
+  apply(2, [
+    receiptEvent(2, "a:err", { receipt: { action_id: "a:err", status: "SUCCEEDED" } }),
+  ]);
+  apply(3, [completedEvent(3, { action_id: "a:err", output: { error: "CapabilityDenied: nope" } })]);
+  assert.equal(toolState(controller.messages[0]!.tool!), "error");
+  assert.match(controller.messages[0]?.tool?.resultSummary ?? "", /error CapabilityDenied: nope/);
+
+  // A receipt FAILED is still the dispatch failure it always was — the exit
+  // code path must not relabel or overwrite it.
+  apply(4, [proposedEvent(4, "a:bad", "workspace.shell", "{}")]);
+  apply(5, [receiptEvent(5, "a:bad", { receipt: { action_id: "a:bad", status: "FAILED", error_code: "error:timeout" } })]);
+  apply(6, [completedEvent(6, { action_id: "a:bad", output: { error: "late output" } })]);
+  const failed = controller.messages[1]!.tool!;
+  assert.equal(failed.status, "failed");
+  assert.equal(toolState(failed), "failed");
+  assert.match(failed.resultSummary ?? "", /error error:timeout/);
+});
+
+test("tool result binding: ignores foreign actions, tolerates node-only completions and junk", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:1", "workspace.run_tests", "{}")]);
+  apply(2, [receiptEvent(2, "a:1", { receipt: { action_id: "a:1", status: "SUCCEEDED" } })]);
+
+  // An action id this card does not own must not mutate it.
+  apply(3, [completedEvent(3, { action_id: "a:other", output: { exit_code: 7 } })]);
+  assert.equal(controller.messages[0]?.tool?.exitCode, undefined);
+  // Junk shapes: no output, non-object output, non-integer exit code, bool.
+  apply(4, [completedEvent(4, { action_id: "a:1" })]);
+  apply(5, [completedEvent(5, { action_id: "a:1", output: "boom" })]);
+  apply(6, [completedEvent(6, { action_id: "a:1", output: { exit_code: "1" } })]);
+  apply(7, [completedEvent(7, { action_id: "a:1", output: { exit_code: true } })]);
+  assert.equal(controller.messages[0]?.tool?.exitCode, undefined);
+  assert.equal(toolState(controller.messages[0]!.tool!), "done");
+
+  // Older/other emitters may carry only node_id — the node key still binds.
+  apply(8, [completedEvent(8, { node_id: "node:a:1", output: { exit_code: 2 } })]);
+  assert.equal(controller.messages[0]?.tool?.exitCode, 2);
+  assert.match(controller.messages[0]?.tool?.resultSummary ?? "", /exit 2/);
+});
+
+test("toolState: pending/unknown receipts never render as a success", () => {
+  const base = {
+    actionId: "a:1",
+    capabilityId: "workspace.run_tests",
+    argsSummary: "",
+    argsJson: "{}",
+  };
+  assert.equal(toolState({ ...base, status: "pending" }), "pending");
+  assert.equal(toolState({ ...base, status: "done" }), "done");
+  assert.equal(toolState({ ...base, status: "done", exitCode: 0 }), "done");
+  assert.equal(toolState({ ...base, status: "done", exitCode: 3 }), "error");
+  assert.equal(toolState({ ...base, status: "done", errorText: "x" }), "error");
+  assert.equal(toolState({ ...base, status: "failed" }), "failed");
+});
+
+test("/keys no longer advertises an unwired Ctrl-O panel (S1 audit)", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  await controller.submit("/keys");
+  const lines = controller.messages.at(-1)?.panel?.lines ?? [];
+  const text = lines.join("\n");
+  assert.match(text, /ctrl-r reverse search/, "the wired bindings stay advertised");
+  assert.ok(!/ctrl-o/.test(text), "Ctrl-O has no handler anywhere in src/");
+  assert.ok(!/ctrl-t/.test(text), "Ctrl-T has no handler anywhere in src/");
+  // The panel it pointed at is unreachable, so the reason must not be the
+  // now-removed help line either: the tool card carries the result instead.
+  const card: ChatMessage = {
+    role: "system",
+    content: "",
+    tool: {
+      actionId: "a:1",
+      capabilityId: "workspace.run_tests",
+      argsSummary: "python -m pytest",
+      argsJson: "{}",
+      status: "done",
+      exitCode: 1,
+      resultSummary: "exit 1",
+    },
+  };
+  assert.match(renderTranscript([card], { sessionId: null, mode: "ASK", tokens: 0, goal: null }), /exit 1/);
 });
