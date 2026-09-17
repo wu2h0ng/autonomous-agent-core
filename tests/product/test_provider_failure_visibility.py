@@ -176,3 +176,164 @@ class _OkHandler(BaseHTTPRequestHandler):
 
     def log_message(self, *_args: object) -> None:
         return
+
+
+class _RefusalHandler(BaseHTTPRequestHandler):
+    """A refusal in the OpenAI-compatible non-streaming shape."""
+
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        body = json.dumps(
+            {
+                "id": "resp:refusal",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "refusal": "I cannot help with that request.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
+class _FilterHandler(BaseHTTPRequestHandler):
+    """Moderation block: the content filter shows up as the finish reason."""
+
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        body = json.dumps(
+            {
+                "id": "resp:filter",
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": ""},
+                        "finish_reason": "content_filter",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 0,
+                    "total_tokens": 1,
+                },
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
+_FRAMES: list[dict[str, object]] = []
+
+
+class _StreamRefusalHandler(BaseHTTPRequestHandler):
+    """SSE stub that streams a refusal delta and then ends."""
+
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for frame in _FRAMES:
+            self.wfile.write(f"data: {json.dumps(frame)}\n\n".encode())
+        self.wfile.write(b"data: [DONE]\n\n")
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
+def _provider_for(
+    monkeypatch, handler: type[BaseHTTPRequestHandler]
+) -> OpenAICompatibleProvider:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("FAILURE_VISIBILITY_KEY", _SECRET)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return OpenAICompatibleProvider(
+        base_url=f"http://127.0.0.1:{server.server_address[1]}",
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        retry_base_seconds=0.0,
+    )
+
+
+def test_non_streaming_refusal_is_a_refusal_not_an_empty_answer(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # content is null and the text lives in `refusal`; reading only content made
+    # this an empty assistant turn with no explanation.
+    result = _provider_for(monkeypatch, _RefusalHandler).complete(_request())
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert result.retryable is False
+    assert "I cannot help with that request." in result.safe_message
+
+
+def test_content_filter_is_reported_as_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    result = _provider_for(monkeypatch, _FilterHandler).complete(_request())
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "content filter" in result.safe_message
+
+
+def test_streaming_refusal_is_a_refusal_not_an_empty_answer(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # The TUI reads the streaming path, so a refusal must be recognised here too.
+    global _FRAMES
+    _FRAMES = [
+        {
+            "id": "resp:stream",
+            "choices": [
+                {
+                    "delta": {"refusal": "I cannot help with that request."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    ]
+    deltas: list[str] = []
+    result = _provider_for(monkeypatch, _StreamRefusalHandler).complete_streaming(
+        _request(), on_text_delta=deltas.append
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "I cannot help with that request." in result.safe_message
+    assert deltas == [], "a refusal must not be streamed as assistant text"
+
+
+def test_a_refusal_is_bounded_and_secret_free(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    global _FRAMES
+    long_refusal = "no " * 400
+    _FRAMES = [
+        {
+            "id": "resp:stream",
+            "choices": [{"delta": {"refusal": long_refusal}, "finish_reason": "stop"}],
+        }
+    ]
+    result = _provider_for(monkeypatch, _StreamRefusalHandler).complete_streaming(
+        _request(), on_text_delta=lambda _s: None
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert len(result.safe_message) < 400, result.safe_message
+    assert _SECRET not in json.dumps(result.model_dump(mode="json"))

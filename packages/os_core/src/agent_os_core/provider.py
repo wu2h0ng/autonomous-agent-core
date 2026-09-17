@@ -739,6 +739,27 @@ class OpenAICompatibleProvider(ProviderPort):
                         on_reasoning_delta=on_reasoning_delta,
                     )
                 payload = json.loads(response.read().decode("utf-8"))
+            # A refusal is a failure, not an empty answer: the contract has
+            # REFUSED for exactly this, and rendering it as "" left the operator
+            # with a turn that said nothing and never said why. OpenAI-compatible
+            # transports put it in `message.refusal` (content stays null) and
+            # moderation blocks set finish_reason=content_filter.
+            refusal: str | None = None
+            choices = payload.get("choices") or []
+            if choices:
+                if str(choices[0].get("finish_reason") or "") == "content_filter":
+                    refusal = "provider reported a content filter"
+                else:
+                    raw_refusal = (choices[0].get("message") or {}).get("refusal")
+                    if isinstance(raw_refusal, str) and raw_refusal.strip():
+                        refusal = raw_refusal.strip()
+            if refusal is not None:
+                return self._failure(
+                    request,
+                    ProviderErrorCode.REFUSED,
+                    f"provider refused: {refusal[:300]}",
+                    False,
+                )
             return self._parse_completion(payload, request)
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
@@ -811,6 +832,7 @@ class OpenAICompatibleProvider(ProviderPort):
         on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         text_parts: list[str] = []
+        refusal_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
         usage_payload: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
@@ -859,6 +881,11 @@ class OpenAICompatibleProvider(ProviderPort):
                 text_parts.append(str(content))
                 if on_text_delta is not None:
                     on_text_delta(str(content))
+            # A refusal can also arrive as its own delta field; collect it so the
+            # stream ends as a REFUSED failure rather than an empty reply.
+            refusal_delta = delta.get("refusal")
+            if refusal_delta:
+                refusal_parts.append(str(refusal_delta))
             # Transient reasoning (DeepSeek `reasoning_content`): display-only,
             # never appended to text_parts / the durable response.
             reasoning = delta.get("reasoning_content")
@@ -887,6 +914,16 @@ class OpenAICompatibleProvider(ProviderPort):
             if item["name"]
         )
         text_out = "".join(text_parts)
+        if refusal_parts or finish_reason == "content_filter":
+            refusal_text = "".join(refusal_parts).strip() or (
+                "provider reported a content filter"
+            )
+            return self._failure(
+                request,
+                ProviderErrorCode.REFUSED,
+                f"provider refused: {refusal_text[:300]}",
+                False,
+            )
         input_tokens = int(usage_payload.get("prompt_tokens") or 0)
         output_tokens = int(usage_payload.get("completion_tokens") or 0)
         total_tokens = int(usage_payload.get("total_tokens") or 0)
