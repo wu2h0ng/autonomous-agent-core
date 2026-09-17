@@ -1,13 +1,15 @@
 /**
  * #18 tests: the home/welcome panel content model, plus a drift guard that
  * keeps it from silently diverging from the Ink baseline it is derived from.
+ *
+ * The baseline is a FROZEN snapshot (test/fixtures/ink-home-baseline.ts), not a
+ * live Ink render: this file must keep working after Ink is deleted. The live
+ * re-measurement lives in test/ink-home-baseline.test.tsx, which is deleted
+ * together with Ink.
  */
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
-import React from "react";
 import test from "node:test";
-import { render } from "ink-testing-library";
-import { HomeView } from "../src/HomeView.js";
 import {
   HOME_FIELD_LABELS,
   HOME_TIP_TITLE,
@@ -17,22 +19,17 @@ import {
   providerValue,
   shouldShowHome,
 } from "../src/home.js";
-import { DEFAULT_THEME_NAME, THEMES } from "../src/theme.js";
-
-const theme = THEMES[DEFAULT_THEME_NAME] as NonNullable<(typeof THEMES)[string]>;
+import {
+  INK_HOME_BASELINE,
+  INK_MODE_TIP,
+  squash,
+} from "./fixtures/ink-home-baseline.js";
 
 const WORKSPACE = `${homedir()}/proj/deep/workspace`;
 const COLUMNS = 100;
 
 const rowsToText = (rows: ReturnType<typeof homeFieldRows>): string[] =>
   rows.map((row) => row.map((segment) => segment.text).join(""));
-
-/** Whitespace-insensitive, so Ink's padding cannot mask a real text change. */
-const squash = (value: string): string => value.replace(/\s+/g, " ").trim();
-
-/** Ink's card adds a box border; strip it so lines compare content-to-content. */
-const baselineLines = (frame: string): string[] =>
-  frame.split("\n").map((line) => squash(line.replace(/[│╭╮╰╯─]/g, "")));
 
 const facts = (over: Partial<Parameters<typeof homeFacts>[0]> = {}) =>
   homeFacts({
@@ -98,55 +95,51 @@ test("narrow panel is the three-line block Ink renders (no card, no tip title)",
   assert.doesNotMatch(all, /Quick start/);
 });
 
-// --- drift guard ------------------------------------------------------------
+// --- drift guard (against the FROZEN baseline; no Ink import) ----------------
 
-test("every wide row except the mode tip matches the Ink HomeView baseline", () => {
+test("every wide row matches the frozen Ink HomeView baseline", () => {
   const model = facts({ model: "deepseek-chat" });
-  const view = render(
-    <HomeView
-      workspace={WORKSPACE}
-      branch="feature/x"
-      version="0.1.0"
-      provider={null}
-      model="deepseek-chat"
-      theme={theme}
-      columns={COLUMNS}
-    />,
-  );
-  const baseline = baselineLines(view.lastFrame() ?? "");
-  view.unmount();
-
-  const ours = rowsToText([homePanel(model).header, ...homePanel(model).fields]);
-  for (const line of ours) {
+  const panel = homePanel(model);
+  for (const line of rowsToText([panel.header, ...panel.fields])) {
     assert.ok(
-      baseline.includes(squash(line)),
+      INK_HOME_BASELINE.includes(squash(line)),
       `home panel line drifted from the Ink baseline: ${JSON.stringify(line)}`,
     );
   }
-  assert.ok(baseline.includes(squash(HOME_TIP_TITLE)));
+  assert.ok(INK_HOME_BASELINE.includes(squash(HOME_TIP_TITLE)));
   assert.ok(
-    baseline.includes(squash("· /help commands · @file add context · !cmd shell · /provider model")),
+    INK_HOME_BASELINE.includes(
+      squash("· /help commands · @file add context · !cmd shell · /provider model"),
+    ),
   );
 });
 
+test("the baseline snapshot is complete enough to catch a dropped row", () => {
+  // Bypass-detecting: the guard above is an "is each of ours in the baseline"
+  // check, so a baseline that had been emptied would pass vacuously.
+  assert.ok(INK_HOME_BASELINE.length >= 9, "the snapshot lost rows");
+  for (const label of HOME_FIELD_LABELS) {
+    assert.ok(
+      INK_HOME_BASELINE.some((line) => line.startsWith(`${label} `)),
+      `the baseline is missing the ${label} row`,
+    );
+  }
+});
+
+test("the unconfigured-provider row also matches the frozen baseline", () => {
+  // The other recorded variant: no branch, no model. Rows carry the padded
+  // label column, so compare squashed on both sides.
+  const rows = rowsToText(homeFieldRows(facts({ branch: null, model: null }))).map(squash);
+  assert.ok(rows.includes(squash("git not a git repository")));
+  assert.ok(rows.includes(squash("provider not configured — /provider set <base-url> <model>")));
+});
+
 test("the mode tip is a MEASURED deviation, and it stays truthful", () => {
-  // Ink advertises `shift+tab switches mode`; no such binding exists anywhere in
-  // this repo (the string occurs exactly once — inside that very tip). The
-  // panel ships the instruction that actually works.
-  const view = render(
-    <HomeView
-      workspace={WORKSPACE}
-      branch={null}
-      version="0.1.0"
-      provider={null}
-      model={null}
-      theme={theme}
-      columns={COLUMNS}
-    />,
-  );
-  const baseline = view.lastFrame() ?? "";
-  view.unmount();
-  assert.match(baseline, /shift\+tab switches mode/, "baseline wording changed — re-measure");
+  // Ink advertises `shift+tab switches mode`; no such binding exists anywhere
+  // in this repo (the string occurs exactly once — inside that very tip). The
+  // panel ships the instruction that actually works. The baseline side of this
+  // fact is re-measured against live Ink by test/ink-home-baseline.test.tsx.
+  assert.ok(INK_HOME_BASELINE.includes(INK_MODE_TIP), "the recorded Ink tip changed");
 
   const tip = rowsToText(homePanel(facts()).tips).find((line) => line.includes("Describe a task"));
   assert.ok(tip, "the panel must still tell the user how to start");
