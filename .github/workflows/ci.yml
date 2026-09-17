@@ -273,7 +273,12 @@ jobs:
       # stdout piped: 205 pass / 0 fail).
       - name: Tests
         working-directory: apps/cli-ts
-        run: npm test
+        # One bounded process per test file (scripts/test-ci.mjs) rather than one
+        # `node --test` for all of them: on the Linux runner the suite hung with no
+        # attribution - the last log line was whichever test had passed last, and
+        # the job sat until its 20-minute wall clock fired. Per-file deadlines make
+        # a hang report itself as "this file timed out".
+        run: npm run test:ci
       # tsc -p tsconfig.json --noEmit over src/**, scripts/**/*.ts and test/** -- the view and the
       # protocol client are typed contracts, so a type error is a gate failure, not a warning.
       - name: Typecheck
