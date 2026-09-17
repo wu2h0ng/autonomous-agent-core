@@ -89,7 +89,7 @@ export async function fetchAgentTree(
       session_id: session.session_id,
       task_id: session.task_id,
       status: session.status,
-      hasPendingApproval: session.has_pending_approval === true,
+      hasPendingApproval: session.awaiting_approval === true,
     }));
   } catch {
     notes.push("session listing unavailable");

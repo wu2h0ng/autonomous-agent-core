@@ -364,7 +364,7 @@ class TestBeginTurnIntegration:
                 if item.session_id == session.session_id
             )
 
-        assert _summary().has_pending_approval is False
+        assert _summary().awaiting_approval is False
         waiting = loop.run_turn(session, "edit fixture")
         assert waiting.stop_reason == "approval_required"
-        assert _summary().has_pending_approval is True
+        assert _summary().awaiting_approval is True
