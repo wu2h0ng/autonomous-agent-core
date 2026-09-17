@@ -175,6 +175,41 @@ jobs:
       - name: Typecheck
         working-directory: apps/cli-ts
         run: npm run typecheck
+      # --- install smoke: "it installs, it starts, it answers" -------------------------------------
+      # Why this step exists: everything above runs the client FROM SOURCE (`npm test` drives
+      # src/cli.tsx through tsx) or only reads types (`npm run typecheck`). The job could therefore
+      # stay fully green while the artifact a USER runs is broken: tsc stops emitting, dist/cli.js
+      # loses its exec bit, the `files` list drops dist/ from the tarball, or the client can no longer
+      # complete a turn against the local runtime. `scripts/install_smoke.sh` walks that user path
+      # from source state and asserts every hop -- build -> dist/cli.js present+executable and every
+      # `bin` target resolving -> `--version` printing the package.json version -> `npm run pack:check`
+      # tarball carrying dist/ + README.md and no .map -> the hermetic daemon writing its OWN descriptor
+      # -> `bun dist/cli.js --descriptor ... --no-daemon -p ... --output-format json` exiting 0 with the
+      # daemon's own scripted turn text and is_error:false -> the daemon stopped with no orphan. It fails
+      # on the first broken hop and prints a PASS/FAIL list; no step here is softened.
+      # Deliberately NOT `npm i -g` / no publish: apps/cli-ts/package.json is `private: true`, so this
+      # package cannot be published or installed from a registry today. "Installed" is checked on the
+      # two things an install would ship or run -- the tarball `pack:check` builds (contents, plus the
+      # paths the `bin` entries name) and the real runtime path `bun dist/cli.js` (the BUILT artifact,
+      # never `npx tsx src/cli.tsx`, which would only exercise the source tree).
+      # Python is here solely for the hermetic daemon (scripts/dev_daemon.py: scripted provider, no
+      # network, no credentials). The deps mirror the daemon's imports and the `test` job's pinned
+      # runtime set: sqlglot==30.13.0 (pyproject runtime pin, required by apps/api_server ->
+      # domain_packs/data_agent/sql_safety.py), plus pydantic and pyyaml. No `pip install .` and no
+      # `-e .`: the workspace packages come from PYTHONPATH and are never resolved from an index
+      # (they are unpublished).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python runtime for the hermetic daemon
+        run: pip install "sqlglot==30.13.0" "pydantic>=2.13,<3" "pyyaml>=6,<7"
+      - name: Install smoke (build -> pack -> start -> answer)
+        working-directory: apps/cli-ts
+        env:
+          # Absolute, because working-directory is apps/cli-ts: the workspace packages live at the
+          # repo root. dev_daemon.py also puts them on sys.path itself, so this is belt-and-braces.
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/packages/contracts/src:${{ github.workspace }}/packages/os_core/src
+        run: bash scripts/install_smoke.sh
 
   # --- ARM-AT-FREEZE (not active yet) -----------------------------------------------------------
   # prereg-verify: machine-enforce "no mechanism change after a preregistration freeze" (the

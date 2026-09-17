@@ -145,6 +145,13 @@ def _runs_cli_ts_typecheck(step: Step) -> bool:
     )
 
 
+def _runs_cli_ts_install_smoke(step: Step) -> bool:
+    """The install -> build -> pack -> start -> answer check for the built CLI."""
+    if not _is_cli_ts_scoped(step):
+        return False
+    return bool(re.search(r"\binstall_smoke\.sh\b", step.command))
+
+
 def _runs_unittest_discover(step: Step) -> bool:
     return "unittest discover" in step.command
 
@@ -212,6 +219,19 @@ def test_ci_workflow_still_typechecks_the_cli_ts_suite() -> None:
     )
 
 
+def test_ci_workflow_still_runs_the_cli_ts_install_smoke() -> None:
+    steps = _all_steps()
+    _assert_gate_runs(
+        steps,
+        f"{CLI_TS_GATE} (install smoke)",
+        _runs_cli_ts_install_smoke,
+        "a step in the apps/cli-ts scope running `bash scripts/install_smoke.sh`, "
+        "the install -> build -> pack -> start -> answer check in "
+        "apps/cli-ts/scripts/install_smoke.sh. Without it the terminal line is "
+        "built and unit-tested in CI but never actually started and answered",
+    )
+
+
 def test_ci_gate_steps_are_not_softened() -> None:
     steps = _all_steps()
     gated = [
@@ -220,6 +240,7 @@ def test_ci_gate_steps_are_not_softened() -> None:
         if _runs_product_suite(step)
         or _runs_cli_ts_tests(step)
         or _runs_cli_ts_typecheck(step)
+        or _runs_cli_ts_install_smoke(step)
     ]
     assert gated, (
         f"CI gate MISSING: no gate step at all was found in {WORKFLOW_PATH} "
