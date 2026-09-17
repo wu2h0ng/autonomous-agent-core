@@ -1363,9 +1363,33 @@ export class TuiController {
   }
 
   /** Ctrl-C semantics: correction during activity, close when idle. */
-  async interrupt(): Promise<"corrected" | "closed"> {
+  async interrupt(source: "ctrl-c" | "escape" = "ctrl-c"): Promise<"corrected" | "closed"> {
     if (this.sessionId && (this.status === "streaming" || this.status === "stalled")) {
-      await this.client.correct(this.sessionId, "operator interrupt (ctrl-c)");
+      try {
+        // Refresh the tracked event sequence first: durable progress learned via
+        // events() does not advance the client's per-session command cursor, so a
+        // correction sent straight away is rejected with 409
+        // SurfaceSequenceConflict - and keys.ts swallowed that rejection, so the
+        // operator believed the run had been corrected while the kernel had no
+        // record of it. `/mode` already refreshes for exactly this reason.
+        this.snapshot = await this.client.getSession(this.sessionId);
+        await this.client.correct(
+          this.sessionId,
+          `operator interrupt (${source})`,
+        );
+      } catch (cause) {
+        // Say so, loudly, on the surface the operator is looking at. Esc must not
+        // be a silent no-op: a correction that did not land is worse than none,
+        // because the operator stops watching a run they think they redirected.
+        this.push({
+          role: "system",
+          content:
+            `correction FAILED (${cause instanceof Error ? cause.message : String(cause)}) — ` +
+            "the run was NOT corrected; retry, or check /status and /task",
+        });
+        this.emit();
+        throw cause;
+      }
       this.push({ role: "system", content: "correction issued (operator interrupt)" });
       this.status = "idle";
       this.finalizeAll();

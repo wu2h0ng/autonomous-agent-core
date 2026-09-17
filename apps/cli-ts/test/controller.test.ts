@@ -464,6 +464,50 @@ test("ctrl-c during streaming issues a correction, not a silent kill", async () 
   assert.ok(controller.messages.some((m) => m.content.includes("correction issued")));
 });
 
+test("a rejected correction is reported instead of swallowed", async () => {
+  // The kernel rejects a correction carrying a stale event cursor (409
+  // SurfaceSequenceConflict), and keys.ts swallowed that rejection: Esc looked
+  // like a successful redirect while the kernel had no record of it - the worst
+  // case being an operator who stops watching a run they believe they corrected.
+  class StaleCursorClient extends FakeClient {
+    calls: string[] = [];
+    async getSession() {
+      this.calls.push("getSession");
+      return super.getSession();
+    }
+    async correct(): Promise<never> {
+      this.calls.push("correct");
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new StaleCursorClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  await assert.rejects(() => controller.interrupt("escape"));
+
+  const messages = controller.messages.map((m) => m.content);
+  assert.ok(
+    messages.some(
+      (text) =>
+        text.includes("correction FAILED") && text.includes("was NOT corrected"),
+    ),
+    `expected an honest failure notice, got ${JSON.stringify(messages)}`,
+  );
+  assert.ok(
+    !messages.some((text) => text.includes("correction issued")),
+    "a failed correction must not also claim success",
+  );
+  assert.deepEqual(
+    client.calls,
+    ["getSession", "correct"],
+    "the event cursor must be refreshed before correcting",
+  );
+});
+
 test("/doctor: wired probe text is surfaced; unavailable probe is honest", async () => {
   const wired = new TuiController(new FakeClient() as never, {
     doctor: async () => "doctor: all checks passed",

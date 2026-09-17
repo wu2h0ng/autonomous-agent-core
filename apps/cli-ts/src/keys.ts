@@ -33,7 +33,10 @@ export function handleGlobalKey(
   }
   if (key.escape) {
     if (controller.status === "streaming" || controller.status === "stalled") {
-      void controller.interrupt().catch(() => undefined);
+      // The controller reports a failed correction on the transcript itself and
+      // still rejects, so this handler only has to keep the rejection from
+      // becoming an unhandled promise.
+      void controller.interrupt("escape").catch(() => undefined);
     }
     return true; // Esc is always consumed; it never falls through to approval
   }
