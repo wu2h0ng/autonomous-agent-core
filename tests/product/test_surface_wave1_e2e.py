@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import signal
@@ -22,6 +23,27 @@ from agent_os_contracts import (
 
 from apps.cli.surface_client import SurfaceClient
 from apps.runtime_daemon.descriptor import load_runtime_descriptor
+
+
+# Every runtime daemon this module starts is registered here and terminated at
+# interpreter exit. The daemons are started with `start_new_session=True`, so a
+# Ctrl-C (or a killed pytest) never reaches them and they would otherwise keep
+# the descriptor's port and database open after the run - the suite leaked one
+# process per run before this guard existed.
+_ACTIVE_DAEMONS: list[subprocess.Popen] = []
+
+
+@atexit.register
+def _terminate_active_daemons() -> None:
+    for process in _ACTIVE_DAEMONS:
+        if process.poll() is not None:
+            continue
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
 
 
 class ScriptedProviderHandler(BaseHTTPRequestHandler):
@@ -260,6 +282,7 @@ def start_runtime_process(
         cwd=tmp_path,
     )
     daemon = DaemonProcess(process, descriptor_path)
+    _ACTIVE_DAEMONS.append(process)
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -341,6 +364,7 @@ def test_cli_and_protocol_client_share_one_restartable_coding_session(
 ) -> None:
     workspace = prepare_failing_workspace(tmp_path)
     provider = ProviderStub()
+    daemon: DaemonProcess | None = None
     try:
         daemon = start_runtime_process(
             tmp_path, workspace, provider, repair_script(), index=1
@@ -376,4 +400,8 @@ def test_cli_and_protocol_client_share_one_restartable_coding_session(
             == completed.snapshot.event_sequence
         )
     finally:
+        # The daemon started second is the one still running here, and leaving it
+        # behind leaked one runtime process (and one open port) per suite run.
+        if daemon is not None:
+            daemon.stop()
         provider.close()
