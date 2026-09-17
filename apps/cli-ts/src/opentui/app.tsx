@@ -31,6 +31,8 @@ import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { viewTheme } from "./theme-colors.js";
 import { codeBlockRenderNode, highlightStyleTable } from "./code-highlight.js";
+import { HomePanel } from "./home-panel.js";
+import { shouldShowHome } from "../home.js";
 import type { ThemeColors } from "../theme.js";
 import { applyVimAction, offsetFromCursor, resolveVimKey } from "./vim.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
@@ -534,6 +536,11 @@ export function App({
   const finalized = controller.messages.slice(0, controller.finalizedIndex);
   const active = controller.messages.slice(controller.finalizedIndex);
   const layout = layoutFor(width);
+  // #18: same rule as Ink's App (`finalized.length === 0 && active.length === 0`)
+  // — the welcome panel owns an otherwise-empty transcript. The controller opens
+  // its session lazily (ensureSession is only called by runTurn), so the panel
+  // stays up until the first turn.
+  const showHome = shouldShowHome(finalized.length, active.length);
 
   const transcript = (
     <scrollbox
@@ -544,6 +551,20 @@ export function App({
       stickyStart="bottom"
     >
       <box style={{ flexDirection: "column", paddingLeft: 1 }}>
+        {showHome ? (
+          <HomePanel
+            input={{
+              workspace,
+              branch,
+              version,
+              provider: null,
+              model,
+              columns: width,
+            }}
+            theme={theme}
+            narrow={layout.narrow}
+          />
+        ) : null}
         {finalized.map((message, index) =>
           message.role === "assistant" && !message.panel && !message.tool ? (
             <markdown
@@ -646,8 +667,8 @@ export function App({
 
   return (
     <box style={{ flexDirection: "column", width: "100%", height: "100%" }}>
-      <text fg={theme.accent}>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
-      <box style={{ flexDirection: "row", flexGrow: 1 }}>
+      <text style={{ height: 1 }} fg={theme.accent}>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
+      <box style={{ flexDirection: "row", flexGrow: 1, flexShrink: 1 }}>
         {transcript}
         {panels.length > 1 ? sidebar : null}
       </box>
@@ -700,7 +721,7 @@ export function App({
           }}
         />
       </box>
-      <text>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
+      <text style={{ height: 1 }}>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
         snapshot && layout.footerFields
           ? ` · ${controller.tokensTotal} tok · cost UNKNOWN · ev ${snapshot.event_sequence}`
           : ""

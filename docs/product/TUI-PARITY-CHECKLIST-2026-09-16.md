@@ -11,7 +11,7 @@
 |---|---|---|---|---|---|
 | 1 | transcript（finalized/active/streaming） | ✓ | ✓ | DONE | P1 + `pty_fullscreen_p2/p3a` |
 | 2 | 审批卡 + `y`/`n`（前台可见） | ✓ | ✓ | DONE | P1/P2；`awaiting` 强制 transcript |
-| 3 | 顶栏 + footer（tokens/cost/events） | ✓ | ✓ | DONE | P1；cost 恒 UNKNOWN（诚实） |
+| 3 | 顶栏 + footer（tokens/cost/events） | ✓ | ✓ | **DONE（此前为假 DONE，见 §13）** | 两个 `<text>` 在 flex 列里高度算成 0：顶栏**从未渲染**（被 transcript 边框覆盖），footer 压在输入框下边框上。§13 加 `height:1` + 中间行 `flexShrink:1` 后两者各占一行；`pty_theme_check.py` 现在同时覆盖 header 与 footer（`THEME_KEYS_CHANGED: ['header','footer']`）。cost 恒 UNKNOWN（诚实）|
 | 4 | 窄终端降级 | ✓ | ✓ | DONE | `layoutFor`/`SIDEBAR_MIN_WIDTH` |
 | 5 | 独立滚动面板 | ✗（Ink 无） | ✓ | 全屏领先 | P2（files/diff） |
 | 6 | agents 树 + 会话切换 | ✗ | ✓ | 全屏领先 | P3a（+多会话 e2e） |
@@ -26,12 +26,12 @@
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
 | 16 | 代码语法高亮（彩色） | ✓ | ✓ | **DONE** | 见 §12：内置 tree-sitter 语法只有 {js,ts,markdown,zig}，```python 无 parser → 无高亮可着色；改由我们自己算区间经 `CodeRenderable.onHighlight` 注入。证据：`scripts/highlight_render_check.ts`（无头、含反向对照）+ `scripts/pty_highlight_check.py`（`CODE_DISTINCT_COLOURS: 4`、`HIGHLIGHT_OK: True`）|
 | 17 | 主题真正生效（颜色） | ✓ | ✓ | **DONE** | `theme-colors.ts` 把 `THEMES` 的 Ink 颜色名解析为 hex，并接到 transcript（按角色）、审批卡、顶栏、footer、composer 边框；pty `THEME_APPLIED` 断言 footer 的 SGR 随 `/theme mono` 变化 |
-| 18 | 首页/欢迎面板 | ✓ | ✗ | **缺失** | `HomeView` 仅 Ink |
+| 18 | 首页/欢迎面板 | ✓ | ✓ | **DONE** | 见 §13：内容模型抽到 `src/home.ts`（Ink 与全屏共用），面板 `src/opentui/home-panel.tsx`；首帧证据 `scripts/pty_home_frame_check.py`（`HOME_PANEL_CHECK: PASS`）|
 | 19 | `/status`、`/cost`、todo 面板 | ✓ | ✓ | DONE | 面板消息已渲染（`line()` 处理 `message.panel`） |
 
 ## 2. 结论
 
-- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭，#17 由切片 E 关闭，#16 由切片 F 关闭；**退役 Ink 仍缺 #14（ctrl+r 历史搜索）、#18（首页）与多行显示/滚动**。
+- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭，#17 由切片 E 关闭，#16 由切片 F 关闭，#18 由切片 G 关闭（并顺带把 #3 的假 DONE 修正为真 DONE）；**退役 Ink 仍缺 #14（ctrl+r 历史搜索）与多行显示/滚动**。
 - 迁移不变量：`SurfaceClient`/`TuiController`/协议/审批/C7 **不动**（纯视图层）。
 - 退役方式（对齐后）：按 Stage 2f 的做法删 Ink 视图与依赖，保留回归清单与本文件的 DONE 证据。
 
@@ -186,4 +186,65 @@
 2. **空格字符被跳过**（`byte > b" "`）—— 空格不清除上一帧残留字形，于是文本行里留着上一帧的边框字符。
    后果是 `find_row("def ")` 在侧栏有内容（重绘更多）时**假阴性**（`FENCED_CODE_RENDERED: False`），
    同一检查的结果会随无关的仓库脏度变化。现空格按真实终端语义写入单元格，并加自检。
+
+## 13. 切片 G（2026-09-17）：首页/欢迎面板（#18 DONE）+ 顶栏/页脚版式缺陷（#3）
+
+### 13.1 缺口（实测）
+
+首帧取证（无输入，40×120）显示 transcript **整片空白**：`ensureSession` 只在 `runTurn` 里被调用
+（lazy），所以首帧 `messages` 为空 —— 与 Ink 的 `showHome = finalized.length === 0 && active.length === 0`
+等价，即首页面板**可达且会一直留到第一轮**，不是一闪而过。Ink 有 `HomeView` 而全屏什么都没有。
+
+### 13.2 顺带发现的真实缺陷：顶栏从未渲染、页脚压在输入框边框上
+
+同一个首帧里，行 00 直接是 transcript 边框：**顶栏（`◆ noem v…`）根本没出现**，
+而 footer 与 message 框的下边框**画在同一行**。用 46 行的更高终端复测，顶栏依旧缺失 →
+不是被裁掉。根因：**flex 列里同级 `<text>` 的高度被算成 0**（同列 `flexGrow:1` 的兄弟节点因此多拿到 2 行）。
+证据链：给顶栏加 `style={{height:1}}` 后它立刻出现在行 00、其余整体下移一行；footer 同样如此。
+
+修法（3 处）：顶栏 `<text style={{height:1}}>`、footer `<text style={{height:1}}>`、
+中间行 `<box flexGrow:1 flexShrink:1>`（yoga 默认 `flexShrink:0`，不给中间行收缩权就会溢出 1 行）。
+修完后 40 行与 42 行终端都各就各位。
+
+**这使 #3「顶栏 + footer」此前的 DONE 是假的**；现已修正为真 DONE，并且
+`pty_theme_check.py` 的 header 定位从 `None` 变成了实测值
+（`default: (0,175,215)` → `mono: (255,255,255)`，`THEME_KEYS_CHANGED: ['header','footer']`）——
+切片 E 记的"诚实边界①：header 未被工具定位到"因此**自动关闭**。
+
+### 13.3 实现
+
+- `src/home.ts`（新建，**不依赖 ink 也不依赖 opentui**）：`shortenPath` 从 `HomeView.tsx` 迁入并共用
+  （Ink 侧改为 re-export，`test/homeview.test.tsx` 零改动仍绿）；`homeFacts`/`homeFieldRows`/`homeTipRows`/
+  `homePanel(facts, narrow)`/`shouldShowHome(finalizedCount, activeCount)`。内容模型与渲染器解耦，
+  这样退役 Ink 不会把内容一起带走。
+- `src/opentui/home-panel.tsx`（新建）：把行渲染成带主题色的 `<span>`（`dim`/`bold` 走 `createTextAttributes`），
+  每行显式 `height:1`；宽版用 `borderStyle="rounded"` 对齐 Ink 的 `borderStyle="round"`，
+  窄版（<60 列）与 Ink 一致为**无边框三行**。
+- `src/opentui/app.tsx`：`showHome` 接入 transcript；`provider` 传 `null` 与 Ink 完全一致
+  （Ink 的 `App` 也从未收到 `provider`，两边都走 `openai-compatible · <model>` 回退，属两边同源的既有缺口，非回退）。
+
+### 13.4 证据
+
+- **单测** `test/opentui-home.test.tsx`（7 条）：判定语义；provider 三种取值；五个字段等宽对齐与取值；
+  无分支回退 + 超长路径仍被限宽；窄版就是 Ink 那三行（无卡片、无 `Quick start`）；
+  **防漂移**——把 opentui 面板每一行与 Ink `HomeView` 实际渲染帧（剥掉边框后）逐行精确比对；
+  **deviation 断言**——Ink 的提示写着 `shift+tab switches mode`，而全仓 `shift+tab` **只出现在这句提示里**
+  （Ink 的 `useInput`、`keys.ts`、`viewkeys.ts` 都没有），模式其实由 `/mode` 设置；面板改为
+  `/mode switches permission mode`，并断言它**不含** `shift+tab`、**含** `/mode`。
+  全量 **171 + 26 = 197 pass**。
+- **PTY** `scripts/pty_home_frame_check.py`：首帧 `HOME_PANEL_FIRST_FRAME: True`、五个字段全在、
+  `Quick start` 在、`HEADER_RENDERED: True`、`FOOTER_NOT_OVER_BORDER: True`；
+  一轮后 `HOME_PANEL_GONE_AFTER_TURN: True`；`HOME_PANEL_CHECK: PASS`。
+- **整网回归**（布局改动影响面大，全跑）：composer 不变式、parity_a/b、p2、vim、p3a、多会话、smoke、
+  theme、highlight 全部与上一批一致；`pty_highlight_check.py` 现在报 5 种不同颜色（多出的是滚动条灰）。
+
+### 13.5 诚实边界
+
+- 面板在**很矮**的终端上会被 `stickyScroll`/`stickyStart="bottom"` 顶掉上半部分（Ink 同样会溢出），
+  未做重排。
+- 宽版卡片的内边距用 `paddingLeft:1`（Ink 是 `paddingX:2`），因为外面还有 transcript 的 1 列内边距，
+  合计与 Ink 一致；左右差异未逐列比对。
+- `provider` 字段两边都恒为 `null` → 永远显示 `openai-compatible`；修它需要给两个视图都传真实
+  `provider_id`（`SurfaceProviderStatus` 里有该字段），属**既有产品缺口**，本轮未动。
+- Ink 侧那句假提示**未改**（Ink 即将退役），仅在新面板上不再复制，并在单测里钉住。
 
