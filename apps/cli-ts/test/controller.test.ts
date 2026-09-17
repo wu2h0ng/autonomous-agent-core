@@ -397,6 +397,49 @@ test("stall: quiet stream past threshold renders the typed transient state", () 
   assert.equal(controller.status, "stalled");
 });
 
+test("stall: a failing durable drain says why instead of swallowing it", async () => {
+  // The drain used to `.catch(() => undefined)`: a permanently failing batch
+  // reached the user as the same bare "stalled" as a quiet daemon, with no way
+  // to tell "the server is slow" from "we cannot read its answer".
+  class RejectingClient extends FakeClient {
+    async events(): Promise<never> {
+      this.eventsCalls += 1;
+      throw new Error("next_sequence must equal the last event sequence");
+    }
+  }
+  const client = new RejectingClient();
+  const controller = new TuiController(client as never, {
+    stallMs: 30,
+    pollMs: 1,
+  });
+  const internals = controller as never as {
+    status: string;
+    taskId: string | null;
+    turnId: string | null;
+    awaitDurableResolution(sessionId: string): Promise<void>;
+  };
+  internals.status = "streaming";
+  internals.taskId = "task:1";
+  internals.turnId = "turn:1";
+  await internals.awaitDurableResolution("session:1");
+  assert.equal(controller.status, "stalled");
+  const system = controller.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content);
+  assert.ok(
+    system.some(
+      (line) =>
+        line.includes("durable event drain failed") &&
+        line.includes("next_sequence must equal the last event sequence"),
+    ),
+    `the stall must name the drain failure, got: ${JSON.stringify(system)}`,
+  );
+  assert.ok(
+    client.eventsCalls > 1,
+    "the drain must keep retrying rather than give up after one failure",
+  );
+});
+
 test("mode command refreshes then sets (operator-only path)", async () => {
   const client = new FakeClient();
   client.streamScript = [frame(1, "turn:1", "STREAM_END")];

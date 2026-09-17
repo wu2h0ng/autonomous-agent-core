@@ -288,6 +288,8 @@ export class TuiController {
   private stream: SurfaceStreamBinding | null = null;
   private turnId: string | null = null;
   private durableCursor = 0;
+  /** Why the last durable drain failed, cleared by the next good batch. */
+  private lastDurableError: string | null = null;
   private lastActivity: number | null = null;
   private readonly toolIndex = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
@@ -1064,6 +1066,9 @@ export class TuiController {
    * completion). */
   private async awaitDurableResolution(sessionId: string): Promise<void> {
     const deadline = this.clock() + this.stallMs;
+    // A stall has two very different causes - the daemon is quiet, or the drain
+    // itself keeps failing - and the swallowed rejection made them look alike.
+    this.lastDurableError = null;
     for (;;) {
       this.drainDurable();
       if (this.status === "idle" || this.status === "awaiting_approval") {
@@ -1078,6 +1083,13 @@ export class TuiController {
       }
       if (this.clock() > deadline) {
         this.status = "stalled"; // transient; only durable state may overrule
+        this.push({
+          role: "system",
+          content:
+            this.lastDurableError === null
+              ? `no durable resolution within ${this.stallMs}ms — the daemon has not reported this turn's outcome yet, so the result is unknown (try /retry or /status)`
+              : `durable event drain failed: ${this.lastDurableError} — the cursor stays at ${this.durableCursor} so nothing is skipped, but this turn's outcome is unknown (try /retry or /status)`,
+        });
         this.finalizeAll();
         return;
       }
@@ -1105,8 +1117,18 @@ export class TuiController {
     // the async fetch is fire-and-forget; results apply on the next tick.
     void this.client
       .events(this.taskId, this.durableCursor)
-      .then((batch) => this.applyDurable(batch.next_sequence, batch.events))
-      .catch(() => undefined);
+      .then((batch) => {
+        this.lastDurableError = null;
+        this.applyDurable(batch.next_sequence, batch.events);
+      })
+      .catch((cause: unknown) => {
+        // Fail-closed: a batch we could not read must not advance the cursor.
+        // The rejection used to be discarded, which made "the drain is broken"
+        // indistinguishable from "the daemon is quiet" - keep the reason so the
+        // stall can say which one it is.
+        this.lastDurableError =
+          cause instanceof Error ? cause.message : String(cause);
+      });
   }
 
   private applyDurable(nextSequence: number, events: readonly TaskEvent[]): void {
