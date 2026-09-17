@@ -2387,13 +2387,24 @@ class AgentOSApplication:
                 if turn_holder:
                     _publish(SurfaceStreamFrameKind.STREAM_END, {})
 
+        # Snapshot the pre-existing turn ids before the worker can append its
+        # own SESSION_TURN_STARTED: the worker only appends, so it can win the
+        # race against this scan and would otherwise be mistaken for replay.
+        task_id = self.surface_task_for_session(command.session_id)
+        known = {
+            json.loads(event.payload_json)["turn_id"]
+            for event in self.store.read(task_id)
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED
+        }
         worker = threading.Thread(
             target=_execute,
             daemon=True,
             name=f"surface-begin-turn-{command.session_id}",
         )
         worker.start()
-        turn_id = self._await_turn_start(command.session_id, worker)
+        turn_id = self._await_turn_start(
+            command.session_id, worker, task_id=task_id, known=known
+        )
         if turn_id is None:
             # Release the worker's display-path wait; no turn was started so
             # no stream_end may be published.
@@ -2410,16 +2421,20 @@ class AgentOSApplication:
         )
 
     def _await_turn_start(
-        self, session_id: str, worker: threading.Thread, timeout: float = 5.0
+        self,
+        session_id: str,
+        worker: threading.Thread,
+        *,
+        task_id: str,
+        known: set[str],
+        timeout: float = 5.0,
     ) -> str | None:
         """Return the new turn's id as soon as its durable turn-start event is
-        observable, without waiting for the turn to finish."""
-        task_id = self.surface_task_for_session(session_id)
-        known = {
-            json.loads(event.payload_json)["turn_id"]
-            for event in self.store.read(task_id)
-            if event.event_type is TaskEventType.SESSION_TURN_STARTED
-        }
+        observable, without waiting for the turn to finish.
+
+        `task_id`/`known` must be captured before the worker starts; otherwise a
+        worker that appends its own turn-start event first is read as replay.
+        """
         deadline = time.monotonic() + timeout
 
         def _new_turn_id() -> str | None:

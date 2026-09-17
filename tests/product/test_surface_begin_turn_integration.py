@@ -286,3 +286,46 @@ class TestBeginTurnIntegration:
                 _begin_turn(app, session.session_id, "hello", key="key-1", binding=binding)
             )
         assert len(app.store.read(session.task_id)) == events_before
+
+    def test_worker_racing_turn_start_append_is_still_observed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A worker that durably appends SESSION_TURN_STARTED before the caller
+        snapshots the known set must not become a false turn-start timeout.
+
+        Regression for `begin_turn` snapshotting `known` after `worker.start()`:
+        the raced turn id then counts as pre-existing and the poll waits forever.
+        """
+        app = chat_app(tmp_path, scripted=(("must not run", ()),))
+        session, _ = app.open_chat_session("hi", DeferredApprovalGateway())
+        stream_id = app.subscribe_stream(session.session_id)
+        binding = SurfaceStreamBinding(
+            runtime_boot_id=app.runtime_boot_id, stream_id=stream_id
+        )
+        turn_id = "turn-raced-start"
+        task_id = app.surface_task_for_session(session.session_id)
+
+        class _RacingWorker:
+            def __init__(self, target: Any = None, daemon: Any = None, name: Any = None):
+                self._target = target
+
+            def start(self) -> None:
+                app.tasks.append_event(
+                    task_id,
+                    TaskEventType.SESSION_TURN_STARTED,
+                    {
+                        "turn_id": turn_id,
+                        "session_id": session.session_id,
+                        "user_text": "hello",
+                    },
+                )
+
+            def is_alive(self) -> bool:
+                return False
+
+        monkeypatch.setattr("apps.api_server.app.threading.Thread", _RacingWorker)
+
+        response = app.surface.begin_turn(
+            _begin_turn(app, session.session_id, "hello", key="key-race", binding=binding)
+        )
+        assert response.turn_id == turn_id
