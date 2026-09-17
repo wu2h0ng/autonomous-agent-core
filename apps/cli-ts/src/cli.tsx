@@ -83,7 +83,11 @@ async function main(): Promise<void> {
   }
 
   if (args[0] === "doctor") {
-    const report = await runDoctor(descriptorPath);
+    // Probe the descriptor this client would actually attach to — including
+    // AGENT_OS_RUNTIME_DESCRIPTOR — so the report names the daemon, port and
+    // database in use instead of the default path.
+    const { defaultDaemonPaths } = await import("./daemon.js");
+    const report = await runDoctor(descriptorPath ?? defaultDaemonPaths().descriptorPath);
     process.stdout.write(renderDoctorText(report));
     process.exitCode = report.ok ? 0 : 1;
     return;
@@ -160,7 +164,7 @@ async function main(): Promise<void> {
   const statePath = stateFilePath();
   const state = loadState(statePath);
   const controller = new TuiController(client, {
-    doctor: async () => renderDoctorText(await runDoctor(descriptorPath)),
+    doctor: async () => renderDoctorText(await runDoctor(descriptorPath ?? paths.descriptorPath)),
   });
   controller.themeName = state.theme;
   controller.goal = state.goal;

@@ -6,17 +6,19 @@
  * governance daemon, so the client resolves the daemon on demand — attaching to
  * a healthy one, or starting one in the background (inheriting the caller's
  * environment so a provider key exported in the shell flows through) — so that
- * `agentos` alone works.
+ * `agentos` alone works. Launcher resolution (`resolveDaemonLaunch`) prefers the
+ * checkout the caller stands in over any separately installed runtime, so a
+ * source checkout never silently talks to a different build or database.
  */
 import {
   execFileSync,
   spawn as nodeSpawn,
   type ChildProcess,
 } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   DEFAULT_RUNTIME_DESCRIPTOR,
   loadRuntimeDescriptor,
@@ -34,8 +36,34 @@ export interface DaemonDeps {
   fetch: typeof fetch;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
-  resolveCommand: (env: NodeJS.ProcessEnv) => string[] | null;
+  resolveLaunch: (env: NodeJS.ProcessEnv) => DaemonLaunchPlan | null;
   matchProcess: (pid: number, descriptorPath: string) => boolean;
+}
+
+/** Where a resolved launcher came from; `doctor` reports it to the user. */
+export type DaemonLaunchSource =
+  | "override"
+  | "checkout"
+  | "path"
+  | "uv";
+
+export interface DaemonLaunchPlan {
+  command: string[];
+  source: DaemonLaunchSource;
+  /**
+   * Checkout the command must run in (only for `source: "checkout"`), else null.
+   * Distinct from `--workspace`: `uv run` resolves the checkout's workspace
+   * packages from this directory, while `--workspace` stays the user's own.
+   */
+  checkoutRoot: string | null;
+}
+
+export interface DaemonResolveDeps {
+  hasOnPath: (name: string) => boolean;
+  /** Nearest enclosing agent-os checkout of a directory, or null. */
+  findCheckout: (startDir: string) => string | null;
+  /** Directory the checkout search starts from. */
+  cwd: () => string;
 }
 
 export function defaultDaemonPaths(workspace: string = process.cwd()): DaemonPaths {
@@ -50,22 +78,126 @@ export function defaultDaemonPaths(workspace: string = process.cwd()): DaemonPat
   };
 }
 
-/** Resolve how to launch the daemon, or null when no launcher is available. */
+const RUNTIME_SCRIPT = "agent-os-runtime";
+
+/** Steady-state readiness poll interval (the long-standing cadence). */
+const READY_POLL_MS = 300;
+/** Fast interval for the first moments of a cold start. */
+const READY_POLL_FAST_MS = 50;
+/** How long the fast interval is used before backing off. */
+const READY_POLL_FAST_WINDOW_MS = 2000;
+
+/**
+ * Resolve how to launch the daemon, or null when no launcher is available.
+ *
+ * Order, and why: an explicit `AGENT_OS_RUNTIME_CMD` beats everything; next the
+ * checkout the caller is standing in, because a separate install of
+ * `agent-os-runtime` (e.g. the uv tool install under
+ * `~/.local/share/uv/tools/`) is a *different build* that may serve a different
+ * kernel against a different database — the client used to prefer it whenever
+ * it was on PATH, even inside a source checkout. Only then PATH, then a bare
+ * `uv run`, then nothing.
+ */
+export function resolveDaemonLaunch(
+  env: NodeJS.ProcessEnv = process.env,
+  deps: Partial<DaemonResolveDeps> = {},
+): DaemonLaunchPlan | null {
+  const hasOnPath = deps.hasOnPath ?? defaultHasOnPath;
+  const findCheckout = deps.findCheckout ?? findCheckoutRoot;
+  const cwd = deps.cwd ?? ((): string => process.cwd());
+  const override = env.AGENT_OS_RUNTIME_CMD;
+  if (override && override.trim()) {
+    return {
+      command: override.trim().split(/\s+/),
+      source: "override",
+      checkoutRoot: null,
+    };
+  }
+  // `uv run` only resolves the checkout's workspace packages when it runs *in*
+  // that checkout, so the checkout is also the plan's spawn cwd.
+  const checkout = findCheckout(cwd());
+  if (checkout !== null && hasOnPath("uv")) {
+    return {
+      command: ["uv", "run", RUNTIME_SCRIPT],
+      source: "checkout",
+      checkoutRoot: checkout,
+    };
+  }
+  if (hasOnPath(RUNTIME_SCRIPT)) {
+    return { command: [RUNTIME_SCRIPT], source: "path", checkoutRoot: null };
+  }
+  if (hasOnPath("uv")) {
+    return {
+      command: ["uv", "run", RUNTIME_SCRIPT],
+      source: "uv",
+      checkoutRoot: null,
+    };
+  }
+  return null;
+}
+
+/** argv-only view of `resolveDaemonLaunch`, for callers that need just that. */
 export function resolveDaemonCommand(
   env: NodeJS.ProcessEnv = process.env,
-  hasOnPath: (name: string) => boolean = defaultHasOnPath,
+  deps: Partial<DaemonResolveDeps> = {},
 ): string[] | null {
-  const override = env.AGENT_OS_RUNTIME_CMD;
-  if (override && override.trim()) return override.trim().split(/\s+/);
-  if (hasOnPath("agent-os-runtime")) return ["agent-os-runtime"];
-  if (hasOnPath("uv")) return ["uv", "run", "agent-os-runtime"];
-  return null;
+  return resolveDaemonLaunch(env, deps)?.command ?? null;
 }
 
 function defaultHasOnPath(name: string): boolean {
   const path = process.env.PATH || "";
   for (const dir of path.split(":")) {
     if (dir && existsSync(join(dir, name))) return true;
+  }
+  return false;
+}
+
+/**
+ * Nearest ancestor of `startDir` that is this repo's checkout: a `pyproject.toml`
+ * declaring the `agent-os-runtime` console script, plus the workspace markers
+ * (`packages/os_core` or `uv.lock`) that let `uv run` build the local packages
+ * instead of falling back to an installed tool. Returns null outside a checkout.
+ */
+export function findCheckoutRoot(
+  startDir: string,
+  exists: (path: string) => boolean = existsSync,
+  readFile: (path: string) => string | null = readFileOrNull,
+): string | null {
+  let dir = startDir;
+  for (;;) {
+    const manifest = readFile(join(dir, "pyproject.toml"));
+    if (
+      manifest !== null &&
+      declaresConsoleScript(manifest, RUNTIME_SCRIPT) &&
+      (exists(join(dir, "packages", "os_core")) || exists(join(dir, "uv.lock")))
+    ) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function readFileOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** True when the TOML text assigns `name` inside a `[project.scripts]` table. */
+function declaresConsoleScript(toml: string, name: string): boolean {
+  let section = "";
+  for (const rawLine of toml.split("\n")) {
+    const line = rawLine.trim();
+    if (line.startsWith("[")) {
+      section = line.replace(/\s+/g, "");
+      continue;
+    }
+    if (section !== "[project.scripts]") continue;
+    if (line.split("=")[0]?.trim() === name) return true;
   }
   return false;
 }
@@ -116,7 +248,7 @@ export async function ensureDaemon(
     fetch,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: Date.now,
-    resolveCommand: resolveDaemonCommand,
+    resolveLaunch: resolveDaemonLaunch,
     matchProcess: processMatchesDescriptor,
     ...deps,
   };
@@ -129,8 +261,8 @@ export async function ensureDaemon(
       `no running daemon at ${options.descriptorPath}; start one or enable auto-start`,
     );
   }
-  const command = resolved.resolveCommand(process.env);
-  if (command === null) {
+  const launch = resolved.resolveLaunch(process.env);
+  if (launch === null) {
     throw new Error(
       "no daemon launcher found; install agent-os-runtime, run from the repo with uv, " +
         "or set AGENT_OS_RUNTIME_CMD",
@@ -146,9 +278,9 @@ export async function ensureDaemon(
   }
   await rm(options.descriptorPath, { force: true });
   const child = resolved.spawn(
-    command[0] as string,
+    launch.command[0] as string,
     [
-      ...command.slice(1),
+      ...launch.command.slice(1),
       "--workspace",
       options.workspace,
       "--database",
@@ -160,7 +292,10 @@ export async function ensureDaemon(
       detached: true,
       stdio: "ignore",
       env: process.env,
-      cwd: options.workspace,
+      // Spawn cwd, NOT the workspace: `uv run` must stand in the checkout to
+      // resolve that checkout's workspace packages. `--workspace` above stays
+      // the user's own directory, which is a different thing.
+      cwd: launch.checkoutRoot ?? options.workspace,
     },
   );
   try {
@@ -175,9 +310,18 @@ export async function ensureDaemon(
     );
   }
   child.unref?.();
-  const deadline = resolved.now() + (options.timeoutSeconds ?? 20) * 1000;
+  // Poll quickly while a cold start is plausible: the daemon is ready in well
+  // under a second here (measured ~400ms for both launchers), and a flat 300ms
+  // sleep made the client hand back ~200ms *after* readiness (measured 610ms
+  // total). Past the window it backs off to the old cadence, so a slow or
+  // half-dead daemon is not hammered for the whole timeout.
+  const startedAt = resolved.now();
+  const deadline = startedAt + (options.timeoutSeconds ?? 20) * 1000;
+  const fastUntil = startedAt + READY_POLL_FAST_WINDOW_MS;
   while (resolved.now() < deadline) {
-    await resolved.sleep(300);
+    await resolved.sleep(
+      resolved.now() < fastUntil ? READY_POLL_FAST_MS : READY_POLL_MS,
+    );
     const descriptor = await tryLoad(options.descriptorPath);
     if (descriptor && (await daemonHealthy(descriptor, resolved.fetch))) {
       return { descriptor, started: true };

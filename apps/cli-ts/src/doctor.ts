@@ -10,10 +10,23 @@
  *   3. auth           bearer token accepted (401 = fail; typed 404 = pass)
  *   4. protocol       server speaks the same surface protocol major version
  *
+ * Identity lines (`notes`) come first and never affect `ok`/the exit code: which
+ * launcher would be started, where it came from — a runtime resolved outside the
+ * checkout the caller stands in is warned about, because that is how a client
+ * ends up on a different build and a different database without the user seeing
+ * it — plus the pid/port/database/workspace the descriptor actually names. The
+ * launcher line is printed even when the descriptor is missing, which is exactly
+ * the state in which auto-start used to pick up a foreign runtime.
+ *
  * Exit: 0 all pass, 1 any failure.
  */
 
 import { SURFACE_PROTOCOL_VERSION } from "./contracts.js";
+import {
+  findCheckoutRoot,
+  resolveDaemonLaunch,
+  type DaemonResolveDeps,
+} from "./daemon.js";
 import {
   DEFAULT_RUNTIME_DESCRIPTOR,
   loadRuntimeDescriptor,
@@ -26,9 +39,23 @@ export interface DoctorCheck {
   detail: string;
 }
 
+/** Informational identity line; `warn` marks a likely-wrong kernel. */
+export interface DoctorNote {
+  level: "info" | "warn";
+  text: string;
+}
+
 export interface DoctorReport {
   checks: DoctorCheck[];
+  notes: DoctorNote[];
   ok: boolean;
+}
+
+export interface DoctorOptions {
+  /** Env used for launcher resolution (defaults to `process.env`). */
+  env?: NodeJS.ProcessEnv;
+  /** Injectable launcher resolution, so callers/tests can pin it. */
+  resolve?: Partial<DaemonResolveDeps>;
 }
 
 type FetchLike = (
@@ -38,11 +65,83 @@ type FetchLike = (
 
 const PROBE_SESSION = "doctor-probe-nonexistent";
 
+/**
+ * Which launcher a daemon would be started with, and where it came from. Marked
+ * `warn` when the caller stands in a checkout but the resolution points
+ * elsewhere (PATH install, `uv run` fallback or AGENT_OS_RUNTIME_CMD): that
+ * daemon is not this checkout and may be a different build with a different
+ * database.
+ */
+function launcherNotes(
+  env: NodeJS.ProcessEnv,
+  deps: Partial<DaemonResolveDeps>,
+): DoctorNote[] {
+  const cwd = (deps.cwd ?? ((): string => process.cwd()))();
+  const checkout = (deps.findCheckout ?? findCheckoutRoot)(cwd);
+  const plan = resolveDaemonLaunch(env, deps);
+  if (plan === null) {
+    return [
+      {
+        level: "warn",
+        text:
+          `launcher: none — no checkout with agent-os-runtime at or above ${cwd}, ` +
+          "no agent-os-runtime on PATH, no uv; set AGENT_OS_RUNTIME_CMD",
+      },
+    ];
+  }
+  const argv = plan.command.join(" ");
+  if (plan.source === "checkout" && plan.checkoutRoot !== null) {
+    return [
+      {
+        level: "info",
+        text:
+          `launcher: ${argv} — from the checkout at ${plan.checkoutRoot} (this ` +
+          "checkout); a daemon it starts runs there, while --workspace stays your directory",
+      },
+    ];
+  }
+  const origin =
+    plan.source === "override"
+      ? "AGENT_OS_RUNTIME_CMD"
+      : plan.source === "path"
+        ? "agent-os-runtime on PATH"
+        : "uv run fallback (no checkout found)";
+  return [
+    {
+      level: checkout === null ? "info" : "warn",
+      text:
+        checkout === null
+          ? `launcher: ${argv} — ${origin}, NOT this checkout (no checkout at or above ${cwd})`
+          : `launcher: ${argv} — ${origin}, NOT this checkout (${checkout}); ` +
+            "a daemon it starts may be a different build and may use a different database",
+    },
+  ];
+}
+
+/** What the descriptor itself names (port, database) — never invented. */
+function descriptorNote(
+  descriptor: RuntimeDescriptor,
+  descriptorPath: string,
+): DoctorNote {
+  return {
+    level: "info",
+    text:
+      `daemon (from descriptor): pid ${descriptor.pid}, port ${descriptor.port}, ` +
+      `database ${descriptor.database_path}, workspace ${descriptor.workspace_path} ` +
+      `(descriptor ${descriptorPath})`,
+  };
+}
+
 export async function runDoctor(
   descriptorPath?: string,
   fetchImpl?: FetchLike,
+  options: DoctorOptions = {},
 ): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
+  const notes: DoctorNote[] = launcherNotes(
+    options.env ?? process.env,
+    options.resolve ?? {},
+  );
   const doFetch: FetchLike = fetchImpl ?? (fetch as never as FetchLike);
   const resolvedPath = descriptorPath ?? DEFAULT_RUNTIME_DESCRIPTOR;
 
@@ -57,8 +156,9 @@ export async function runDoctor(
     });
   } catch (cause) {
     checks.push({ name: "descriptor", ok: false, detail: (cause as Error).message });
-    return { checks, ok: false };
+    return { checks, notes, ok: false };
   }
+  notes.push(descriptorNote(descriptor, resolvedPath));
 
   // 2./3. reachable + auth + 4. protocol, via one read-only probe
   const url = `${descriptor.baseUrl}/v1/surface/sessions/${PROBE_SESSION}`;
@@ -80,7 +180,7 @@ export async function runDoctor(
       { name: "auth", ok: false, detail: "skipped (daemon unreachable)" },
       { name: "protocol", ok: false, detail: "skipped (daemon unreachable)" },
     );
-    return { checks, ok: false };
+    return { checks, notes, ok: false };
   }
   checks.push({ name: "reachable", ok: true, detail: `${descriptor.baseUrl} (HTTP ${status})` });
 
@@ -91,7 +191,7 @@ export async function runDoctor(
       detail: `HTTP ${status} — token rejected; restart the daemon to mint a fresh descriptor`,
     });
     checks.push({ name: "protocol", ok: false, detail: "skipped (auth failed)" });
-    return { checks, ok: false };
+    return { checks, notes, ok: false };
   }
   checks.push({ name: "auth", ok: true, detail: "bearer token accepted" });
 
@@ -119,12 +219,18 @@ export async function runDoctor(
     });
   }
 
-  return { checks, ok: checks.every((check) => check.ok) };
+  return { checks, notes, ok: checks.every((check) => check.ok) };
 }
 
 export function renderDoctorText(report: DoctorReport): string {
-  const lines = report.checks.map(
-    (check) => `${check.ok ? "✓" : "✗"} ${check.name}: ${check.detail}`,
+  // Identity first: "who am I talking to" is what a user cannot otherwise see.
+  const lines = report.notes.map(
+    (note) => `${note.level === "warn" ? "!" : "·"} ${note.text}`,
+  );
+  lines.push(
+    ...report.checks.map(
+      (check) => `${check.ok ? "✓" : "✗"} ${check.name}: ${check.detail}`,
+    ),
   );
   lines.push(report.ok ? "doctor: all checks passed" : "doctor: FAILURES present — see ✗ lines");
   return `${lines.join("\n")}\n`;
