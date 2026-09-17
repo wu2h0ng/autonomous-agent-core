@@ -739,27 +739,9 @@ class OpenAICompatibleProvider(ProviderPort):
                         on_reasoning_delta=on_reasoning_delta,
                     )
                 payload = json.loads(response.read().decode("utf-8"))
-            # A refusal is a failure, not an empty answer: the contract has
-            # REFUSED for exactly this, and rendering it as "" left the operator
-            # with a turn that said nothing and never said why. OpenAI-compatible
-            # transports put it in `message.refusal` (content stays null) and
-            # moderation blocks set finish_reason=content_filter.
-            refusal: str | None = None
-            choices = payload.get("choices") or []
-            if choices:
-                if str(choices[0].get("finish_reason") or "") == "content_filter":
-                    refusal = "provider reported a content filter"
-                else:
-                    raw_refusal = (choices[0].get("message") or {}).get("refusal")
-                    if isinstance(raw_refusal, str) and raw_refusal.strip():
-                        refusal = raw_refusal.strip()
+            refusal = self._refusal_text(payload)
             if refusal is not None:
-                return self._failure(
-                    request,
-                    ProviderErrorCode.REFUSED,
-                    f"provider refused: {refusal[:300]}",
-                    False,
-                )
+                return self._refusal(request, refusal)
             return self._parse_completion(payload, request)
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
@@ -918,12 +900,7 @@ class OpenAICompatibleProvider(ProviderPort):
             refusal_text = "".join(refusal_parts).strip() or (
                 "provider reported a content filter"
             )
-            return self._failure(
-                request,
-                ProviderErrorCode.REFUSED,
-                f"provider refused: {refusal_text[:300]}",
-                False,
-            )
+            return self._refusal(request, refusal_text)
         input_tokens = int(usage_payload.get("prompt_tokens") or 0)
         output_tokens = int(usage_payload.get("completion_tokens") or 0)
         total_tokens = int(usage_payload.get("total_tokens") or 0)
@@ -940,6 +917,45 @@ class OpenAICompatibleProvider(ProviderPort):
                 if self._invocation_binding is not None
                 else None
             ),
+        )
+
+    def _refusal_text(self, payload: dict[str, Any]) -> str | None:
+        """The refusal detail for a non-streaming payload, or ``None``.
+
+        A refusal is a failure, not an empty answer: the contract has REFUSED
+        for exactly this, and rendering it as "" left the operator with a turn
+        that said nothing and never said why. OpenAI-compatible transports put
+        the text in ``message.refusal`` (content stays null) and moderation
+        blocks set ``finish_reason=content_filter``. Native-protocol subclasses
+        override this with their own refusal shape.
+        """
+
+        choices = payload.get("choices") or []
+        if not choices:
+            return None
+        if str(choices[0].get("finish_reason") or "") == "content_filter":
+            return "provider reported a content filter"
+        raw_refusal = (choices[0].get("message") or {}).get("refusal")
+        if isinstance(raw_refusal, str) and raw_refusal.strip():
+            return raw_refusal.strip()
+        return None
+
+    def _refusal(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        detail: str,
+    ) -> ProviderFailure:
+        """The single REFUSED shape: non-retryable, bounded, credential-free.
+
+        ``detail`` is provider/model-supplied text and ends up in the durable
+        failure record, so it is truncated here rather than at each call site.
+        """
+
+        return self._failure(
+            request,
+            ProviderErrorCode.REFUSED,
+            f"provider refused: {detail[:300]}",
+            False,
         )
 
     @staticmethod
@@ -1227,6 +1243,14 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
             ),
         )
 
+    def _refusal_text(self, payload: dict[str, Any]) -> str | None:
+        # The Messages API ends a policy refusal with stop_reason="refusal"; the
+        # structured stop_details carries the policy category and, when the
+        # provider supplies one, a human-readable explanation.
+        if str(payload.get("stop_reason") or "") != "refusal":
+            return None
+        return _anthropic_refusal_detail(payload.get("stop_details"))
+
     def _parse_sse_stream(
         self,
         response: object,
@@ -1239,7 +1263,8 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
 
         Handles message_start / content_block_start / content_block_delta
         (text_delta + input_json_delta) / message_delta. Text deltas are streamed
-        to ``on_text_delta``; tool inputs are accumulated and normalized.
+        to ``on_text_delta``; tool inputs are accumulated and normalized. A
+        message_delta carrying stop_reason="refusal" ends as a REFUSED failure.
         """
 
         text_parts: list[str] = []
@@ -1247,6 +1272,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         usage: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
+        stop_details: dict[str, Any] | None = None
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1311,9 +1337,13 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                 delta = payload.get("delta") or {}
                 if delta.get("stop_reason"):
                     finish_reason = str(delta["stop_reason"])
+                if isinstance(delta.get("stop_details"), dict):
+                    stop_details = delta["stop_details"]
                 delta_usage = payload.get("usage")
                 if isinstance(delta_usage, dict):
                     usage.update(delta_usage)
+        if finish_reason == "refusal":
+            return self._refusal(request, _anthropic_refusal_detail(stop_details))
         proposals = tuple(
             ProviderToolProposal(
                 proposal_id=item["id"] or f"proposal-{uuid4()}",
@@ -1380,6 +1410,25 @@ def _anthropic_tool(capability_id: str) -> dict[str, object]:
         "description": function.get("description", ""),  # type: ignore[union-attr]
         "input_schema": function["parameters"],  # type: ignore[index]
     }
+
+
+def _anthropic_refusal_detail(stop_details: object) -> str:
+    """What to report for an Anthropic refusal.
+
+    ``stop_details.explanation`` is the human-readable text but is explicitly
+    not guaranteed stable and is null when the provider has none for the
+    category; the policy category itself is always one of the documented
+    values. Fall back to naming the refusal when neither is present.
+    """
+
+    details = stop_details if isinstance(stop_details, dict) else {}
+    explanation = details.get("explanation")
+    if isinstance(explanation, str) and explanation.strip():
+        return explanation.strip()
+    category = details.get("category")
+    if isinstance(category, str) and category.strip():
+        return f"policy category {category.strip()}"
+    return "provider reported a refusal"
 
 
 def _safe_json_object(raw: str) -> dict[str, object]:
@@ -1473,6 +1522,22 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             ]
         return body
 
+    def _refusal_text(self, payload: dict[str, Any]) -> str | None:
+        # generateContent reports a content block either response-wide in
+        # promptFeedback (sent only when the prompt produced no candidate at all)
+        # or per candidate through finishReason.
+        feedback = payload.get("promptFeedback")
+        if isinstance(feedback, dict):
+            detail = _gemini_feedback_detail(feedback)
+            if detail is not None:
+                return detail
+        candidates = payload.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            candidate = candidates[0]
+            if isinstance(candidate, dict):
+                return _gemini_finish_reason_detail(candidate.get("finishReason"))
+        return None
+
     def _parse_completion(
         self,
         payload: dict[str, Any],
@@ -1542,7 +1607,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
 
         With ``alt=sse`` each ``data:`` line is a GenerateContentResponse chunk;
         text parts are streamed, functionCalls are mapped, usageMetadata is
-        accumulated and the model's finishReason is taken from the last chunk.
+        accumulated and the model's finishReason is taken from the last chunk. A
+        chunk carrying promptFeedback or a blocking finishReason ends as a
+        REFUSED failure.
         """
 
         text_parts: list[str] = []
@@ -1550,6 +1617,7 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         usage: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
+        prompt_feedback: dict[str, Any] | None = None
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1578,6 +1646,11 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             chunk_usage = payload.get("usageMetadata")
             if isinstance(chunk_usage, dict):
                 usage.update(chunk_usage)
+            # The prompt feedback is a first-chunk, response-wide block; it
+            # arrives in a chunk that carries no candidates at all.
+            chunk_feedback = payload.get("promptFeedback")
+            if isinstance(chunk_feedback, dict) and prompt_feedback is None:
+                prompt_feedback = chunk_feedback
             candidates = payload.get("candidates")
             if not isinstance(candidates, list) or not candidates:
                 continue
@@ -1613,6 +1686,13 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
                             arguments_json=json.dumps(call.get("args", {})),
                         )
                     )
+        refusal_detail = (
+            _gemini_feedback_detail(prompt_feedback)
+            if prompt_feedback is not None
+            else None
+        ) or _gemini_finish_reason_detail(finish_reason)
+        if refusal_detail is not None:
+            return self._refusal(request, refusal_detail)
         input_tokens = int(usage.get("promptTokenCount") or 0)
         output_tokens = int(usage.get("candidatesTokenCount") or 0)
         return ProviderResponse(
@@ -1708,3 +1788,38 @@ def _gemini_tool(capability_id: str) -> dict[str, object]:
         "description": function.get("description", ""),  # type: ignore[union-attr]
         "parameters": _gemini_schema(function["parameters"]),  # type: ignore[index]
     }
+
+
+# GenerateContent finishReason values that mean the provider blocked the content
+# instead of finishing: SAFETY, RECITATION, PROHIBITED_CONTENT, SPII and
+# BLOCKLIST. The remaining documented values are either a normal completion
+# (STOP, MAX_TOKENS, FINISH_REASON_UNSPECIFIED), a malformed/unexpected tool
+# call (MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS) or
+# an unsupported input (LANGUAGE, OTHER), none of which is a refusal.
+_GEMINI_BLOCKING_FINISH_REASONS = frozenset(
+    {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST"}
+)
+
+
+def _gemini_finish_reason_detail(raw: object) -> str | None:
+    value = str(raw or "").upper()
+    if value in _GEMINI_BLOCKING_FINISH_REASONS:
+        return f"finish reason {value}"
+    return None
+
+
+def _gemini_feedback_detail(feedback: dict[str, Any]) -> str | None:
+    """What to report for a blocked prompt.
+
+    ``promptFeedback`` is sent instead of a candidate when the prompt itself was
+    blocked; ``blockReasonMessage`` is the provider's human-readable text when it
+    supplies one, otherwise the blockReason enum names the cause.
+    """
+
+    message = feedback.get("blockReasonMessage")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    reason = str(feedback.get("blockReason") or "").upper()
+    if reason and reason != "BLOCKED_REASON_UNSPECIFIED":
+        return f"prompt blocked ({reason})"
+    return None

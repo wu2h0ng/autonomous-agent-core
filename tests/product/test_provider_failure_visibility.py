@@ -3,7 +3,9 @@
 The failure message becomes the turn's final text, i.e. the only thing a user
 sees, so it has to name the cause and the next step - and it is durable, so it
 must never contain the credential. These cases pin the HTTP status -> error code
-classification, the message text, retryability, and the absence of the key.
+classification, the message text, retryability, and the absence of the key, plus
+the refusal shape of each of the three adapters (OpenAI-compatible, Anthropic
+Messages, Gemini generateContent), which otherwise arrive as an empty answer.
 """
 
 from __future__ import annotations
@@ -22,7 +24,12 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
 )
-from agent_os_core.provider import EnvCredentialBroker, OpenAICompatibleProvider
+from agent_os_core.provider import (
+    AnthropicMessagesProvider,
+    EnvCredentialBroker,
+    GeminiGenerativeProvider,
+    OpenAICompatibleProvider,
+)
 
 _SECRET = "sk-failure-visibility-DEADBEEF"
 _STATUSES: list[int] = []
@@ -337,3 +344,306 @@ def test_a_refusal_is_bounded_and_secret_free(monkeypatch) -> None:  # type: ign
     assert isinstance(result, ProviderFailure), result
     assert len(result.safe_message) < 400, result.safe_message
     assert _SECRET not in json.dumps(result.model_dump(mode="json"))
+
+
+# The native adapters each have their own refusal shape. One handler serves one
+# configured reply, so a case can pin a whole wire shape (body or SSE frames).
+_REPLY_BODY: bytes = b""
+_REPLY_CONTENT_TYPE = "application/json"
+
+
+class _ScriptedHandler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:  # noqa: N802
+        length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(length)
+        self.send_response(200)
+        self.send_header("Content-Type", _REPLY_CONTENT_TYPE)
+        self.send_header("Content-Length", str(len(_REPLY_BODY)))
+        self.end_headers()
+        self.wfile.write(_REPLY_BODY)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: ANN002
+        return
+
+
+def _reply(body: str, content_type: str = "application/json") -> None:
+    global _REPLY_BODY, _REPLY_CONTENT_TYPE
+    _REPLY_BODY = body.encode("utf-8")
+    _REPLY_CONTENT_TYPE = content_type
+
+
+def _json_reply(payload: dict[str, object]) -> None:
+    _reply(json.dumps(payload))
+
+
+def _gemini_sse_reply(chunks: list[dict[str, object]]) -> None:
+    _reply(
+        "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks),
+        "text/event-stream",
+    )
+
+
+def _anthropic_sse_reply(events: list[tuple[str, dict[str, object]]]) -> None:
+    _reply(
+        "".join(
+            f"event: {name}\ndata: {json.dumps(payload)}\n\n"
+            for name, payload in events
+        ),
+        "text/event-stream",
+    )
+
+
+def _scripted_provider(
+    monkeypatch,  # type: ignore[no-untyped-def]
+    provider_cls: type[OpenAICompatibleProvider],
+) -> OpenAICompatibleProvider:
+    monkeypatch.setenv("FAILURE_VISIBILITY_KEY", _SECRET)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ScriptedHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return provider_cls(
+        base_url=f"http://127.0.0.1:{server.server_address[1]}",
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        retry_base_seconds=0.0,
+    )
+
+
+def test_anthropic_refusal_is_a_refusal_not_an_empty_answer(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # A policy refusal ends the message with stop_reason="refusal" and an empty
+    # content list, so reading only the text made it an empty turn.
+    _json_reply(
+        {
+            "id": "msg:refusal",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "stop_reason": "refusal",
+            "stop_details": {
+                "type": "refusal",
+                "category": "cyber",
+                "explanation": "This request violates our usage policy.",
+            },
+            "usage": {"input_tokens": 3, "output_tokens": 0},
+        }
+    )
+    result = _scripted_provider(monkeypatch, AnthropicMessagesProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert result.retryable is False
+    assert "This request violates our usage policy." in result.safe_message
+    assert _SECRET not in json.dumps(result.model_dump(mode="json"))
+
+
+def test_anthropic_refusal_names_the_category_when_there_is_no_explanation(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    # stop_details.explanation is explicitly not guaranteed and is null when the
+    # provider has none, so the category is the fallback - not a blank message.
+    _json_reply(
+        {
+            "id": "msg:refusal",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "stop_reason": "refusal",
+            "stop_details": {
+                "type": "refusal",
+                "category": "general_harms",
+                "explanation": None,
+            },
+            "usage": {"input_tokens": 3, "output_tokens": 0},
+        }
+    )
+    result = _scripted_provider(monkeypatch, AnthropicMessagesProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "general_harms" in result.safe_message
+
+
+def test_anthropic_streaming_refusal_is_a_refusal_not_an_empty_answer(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    # The TUI reads the streaming path: message_delta carries the stop_reason.
+    _anthropic_sse_reply(
+        [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {"id": "msg:stream", "usage": {"input_tokens": 4}},
+                },
+            ),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {
+                        "stop_reason": "refusal",
+                        "stop_details": {
+                            "type": "refusal",
+                            "category": "bio",
+                            "explanation": "I cannot help with that request.",
+                        },
+                    },
+                    "usage": {"output_tokens": 1},
+                },
+            ),
+        ]
+    )
+    deltas: list[str] = []
+    result = _scripted_provider(
+        monkeypatch, AnthropicMessagesProvider
+    ).complete_streaming(_request(), on_text_delta=deltas.append)
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "I cannot help with that request." in result.safe_message
+    assert deltas == [], "a refusal must not be streamed as assistant text"
+
+
+def test_gemini_safety_finish_reason_is_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # A blocked candidate has no text at all, so it used to read as an empty
+    # answer instead of a refusal.
+    _json_reply(
+        {
+            "responseId": "resp:safety",
+            "candidates": [
+                {"content": {"role": "model", "parts": []}, "finishReason": "SAFETY"}
+            ],
+            "usageMetadata": {"promptTokenCount": 9, "candidatesTokenCount": 0},
+        }
+    )
+    result = _scripted_provider(monkeypatch, GeminiGenerativeProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert result.retryable is False
+    assert "SAFETY" in result.safe_message
+    assert _SECRET not in json.dumps(result.model_dump(mode="json"))
+
+
+def test_gemini_blocked_prompt_is_a_refusal_not_a_malformed_response(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    # A blocked prompt comes back with promptFeedback and no candidates at all,
+    # which the mapper rejected as malformed; the block is the real cause.
+    _json_reply(
+        {
+            "promptFeedback": {
+                "blockReason": "PROHIBITED_CONTENT",
+                "blockReasonMessage": "The prompt was blocked for prohibited content.",
+            }
+        }
+    )
+    result = _scripted_provider(monkeypatch, GeminiGenerativeProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "prohibited content" in result.safe_message
+
+
+def test_gemini_prompt_block_without_a_message_names_the_reason(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    _json_reply({"promptFeedback": {"blockReason": "BLOCKLIST"}})
+    result = _scripted_provider(monkeypatch, GeminiGenerativeProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "BLOCKLIST" in result.safe_message
+
+
+def test_gemini_streaming_blocked_prompt_is_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # The TUI reads the streaming path, where the block arrives in the first
+    # chunk as promptFeedback with no candidates.
+    _gemini_sse_reply(
+        [
+            {
+                "responseId": "resp:stream",
+                "promptFeedback": {
+                    "blockReason": "SAFETY",
+                    "blockReasonMessage": "The prompt was blocked for safety.",
+                },
+                "usageMetadata": {"promptTokenCount": 6},
+            }
+        ]
+    )
+    deltas: list[str] = []
+    result = _scripted_provider(
+        monkeypatch, GeminiGenerativeProvider
+    ).complete_streaming(_request(), on_text_delta=deltas.append)
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "blocked for safety" in result.safe_message
+    assert deltas == [], "a refusal must not be streamed as assistant text"
+
+
+def test_gemini_streaming_safety_finish_reason_is_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _gemini_sse_reply(
+        [
+            {
+                "responseId": "resp:stream",
+                "candidates": [
+                    {
+                        "content": {"role": "model", "parts": []},
+                        "finishReason": "SAFETY",
+                    }
+                ],
+            }
+        ]
+    )
+    result = _scripted_provider(
+        monkeypatch, GeminiGenerativeProvider
+    ).complete_streaming(_request(), on_text_delta=lambda _s: None)
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    assert "SAFETY" in result.safe_message
+
+
+def test_unset_gemini_block_reason_is_not_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Guard the other direction: an ordinary answer that carries a placeholder
+    # block reason must still come back as a response.
+    _json_reply(
+        {
+            "responseId": "resp:ok",
+            "promptFeedback": {"blockReason": "BLOCKED_REASON_UNSPECIFIED"},
+            "candidates": [
+                {
+                    "content": {"role": "model", "parts": [{"text": "ok"}]},
+                    "finishReason": "STOP",
+                }
+            ],
+        }
+    )
+    result = _scripted_provider(monkeypatch, GeminiGenerativeProvider).complete(
+        _request()
+    )
+    assert not isinstance(result, ProviderFailure), result
+    assert result.text == "ok"
+
+
+def test_native_refusals_are_bounded(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # A runaway explanation must not bloat the durable failure record.
+    _json_reply(
+        {
+            "id": "msg:refusal",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "stop_reason": "refusal",
+            "stop_details": {"type": "refusal", "explanation": "no " * 400},
+            "usage": {"input_tokens": 3, "output_tokens": 0},
+        }
+    )
+    result = _scripted_provider(monkeypatch, AnthropicMessagesProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert len(result.safe_message) < 400, result.safe_message
