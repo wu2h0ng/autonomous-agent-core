@@ -562,6 +562,16 @@ class SurfaceClient:
                     events.append(TaskEvent.model_validate(payload))
                 current_id = None
                 data_lines = []
+        # EOF flush: an SSE frame is normally terminated by a blank line, but a
+        # body that ends mid-frame must not silently drop it. The shared
+        # conformance corpus ends with a cursor frame and no trailing newline,
+        # and dropping it left next_sequence at after_sequence (contract error).
+        if in_cursor:
+            cursor_payload = json.loads("\n".join(data_lines))
+            next_sequence = cursor_payload["next_sequence"]
+        elif current_id is not None and data_lines:
+            payload = json.loads("\n".join(data_lines))
+            events.append(TaskEvent.model_validate(payload))
         return SurfaceEventBatch(
             protocol_version=SURFACE_PROTOCOL_VERSION,
             task_id=task_id,

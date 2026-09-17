@@ -54,3 +54,26 @@ def test_python_client_parses_shared_sse_fixture() -> None:
     assert len(batch.events) == 1
     assert batch.events[0].sequence == 3
     assert batch.events[0].event_type.value == "SESSION_MESSAGE_RECORDED"
+
+
+def test_python_client_flushes_unterminated_event_frame() -> None:
+    """A body ending mid-frame must not drop that frame. Real SSE terminates
+    every frame with a blank line, but the shared corpus does not, so the
+    decoder has to flush both a trailing cursor and a trailing event."""
+    from apps.cli.surface_client import SurfaceClient
+
+    body = (
+        "event: cursor\n"
+        'data: {"next_sequence": 5}\n'
+        "\n"
+        "id: 5\n"
+        "event: SESSION_MESSAGE_RECORDED\n"
+        'data: {"schema_version":"1.0","event_id":"event:5","task_id":"task:1",'
+        '"sequence":5,"event_type":"SESSION_MESSAGE_RECORDED",'
+        '"correlation_id":"run:1","payload_json":"{}",'
+        '"occurred_at":"2026-08-12T00:00:00+00:00"}\n'
+    )
+    batch = SurfaceClient._decode_sse("task:1", 4, body.encode("utf-8"))
+    assert batch.after_sequence == 4
+    assert batch.next_sequence == 5
+    assert [event.sequence for event in batch.events] == [5]
