@@ -33,6 +33,23 @@ export const BASELINE_INPUTS_UNCONFIGURED = {
 } as const;
 
 /**
+ * Inputs for the CONFIGURED-provider variant. This case exists because the
+ * provider row has a fallback string ("openai-compatible") that is also a
+ * legitimate provider id, so a fixture that only ever passes `provider: null`
+ * cannot tell "the real id was forwarded" from "the id was dropped". That blind
+ * spot is exactly how the full-screen view shipped a provider regression while
+ * its drift guard stayed green.
+ */
+export const BASELINE_INPUTS_PROVIDER_SET = {
+  workspace: `${homedir()}/proj/deep/workspace`,
+  branch: "feature/x",
+  version: "0.1.0",
+  provider: "anthropic",
+  model: "claude-sonnet",
+  columns: 100,
+} as const;
+
+/**
  * Ink `HomeView` content lines with a configured model (model="deepseek-chat",
  * provider=null). Border rows are already removed.
  */
@@ -55,6 +72,22 @@ export const INK_HOME_BASELINE_UNCONFIGURED: readonly string[] = [
   "path ~/proj/deep/workspace",
   "git not a git repository",
   "provider not configured — /provider set <base-url> <model>",
+  "version 0.1.0",
+  "Quick start",
+  "· Describe a task and press Enter (shift+tab switches mode)",
+  "· /help commands · @file add context · !cmd shell · /provider model",
+];
+
+/**
+ * The same panel with a REAL provider id and model configured. The provider row
+ * must read `anthropic · claude-sonnet` — NOT the `openai-compatible` fallback.
+ */
+export const INK_HOME_BASELINE_PROVIDER_SET: readonly string[] = [
+  "NOEM · governed terminal agent",
+  "workspace workspace",
+  "path ~/proj/deep/workspace",
+  "git feature/x",
+  "provider anthropic · claude-sonnet",
   "version 0.1.0",
   "Quick start",
   "· Describe a task and press Enter (shift+tab switches mode)",

@@ -17,8 +17,10 @@ import { HomeView } from "../src/HomeView.js";
 import { DEFAULT_THEME_NAME, THEMES } from "../src/theme.js";
 import {
   BASELINE_INPUTS,
+  BASELINE_INPUTS_PROVIDER_SET,
   BASELINE_INPUTS_UNCONFIGURED,
   INK_HOME_BASELINE,
+  INK_HOME_BASELINE_PROVIDER_SET,
   INK_HOME_BASELINE_UNCONFIGURED,
   INK_MODE_TIP,
   inkFrameLines,
@@ -65,4 +67,27 @@ test("the frozen unconfigured-provider snapshot still matches the live render", 
   // The recorded deviation, re-measured rather than assumed: while Ink exists it
   // must still be the view advertising a keybinding the repo does not implement.
   assert.ok(lines.includes(INK_MODE_TIP));
+});
+
+test("the frozen configured-provider snapshot still matches the live render", () => {
+  // The case that distinguishes "the provider id was forwarded" from "the
+  // provider id was dropped in favour of the fallback string".
+  const view = render(
+    <HomeView
+      workspace={BASELINE_INPUTS_PROVIDER_SET.workspace}
+      branch={BASELINE_INPUTS_PROVIDER_SET.branch}
+      version={BASELINE_INPUTS_PROVIDER_SET.version}
+      provider={BASELINE_INPUTS_PROVIDER_SET.provider}
+      model={BASELINE_INPUTS_PROVIDER_SET.model}
+      theme={theme}
+      columns={BASELINE_INPUTS_PROVIDER_SET.columns}
+    />,
+  );
+  const lines = inkFrameLines(view.lastFrame() ?? "");
+  view.unmount();
+  assert.deepEqual(lines, [...INK_HOME_BASELINE_PROVIDER_SET]);
+  assert.ok(
+    lines.includes("provider anthropic · claude-sonnet"),
+    "the real provider id must be shown, not the openai-compatible fallback",
+  );
 });

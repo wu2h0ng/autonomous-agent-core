@@ -321,3 +321,61 @@
 - 搜索浮层用带边框的 box，Ink 画的是同样几行**不带边框**（内容一致，边框是本仓库浮层的既有视觉语言）。
 - 匹配列表用 `sliceWindow` 窗口化，Ink 是固定前 5 条且选中项可能移出列表（本实现是改进，非回退）。
 - 文档里"多行显示是缺口"的旧记载本轮一并更正；`§9`/`§12` 的"仍未做"清单若仍含该项，以本节为准。
+
+## 15. 切片 J（2026-09-17）：运行时切到 Bun —— 统一入口 + 四项回退 + 单文件编译
+
+### 15.1 运行时事实更正（推翻本文件早先的写法）
+
+本文件与 `TUI-INK-RETIREMENT-PREP-2026-09-17.md` 初版都写过「全屏客户端只能在 bun 下运行」。
+**只对 Node 22 成立。** `@opentui/core` 自带两套后端（`createBunBackend(bun:ffi)` /
+`createNodeBackend(node:ffi)`）与两个入口（`index.bun.js` / `index.node.js`，`exports` 有显式 `node` 条件）；
+node 路径失败只是因为它 `require("node:ffi")`，而该模块 **Node 26.1.0 才加入**（`--experimental-ffi`）。
+实测 Node 26.9.0 下四个 pty 脚本全部通过、信号与 bun 一致。
+
+**founder 决策：默认 Bun**（Node ≥26 是 Current 非 LTS，且要实验开关、官方写明 API 随时可能变；
+Bun 无需开关且能出单文件）。Node 路线记为**已验证的备用路径**。
+
+### 15.2 统一入口
+
+`src/cli.tsx` 现在同时承担子命令与交互：`--version`/`--help`/`doctor`/`daemon`/`provider`/`session`/
+无头 `-p` **不加载** `@opentui/core`（视图动态 import），因此在无原生 FFI 的运行时上仍可用——
+这是 node-only 单测还能驱动真实入口的前提，并由 `test/cli-entry.test.ts` 的
+「不得出现 native FFI 报错」断言**防止**有人把它改回静态 import。
+新增 `src/opentui/mount.tsx`；`src/opentui/main.tsx` 改为薄封装且**行为不变**（12 个 pty 脚本仍驱动它）。
+
+### 15.3 四项回退（全屏视图相对 Ink 的真实缺口，实测）
+
+| # | 缺口 | 修法 |
+|---|---|---|
+| 1 | `provider` 硬编码 `null`（**切片 G 的错误结论**，见 §15.5） | 入口查 `providerStatus()` 并传入真实 `provider_id` |
+| 2 | 历史不载入、不持久化（Ctrl-R 跨重启失效） | `FullscreenAppProps` 增 `initialHistory`/`onHistoryChange`，接 `loadState`/`saveState` |
+| 3 | `controller.themeName`/`.goal`/`.vimMode` 从未从 state 设置 | 入口按 Ink 同一口径设置 |
+| 4 | `--resume <id>` 未处理 | 入口处理 |
+
+另：无原生 FFI 时启动交互模式现在给**可操作提示**（用 Bun，或 Node ≥26 + 实验开关；其余命令仍可用），
+不再抛裸栈。
+
+### 15.4 单文件编译（已实测）
+
+`bun build --compile` 产出 ~76 MB 单文件，**在非仓库目录下完整渲染全屏界面**，无原生库报错 →
+`.dylib` 已打包，用户两个运行时都不用装。**顺带修掉真缺陷**：编译产物 `--version` 原为 `0.0.0`
+（`agentVersion()` 相对模块读 `package.json`，单文件旁没有它）；现由 `--define __NOEM_VERSION__`
+编译期注入，源码与产物均为 `0.1.0`。
+
+### 15.5 证据
+
+- 新增 `scripts/pty_entry_check.py`（`npm run check:entry`）——断言 node 下子命令可用、node 下交互给提示、
+  bun 下渲染首页面板与 provider 行；PASS。
+- **重写** `scripts/pty_smoke.py`——原脚本用 `tsx`(node) 驱动 `src/cli.tsx` 并断言 Ink 字符串，切换后
+  必然失败。现改为 Bun 驱动真实入口，断言基于 `frame_reader` 重建的**屏幕**（全屏增量重绘使 ANSI 剥离流里
+  "hello pty" 是碎的），并新增 **Ctrl-C 退出码必须为 0**；全部字符串已重新实测。PASS。
+- 单测 **177 + 32 = 209 pass**；**13 个 pty 脚本全绿**。
+- 未执行：删除 Ink 与依赖、重建 `dist/`。
+
+### 15.6 诚实边界
+
+- 本机夹具的 `provider_id` 恰等于回退字面量 `openai-compatible`，所以 **PTY 证据区分不出 provider 修复**；
+  该修复的证明来自内容模型断言 + Ink 基线录制 + 入口代码路径。
+- 中文断言需 `cjk_join` 归一化（宽字符占两格，`frame_reader` 多存一个占位空格，屏幕显示 `终 端 流 式`）。
+  **未改共享的 `frame_reader`**（会牵动其余 12 个脚本基线），在本脚本内显式处理。
+- `node:ffi` 仍是实验 API，形状变化会打断 node 备用路径（不影响默认 Bun 路径）。

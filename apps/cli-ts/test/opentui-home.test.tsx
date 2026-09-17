@@ -21,6 +21,7 @@ import {
 } from "../src/home.js";
 import {
   INK_HOME_BASELINE,
+  INK_HOME_BASELINE_PROVIDER_SET,
   INK_MODE_TIP,
   squash,
 } from "./fixtures/ink-home-baseline.js";
@@ -132,6 +133,28 @@ test("the unconfigured-provider row also matches the frozen baseline", () => {
   const rows = rowsToText(homeFieldRows(facts({ branch: null, model: null }))).map(squash);
   assert.ok(rows.includes(squash("git not a git repository")));
   assert.ok(rows.includes(squash("provider not configured — /provider set <base-url> <model>")));
+});
+
+test("a REAL provider id reaches the row, not the fallback string", () => {
+  // Closes the blind spot that let a regression through: the fallback text
+  // ("openai-compatible") is ALSO a legitimate provider id, so a fixture that
+  // only ever passes `provider: null` cannot distinguish "the id was forwarded"
+  // from "the id was dropped". Both variants are asserted, so dropping either
+  // one fails.
+  const real = rowsToText(
+    homeFieldRows(facts({ provider: "anthropic", model: "claude-sonnet" })),
+  ).map(squash);
+  const row = real.find((line) => line.startsWith("provider "));
+  assert.equal(row, squash("provider anthropic · claude-sonnet"));
+  assert.ok(
+    INK_HOME_BASELINE_PROVIDER_SET.includes(squash("provider anthropic · claude-sonnet")),
+    "the frozen Ink baseline must record the real provider id for this case",
+  );
+  assert.ok(!real.some((line) => line.includes("openai-compatible")));
+
+  // ...and the null case still yields the fallback, so the two are separable.
+  const fallback = rowsToText(homeFieldRows(facts({ model: "claude-sonnet" }))).map(squash);
+  assert.ok(fallback.some((line) => line === squash("provider openai-compatible · claude-sonnet")));
 });
 
 test("the mode tip is a MEASURED deviation, and it stays truthful", () => {

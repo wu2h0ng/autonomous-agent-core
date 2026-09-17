@@ -4,27 +4,34 @@
 - **前置事实**：19 项 TUI parity 清单**全部 DONE**（见 `TUI-PARITY-CHECKLIST-2026-09-16.md` §14），#5/#6 为全屏领先 Ink。
 - **判定口径**：每一项都要有"在哪、为什么能删、删了会不会带走别的东西"的实测依据；不确定的写成待定，不写成结论。
 
-## 1. 硬约束（**实测**，决定退役顺序）
+## 1. 运行时事实（**已更正**）与 founder 决策
 
-**全屏客户端目前只能在 bun 下运行，node 下起不来。** 实测（`node --import tsx src/opentui/main.tsx`，22.22.2）：
+### 1.1 更正：不是"只能在 bun 下运行"，而是"Node 22 不行"
 
-```
-Error: Failed to initialize OpenTUI render library:
-OpenTUI native FFI is not available for this runtime yet
-    at resolveRenderLib2 (…/@opentui/core/chunk-node-70eg2nhg.js:17805)
-    at new CliRenderer2 (…/@opentui/src/renderer.ts:1070)
-```
+本文件初版写的是「全屏客户端目前只能在 bun 下运行」。**该结论只对 Node 22 成立，已在同日实测推翻。**
 
-而 `bun 1.4.2` 下 12 个 pty 脚本全部正常运行。当前 `package.json` 是 `"engines": { "node": ">=20" }`、
-`bin` 指向 `tsc` 产物 `dist/cli.js`，而 `dist/cli.js` 是 **Ink** 入口。
+- `@opentui/core` **自带两套 FFI 后端与两个入口**：`index.bun.js` → `createBunBackend(bun:ffi)`，
+  `index.node.js` → `createNodeBackend(node:ffi)`；`package.json` 的 `exports` 里有显式的 `"node"` 条件。
+  它是**为两边设计的**。
+- node chunk 的 `loadBackend()` 在非 bun 运行时 `require("node:ffi")`，失败就静默降级成
+  `createUnsupportedBackend`，直到第一次 `dlopen` 才抛 `OpenTUI native FFI is not available`。
+  所以那句报错的含义是**"你这个 Node 不会 FFI"**，不是"不支持 Node"。
+- `node:ffi` 是 **Node 26.1.0（2026-05-07）**才加的实验模块，`--experimental-ffi` 开启
+  （开权限模型时还要 `--allow-ffi`）。Node 22 报 `ERR_UNKNOWN_BUILTIN_MODULE`。
+- **实测**（Node 26.9.0，只换运行时、脚本逻辑不动）：`ffi.dlopen` 返回 `{lib, functions}`，
+  `lib` 上有 `registerCallback / unregisterCallback / close`，与 `createNodeBackend` 期望**完全吻合**；
+  四个 pty 脚本（home / theme / highlight / parity_a）**全部通过，信号与 bun 一致**；
+  不加 `--no-warnings` 也通过。详见 §4.1。
 
-**推论（重要）**：退役 Ink 不是"删几个文件"，而是**把 CLI 的运行时依赖从 node 换成 bun**。
-所以它和 `bun build --compile`、Linux 沙箱属于同一条改动链，**必须先做运行时/打包决策**，
-再动入口与删除。本文件只做与该决策无关的准备工作。
+### 1.2 founder 决策：**默认 Bun**
 
-> 备注：`@opentui/core/platform/ffi.ts` 里有 "Node FFI backend" 相关文案，且
-> `@opentui/core-darwin-arm64` 已安装，所以 node 支持**可能**在后续版本到来；若要在 node 上继续，
-> 应先确认这一点，而不是先删 Ink。
+理由（实测支撑）：Node 这条路要 Node ≥26（当前是 Current、**非 LTS**）+ `--experimental-ffi`
+实验开关，且 Node 官方写明该 API"随时可能变"；Bun 不需要任何开关，并且能 `bun build --compile`
+出**单文件**（**已实测**：编译产物在 `/tmp` 下完整渲染全屏界面，用户两个运行时都不用装）。
+Node 26 那条记为**已验证的备用路径**，待 `node:ffi` 转正后可再切。
+
+> 残余风险已记录：`node:ffi` 仍是实验 API，其形状变化会直接打断 node 路径；
+> 这不影响默认的 Bun 路径。
 
 ## 2. 删除清单（按依赖实测，非猜测）
 
@@ -52,12 +59,14 @@ OpenTUI native FFI is not available for this runtime yet
 | `src/home.ts` | `src/opentui/home-panel.tsx`、`src/opentui/app.tsx` | 当初特意做成 renderer-neutral 就是为了不被 Ink 带走（切片 G） |
 | `src/controller.ts` / `src/client.ts` / `src/theme.ts` / `src/layout.ts` / `src/composer.ts` / `src/keys.ts` … | 两侧共用 | 与视图无关 |
 
-### 2.3 入口切换（**留到最后**，且依赖 §1 的决策）
+### 2.3 入口切换（**切片 J 已完成**）
 
-`package.json` 的 `bin`（`noem`/`agentos`/`agent-os`/`agent-os-ts` → `./dist/cli.js`）、
-`scripts.build`（`tsc -p tsconfig.build.json`）、`engines` 都得跟着改；`dist/` 里还有 Ink 的编译产物
-（`dist/App.js`、`dist/cli.js`、`dist/HomeView.js`、`dist/ComposerView.js`、`dist/markdown.js`）需要重建。
-**在运行时决策确定前不动这些。**
+`package.json` 的 `engines` 已改为 `{ "bun": ">=1.4.0" }`，`bin` 仍指向 `./dist/cli.js`，但
+`src/cli.tsx` 的 shebang 已改为 `#!/usr/bin/env bun`（`tsc` 会把它带进产物），且 `src/cli.tsx`
+**不再静态依赖 Ink**：交互式路径改为**动态 import** `src/opentui/mount.tsx`。
+
+`dist/` 里仍是旧 Ink 的编译产物（`dist/App.js`、`dist/HomeView.js`、`dist/ComposerView.js`、
+`dist/markdown.js`），**需要在下一次 `npm run build` 时重建**；本切片未重建 `dist`（属发布动作，未做）。
 
 ## 3. 本轮已完成的准备工作：把 parity 基线冻结成数据
 
@@ -79,13 +88,57 @@ OpenTUI native FFI is not available for this runtime yet
 **证据**：改造后 `test/opentui-home.test.tsx`(9) + `test/ink-home-baseline.test.tsx`(2) = 11 pass；
 冻结快照与实时 Ink 渲染**逐行完全一致**（若我手写错，录制测试会立即失败）。
 
-## 4. 退役顺序（建议，待运行时决策后执行）
+## 4. 切片 J：运行时切到 Bun（**已完成的部分**）
 
-1. **决策运行时**（bun-only / 等 node FFI / `bun build --compile` 产物）—— §1 的闸门。
-2. 入口切到 `src/opentui/main.tsx`，打包产物改为 bun 目标；确认 `bin` 四个别名都能跑。
-3. 删 §2.1 的全部文件与依赖；删 `test/ink-home-baseline.test.tsx`。
-4. 全量单测 + 12 个 pty 脚本 + 冒烟（`bun run src/opentui/main.tsx`）。
-5. 更新 `docs/product/TUI-PARITY-CHECKLIST-2026-09-16.md` §2 的结论段与 `docs/CURRENT_STATE.yaml`。
+### 4.1 已实现
+
+- **统一入口**：`src/cli.tsx` 现在同时是子命令入口与交互入口。`--version` / `--help` / `doctor` /
+  `daemon` / `provider` / `session` / 无头 `-p` **保持不加载** `@opentui/core`（视图是动态 import），
+  所以这些路径在**没有原生 FFI 的运行时上仍然可用**——这正是 node-only 单测还能驱动真实入口的前提。
+- **视图挂载抽成模块**：新增 `src/opentui/mount.tsx`（`mountFullscreen`）。开发/取证入口
+  `src/opentui/main.tsx` 改为薄封装，**行为保持不变**（12 个 pty 脚本仍驱动它）。
+- **补齐四项回退**（全屏视图相对 Ink 的真实缺口，实测得出）：
+  1. `provider` —— 入口现在会查 `providerStatus()` 并把真实 `provider_id` 传进视图；
+     `FullscreenAppProps` 增加了 `provider`。（**这条同时更正了切片 G 的错误结论**，见 §6。）
+  2. `initialHistory` / `onHistoryChange` —— 从 `loadState` 载入历史、提交时回调落盘，
+     Ctrl-R 搜索因此能跨重启；此前全屏视图每次都从空历史开始且从不持久化。
+  3. `controller.themeName` / `.goal` / `.vimMode` —— 此前入口从未从 state 设置，`/theme`、`/goal`、
+     vim 偏好在全屏视图里是**被忽略**的。
+  4. `--resume <id>` —— 此前全屏入口不处理。
+- **可操作的失败提示**：在没有原生 FFI 的运行时上启动交互模式，现在打印
+  「需要自带原生 FFI 的运行时 / 请用 Bun 或 Node ≥26 + `--experimental-ffi` / 其余命令仍可用」，
+  而不是抛裸栈（实测 node 22 下如此）。
+- **打包**：新增 `scripts/compile.ts` + `npm run compile`（`bun build --compile`）。
+
+### 4.2 单文件编译（**已实测**）
+
+`bun build --compile src/cli.tsx` 产出 ~76 MB 单文件，**在 `/tmp` 下（非仓库目录）完整渲染全屏界面**，
+无任何原生库报错——说明 `.dylib` 被打进去了，用户**既不需要 bun 也不需要 node**。
+
+**顺带修掉一个真缺陷**：编译产物的 `--version` 原本打出 `0.0.0`（`agentVersion()` 是相对模块读
+`package.json`，单文件旁边没有它，静默落到兜底值）。现在由 `--define __NOEM_VERSION__` 在编译期注入，
+源码模式与编译产物都返回正确版本（实测两者均为 `0.1.0`）。
+
+### 4.3 证据
+
+- **新增** `scripts/pty_entry_check.py`（`npm run check:entry`）：驱动**真实入口**，断言
+  `--version`/`--help` 在 node 下可用、交互模式在 node 下给提示而非裸栈、在 bun 下渲染首页面板与
+  provider 行。**PASS**。
+- **重写** `scripts/pty_smoke.py`：它原本用 `tsx`(node) 驱动 `src/cli.tsx` 并断言 **Ink** 的字符串，
+  切换后必然失败。现在改为在 **Bun** 下驱动真实入口，断言改用 `frame_reader` 重建的**屏幕内容**
+  （全屏视图是增量重绘，ANSI 剥离流里 "hello pty" 是碎的，子串断言不可靠），并重新实测了全部字符串。
+  新增 Ctrl-C **退出码必须为 0** 的断言。**PASS**。
+- 全量单测 **177 + 32 = 209 pass**；**13 个 pty 脚本全绿**（12 个原有 + 新增 entry check）。
+- 中文断言需要一条 `cjk_join` 归一化：宽字符占两个单元格，`frame_reader` 会多存一个占位空格，
+  屏幕上显示为 `终 端 流 式`。**未改共享的 `frame_reader`**（会牵动其余 12 个脚本的基线），
+  在本脚本内显式处理并注明。
+
+### 4.4 尚未做
+
+- **删除 Ink 及其依赖与测试**（§2.1）——**未执行**。切片 J 只切入口与运行时；删除是下一步，且删除后
+  `test/ink-home-baseline.test.tsx`（实时重测 Ink 的录制器）需一并删除（冻结快照继续工作）。
+- **重建 `dist/`**（发布动作，未做）。
+- Linux 沙箱、provider live smoke（需 key）、P3a-2。
 
 ## 5. 与本文件无关但仍未做的（避免混在一起）
 
@@ -94,4 +147,35 @@ OpenTUI native FFI is not available for this runtime yet
   #11 的 DONE 证据本身存疑；且该脚本**不设闸门**（恒 exit 0），属打印型信号。
 - **可选加固**：palette/selector 条目现在能按内容断言（此前只能断言标题，见 §14.3）；
   cell-diff 残留（帧变矮时留旧字形）。
-- 路线图尾部：provider live smoke（需 key）、`bun build --compile`、Linux 沙箱、P3a-2。
+- Linux 沙箱、provider live smoke（需 key）、P3a-2。
+
+## 6. 更正：切片 G 写下的 provider 结论是**错的**
+
+切片 G（commit `3d4ad932`）在 `CURRENT_STATE.yaml` 的 pin 与提交信息里写了：
+
+> 「app.tsx … passes provider: null to match Ink exactly (Ink App never receives provider either,
+> so both views fall back to openai-compatible - a pre-existing gap in BOTH views, not a regression)」
+
+**两条都不成立**：
+
+- `src/cli.tsx`（Ink 入口）**会**查 `client.providerStatus()` 得到 `providerLabel`（还带 1.5s 超时兜底），
+  并把它作为 `provider` 传给 Ink `App`；
+- Ink `App.tsx:616` **会**把它继续传给 `HomeView`。
+
+所以 Ink 一直显示**真实** provider id。全屏视图硬编码 `null` 时，`providerValue()`
+（`src/home.ts`）会回退成字面量 `openai-compatible`——**这是真回退**，不是"两边同源的缺口"。
+
+**为什么当时的守卫没抓到**：`test/opentui-home.test.tsx` 的防漂移守卫只比对了 `provider = null`
+这一档，而那个回退字面量**恰好等于**本机夹具守护进程报告的 `provider_id`，两个方向都无法区分
+"转发了真实值"与"丢掉了真实值"。**这个盲区就是错误结论能通过的原因。**
+
+**已做的更正**（记录而非删除旧说法）：
+- 冻结基线新增第三档 `INK_HOME_BASELINE_PROVIDER_SET`（`provider: "anthropic"`，实测 Ink 显示
+  `provider anthropic · claude-sonnet`），`test/ink-home-baseline.test.tsx` 增加对应录制用例；
+- `test/opentui-home.test.tsx` 增加「真实 provider id 必须到达行上、且不得出现回退字面量」的用例，
+  同时保留 null 档断言，使两者**可区分**；
+- 切片 J 的入口改为传真实 provider（§4.1 第 1 项），回退已修。
+
+**诚实边界**：本机夹具守护进程报告的 `provider_id` 恰好是 `openai-compatible`（等于回退字面量），
+所以**端到端 PTY 检查在夹具上区分不出修复前后**；该修复的证明来自内容模型断言 + Ink 基线录制 +
+入口代码路径，不是来自 PTY 证据。要端到端区分需要把夹具配成另一个 provider id。

@@ -1,14 +1,16 @@
-/** P1 full-screen entry (Bun): SurfaceClient + TuiController + @opentui view. */
 /** @jsxImportSource @opentui/react */
-import { execFileSync } from "node:child_process";
-import { createCliRenderer } from "@opentui/core";
-import { createRoot } from "@opentui/react";
+/**
+ * Dev/spike entry for the full-screen view (`bun run src/opentui/main.tsx`).
+ *
+ * This is the entry every pty check drives, so it stays behaviourally identical
+ * to before; the real CLI goes through `src/cli.tsx`, which lazily imports
+ * `mount.js` instead. Keep the two in sync when the view's props change.
+ */
 import { SurfaceClient } from "../client.js";
 import { TuiController } from "../controller.js";
 import { defaultDaemonPaths, ensureDaemon } from "../daemon.js";
-import { agentVersion } from "../version.js";
-import { parseViewFlags } from "./panels.js";
-import { App } from "./app.js";
+import { gitBranch } from "../git.js";
+import { mountFullscreen } from "./mount.js";
 
 function flag(args: string[], ...names: string[]): string | undefined {
   for (const name of names) {
@@ -16,20 +18,6 @@ function flag(args: string[], ...names: string[]): string | undefined {
     if (index >= 0) return args[index + 1];
   }
   return undefined;
-}
-
-function gitBranch(workspace: string): string | null {
-  try {
-    const out = execFileSync(
-      "git",
-      ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    );
-    const branch = out.trim();
-    return branch && branch !== "HEAD" ? branch : null;
-  } catch {
-    return null;
-  }
 }
 
 const args = process.argv.slice(2);
@@ -41,29 +29,23 @@ const { descriptor } = await ensureDaemon({
   autoStart: !args.includes("--no-daemon"),
 });
 const client = new SurfaceClient(descriptor);
+let provider: string | null = null;
 let model: string | null = null;
 try {
   const status = await client.providerStatus();
+  provider = status.provider_id ?? null;
   model = status.model_id ?? null;
 } catch {
   // status bar falls back
 }
 
 const workspace = process.cwd();
-const controller = new TuiController(client, {});
-const flags = parseViewFlags(args);
-const renderer = await createCliRenderer(
-  flags.noAnimation ? { useThread: false, targetFps: 1, maxFps: 1 } : {},
-);
-createRoot(renderer).render(
-  <App
-    controller={controller}
-    workspace={workspace}
-    branch={gitBranch(workspace)}
-    version={agentVersion()}
-    model={model}
-    client={client}
-    withPanels={flags.withPanels}
-    withAgents={flags.withAgents}
-  />,
-);
+await mountFullscreen({
+  controller: new TuiController(client, {}),
+  client,
+  workspace,
+  branch: gitBranch(workspace),
+  provider,
+  model,
+  args,
+});

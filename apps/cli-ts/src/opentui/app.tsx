@@ -61,8 +61,13 @@ export interface FullscreenAppProps {
   workspace: string;
   branch: string | null;
   version: string;
+  /** Real provider id, or null when unconfigured (matches Ink's status line). */
+  provider?: string | null;
   model: string | null;
   client: SurfaceClient;
+  /** Persisted input history, so Ctrl-R survives a restart (Ink parity). */
+  initialHistory?: readonly string[];
+  onHistoryChange?: (entries: string[]) => void;
   withPanels?: boolean;
   withAgents?: boolean;
 }
@@ -142,8 +147,11 @@ export function App({
   workspace,
   branch,
   version,
+  provider = null,
   model,
   client,
+  initialHistory = [],
+  onHistoryChange,
   withPanels = true,
   withAgents = true,
 }: FullscreenAppProps) {
@@ -205,7 +213,7 @@ export function App({
     return style;
   }, [controller.themeName]);
   const historyRef = useRef<InputHistory | null>(null);
-  if (historyRef.current === null) historyRef.current = new InputHistory();
+  if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
   const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
@@ -602,6 +610,7 @@ export function App({
     const text = completeMention(value).trim();
     if (!text) return;
     historyRef.current?.add(text);
+    onHistoryChange?.(historyRef.current?.all() ?? []);
     // Single clearing point: every submit path (textarea onSubmit, palette
     // command, agents-panel fall-through) must empty the textarea buffer too,
     // otherwise the stale draft is mirrored back on the next keystroke.
@@ -634,7 +643,7 @@ export function App({
               workspace,
               branch,
               version,
-              provider: null,
+              provider,
               model,
               columns: width,
             }}

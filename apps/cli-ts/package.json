@@ -2,10 +2,10 @@
   "name": "@agent-os/cli-ts",
   "version": "0.1.0",
   "private": true,
-  "description": "Agent OS terminal client (TypeScript + Ink) over the surface protocol v1.1. Python governance kernel untouched; protocol client only.",
+  "description": "Agent OS terminal client (TypeScript + OpenTUI full-screen view) over the surface protocol v1.1. Python governance kernel untouched; protocol client only.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4.0"
   },
   "files": [
     "dist",
@@ -20,14 +20,15 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",
+    "compile": "bun run scripts/compile.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build",
     "pack:check": "npm pack --dry-run",
     "version": "node -e \"console.log(require('./package.json').version)\"",
-    "dev": "tsx src/cli.tsx",
+    "dev": "bun run src/cli.tsx",
     "dev:daemon": "uv run python scripts/dev_daemon.py",
-    "doctor": "tsx src/cli.tsx doctor",
-    "smoke": "tsx scripts/smoke.ts",
+    "doctor": "bun run src/cli.tsx doctor",
+    "smoke": "bun run scripts/smoke.ts",
     "smoke:pty": "uv run python scripts/pty_smoke.py",
     "e2e": "bash scripts/e2e.sh",
     "live": "uv run python scripts/live_evidence.py --out /tmp/cli-ts-live.json",
@@ -36,6 +37,7 @@
     "check:highlight": "bun run scripts/highlight_render_check.ts",
     "check:highlight:pty": "uv run python scripts/pty_highlight_check.py",
     "check:home": "uv run python scripts/pty_home_frame_check.py",
+    "check:entry": "uv run python scripts/pty_entry_check.py",
     "check:search": "uv run python scripts/pty_search_check.py",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
