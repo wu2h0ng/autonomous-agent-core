@@ -1064,6 +1064,12 @@ class DeveloperWorkspaceAdapter:
     _SEARCH_TRUNCATED_SCAN_CAP = "scan_cap"
     _SEARCH_TRUNCATED_RESULT_CAP = "result_cap"
     _SEARCH_TRUNCATED_OUTPUT_CAP = "output_cap"
+    # ``unexamined_files`` counts candidate *files* whose contents were not
+    # read, under the same predicate as the walk, so it is commensurable with
+    # ``scanned_files`` and their sum is the tree's scannable file total.
+    # Counting enumerated paths instead was misleading: with 1001 files and
+    # 3000 empty directories the scan cap leaves one file unread, but the
+    # 3001 remaining enumerated paths would be reported as unsearched.
 
     def _search(self, args: dict[str, object]) -> dict[str, object]:
         mode = str(args.get("mode", ""))
@@ -1091,19 +1097,37 @@ class DeveloperWorkspaceAdapter:
             if not pattern:
                 raise CapabilityDenied("workspace.search glob requires a pattern")
             matches: list[str] = []
+            truncated = False
             for candidate in sorted(self.root.rglob("*")):
+                # ``os.path.relpath`` rather than ``Path.relative_to``: the walk
+                # below now has to see the whole tree before it can say whether
+                # a match was dropped, and relative_to's per-path component
+                # comparison was the loop's dominant cost (14.7us against
+                # 2.2us per path on a 5200-path tree).
+                relative = os.path.relpath(candidate, self.root)
+                # Cheapest test first: the name test rejects nearly every path
+                # in a large tree, so the symlink/containment check -- which
+                # resolves the path -- only runs for paths that can be
+                # reported.
+                if not (
+                    fnmatch.fnmatch(relative, pattern)
+                    or fnmatch.fnmatch(candidate.name, pattern)
+                ):
+                    continue
                 if any(
                     part in self._SEARCH_SKIP_DIRS for part in candidate.parts
                 ) or not self._is_safe_search_candidate(candidate):
                     continue
-                relative = str(candidate.relative_to(self.root))
-                if fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(
-                    candidate.name, pattern
-                ):
-                    matches.append(relative + ("/" if candidate.is_dir() else ""))
+                # ``truncated`` means an entry was dropped, so it is set only
+                # once a match beyond the cap is seen -- the same "more than the
+                # cap" rule the ls branch applies by comparing the complete
+                # listing with the cap. A tree with exactly
+                # ``_SEARCH_MAX_RESULTS`` matches lost nothing and must not
+                # report a result cap.
                 if len(matches) >= self._SEARCH_MAX_RESULTS:
+                    truncated = True
                     break
-            truncated = len(matches) >= self._SEARCH_MAX_RESULTS
+                matches.append(relative + ("/" if candidate.is_dir() else ""))
             return {
                 "mode": "glob",
                 "truncated": truncated,
@@ -1122,19 +1146,18 @@ class DeveloperWorkspaceAdapter:
                 raise CapabilityDenied(f"invalid grep pattern: {exc}") from exc
             matches = []
             candidates = sorted(base.rglob("*") if base.is_dir() else [base])
+            resolved_dirs: dict[Path, tuple[Path | None, bool]] = {}
             scanned_files = 0
             truncated_reason: str | None = None
-            unexamined_paths = 0
+            unexamined_files = 0
             for index, candidate in enumerate(candidates):
-                if any(
-                    part in self._SEARCH_SKIP_DIRS for part in candidate.parts
-                ) or not self._is_safe_search_candidate(candidate):
-                    continue
-                if not candidate.is_file() or candidate.stat().st_size > 1_000_000:
+                if not self._search_scannable_file(candidate, resolved_dirs):
                     continue
                 if scanned_files >= self._SEARCH_MAX_SCANNED_FILES:
                     truncated_reason = self._SEARCH_TRUNCATED_SCAN_CAP
-                    unexamined_paths = self._unexamined_search_paths(candidates, index)
+                    unexamined_files = self._unexamined_search_files(
+                        candidates, index, resolved_dirs
+                    )
                     break
                 scanned_files += 1
                 try:
@@ -1150,8 +1173,8 @@ class DeveloperWorkspaceAdapter:
                             truncated_reason = self._SEARCH_TRUNCATED_RESULT_CAP
                             break
                 if truncated_reason is not None:
-                    unexamined_paths = self._unexamined_search_paths(
-                        candidates, index + 1
+                    unexamined_files = self._unexamined_search_files(
+                        candidates, index + 1, resolved_dirs
                     )
                     break
             output = matches
@@ -1172,28 +1195,98 @@ class DeveloperWorkspaceAdapter:
                 "truncated": truncated_reason is not None,
                 "truncated_reason": truncated_reason,
                 "scanned_files": scanned_files,
-                "unexamined_paths": unexamined_paths,
+                "unexamined_files": unexamined_files,
                 "matches": output,
             }
         raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
 
-    def _unexamined_search_paths(self, candidates: list[Path], start: int) -> int:
-        """Enumerated paths from ``start`` on that were never searched.
+    def _search_scannable_file(
+        self,
+        candidate: Path,
+        resolved_dirs: dict[Path, tuple[Path | None, bool]],
+    ) -> bool:
+        """True when the grep walk reads ``candidate``'s contents.
+
+        One predicate shared by the walk and the ``unexamined_files`` recount,
+        so ``scanned_files + unexamined_files`` is the tree's scannable file
+        total whatever its shape -- directories, symlinks, skipped directories
+        and oversized files are excluded from both sides rather than only from
+        one. The tests run cheapest first, because the recount repeats them for
+        every path the cap left behind: the string, symlink and file tests
+        reject the directories and symlinks a tree is largely made of before
+        the containment test is reached. A path that cannot be stat'ed is
+        treated as not scannable, the same way the walk tolerates an ``OSError``
+        while reading.
+
+        ``resolved_dirs`` caches, per directory, the directory's resolved path
+        and whether that path is inside the searchable tree. A candidate that is
+        not a symlink resolves to ``resolve(parent) / name``, so its parent's
+        verdict is its own -- and resolving plus testing containment per
+        candidate costs 47us against 8us per path, which is the difference
+        between a truthful unsearched-file count that fits inside a tool call
+        and one that does not. The one candidate whose own name still matters is
+        the agent-state path itself, which a contained parent would not rule
+        out.
+        """
+
+        if any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts):
+            return False
+        if candidate.is_symlink():
+            return False
+        try:
+            if not candidate.is_file():
+                return False
+            if candidate.stat().st_size > 1_000_000:
+                return False
+        except OSError:
+            return False
+        parent = candidate.parent
+        cached = resolved_dirs.get(parent)
+        if cached is None:
+            try:
+                resolved_parent: Path | None = parent.resolve()
+            except OSError:
+                resolved_parent = None
+            cached = (
+                resolved_parent,
+                resolved_parent is not None
+                and self._search_path_is_contained(resolved_parent),
+            )
+            resolved_dirs[parent] = cached
+        resolved_parent, contained = cached
+        if not contained:
+            return False
+        return not (
+            resolved_parent == self.artifacts.parent
+            and candidate.name == self.artifacts.name
+        )
+
+    def _unexamined_search_files(
+        self,
+        candidates: list[Path],
+        start: int,
+        resolved_dirs: dict[Path, tuple[Path | None, bool]],
+    ) -> int:
+        """Scannable files from ``start`` on whose contents were never read.
 
         ``sorted(base.rglob("*"))`` materialises the walk before the first file
-        is read, so counting the remainder costs string work only and never adds
-        the file reads the scan cap exists to avoid. ``start`` is the index of
-        the first path whose contents were not read: for the scan cap that is
-        the path that hit the cap, for the result cap the path after the match
-        that filled the list. It counts enumerated paths that survive the
-        skip-directory rule, not files: classifying the remainder as files
-        would require exactly the per-path stat/resolve work the cap bounds.
+        is read, so this recounts already-enumerated paths under the same
+        ``_search_scannable_file`` predicate as the walk instead of enumerating
+        anything again, sharing the walk's per-directory resolution cache. What
+        it costs is the file classification of the unswept remainder, which is
+        proportional to the walk the search already performed and never to the
+        bytes the scan cap bounds. ``start`` is the index of the first path
+        whose contents were not read: for the scan cap the path that hit the
+        cap, for the result cap the path after the match that filled the list.
+        Counting enumerated paths rather than files is what made the number
+        unreadable: a tree with 1001 files and 3000 empty directories leaves one
+        file unread and 3001 enumerated paths.
         """
 
         return sum(
             1
             for candidate in candidates[start:]
-            if not any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts)
+            if self._search_scannable_file(candidate, resolved_dirs)
         )
 
     def _is_safe_search_candidate(self, candidate: Path) -> bool:
@@ -1203,6 +1296,15 @@ class DeveloperWorkspaceAdapter:
             resolved = candidate.resolve()
         except OSError:
             return False
+        return self._search_path_is_contained(resolved)
+
+    def _search_path_is_contained(self, resolved: Path) -> bool:
+        """Whether an already-resolved path stays inside the searchable tree.
+
+        Shared by the glob/ls candidate check and the grep scannable-file rule,
+        so containment has one definition.
+        """
+
         if resolved != self.root and self.root not in resolved.parents:
             return False
         return resolved != self.artifacts and self.artifacts not in resolved.parents

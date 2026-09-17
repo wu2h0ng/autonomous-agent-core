@@ -7,10 +7,26 @@ more scannable files than the scan cap, a unique match beyond the cap returned
 like a completed search which found nothing.
 
 These tests pin the machine-readable report: ``truncated_reason`` names the cap
-that stopped the search, and the scan-cap case reports how much of the walk was
-never searched. They fail on the previous behaviour because ``truncated_reason``,
-``scanned_files`` and ``unexamined_paths`` did not exist, so a consumer could not
-tell "searched everything, no match" from "stopped early, may not have looked".
+that stopped the search, and the scan-cap case reports how many files the walk
+would read whose contents were never read. They fail on the previous behaviour
+because ``truncated_reason``, ``scanned_files`` and ``unexamined_files`` did not
+exist, so a consumer could not tell "searched everything, no match" from
+"stopped early, may not have looked".
+
+Two counting rules are pinned here because both produced numbers that did not
+mean what they looked like:
+
+* ``unexamined_files`` counts *files the walk would read*, under the same
+  predicate as the walk, so ``scanned_files + unexamined_files`` is the
+  workspace's scannable file total whatever mix of directories, empty
+  directories, symlinks, skipped directories and oversized files it contains.
+  It is not the number of enumerated paths left in the walk, which would report
+  3001 unexamined entries for 1001 files plus 3000 empty directories.
+* ``truncated`` means an entry was dropped. The glob branch used to raise it the
+  moment the list reached ``_SEARCH_MAX_RESULTS``, so exactly
+  ``_SEARCH_MAX_RESULTS`` matches -- a finished walk that lost nothing --
+  reported ``result_cap``; the ls branch compares the complete listing with the
+  cap and glob now follows the same rule.
 """
 
 from __future__ import annotations
@@ -28,7 +44,28 @@ from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 SCAN_CAP = DeveloperWorkspaceAdapter._SEARCH_MAX_SCANNED_FILES
 RESULT_CAP = DeveloperWorkspaceAdapter._SEARCH_MAX_RESULTS
 OUTPUT_CAP = DeveloperWorkspaceAdapter._SEARCH_MAX_OUTPUT_CHARS
+SKIP_DIRS = DeveloperWorkspaceAdapter._SEARCH_SKIP_DIRS
+MAX_FILE_BYTES = 1_000_000
 NEEDLE = "SCAN_CAP_NEEDLE_SENTINEL"
+
+
+def _scannable_files_on_disk(workspace: Path) -> int:
+    """Independent recount of the files a grep walk of ``workspace`` would read.
+
+    Written from the documented rule (skip directories, symlinks, oversized
+    files and non-files are out) rather than from the adapter's own helper, so
+    the assertions compare the payload with the filesystem instead of with a
+    hard-coded count that only holds for one workspace shape.
+    """
+
+    return sum(
+        1
+        for path in sorted(workspace.rglob("*"))
+        if not any(part in SKIP_DIRS for part in path.parts)
+        and not path.is_symlink()
+        and path.is_file()
+        and path.stat().st_size <= MAX_FILE_BYTES
+    )
 
 
 def _search(
@@ -66,7 +103,7 @@ def _search(
 
 def _workspace_with_files(tmp_path: Path, count: int) -> Path:
     workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    workspace.mkdir(parents=True)
     for index in range(count):
         (workspace / f"f{index:05d}.txt").write_text(
             f"filler line {index}\n", encoding="utf-8"
@@ -74,7 +111,9 @@ def _workspace_with_files(tmp_path: Path, count: int) -> Path:
     return workspace
 
 
-def test_scan_cap_is_reported_with_the_unsearched_remainder(tmp_path: Path) -> None:
+def test_scan_cap_is_reported_with_the_unsearched_file_remainder(
+    tmp_path: Path,
+) -> None:
     total = SCAN_CAP + 500
     workspace = _workspace_with_files(tmp_path, total)
     adapter = DeveloperWorkspaceAdapter(workspace)
@@ -88,11 +127,119 @@ def test_scan_cap_is_reported_with_the_unsearched_remainder(tmp_path: Path) -> N
     # Not the match cap and not the text cap: the walk itself stopped early.
     assert result["truncated_reason"] == "scan_cap"
     assert result["scanned_files"] == SCAN_CAP
-    # Exact count of enumerated paths whose contents were never searched.
-    assert result["unexamined_paths"] == total - SCAN_CAP
-    assert result["scanned_files"] + result["unexamined_paths"] == total
+    # Documented meaning: files this walk would read whose contents it never
+    # read. Compared with the filesystem rather than a hard-coded sum, so the
+    # expectation does not depend on the workspace being flat and searchable.
+    on_disk = _scannable_files_on_disk(workspace)
+    assert on_disk == total
+    assert result["unexamined_files"] == on_disk - SCAN_CAP
+    assert result["scanned_files"] + result["unexamined_files"] == on_disk
     # The empty match list must never be readable as a completed search.
     assert not (result["matches"] == [] and result["truncated_reason"] is None)
+
+
+def test_unexamined_files_are_files_not_the_enumerated_remainder(
+    tmp_path: Path,
+) -> None:
+    """3000 unread directories are not 3000 unsearched files.
+
+    A count of the remaining enumerated paths reported 3001 here -- the one file
+    behind the cap plus every directory the walk had left -- so the number could
+    not be read as "how much search space is left", which is the only question
+    the field exists to answer.
+    """
+
+    directory_count = 3000
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for index in range(SCAN_CAP + 1):
+        (workspace / f"a{index:05d}.txt").write_text(
+            f"filler line {index}\n", encoding="utf-8"
+        )
+    for index in range(directory_count):
+        (workspace / f"zdir{index:05d}").mkdir()
+    # The only match sits in the file behind the scan cap.
+    (workspace / f"a{SCAN_CAP:05d}.txt").write_text(
+        f"filler\n{NEEDLE}\n", encoding="utf-8"
+    )
+    adapter = DeveloperWorkspaceAdapter(workspace)
+
+    result = _search(adapter, {"mode": "grep", "pattern": NEEDLE})
+
+    assert result["matches"] == []
+    assert result["truncated_reason"] == "scan_cap"
+    assert len(list(workspace.glob("zdir*"))) == directory_count
+    assert result["scanned_files"] == SCAN_CAP
+    assert result["unexamined_files"] == 1
+    on_disk = _scannable_files_on_disk(workspace)
+    assert on_disk == SCAN_CAP + 1
+    assert result["scanned_files"] + result["unexamined_files"] == on_disk
+    # The directories are enumerated paths the walk never entered; they are not
+    # search space, and the field must not count them as such. A path count
+    # reported 1 + 3000 = 3001 here, which is the number this asserts against.
+    assert result["unexamined_files"] != 1 + directory_count
+
+
+def test_unexamined_files_exclude_paths_the_walk_would_not_read(
+    tmp_path: Path,
+) -> None:
+    """A skipped directory, a symlink, an oversized file and a directory left
+    behind the cap are not unread search space."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for index in range(SCAN_CAP):
+        (workspace / f"a{index:05d}.txt").write_text("filler\n", encoding="utf-8")
+    skipped = workspace / "node_modules"
+    skipped.mkdir()
+    (skipped / "b00000.txt").write_text("filler\n", encoding="utf-8")
+    (workspace / "z_big.txt").write_bytes(b"x" * (MAX_FILE_BYTES + 1))
+    (workspace / "z_link.txt").symlink_to(workspace / "a00000.txt")
+    (workspace / "z_dir").mkdir()
+    for index in range(4):
+        (workspace / f"z{index:05d}.txt").write_text("filler\n", encoding="utf-8")
+    adapter = DeveloperWorkspaceAdapter(workspace)
+
+    result = _search(adapter, {"mode": "grep", "pattern": NEEDLE})
+
+    assert result["truncated_reason"] == "scan_cap"
+    assert result["scanned_files"] == SCAN_CAP
+    on_disk = _scannable_files_on_disk(workspace)
+    assert on_disk == SCAN_CAP + 4
+    assert result["unexamined_files"] == 4
+    assert result["scanned_files"] + result["unexamined_files"] == on_disk
+
+
+def test_agent_state_directory_is_neither_searched_nor_counted(
+    tmp_path: Path,
+) -> None:
+    """The containment rule survives the per-directory resolution cache.
+
+    A state directory whose name is not in the skip list is excluded by
+    resolving the path, not by its name, so this is where dropping or
+    mis-caching that rule would show: the payload would carry the secret and
+    the count would disagree with the files the walk may read.
+    """
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = workspace / "state"
+    (state / "deep").mkdir(parents=True)
+    (state / "deep" / "secret.txt").write_text(f"{NEEDLE}\n", encoding="utf-8")
+    (workspace / "plain.txt").write_text(f"{NEEDLE}\n", encoding="utf-8")
+    (workspace / "other").mkdir()
+    (workspace / "other" / "nested.txt").write_text(f"{NEEDLE}\n", encoding="utf-8")
+    adapter = DeveloperWorkspaceAdapter(workspace, artifacts=state)
+
+    result = _search(adapter, {"mode": "grep", "pattern": NEEDLE})
+
+    assert sorted(line.split(":", 1)[0] for line in result["matches"]) == [
+        "other/nested.txt",
+        "plain.txt",
+    ]
+    assert result["scanned_files"] == 2
+    assert result["unexamined_files"] == 0
+    assert result["scanned_files"] + result["unexamined_files"] == 2
 
 
 def test_completed_scan_reports_no_truncation_and_the_full_file_count(
@@ -108,7 +255,7 @@ def test_completed_scan_reports_no_truncation_and_the_full_file_count(
     assert result["truncated"] is False
     assert result["truncated_reason"] is None
     assert result["scanned_files"] == total
-    assert result["unexamined_paths"] == 0
+    assert result["unexamined_files"] == 0
 
 
 def test_result_cap_is_distinguished_from_scan_cap(tmp_path: Path) -> None:
@@ -124,7 +271,12 @@ def test_result_cap_is_distinguished_from_scan_cap(tmp_path: Path) -> None:
     assert result["truncated"] is True
     assert result["truncated_reason"] == "result_cap"
     assert result["scanned_files"] == RESULT_CAP
-    assert result["scanned_files"] + result["unexamined_paths"] == total
+    # The file that filled the list was read; the 50 behind it were not.
+    assert result["unexamined_files"] == total - RESULT_CAP
+    assert (
+        result["scanned_files"] + result["unexamined_files"]
+        == _scannable_files_on_disk(workspace)
+    )
 
 
 def test_output_cap_is_distinguished_from_the_other_caps(tmp_path: Path) -> None:
@@ -139,7 +291,7 @@ def test_output_cap_is_distinguished_from_the_other_caps(tmp_path: Path) -> None
 
     # The walk finished; only the returned text was trimmed.
     assert result["scanned_files"] == total
-    assert result["unexamined_paths"] == 0
+    assert result["unexamined_files"] == 0
     assert len(result["matches"]) < total
     assert len("".join(result["matches"])) <= OUTPUT_CAP
     assert result["truncated"] is True
@@ -160,6 +312,39 @@ def test_glob_and_ls_report_the_result_cap_reason(tmp_path: Path) -> None:
     assert len(ls_result["entries"]) == RESULT_CAP
     assert ls_result["truncated"] is True
     assert ls_result["truncated_reason"] == "result_cap"
+
+
+def test_exactly_the_result_cap_is_not_reported_as_truncation(tmp_path: Path) -> None:
+    """A dropped entry is what ``truncated`` means, so nothing dropped, no cap.
+
+    The glob branch used to set the flag as soon as the match list reached the
+    cap, so a walk that had already finished over a tree with exactly
+    ``RESULT_CAP`` matches reported ``result_cap`` -- a machine-readable false
+    alarm pointing at a result the caller already had in full. The ls branch
+    compares the complete listing with the cap; glob follows the same rule, and
+    one entry past the cap is still reported.
+    """
+
+    exact = _workspace_with_files(tmp_path / "exact", RESULT_CAP)
+    exact_adapter = DeveloperWorkspaceAdapter(exact)
+    exact_glob = _search(exact_adapter, {"mode": "glob", "pattern": "*.txt"})
+    exact_ls = _search(exact_adapter, {"mode": "ls"})
+
+    assert len(exact_glob["matches"]) == RESULT_CAP
+    assert exact_glob["truncated"] is False
+    assert exact_glob["truncated_reason"] is None
+    assert len(exact_ls["entries"]) == RESULT_CAP
+    assert exact_ls["truncated"] is False
+    assert exact_ls["truncated_reason"] is None
+
+    over = _workspace_with_files(tmp_path / "over", RESULT_CAP + 1)
+    over_glob = _search(
+        DeveloperWorkspaceAdapter(over), {"mode": "glob", "pattern": "*.txt"}
+    )
+
+    assert len(over_glob["matches"]) == RESULT_CAP
+    assert over_glob["truncated"] is True
+    assert over_glob["truncated_reason"] == "result_cap"
 
 
 def test_small_glob_and_ls_report_no_truncation_reason(tmp_path: Path) -> None:
