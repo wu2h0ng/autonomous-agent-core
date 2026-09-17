@@ -75,6 +75,7 @@ export const SurfaceSessionSummarySchema = z.object({
   permission_mode: PermissionModeSchema.default("ASK"),
   message_count: z.number().int().nonnegative(),
   updated_at: NonEmptyStr,
+  has_pending_approval: z.boolean().default(false),
 });
 export type SurfaceSessionSummary = z.infer<typeof SurfaceSessionSummarySchema>;
 

@@ -329,3 +329,42 @@ class TestBeginTurnIntegration:
             _begin_turn(app, session.session_id, "hello", key="key-race", binding=binding)
         )
         assert response.turn_id == turn_id
+
+    def test_session_listing_marks_pending_approval(self, tmp_path: Path) -> None:
+        """P3a-2 producer: the read-only session listing carries the durable
+        pending-approval flag, and only when one is actually pending."""
+        (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
+        app = chat_app(
+            tmp_path,
+            scripted=(
+                (
+                    "",
+                    (
+                        proposal(
+                            "call-edit",
+                            "workspace.edit",
+                            {
+                                "path": "fixture.txt",
+                                "old_string": "stable\n",
+                                "new_string": "fixed\n",
+                            },
+                        ),
+                    ),
+                ),
+                ("edited reply", ()),
+            ),
+        )
+        session, loop = app.open_chat_session("edit", DeferredApprovalGateway())
+
+        def _summary() -> Any:
+            listing = app.surface_sessions_listing(20, None)
+            return next(
+                item
+                for item in listing.sessions
+                if item.session_id == session.session_id
+            )
+
+        assert _summary().has_pending_approval is False
+        waiting = loop.run_turn(session, "edit fixture")
+        assert waiting.stop_reason == "approval_required"
+        assert _summary().has_pending_approval is True

@@ -78,12 +78,18 @@ export async function fetchAgentTree(
     }
   }
 
-  let sessions: { session_id: string; task_id: string; status: string }[] = [];
+  let sessions: {
+    session_id: string;
+    task_id: string;
+    status: string;
+    hasPendingApproval: boolean;
+  }[] = [];
   try {
     sessions = (await client.listSessions(100)).map((session) => ({
       session_id: session.session_id,
       task_id: session.task_id,
       status: session.status,
+      hasPendingApproval: session.has_pending_approval === true,
     }));
   } catch {
     notes.push("session listing unavailable");

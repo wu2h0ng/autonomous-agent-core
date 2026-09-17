@@ -2700,6 +2700,7 @@ class AgentOSApplication:
                     permission_mode=projected.permission_mode,
                     message_count=projected.next_message_index,
                     updated_at=events[-1].occurred_at,
+                    has_pending_approval=projected.pending_approval is not None,
                 )
             )
         entries.sort(key=lambda summary: summary.session_id)
