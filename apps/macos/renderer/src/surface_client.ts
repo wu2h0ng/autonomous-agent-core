@@ -482,6 +482,27 @@ export function parseSse(
   const dataLines: string[] = [];
   let inCursor = false;
   let nextSequence = afterSequence;
+  const flush = (): void => {
+    if (inCursor) {
+      const cursor = JSON.parse(dataLines.join("\n")) as {
+        next_sequence: number;
+      };
+      nextSequence = cursor.next_sequence;
+      inCursor = false;
+    } else if (currentId !== null && dataLines.length > 0) {
+      const payload = JSON.parse(dataLines.join("\n")) as {
+        event_type: string;
+        payload_json: string;
+      };
+      events.push({
+        sequence: currentId,
+        event_type: payload.event_type,
+        payload_json: payload.payload_json,
+      });
+    }
+    currentId = null;
+    dataLines.length = 0;
+  };
   for (const line of body.split(/\r?\n/)) {
     if (line.startsWith("id: ")) {
       currentId = Number.parseInt(line.slice(4), 10);
@@ -491,27 +512,15 @@ export function parseSse(
     } else if (line.startsWith("data: ")) {
       dataLines.push(line.slice(6));
     } else if (line === "") {
-      if (inCursor) {
-        const cursor = JSON.parse(dataLines.join("\n")) as {
-          next_sequence: number;
-        };
-        nextSequence = cursor.next_sequence;
-        inCursor = false;
-      } else if (currentId !== null && dataLines.length > 0) {
-        const payload = JSON.parse(dataLines.join("\n")) as {
-          event_type: string;
-          payload_json: string;
-        };
-        events.push({
-          sequence: currentId,
-          event_type: payload.event_type,
-          payload_json: payload.payload_json,
-        });
-      }
-      currentId = null;
-      dataLines.length = 0;
+      flush();
     }
   }
+  // EOF flush, mirroring apps/cli/surface_client.py `_decode_sse` and
+  // apps/cli-ts/src/sse.ts: a frame is normally terminated by a blank line, but
+  // a body that ends mid-frame must be decoded all the same. Dropping the final
+  // cursor left next_sequence at after_sequence; a truncated payload still
+  // fails closed because JSON.parse rejects it.
+  flush();
   return {
     protocol_version: SURFACE_PROTOCOL_VERSION,
     task_id: taskId,

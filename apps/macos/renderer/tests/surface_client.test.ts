@@ -109,6 +109,35 @@ describe("surface client conformance (shared fixtures with Python client)", () =
     expect(batch.events[0].event_type).toBe("SESSION_MESSAGE_RECORDED");
   });
 
+  it("flushes a final cursor frame that has no trailing newline", () => {
+    // Mirrors apps/cli/surface_client.py `_decode_sse` and apps/cli-ts/src/sse.ts:
+    // a frame is normally terminated by a blank line, but a body that ends
+    // mid-frame must still be decoded. Dropping it left next_sequence at
+    // after_sequence while the event frame was returned, so a poller would
+    // re-request the same cursor forever.
+    const body =
+      "id: 3\n" +
+      "event: SESSION_MESSAGE_RECORDED\n" +
+      'data: {"schema_version":"1.0","event_id":"event:3","task_id":"task:1","sequence":3,' +
+      '"event_type":"SESSION_MESSAGE_RECORDED","correlation_id":"run:1","payload_json":"{}",' +
+      '"occurred_at":"2026-08-12T00:00:00+00:00"}\n' +
+      "\n" +
+      'event: cursor\ndata: {"next_sequence": 3}';
+    expect(body.endsWith("\n")).toBe(false);
+
+    const batch = parseSse("task:1", 2, body);
+
+    expect(batch.next_sequence).toBe(3);
+    expect(batch.events).toHaveLength(1);
+    expect(batch.events[0].sequence).toBe(3);
+  });
+
+  it("still rejects a truncated final frame instead of guessing", () => {
+    const body = 'event: cursor\ndata: {"next_sequence": 3';
+
+    expect(() => parseSse("task:1", 2, body)).toThrow(SyntaxError);
+  });
+
   it("tracks the session sequence across open and turn", async () => {
     const valid = JSON.parse(fixture("turn_response_valid.json"));
     const { client, requests } = jsonClient([
