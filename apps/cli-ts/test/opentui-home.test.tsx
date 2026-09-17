@@ -9,6 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   HOME_FIELD_LABELS,
@@ -17,6 +18,7 @@ import {
   homeFieldRows,
   homePanel,
   providerValue,
+  shortenPath,
   shouldShowHome,
 } from "../src/home.js";
 import {
@@ -94,6 +96,28 @@ test("narrow panel is the three-line block Ink renders (no card, no tip title)",
   assert.deepEqual(rowsToText([panel.header]), ["NOEM · v0.1.0"]);
   const all = rowsToText([panel.header, ...panel.fields, ...panel.tips]).join("\n");
   assert.doesNotMatch(all, /Quick start/);
+});
+
+// --- shortenPath (ported from the retired Ink test/homeview.test.tsx) --------
+//
+// `shortenPath` lives in src/home.ts, which is renderer-neutral, so its
+// assertions must not die with the Ink view. Migrated verbatim from
+// test/homeview.test.tsx when Ink was deleted; the two cases in that file that
+// rendered Ink components (StatusBar / HomeView) were not portable and are
+// covered by the panel and drift-guard tests above instead.
+
+test("shortenPath: home-relative, bounded, boundary-safe", () => {
+  const home = homedir();
+  assert.equal(shortenPath(join(home, "a", "b"), 80), "~/a/b");
+
+  // A sibling whose name merely starts with the home string must not match.
+  assert.ok(!shortenPath(`${home}evil/secret/deep`, 200).startsWith("~"));
+
+  // Two very long tail segments must still respect the width limit.
+  assert.ok(shortenPath(`/${"b".repeat(60)}/${"c".repeat(40)}`, 20).length <= 20);
+
+  // Non-home short paths pass through unchanged.
+  assert.equal(shortenPath("/tmp/demo-workspace", 80), "/tmp/demo-workspace");
 });
 
 // --- drift guard (against the FROZEN baseline; no Ink import) ----------------

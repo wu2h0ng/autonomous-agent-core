@@ -1,7 +1,14 @@
 /**
- * Rendering-surface tests: markdown renderer and the controller's
- * finalized-cursor + tool-card projection. The finalized cursor counts
- * messages, never physical wrapped rows (M2 P1 lesson, twice).
+ * Rendering-surface tests: the controller's finalized-cursor + tool-card
+ * projection. The finalized cursor counts messages, never physical wrapped rows
+ * (M2 P1 lesson, twice).
+ *
+ * The Ink markdown case that used to live here (`renderMarkdown` from
+ * src/markdown.ts, marked-terminal + cli-highlight) was removed with Ink. Its
+ * intent ¡ª a fence is token-coloured and an unclosed fence must not throw ¡ª is
+ * still asserted, by the surviving checks for the path that actually ships:
+ * `test/opentui-code-highlight.test.ts` (ranges + fence resolution) and
+ * `scripts/highlight_render_check.ts` (headless render, with a negative control).
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,24 +19,6 @@ import {
   TODO_CAPABILITY,
   TuiController,
 } from "../src/controller.js";
-
-test("markdown: headers, bold and code fences render ANSI, unclosed fence does not throw", async () => {
-  // marked-terminal uses chalk, which samples TTY/env at import time; force
-  // color before the module graph loads so ANSI styling is asserted for real.
-  process.env.FORCE_COLOR = "1";
-  const { renderMarkdown } = await import("../src/markdown.js");
-  const stripAnsi = (s: string): string => s.replace(/\[[0-9;]*m/g, "");
-  const out = renderMarkdown("# Title\n\nsome **bold** text\n\n```ts\nconst x = 1;\n```\n");
-  const plain = stripAnsi(out);
-  assert.ok(plain.includes("Title"));
-  assert.ok(plain.includes("bold"));
-  // code fences are syntax-highlighted per token, so assert content on the
-  // ANSI-stripped view rather than the raw styled string
-  assert.ok(plain.includes("const x = 1;"));
-  assert.ok(/\u001b\[/.test(out), "expected ANSI styling");
-  const partial = renderMarkdown("```ts\nunclosed(");
-  assert.ok(stripAnsi(partial).includes("unclosed("));
-});
 
 test("summarizeArgs prefers path/command and truncates", () => {
   assert.equal(summarizeArgs('{"path":"src/a.ts","old_string":"x"}'), "src/a.ts");
@@ -73,7 +62,7 @@ test("finalized cursor: messages finalize on push and on resolution", async () =
   assert.equal(controller.finalizedIndex, 2);
 });
 
-test("tool cards: proposed â†’ pending card; receipt â†’ done/failed by action_id", async () => {
+test("tool cards: proposed â†? pending card; receipt â†? done/failed by action_id", async () => {
   const controller = new TuiController({} as never);
   const apply = controller as never as {
     applyDurable: (n: number, e: unknown[]) => void;
@@ -235,7 +224,7 @@ test("todo panel: parseTodoItems defensive + full-replace + failed never overwri
   const apply = controller as never as {
     applyDurable: (n: number, e: unknown[]) => void;
   };
-  // NB: read the getter via an unknown-typed local â€” asserting directly on
+  // NB: read the getter via an unknown-typed local â€? asserting directly on
   // the getter narrows it to null and later accesses collapse to never.
   const panel0: unknown = controller.todoPanel;
   assert.equal(panel0, null); // inert without the capability

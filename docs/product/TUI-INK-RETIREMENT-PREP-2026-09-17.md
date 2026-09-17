@@ -1,6 +1,7 @@
-# Ink 退役准备工作（2026-09-17）
+# Ink 退役记录（2026-09-17）
 
-- **状态**：`PREP_ONLY` —— 本文件记录**已实测的退役前提与删除清单**，尚未删除任何东西。
+- **状态**：`DONE` —— 运行时决策已定（§1.2 默认 Bun），切片 J 完成入口切换，**Ink 本体已删除、`dist` 已重建**
+  （§7）。本文件保留为**退役的完整记录**：前提、清单、执行与覆盖代价。
 - **前置事实**：19 项 TUI parity 清单**全部 DONE**（见 `TUI-PARITY-CHECKLIST-2026-09-16.md` §14），#5/#6 为全屏领先 Ink。
 - **判定口径**：每一项都要有"在哪、为什么能删、删了会不会带走别的东西"的实测依据；不确定的写成待定，不写成结论。
 
@@ -133,12 +134,10 @@ Node 26 那条记为**已验证的备用路径**，待 `node:ffi` 转正后可�
   屏幕上显示为 `终 端 流 式`。**未改共享的 `frame_reader`**（会牵动其余 12 个脚本的基线），
   在本脚本内显式处理并注明。
 
-### 4.4 尚未做
+### 4.4 后续（**已在 §7 执行**）
 
-- **删除 Ink 及其依赖与测试**（§2.1）——**未执行**。切片 J 只切入口与运行时；删除是下一步，且删除后
-  `test/ink-home-baseline.test.tsx`（实时重测 Ink 的录制器）需一并删除（冻结快照继续工作）。
-- **重建 `dist/`**（发布动作，未做）。
-- Linux 沙箱、provider live smoke（需 key）、P3a-2。
+切片 J 当时只切了入口与运行时。删除 Ink 与重建 `dist` 随后执行，见 §7；本文件其余部分保留当时
+的判断依据，不改写。
 
 ## 5. 与本文件无关但仍未做的（避免混在一起）
 
@@ -179,3 +178,78 @@ Node 26 那条记为**已验证的备用路径**，待 `node:ffi` 转正后可�
 **诚实边界**：本机夹具守护进程报告的 `provider_id` 恰好是 `openai-compatible`（等于回退字面量），
 所以**端到端 PTY 检查在夹具上区分不出修复前后**；该修复的证明来自内容模型断言 + Ink 基线录制 +
 入口代码路径，不是来自 PTY 证据。要端到端区分需要把夹具配成另一个 provider id。
+
+## 7. 执行记录：删除 Ink + 重建 dist（2026-09-17）
+
+### 7.1 与旧清单的两处不一致（按依赖实测更正）
+
+1. **`src/cli.tsx` 不在删除清单里。** 旧清单把它列为 Ink 专属，理由是它 `import { render } from "ink"`；
+   切片 J 之后它已不再引用 Ink，并且现在**就是统一入口**。照旧清单删它会删掉整个 CLI。
+2. **`test/render.test.ts` 不整文件删。** 旧清单把它记成"`src/markdown.ts` 的测试"，但它实际只
+   `import` `src/controller.js`；文件里 7 条用例中**只有 1 条**碰 Ink 的 `renderMarkdown`
+   （而且是动态 import）。整文件删会白丢 6 条 controller 断言。做法：只删那 1 条，其余保留。
+
+### 7.2 实际删除内容
+
+`git rm`：`src/App.tsx`、`src/HomeView.tsx`、`src/ComposerView.tsx`、`src/markdown.ts`、
+`test/app.test.tsx`、`test/homeview.test.tsx`、`test/ink-home-baseline.test.tsx`。
+
+依赖移除：`ink`、`marked`、`marked-terminal`、`@types/marked-terminal`、`ink-testing-library`。
+
+**保留（易误删）**：`src/highlight.ts`（`src/opentui/code-highlight.ts` 依赖它的 `EXTENSION_LANGUAGE`，
+已在文件头加注"文件名像 Ink 专属但全屏视图在用"）、`src/home.ts`、
+`test/fixtures/ink-home-baseline.ts`（冻结快照，§3 的设计目的就是让它活过删除）。
+
+### 7.3 先搬走断言再删（不连带丢覆盖）
+
+- `test/homeview.test.tsx` 的 3 条用例里，`shortenPath` 那条**可移植**（该函数现在 `src/home.ts`），
+  已**逐字迁移**到 `test/opentui-home.test.tsx`（含 home 相对化、兄弟目录边界、宽度上限、非 home 直通）。
+  另两条渲染 Ink 组件，不可移植，由首页面板与漂移守卫用例覆盖。
+- `test/render.test.ts` 那条 markdown 断言的**意图**由上线路径的既有检查承担：
+  `test/opentui-code-highlight.test.ts`（区间 + 围栏解析）与 `scripts/highlight_render_check.ts`
+  （无头渲染 + 反向对照）。已在文件头注明，避免以后被误认为漏测。
+
+### 7.4 覆盖代价（诚实记账）
+
+被删的 `test/app.test.tsx` 有 **16 条集成测试**：palette / @mention / 多行粘贴 / Ctrl-R / selector /
+vim×4 / ctrl-p 历史 / 审批 y / 首页首帧 / backspace / ctrl-d。逐项核对新视图：
+
+- **仍有覆盖**：Ctrl-R（`pty_search_check` + viewkeys 单测）、vim（`pty_fullscreen_vim` + `opentui-vim`）、
+  palette/selector（`pty_fullscreen_parity_a` + `opentui-overlays`）、审批 y（`pty_smoke` phase3）、
+  首页首帧（`pty_home_frame_check`）、ctrl-p 历史（viewkeys 单测；注意 agents 面板激活时被面板占用，
+  该情形也有单测）。
+- **无等价断言**：`backspace`（macOS 发 `0x7f` 删除前一字符）与 `ctrl-d` 前向删除。二者现由 opentui 的
+  `<textarea>` 原生处理，而 pty 脚本只是**用它**清空输入框（`pty_fullscreen_parity_a/b`、
+  `pty_fullscreen_p3a_multisession` 里的 `\x7f`），**没有断言**。多行粘贴（CR/CRLF 归一）同理——
+  Ink 的 composer 是自研的，全屏用的是组件行为。
+
+**结论**：这不是"覆盖率不变"，而是"从 Ink 的集成测试换成了 opentui 单测 + pty 集成"。若要补齐
+backspace / ctrl-d / 粘贴归一这三条，应在**全屏视图**上重新断言，而不是恢复 Ink 测试。
+
+### 7.5 顺带发现：`npm install` 本来就装不上（既有冲突，非本次引入）
+
+删依赖时 `npm install` 报 `ERESOLVE`：根项目声明 `react-devtools-core@^8.0.0`，而
+`@opentui/react@0.5.11` 的 peer 要求 `^7.0.1`。**与本次删除无关**，是既有不一致（此前 lockfile
+大概由 bun 生成，所以没暴露）。已把声明对齐到 peer 要求的 `^7.0.1`，`npm install` 现可正常完成；
+随后**整网重跑**确认无回归。
+
+同一过程得到一条**独立佐证**：`@opentui/core@0.5.11` 自己声明
+`engines: { bun: ">=1.3.0", node: ">=26.4.0" }` —— 与 §1.1 实测的"Node 26 起可用"完全一致，
+也说明 Bun 是官方一等公民。
+
+### 7.6 证据
+
+- **`dist` 重建**：无 Ink 产物（`App/HomeView/ComposerView/markdown.js` 均不在）；`dist/cli.js`
+  shebang 为 `#!/usr/bin/env bun` 且可执行；`./dist/cli.js --version` → `0.1.0`；
+  **node 下跑子命令仍可用**（视图未加载）。
+- **发布产物本身渲染验证**：在 pty 里直接跑 `bun dist/cli.js`，首帧首页面板完整、header 与 provider 行
+  都在、无原生库报错。
+- 单文件编译复核：`--compile` 后 `--version` → `0.1.0`。
+- 单测 **187 pass / 0 fail**（合并为单一分组；此前 209 分两组）。
+- **13 个 pty 脚本全绿**（依赖变更后重跑）。
+- `package-lock.json` 与 `bun.lock` 均已更新，不再含 `ink` / `marked-terminal`。
+
+### 7.7 注意：`dist` 未被 git 跟踪
+
+`apps/cli-ts/dist` 是构建产物、未纳入版本控制，因此"重建 dist"**不产生提交内容**；它是发布前
+必须执行的步骤，本轮已执行并验证。

@@ -5,10 +5,14 @@
  * Why frozen rather than rendered live: `test/opentui-home.test.tsx` used to
  * render Ink's `HomeView` at test time to compare against, which made Ink a
  * test-time dependency of the SURVIVING view. Retiring Ink would have destroyed
- * the parity baseline with it. The snapshot now lives here (no Ink import), and
- * `test/ink-home-baseline.test.tsx` re-measures the live Ink output against it
- * for as long as Ink still exists — so drift is still caught today, and the
- * guarantee survives the deletion.
+ * the parity baseline with it. The snapshot now lives here (no Ink import), so
+ * the parity guarantee outlives the view it was captured from.
+ *
+ * Ink was deleted on 2026-09-17. `test/ink-home-baseline.test.tsx`, the recorder
+ * that re-measured live Ink against this snapshot, was deleted with it — exactly
+ * as designed. This file is therefore no longer re-validated against anything:
+ * it is the historical record of what the retired view rendered, and the
+ * surviving drift guard in `test/opentui-home.test.tsx` compares against it.
  *
  * Capture inputs are part of the fixture: a snapshot without its inputs is not
  * reproducible. Normalisation: the box border and padding are stripped, then

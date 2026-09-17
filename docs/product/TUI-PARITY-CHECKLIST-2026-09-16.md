@@ -379,3 +379,48 @@ Bun 无需开关且能出单文件）。Node 路线记为**已验证的备用路
 - 中文断言需 `cjk_join` 归一化（宽字符占两格，`frame_reader` 多存一个占位空格，屏幕显示 `终 端 流 式`）。
   **未改共享的 `frame_reader`**（会牵动其余 12 个脚本基线），在本脚本内显式处理。
 - `node:ffi` 仍是实验 API，形状变化会打断 node 备用路径（不影响默认 Bun 路径）。
+
+## 16. 切片 K（2026-09-17）：Ink 已删除，dist 已重建 —— 退役完成
+
+退役的执行记录全文在 `TUI-INK-RETIREMENT-PREP-2026-09-17.md` §7，这里只记结论与关键更正。
+
+### 16.1 删除清单的两处更正（照旧清单会出事）
+
+1. **`src/cli.tsx` 不能删。** 旧清单把它列为 Ink 专属（因为它 `import { render } from "ink"`），
+   但切片 J 之后它不再引用 Ink，且**现在是统一入口**——照旧清单执行会删掉整个 CLI。
+2. **`test/render.test.ts` 不整文件删。** 它有 7 条用例，只有 **1 条**碰 Ink 的 `renderMarkdown`
+   （动态 import），其余 6 条只 import `src/controller.js`。只删那 1 条。
+
+**教训**：删除清单必须在**执行时**按依赖重新实测一遍，不能照抄先前的记录——入口重构会让清单过期。
+
+### 16.2 执行内容
+
+- 删除：`src/App.tsx`、`src/HomeView.tsx`、`src/ComposerView.tsx`、`src/markdown.ts`、
+  `test/app.test.tsx`、`test/homeview.test.tsx`、`test/ink-home-baseline.test.tsx`；
+  依赖 `ink`、`marked`、`marked-terminal`、`@types/marked-terminal`、`ink-testing-library`。
+- 保留：`src/highlight.ts`（全屏高亮依赖其 `EXTENSION_LANGUAGE`，已加注防误删）、`src/home.ts`、
+  `test/fixtures/ink-home-baseline.ts`（冻结快照，§9 的分离设计在此兑现）。
+- 先搬后删：`shortenPath` 用例逐字迁入 `test/opentui-home.test.tsx`；被删的 markdown 断言在文件头
+  注明其意图由 `opentui-code-highlight.test.ts` + `highlight_render_check.ts` 承担。
+
+### 16.3 覆盖代价（不是"覆盖率不变"）
+
+`test/app.test.tsx` 的 16 条集成测试中，多数行为在全屏视图仍有覆盖（Ctrl-R / vim / palette / selector /
+审批 y / 首页首帧 / ctrl-p），但**三条无等价断言**：`backspace`（macOS `0x7f` 删前一个字符）、
+`ctrl-d` 前向删除、多行粘贴 CR/CRLF 归一。这三者现由 opentui `<textarea>` 原生处理，pty 脚本只是
+**用它**清空输入框而未断言。若要补齐，应在全屏视图上重新断言，而非恢复 Ink 测试。
+
+### 16.4 顺带发现（既有问题，非本次引入）
+
+`npm install` 原本就报 `ERESOLVE`：根项目 `react-devtools-core@^8.0.0` 与
+`@opentui/react@0.5.11` 的 peer `^7.0.1` 冲突。已对齐到 `^7.0.1`，`npm install` 现可完成。
+**独立佐证**：`@opentui/core@0.5.11` 自带 `engines: { bun: ">=1.3.0", node: ">=26.4.0" }`，
+与 §15.1 实测结论一致。
+
+### 16.5 证据
+
+- `dist` 重建后无 Ink 产物、`dist/cli.js` shebang 为 `#!/usr/bin/env bun`、可执行、`--version` → `0.1.0`；
+  node 下子命令仍可用。
+- **发布产物 pty 验证**：直接跑 `bun dist/cli.js`，首帧首页面板完整、header 与 provider 行都在。
+- 单测 **187 pass / 0 fail**；**13 个 pty 脚本全绿**；lockfile 均已更新。
+- `dist` 未被 git 跟踪，重建不产生提交内容，属发布前步骤。
