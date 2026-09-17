@@ -56,5 +56,13 @@ test("stateFilePath honors AGENT_OS_CLI_STATE and HOME overrides", () => {
 });
 
 test("saveState never throws on an unwritable path", () => {
-  assert.equal(saveState("/proc/definitely/not/writable.json", DEFAULT_STATE), false);
+  // A path whose parent is a FILE: mkdirSync fails with ENOTDIR everywhere, so
+  // the assertion is about saveState, not about the host filesystem. This test
+  // used to point at /proc/definitely/not/writable.json - a path that does not
+  // exist on macOS (where it therefore failed fast) but made saveState BLOCK
+  // inside Linux procfs: the Linux CI runner sat in this case for the full
+  // 180-second file deadline and reported a timeout instead of a result.
+  const blocker = tempPath();
+  writeFileSync(blocker, "not a directory", "utf8");
+  assert.equal(saveState(join(blocker, "nested", "state.json"), DEFAULT_STATE), false);
 });
