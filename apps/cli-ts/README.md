@@ -77,7 +77,7 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 188 unit tests; `npm run build` type-checks and emits `dist`
+`npm test` runs the 205 unit tests; `npm run build` type-checks and emits `dist`
 (it is the release build — a release also wants `npm run compile`).
 
 Targeted real-pty checks (each boots its own hermetic daemon):
