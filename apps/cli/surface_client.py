@@ -528,6 +528,18 @@ class SurfaceClient:
                     )
                 current_event = None
                 data_lines = []
+        # EOF flush: mirrors `_decode_sse` below — a frame is normally terminated
+        # by a blank line, but a body that ends mid-frame must not be dropped
+        # silently (the TS `parseSse` flushes too, so both sides stay in step).
+        if current_event == "cursor":
+            cursor_payload = json.loads("\n".join(data_lines))
+            next_sequence = cursor_payload["next_sequence"]
+        elif current_event is not None and data_lines:
+            frames.append(
+                SurfaceStreamFrame.model_validate(
+                    json.loads("\n".join(data_lines))
+                )
+            )
         return SurfaceStreamBatch(
             session_id=session_id,
             after_sequence=after_sequence,

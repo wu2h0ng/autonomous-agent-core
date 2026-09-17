@@ -145,11 +145,19 @@ Node 26 那条记为**已验证的备用路径**，待 `node:ffi` 转正后可�
 ## 5. 与本文件无关但仍未做的（避免混在一起）
 
 - **独立复审** F/G/H 三个切片（改动含共享证据工具与两条被推翻的旧结论）。
-- **`VIM_NORMAL_EDIT_SUBMITTED` 复核**：实测 `False`，但 slice-D pin 记录曾两次 `True`，
-  #11 的 DONE 证据本身存疑；且该脚本**不设闸门**（恒 exit 0），属打印型信号。
+- **~~`VIM_NORMAL_EDIT_SUBMITTED` 复核~~ 已完成（2026-09-17）**：该信号在**当前夹具下恒为 False**，
+  与行为无关——夹具含 `return "hello " + name`，而断言是 `"ello" in submitted and "hello" not in submitted`，
+  后半句永假。该夹具文本由 `e44ef044`（切片 E，06:51）加入，晚于切片 D 的 `c5085f14`（05:54），
+  所以切片 D 当时记录的 `True` 不据此判为造假，但**已不能再作为 #11 的证据**。
+  **行为经独立复测通过**：用不与夹具文本碰撞的标记 `qqwwzz`，以 `frame_reader` 行级重建屏幕断言
+  （normal 态未映射键 `q` 不插入；`0`+`x` 后提交 `qwwzz`；`0xizz` 后提交 `zzqwwzz`）。
+  脚本信号的修复归属 `apps/cli-ts/scripts/pty_fullscreen_vim.py`：两处都要改——把标记换成不与夹具
+  碰撞的串（如 `qqwwzz`），并让信号**可失败**（原先无论行为如何都恒 exit 0，False 也能被当证据引用）。
 - **可选加固**：palette/selector 条目现在能按内容断言（此前只能断言标题，见 §14.3）；
   cell-diff 残留（帧变矮时留旧字形）。
-- Linux 沙箱、provider live smoke（需 key）、P3a-2。
+- Linux 沙箱、provider live smoke（需 key）、**P3a-2**（更正 2026-09-17：`awaiting_approval` 字段已在分支上
+  实现——`21d842c5` 引入、`9dabc0e2` 改名；未推，且缺 GC/CTO gate 与契约 minor 版本决定，
+  `SURFACE_PROTOCOL_VERSION` 仍为 `1.1`）。
 
 ## 6. 更正：切片 G 写下的 provider 结论是**错的**
 
@@ -221,13 +229,21 @@ vim×4 / ctrl-p 历史 / 审批 y / 首页首帧 / backspace / ctrl-d。逐项�
   palette/selector（`pty_fullscreen_parity_a` + `opentui-overlays`）、审批 y（`pty_smoke` phase3）、
   首页首帧（`pty_home_frame_check`）、ctrl-p 历史（viewkeys 单测；注意 agents 面板激活时被面板占用，
   该情形也有单测）。
-- **无等价断言**：`backspace`（macOS 发 `0x7f` 删除前一字符）与 `ctrl-d` 前向删除。二者现由 opentui 的
-  `<textarea>` 原生处理，而 pty 脚本只是**用它**清空输入框（`pty_fullscreen_parity_a/b`、
-  `pty_fullscreen_p3a_multisession` 里的 `\x7f`），**没有断言**。多行粘贴（CR/CRLF 归一）同理——
-  Ink 的 composer 是自研的，全屏用的是组件行为。
+- ~~**无等价断言**~~ **已补齐（2026-09-17，commit `c745212a`）**：`backspace`（macOS 发 `0x7f` 删除前一字符）、
+  `ctrl-d` 前向删除与多行粘贴（CR/CRLF 归一）三者现由
+  `apps/cli-ts/scripts/pty_fullscreen_editor_keys.py` 在**全屏视图**上断言，本次复跑输出：
+  `BACKSPACE_DELETES_PREVIOUS: True`（`qwe` → `qw` → `qwr`）、`CTRL_D_DELETES_FORWARD: True`
+  （`jkl` + Left + ctrl-d → `jk`）、`PASTE_CRLF_IS_ONE_BREAK: True`（bracketed paste `p` CRLF `q`
+  → 两行 `p`/`q`）、`EDITOR_KEYS_OK: True`（exit 0）。断言在 composer 内部行上做行级重建
+  （`frame_reader.Screen`），不是对原始字节流做子串匹配。
+- **原 verdict 撤回并保留（记录而非删除）**：`c15fdd24` 曾把三者判为 `NOT_MET`，那是**原 harness 的缺陷，
+  不是产品缺陷**：①按键后强制重绘读取返回空/部分帧；②`ctrl-d` 的期望本身写错
+  （`asd` + Left + ctrl-d 得到 `as` 而不是 `ad`，该断言不可能通过）。`c745212a` **只改脚本**
+  （`scripts/pty_fullscreen_editor_keys.py`，73 insertions / 83 deletions），**产品代码未变**——所以
+  Ink 退役时"textarea 原生处理这三件事"的假设成立，缺的只是断言。
 
-**结论**：这不是"覆盖率不变"，而是"从 Ink 的集成测试换成了 opentui 单测 + pty 集成"。若要补齐
-backspace / ctrl-d / 粘贴归一这三条，应在**全屏视图**上重新断言，而不是恢复 Ink 测试。
+**结论**：这不是"覆盖率不变"，而是"从 Ink 的集成测试换成了 opentui 单测 + pty 集成"；三条曾经缺失的
+断言已于 `c745212a` 在**全屏视图**上补齐（未恢复 Ink 测试）。
 
 ### 7.5 顺带发现：`npm install` 本来就装不上（既有冲突，非本次引入）
 

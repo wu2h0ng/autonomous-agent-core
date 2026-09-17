@@ -219,6 +219,14 @@ async function main(): Promise<void> {
       branch: gitBranch(process.cwd()),
       provider: providerLabel,
       model: modelLabel,
+      // Ink parity: the view seeds Ctrl-R / ↑ from the persisted list and
+      // reports every submit back through the debounced save. Without this the
+      // history was process-local and every `persist()` rewrote the seeded list.
+      initialHistory: state.history,
+      onHistoryChange: (entries: string[]) => {
+        historyEntries = entries;
+        scheduleSave();
+      },
       args,
     });
   } catch (cause) {

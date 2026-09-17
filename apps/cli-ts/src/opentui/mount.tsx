@@ -20,6 +20,13 @@ export interface MountFullscreenOptions {
   branch: string | null;
   provider: string | null;
   model: string | null;
+  /**
+   * Persisted input history and its write-back (Ink parity: Ctrl-R / ↑ must
+   * survive a restart). Explicitly `| undefined` because the props are passed
+   * straight through under `exactOptionalPropertyTypes`.
+   */
+  initialHistory?: readonly string[] | undefined;
+  onHistoryChange?: ((entries: string[]) => void) | undefined;
   /** Raw argv, used for the view flags (`--no-animation`, `--no-panels`, …). */
   args?: readonly string[];
 }
@@ -39,6 +46,8 @@ export async function mountFullscreen(options: MountFullscreenOptions): Promise<
       provider={options.provider}
       model={options.model}
       client={options.client}
+      initialHistory={options.initialHistory}
+      onHistoryChange={options.onHistoryChange}
       withPanels={flags.withPanels}
       withAgents={flags.withAgents}
     />,

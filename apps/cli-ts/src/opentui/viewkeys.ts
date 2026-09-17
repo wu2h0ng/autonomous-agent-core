@@ -60,8 +60,11 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   const { name, ctrl, sequence } = ctx;
 
   // 0a. Insert mode + Esc leaves vim editing for normal mode (unless a turn is
-  //     streaming, where Esc must stay the frozen global correction).
-  if (ctx.vimInsertMode && name === "escape" && !ctx.streaming) {
+  //     streaming, where Esc must stay the frozen global correction, or the
+  //     Ctrl-R overlay is open, where Esc is the overlay's own cancel — taking
+  //     it here left the search up and the NEXT key routed to normal mode, so
+  //     the overlay became unreachable).
+  if (ctx.vimInsertMode && name === "escape" && !ctx.streaming && !ctx.searchOpen) {
     return { layer: "vim", action: "normal" };
   }
 

@@ -19,7 +19,7 @@
 | 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A（条目渲染于 §14 才修好）** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED`；条目渲染同 §14.3 |
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
 | 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B/C2** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_COMPLETED_ON_SUBMIT`（经**提交后的新 transcript 行**观测；Tab 在有内容时被 textarea 自身消费） |
-| 11 | vim 模式（normal/insert + 运动/操作符） | ✓ | ✓ | **切片 D DONE** | 纯模块 `src/opentui/vim.ts` + `controller.vimMode`；pty `VIM_NORMAL_EDIT_SUBMITTED`；见 §9 |
+| 11 | vim 模式（normal/insert + 运动/操作符） | ✓ | ✓ | **切片 D DONE（行为已独立复测；所引信号失效）** | 纯模块 `src/opentui/vim.ts` + `controller.vimMode`。**更正（2026-09-17）**：此前引用的 pty 信号 `VIM_NORMAL_EDIT_SUBMITTED` **在当前夹具下恒为 False**，已不能作为证据——夹具含 `return "hello " + name`，而断言是 `"ello" in submitted and "hello" not in submitted`，后半句永假，与行为无关（修复前实测复现：`False`，当时脚本不设闸门、仍 exit 0）。该夹具文本由 `e44ef044`（切片 E，06:51）加入，晚于切片 D 的 `c5085f14`（05:54）。**行为经独立复测通过**：用不会与夹具文本碰撞的标记 `qqwwzz`，以 `frame_reader` 行级重建屏幕断言——normal 态 `0`+`x` 后提交 `qwwzz`、`0xizz` 后提交 `zzqwwzz`，且 normal 态的未映射键 `q` 不插入文本。该脚本信号的修复归属 `scripts/pty_fullscreen_vim.py`（须改标记方式，并让信号可失败）；见 §9、§14.4 |
 | 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 + 切片 H 收尾** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8。§14.4 把 composer 从**固定 5 行**（只显示最后 3 行）改为随草稿有上限地增长，并实测确认 transcript 侧多行显示本来就正确（旧"缺口"记载有误）|
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✓ | **DONE（切片 H）** | 复用 `InputHistory.search`；见 §14。pty `SEARCH_OVERLAY_SHOWN` / `MATCH_LISTED` / `NO_MATCH_HINT` / `CANCEL_RESTORES_DRAFT` / `PICK_LOADS_ENTRY` 全 True |
@@ -98,7 +98,7 @@
 
 - **纯模块 `src/opentui/vim.ts`**：`resolveVimKey(name, pendingOp)`（映射对齐 Ink：`h/j/k/l`、`0/$`、`w/b/e`、`x`、`i/a/A/I`、`d/c` + `dd/dw/d$`、Enter 提交、Esc 清 pending）+ `applyVimAction(state, action)`（复用 `composer.ts` 原语；`c` 操作符后回到 insert）+ `offsetFromCursor`（逻辑光标 → offset，越界 clamp）。单测 `test/opentui-vim.test.ts`（bypass-detecting）。
 - **视图/路由**：新增 `vim` 键层（在 resolver 中**优先级最高**，仅当 `controller.vimMode && !vimInsert`）。normal 模式下 **textarea 失焦**（字母因此不会被插入，全部由该层处理）；插入态按 **Esc** → 进入 normal（除非正在 streaming，此时 Esc 仍归冻结全局层做纠正）；`i/a/A/I` → 回到 insert 并重新聚焦。
-- **证据**：`scripts/pty_fullscreen_vim.py`（`/vim` → insert 打 "hello" → Esc → `0` → `x` → normal 下 Enter）连续 2 次 `VIM_NORMAL_EDIT_SUBMITTED: True`（提交窗口内为 `ello`，且不含 `hello`；断言只看**提交窗口**，因为更早的帧本来就含 insert 期的 "hello" 回显）。
+- **证据**：`scripts/pty_fullscreen_vim.py`（`/vim` → insert 打 "hello" → Esc → `0` → `x` → normal 下 Enter）。**该信号已失效并撤回（2026-09-17 实测复现）**：脚本现打印 `VIM_NORMAL_EDIT_SUBMITTED: False`，且**与行为无关**——夹具现在含 `return "hello " + name`，断言后半句 `"hello" not in submitted` 因此永假，信号在脚本修复前**不可能**为 True。该夹具文本由切片 E 的 `e44ef044`（06:51）加入，晚于切片 D 的 `c5085f14`（05:54），所以切片 D 当时记录的 True **不据此判为造假**，但**已不能再作为 #11 的证据**。行为本身经独立复测通过（不与夹具碰撞的标记 `qqwwzz` + `frame_reader` 行级重建），见清单 #11 与 §14.4；脚本信号修复归属 `scripts/pty_fullscreen_vim.py`（须改标记并让信号可失败，原先恒 exit 0）。
 - **回归网（同批全绿）**：composer 不变式（含 `COMMAND_RAN_EXACTLY_ONCE`）、`parity_a`、`parity_b`（`SLICE_B_ALL`）、`parity_c`、`p3a`、多会话；单测 **162 + 19**。
 - **教训（第 3 次同类陷阱）**：`vimNormal` 一度写成 `selector === undefined`，而 `pendingSelector` 关闭时是 **null** → vim 层永不激活（"0"/"x" 被当普通文本插入）。同一个 null/undefined 陷阱在本会话已出现三次（selector 层、`overlayOwnsEnterRef`、`vimNormal`）——**新增涉及 `pendingSelector` 的判断必须用 `=== null`/真值**。
 - **仍未做**：`ctrl+r` 历史搜索、彩色语法高亮、主题配色、首页面板、多行**显示**（`<text>` 折叠换行）、多行滚动/高度自适应。

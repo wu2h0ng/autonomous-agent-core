@@ -66,8 +66,8 @@ export interface FullscreenAppProps {
   model: string | null;
   client: SurfaceClient;
   /** Persisted input history, so Ctrl-R survives a restart (Ink parity). */
-  initialHistory?: readonly string[];
-  onHistoryChange?: (entries: string[]) => void;
+  initialHistory?: readonly string[] | undefined;
+  onHistoryChange?: ((entries: string[]) => void) | undefined;
   withPanels?: boolean;
   withAgents?: boolean;
 }
@@ -310,12 +310,17 @@ export function App({
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
 
+  // `!searchOpen` (Ink gates vim on `!searchMode` too) is not cosmetic: without
+  // it, Esc on the Ctrl-R overlay switched the composer to vim normal mode
+  // instead of cancelling the search, and normal mode then swallowed every
+  // following key — the overlay stayed up with no key left that could close it.
   const vimNormal =
     controller.vimMode &&
     !vimInsert &&
     !awaiting &&
     selector === null &&
-    palette.length === 0;
+    palette.length === 0 &&
+    !searchOpen;
 
   /** Current draft + caret as a composer state (for the vim edits). */
   const composerState = (): ComposerState => {
@@ -514,7 +519,12 @@ export function App({
         return;
       }
       case "editor": {
-        const result = openExternalEditor(input);
+        // Read the TEXTAREA, not the React mirror: bracketed paste never goes
+        // through `useKeyboard`, so the mirror was stale (measured: 200 pasted
+        // characters reached the editor as 0 bytes) and the write-back then
+        // replaced the paste with the editor's output.
+        const draft = composerRef.current?.plainText ?? input;
+        const result = openExternalEditor(draft);
         if (result !== null && result.changed) setComposerText(result.text);
         return;
       }

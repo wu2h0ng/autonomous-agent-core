@@ -31,6 +31,9 @@ Lessons encoded:
   - Never write multi-byte input in a single pty write — the kernel coalesces
     it into one read and a trailing \\r is then parsed as paste text, not
     Return (false alarm in iteration-16). Per-key writes are required.
+  - A first-frame hit is not a settled screen: one streaming turn paints its
+    head ("deterministic") ~4s before its CJK tail, so phase 1 waits for the
+    tail itself (wait_until) rather than asserting it right after the head.
   - Each phase needs its OWN daemon: dev_daemon's scripted provider advances one
     turn per submit (turn 1 = streaming text, turn 2 = edit proposal), so
     reusing a daemon across phases silently changes the expected reply.
@@ -112,6 +115,24 @@ class Tui:
         assert needle in text, f"{needle!r} did not reach the screen within {seconds:.0f}s"
         return text
 
+    def wait_until(self, predicate, seconds: float, what: str) -> str:
+        """Poll the screen until `predicate(text)` holds, else fail.
+
+        `wait_for` returns on the FIRST frame containing its needle, which is not
+        the same as the content having SETTLED: one streaming turn paints its
+        head several seconds before its tail (measured), so waiting on the head
+        and then asserting the tail is a race, not a check.
+        """
+        deadline = time.time() + seconds
+        text = self.text()
+        while True:
+            if predicate(text):
+                return text
+            if time.time() >= deadline:
+                raise AssertionError(f"{what} did not reach the screen within {seconds:.0f}s")
+            self.pump(0.2)
+            text = self.text()
+
     def type(self, text: str) -> None:
         """Type like a human: one key per write with a small gap."""
         for ch in text:
@@ -138,6 +159,11 @@ class Daemon:
 
     def __init__(self, tmp: Path, name: str) -> None:
         self.desc = tmp / f"{name}-runtime.json"
+        # Delete a stale descriptor from an earlier run FIRST: `exists()` below
+        # would otherwise be true immediately and `_wait_ready` would poll the
+        # dead port of the previous daemon (re-running a probe in a fixed
+        # directory otherwise fails with "did not become reachable", measured).
+        self.desc.unlink(missing_ok=True)
         # Capture daemon output: DEVNULL made a crash/timeout undiagnosable.
         self.log_path = tmp / f"{name}.daemon.log"
         self._log = open(self.log_path, "wb")  # noqa: SIM115 - closed in stop()
@@ -254,8 +280,16 @@ def phase1(tui: Tui) -> None:
     assert "hello pty" in tui.text(), "typed input did not echo in the composer"
 
     tui.press(b"\r")
-    reply = tui.wait_for("deterministic", TURN_TIMEOUT)
-    assert "终端流式验证通过" in cjk_join(reply), "streamed reply missing its CJK tail"
+    # Wait for the reply to SETTLE, not for its first frame: this one streaming
+    # turn paints "deterministic" in its head and the CJK tail ~4s later
+    # (measured), so waiting on the head and immediately asserting the tail
+    # failed 4/4 on this machine while the tail was on screen moments later.
+    reply = tui.wait_until(
+        lambda text: "终端流式验证通过" in cjk_join(text),
+        TURN_TIMEOUT,
+        "the streamed reply's CJK tail",
+    )
+    assert "deterministic" in reply, "streamed reply missing its head"
 
 
 def phase2(tui: Tui) -> None:

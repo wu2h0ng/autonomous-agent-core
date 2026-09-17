@@ -3,11 +3,21 @@
 
 Flow (hermetic dev daemon, no keys):
   1. toggle vim with `/vim`
-  2. insert mode: type "hello"
+  2. insert mode: type "qqwwzz"
   3. Esc -> normal mode (the textarea is blurred there, so letters cannot insert)
-  4. `0` then `x` -> the draft becomes "ello"
+  4. `0` then `x` -> the draft becomes "qwwzz"
   5. Enter in normal mode submits; the submitted user message (NEW transcript
-     content, the reliable channel) must read "ello", never "hello".
+     content, the reliable channel) must read "qwwzz", never "qqwwzz".
+
+WHY A SELF-MADE MARKER: the step-5 check used to type "hello" and assert
+`"ello" in window and "hello" not in window`, but the scripted fixture reply
+(`scripts/dev_daemon.py` TURN1_TEXT) contains `return "hello " + name`, so
+"hello" is in the submitted window no matter what the vim layer did — the
+signal was pinned False and could not fail on a real regression. "qqwwzz"
+cannot collide with any fixture text.
+
+This script GATES: it exits non-zero when a signal is False. It used to print
+the signals and exit 0, so a False signal could be quoted as evidence.
 
 Run from apps/cli-ts:
 
@@ -32,6 +42,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 CLI = ROOT / "apps" / "cli-ts"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+# Typed in insert mode, then edited by `0` + `x` in normal mode. Deliberately
+# not "hello": see the module docstring.
+MARKER = b"qqwwzz"
+MARKER_EDITED = "qwwzz"
 
 
 def strip(buf: bytes) -> str:
@@ -86,7 +101,7 @@ def kill(pid: int) -> None:
         pass
 
 
-def main() -> None:
+def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vim-"))
     descriptor = tmp / "r.json"
     workspace = tmp / "ws"
@@ -122,13 +137,13 @@ def main() -> None:
         frames.append(read(fd, 1.5))
 
         # 2) insert-mode typing
-        for ch in b"hello":
+        for ch in MARKER:
             os.write(fd, bytes([ch]))
             time.sleep(0.05)
         time.sleep(0.5)
         frames.append(read(fd, 1.0))
 
-        # 3/4) Esc -> normal mode, 0 -> line start, x -> delete "h"
+        # 3/4) Esc -> normal mode, 0 -> line start, x -> delete the first char
         os.write(fd, b"\x1b")
         time.sleep(0.4)
         os.write(fd, b"0")
@@ -147,12 +162,13 @@ def main() -> None:
         print("===== AFTER ENTER (normal mode) =====")
         print(submitted[-300:].replace("\n", " "))
         # Assert on the SUBMITTED window only: earlier frames legitimately
-        # contain "hello" from the insert-mode composer echo.
+        # contain the marker from the insert-mode composer echo.
         submitted_flat = flat(submitted)
-        print(
-            "VIM_NORMAL_EDIT_SUBMITTED:",
-            "ello" in submitted_flat and "hello" not in submitted_flat,
+        signals: dict[str, bool] = {}
+        signals["VIM_NORMAL_EDIT_SUBMITTED"] = (
+            MARKER_EDITED in submitted_flat and MARKER.decode() not in submitted_flat
         )
+        print("VIM_NORMAL_EDIT_SUBMITTED:", signals["VIM_NORMAL_EDIT_SUBMITTED"])
 
         os.write(fd, b"\x03")
         time.sleep(0.5)
@@ -201,14 +217,16 @@ def main() -> None:
             kill(pid2)
             return "".join(frames2)
 
-        # shift+I goes to line start: "hello" + I + "p" -> "phello" (visible in
-        # the composer echo, which is enough to prove the caret placement).
+        # shift+A goes to line end: "hello" + A + "c" -> "helloc" (visible in the
+        # composer echo, which is enough to prove the caret placement).
         shift_a = flat(fresh_scenario(b"Ac"))
-        print("VIM_SHIFT_A_AT_LINE_END:", "helloc" in shift_a)
+        signals["VIM_SHIFT_A_AT_LINE_END"] = "helloc" in shift_a
+        print("VIM_SHIFT_A_AT_LINE_END:", signals["VIM_SHIFT_A_AT_LINE_END"])
 
-        # shift+A goes to line end: "hello" + A + "c" -> "helloc".
+        # shift+I goes to line start: "hello" + I + "p" -> "phello".
         shift_i = flat(fresh_scenario(b"Ip"))
-        print("VIM_SHIFT_I_AT_LINE_START:", "phello" in shift_i)
+        signals["VIM_SHIFT_I_AT_LINE_START"] = "phello" in shift_i
+        print("VIM_SHIFT_I_AT_LINE_START:", signals["VIM_SHIFT_I_AT_LINE_START"])
 
         # Ctrl-C in normal mode must still exit the process.
         pid3, fd3 = spawn(descriptor)
@@ -232,12 +250,19 @@ def main() -> None:
             os.write(fd3, b"y")
         except OSError:
             exited = True
+        signals["CTRL_C_EXITS_IN_NORMAL_MODE"] = exited
         print("CTRL_C_EXITS_IN_NORMAL_MODE:", exited)
         kill(pid3)
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
 
+    failed = [name for name, ok in signals.items() if not ok]
+    for name in failed:
+        print(f"VIM_SIGNAL_FAILED: {name} = False")
+    print("VIM_SIGNALS_FAILED:", failed)
+    return 1 if failed else 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
