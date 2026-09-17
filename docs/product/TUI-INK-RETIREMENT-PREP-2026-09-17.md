@@ -24,8 +24,11 @@
   四个 pty 脚本（home / theme / highlight / parity_a）**全部通过，信号与 bun 一致**；
   不加 `--no-warnings` 也通过。详见 §4.1。
 
-### 1.2 founder 决策：**默认 Bun**
+**这条错误结论的源头也已定位并更正**：`GC-TUI-FULLSCREEN-MIGRATION-2026-09-15.md` §2 的渲染器对照表
+把 OpenTUI 记为"Node 可用 ❌ → **仅 Bun**"，而那次测量是在 **Node 22** 上做的。结论被从"这个 Node 不行"
+过度推广成"Node 不行"，随后被本文件与切片 G/J 的记载继承。该表已就地更正并保留原测量。
 
+### 1.2 founder 决策：**默认 Bun**
 理由（实测支撑）：Node 这条路要 Node ≥26（当前是 Current、**非 LTS**）+ `--experimental-ffi`
 实验开关，且 Node 官方写明该 API"随时可能变"；Bun 不需要任何开关，并且能 `bun build --compile`
 出**单文件**（**已实测**：编译产物在 `/tmp` 下完整渲染全屏界面，用户两个运行时都不用装）。

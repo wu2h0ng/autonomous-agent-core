@@ -1,8 +1,12 @@
 # GC/CP-AB — TUI 迁移到全屏渲染器（2026-09-15）
 
-- **状态**：`DECIDED_FULLSCREEN / AWAITING_RUNTIME_DECISION / NOT_IMPLEMENTED`
+- **状态**：`DECIDED_FULLSCREEN / RUNTIME_DECIDED(bun) / IMPLEMENTED`（2026-09-17 更新）
 - **Founder 决策**：**迁移到全屏渲染器**（alt-screen，多面板/独立滚动/动效可达）。
 - **基座**：`main`（cli-ts = Ink 单滚动，Stage 1/2f 收敛完成）。
+- **2026-09-17 更新**：运行时已定为 **Bun**；全屏视图已达 19 项 parity 并成为统一入口；
+  **Ink 本体已删除**、`dist` 已重建。执行与证据见
+  `TUI-INK-RETIREMENT-PREP-2026-09-17.md`（§7 执行记录）与 `TUI-PARITY-CHECKLIST-2026-09-16.md` §15/§16。
+  **下文 §2 表格里"仅 Bun"那条结论已更正**（见下），§3 的 A/B 分叉已按 A 执行。
 
 ## 1. 为什么（与现状对照）
 
@@ -13,11 +17,21 @@
 
 | 渲染器 | 版本 | Node 可用 | 结论 |
 |---|---|---|---|
-| `@opentui/react` | 0.5.11 | ❌ `OpenTUI native FFI is not available for this runtime` | **仅 Bun**（原生 darwin-arm64 预编译） |
+| `@opentui/react` | 0.5.11 | ❌ `OpenTUI native FFI is not available for this runtime`（**该测量是在 Node 22 上做的**） | ~~**仅 Bun**~~ → **已更正**（见下） |
 | `neo-blessed` | 0.2.0 | ✅ 全屏 alt-screen、边框盒、状态栏实测通过 | Node 可用（纯 JS，imperative） |
 | `blessed` / `terminal-kit` | 0.1.81 / 3.1.4 | 预计可用（纯 JS） | 备选 |
 
-## 3. 运行时分叉（需 founder 决策）
+> **更正（2026-09-17）**：上表把 OpenTUI 判为"仅 Bun"，但那句报错的含义是
+> **"这个 Node 不会 FFI"**，不是"不支持 Node"。`@opentui/core` 自带两套 FFI 后端
+> （`bun:ffi` 与 `node:ffi`）与两个入口；`node:ffi` 是 **Node 26.1.0** 才加入的实验模块
+> （`--experimental-ffi`），Node 22 里不存在，所以失败后降级成"不支持"的桩。
+> **Node 26.9.0 实测可用**（多个 pty 检查通过、信号与 bun 一致）；`@opentui/core@0.5.11` 自己也声明
+> `engines: { bun: ">=1.3.0", node: ">=26.4.0" }`。
+> **这条过早的"仅 Bun"结论是本仓多处错误记载的源头**（曾被我照抄进切片 G/J 的文档，已在原处更正）。
+> 运行时最终仍选 **Bun**，但理由从"Node 根本不行"改为"Node 需要 ≥26（非 LTS）+ 实验开关，
+> Bun 无需开关且能出单文件"。
+
+## 3. 运行时分叉（**2026-09-17：已按 A 执行**）
 
 **A. Bun + `@opentui/react`**（React + 原生 diff + 内置动效）
 - 优点：保留 **React/TSX** 心智与现有组件迁移成本低；全屏 + 细粒度差分；动效/多面板最省力。
