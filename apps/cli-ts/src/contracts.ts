@@ -170,12 +170,44 @@ export const TaskEventSchema = z.object({
 });
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
 
-export const SurfaceEventBatchSchema = z.object({
-  task_id: NonEmptyStr,
-  after_sequence: z.number().int().nonnegative(),
-  next_sequence: z.number().int().nonnegative(),
-  events: z.array(TaskEventSchema).default([]),
-});
+export const SurfaceEventBatchSchema = z
+  .object({
+    task_id: NonEmptyStr,
+    after_sequence: z.number().int().nonnegative(),
+    next_sequence: z.number().int().nonnegative(),
+    events: z.array(TaskEventSchema).default([]),
+  })
+  .superRefine((batch, ctx) => {
+    // Mirror of SurfaceEventBatch._validate_event_ownership_and_sequence
+    // (packages/contracts/src/agent_os_contracts/surface.py): a batch that
+    // contradicts its own resume cursor is a protocol error, never a silently
+    // accepted one, because callers resume from `next_sequence` — accepting it
+    // either skips events or re-requests a window that was already applied.
+    let previousSequence = batch.after_sequence;
+    for (const event of batch.events) {
+      if (event.task_id !== batch.task_id) {
+        ctx.addIssue({
+          code: "custom",
+          message: "surface events must belong to the requested task",
+        });
+        return;
+      }
+      if (event.sequence <= previousSequence) {
+        ctx.addIssue({
+          code: "custom",
+          message: "surface event sequences must strictly increase above after_sequence",
+        });
+        return;
+      }
+      previousSequence = event.sequence;
+    }
+    if (batch.next_sequence !== previousSequence) {
+      ctx.addIssue({
+        code: "custom",
+        message: "surface next_sequence must equal the last event sequence or after_sequence",
+      });
+    }
+  });
 export type SurfaceEventBatch = z.infer<typeof SurfaceEventBatchSchema>;
 
 export const SurfaceFileEntrySchema = z.object({

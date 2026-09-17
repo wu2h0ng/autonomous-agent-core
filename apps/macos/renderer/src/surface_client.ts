@@ -79,6 +79,34 @@ export interface EventBatch {
   events: SurfaceEvent[];
 }
 
+/**
+ * Mirror of SurfaceEventBatch._validate_event_ownership_and_sequence
+ * (packages/contracts/src/agent_os_contracts/surface.py): the resume cursor in
+ * a durable event batch must agree with the events that batch carries. Callers
+ * (agent_thread) resume from `next_sequence`, so accepting a self-contradictory
+ * batch silently skips events or re-requests an already-applied window.
+ */
+function checkEventSequence(
+  afterSequence: number,
+  nextSequence: number,
+  events: readonly SurfaceEvent[],
+): void {
+  let previousSequence = afterSequence;
+  for (const event of events) {
+    if (event.sequence <= previousSequence) {
+      throw new SurfaceProtocolMismatch(
+        "surface event sequences must strictly increase above after_sequence",
+      );
+    }
+    previousSequence = event.sequence;
+  }
+  if (nextSequence !== previousSequence) {
+    throw new SurfaceProtocolMismatch(
+      "surface next_sequence must equal the last event sequence or after_sequence",
+    );
+  }
+}
+
 export interface ConflictProjection {
   protocol_version: string;
   action_id: string;
@@ -521,6 +549,7 @@ export function parseSse(
   // cursor left next_sequence at after_sequence; a truncated payload still
   // fails closed because JSON.parse rejects it.
   flush();
+  checkEventSequence(afterSequence, nextSequence, events);
   return {
     protocol_version: SURFACE_PROTOCOL_VERSION,
     task_id: taskId,
