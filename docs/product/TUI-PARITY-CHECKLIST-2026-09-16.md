@@ -15,14 +15,14 @@
 | 4 | 窄终端降级 | ✓ | ✓ | DONE | `layoutFor`/`SIDEBAR_MIN_WIDTH` |
 | 5 | 独立滚动面板 | ✗（Ink 无） | ✓ | 全屏领先 | P2（files/diff） |
 | 6 | agents 树 + 会话切换 | ✗ | ✓ | 全屏领先 | P3a（+多会话 e2e） |
-| 7 | 命令面板（`/` 过滤 + Tab 补全 + Enter 执行） | ✓ | ✓ | **切片 A** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN` + 行为断言 `PALETTE_ENTER_RAN_STATUS`（Enter 真的执行 `/status`） |
-| 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED` |
+| 7 | 命令面板（`/` 过滤 + Tab 补全 + Enter 执行） | ✓ | ✓ | **切片 A（条目渲染于 §14 才修好）** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN` + 行为断言 `PALETTE_ENTER_RAN_STATUS`。**注意**：切片 A 时浮层条目其实糊在边框行上（§14.3），所以当时只能断言标题+行为；现在条目独立成行、可按内容断言 |
+| 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A（条目渲染于 §14 才修好）** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED`；条目渲染同 §14.3 |
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
 | 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B/C2** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_COMPLETED_ON_SUBMIT`（经**提交后的新 transcript 行**观测；Tab 在有内容时被 textarea 自身消费） |
 | 11 | vim 模式（normal/insert + 运动/操作符） | ✓ | ✓ | **切片 D DONE** | 纯模块 `src/opentui/vim.ts` + `controller.vimMode`；pty `VIM_NORMAL_EDIT_SUBMITTED`；见 §9 |
-| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 DONE** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8 |
+| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 + 切片 H 收尾** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8。§14.4 把 composer 从**固定 5 行**（只显示最后 3 行）改为随草稿有上限地增长，并实测确认 transcript 侧多行显示本来就正确（旧"缺口"记载有误）|
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
-| 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
+| 14 | 历史搜索（ctrl+r 模式） | ✓ | ✓ | **DONE（切片 H）** | 复用 `InputHistory.search`；见 §14。pty `SEARCH_OVERLAY_SHOWN` / `MATCH_LISTED` / `NO_MATCH_HINT` / `CANCEL_RESTORES_DRAFT` / `PICK_LOADS_ENTRY` 全 True |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
 | 16 | 代码语法高亮（彩色） | ✓ | ✓ | **DONE** | 见 §12：内置 tree-sitter 语法只有 {js,ts,markdown,zig}，```python 无 parser → 无高亮可着色；改由我们自己算区间经 `CodeRenderable.onHighlight` 注入。证据：`scripts/highlight_render_check.ts`（无头、含反向对照）+ `scripts/pty_highlight_check.py`（`CODE_DISTINCT_COLOURS: 4`、`HIGHLIGHT_OK: True`）|
 | 17 | 主题真正生效（颜色） | ✓ | ✓ | **DONE** | `theme-colors.ts` 把 `THEMES` 的 Ink 颜色名解析为 hex，并接到 transcript（按角色）、审批卡、顶栏、footer、composer 边框；pty `THEME_APPLIED` 断言 footer 的 SGR 随 `/theme mono` 变化 |
@@ -31,7 +31,8 @@
 
 ## 2. 结论
 
-- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭，#17 由切片 E 关闭，#16 由切片 F 关闭，#18 由切片 G 关闭（并顺带把 #3 的假 DONE 修正为真 DONE）；**退役 Ink 仍缺 #14（ctrl+r 历史搜索）与多行显示/滚动**。
+- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭（#12 的 composer 高度由切片 H 收尾），#17 由切片 E 关闭，#16 由切片 F 关闭，#18 由切片 G 关闭（并顺带把 #3 的假 DONE 修正为真 DONE），#14 由切片 H 关闭。
+- **结论：19 项对齐清单全部 DONE（#5/#6 为全屏领先 Ink），退役 Ink 的前提条件已满足。** 退役方式见下；剩余工作只剩可选加固（把浮层断言从标题改为内容、修 cell-diff 残留）与 `#12` 的"多行显示"记载更正。
 - 迁移不变量：`SurfaceClient`/`TuiController`/协议/审批/C7 **不动**（纯视图层）。
 - 退役方式（对齐后）：按 Stage 2f 的做法删 Ink 视图与依赖，保留回归清单与本文件的 DONE 证据。
 
@@ -248,3 +249,71 @@
   `provider_id`（`SurfaceProviderStatus` 里有该字段），属**既有产品缺口**，本轮未动。
 - Ink 侧那句假提示**未改**（Ink 即将退役），仅在新面板上不再复制，并在单测里钉住。
 
+## 14. 切片 H（2026-09-17）：Ctrl-R 反向搜索（#14 DONE）+ 多行收尾 + 浮层渲染缺陷
+
+### 14.1 #14 实现（对齐 Ink 的 `searchMode`）
+
+- 复用已有纯函数 `InputHistory.search`（反向时序、大小写不敏感、去重），未新写搜索逻辑。
+- 键路由 `viewkeys.ts` 新增 `search` 层，优先级**紧跟 selector 之下**、在 approval/global 之上：
+  开着的搜索独占 `up`/`down`/`return`/`escape`，并**吞掉** `tab`/`pgup`/`pgdn`/`Ctrl-R`/`Ctrl-G`
+  （否则会在搜索中途切面板 / 重入并清空搜索 / 把查询丢给外部编辑器）；**可打印字符继续下落到 composer**
+  —— 因为查询本身就是 composer 内容，这与 palette 同一条规则（正是修 `/exit` 陷阱的那条）。
+- 开关键实测：用 opentui 自己的 `parseKeypress`（`spike/key-sequence-probe.ts`）确认
+  `0x12 → name="r" ctrl=true sequence="\u0012"`。绑定同时接受控制字节与 `ctrl && name==="r"`，
+  关键性质是**普通 `r` 永远不会开搜索**（输入框失焦时普通字母会到达 resolver —— 与 Ctrl-G 同源的陷阱）。
+- `app.tsx`：草稿存 `searchDraftRef`、开态存 `searchOpenRef`（同步 ref，路由必须当下就看到新值）
+  + `overlayOwnsEnterRef` 纳入搜索（否则 Enter 会同时被 textarea 提交）；
+  搜索期间 palette 置空（与 Ink 一致）。浮层内容：`reverse search (Ctrl-R): <query>` +
+  窗口化的匹配列表（用 `sliceWindow`，与全屏自己的 palette/selector 一致；Ink 是固定前 5 条）+
+  无匹配时 `no matching history`。
+
+### 14.2 多行：**实测推翻旧记载**，只改 composer
+
+- 旧文档多处把"多行**显示**（`<text>` 折叠换行）"列为缺口，但 §10 早已推翻该说法、后续章节没有同步。
+  本轮再次实测：提交 `l1\nl2\nl3` 后 transcript **确实占 3 行**（`MULTILINE_TRANSCRIPT_ROWS: 3`）。
+  结论：**transcript 多行显示从来不是缺口**，欠的是**文档更正**。
+- 真正的问题是 composer：固定 `height: 5` 只显示 3 个内容行，8 行草稿只能看到最后 3 行（实测）。
+  Ink 的 composer **无固定高度**、随草稿增长。新增纯函数 `composerRows(draft, terminalRows)`
+  （`src/layout.ts`）：空/单行保持 5 行，否则 `行数 + 2`，上限为 **12 行**且不超过终端高度的 1/3 ——
+  无界增长会把 transcript 挤成 0 行，所以"自适应"必须带闸。
+  实测 8 行草稿 8 行全可见（`COMPOSER_VISIBLE_LINES: 8 of 8`）。
+
+### 14.3 顺带发现并修好的浮层渲染缺陷（影响 #7/#8/#10 的可见性）
+
+调试 #14 浮层时发现：**浮层里的多行内容全部糊在同一行、并压在下边框/邻居上**
+（原始抓帧形如 `┐─›el1tatusearch─(Ctrl-R):─…`，把搜索头、`/status`、`l1` 与边框字符混在一行）。
+根因与切片 G 的顶栏/页脚同一个：**flex 列里兄弟 `<text>` 高度算成 0**，而且**带边框的 box 自身
+没有显式高度时也量成 0**，于是整个浮层被画到邻居身上。
+
+两处修法：
+1. `OverlayRow` 组件：每个浮层行显式 `height: 1`；
+2. `overlayRows(contentRows)`（`src/opentui/overlays.ts`）：给浮层 box 显式高度 = 内容行 + 2 边框，
+   上限 12。中间行已有 `flexShrink: 1`，所以 transcript 会正确让位（44 行终端下：
+   头 1 + transcript 32 + 浮层 5 + composer 5 + 页脚 1 = 44，正好装下）。
+
+这解释了为什么切片 A 时 palette/selector 只能断言**标题 + 行为**：条目文本当时根本不可读。
+现在 palette 条目独立成行（实测 `/stat` 过滤后第 36 行是 `▌ /status  session id, status, permission mode, event sequence`）。
+**未做**：没有回头收紧 parity_a 的断言（仍是标题+行为），属可选加固。
+
+### 14.4 证据
+
+- 单测：`test/opentui-viewkeys.test.ts` +4 条（Ctrl-R 开、普通 r 不开；开着的搜索独占 pick/cancel/move
+  并吞掉模式切换键；可打印字符仍落到 composer 且 Ctrl-C/L 仍走 global；selector 仍高于搜索）、
+  `test/opentui-overlays.test.ts` +1 条（`overlayRows` 边界与上限）、`test/layout.test.ts` +1 条
+  （`composerRows` 两端边界与短终端）。全量 **177 + 26 = 203 pass**。
+- PTY `scripts/pty_search_check.py`（两个**全新实例**分别跑，避免审批卡污染）：
+  `MULTILINE_TRANSCRIPT_ROWS: 3`、`SEARCH_OVERLAY_SHOWN/MATCH_LISTED/NO_MATCH_HINT/QUERY_ECHOED/
+  CLOSED_ON_ESC/CANCEL_RESTORES_DRAFT/PICK_LOADS_ENTRY` 全 True、`COMPOSER_VISIBLE_LINES: 8 of 8`
+  → `SEARCH_CHECK: PASS`。
+- 整网回归（12 个脚本）全绿且与上一批逐信号一致（含两个 pre-existing `False`：`VIM_NORMAL_EDIT_SUBMITTED`、
+  `HAS_AGENTS_TITLE`）。
+
+### 14.5 诚实边界
+
+- **cell-diff 残留**：浮层消失、composer 变矮、页脚文本变短时，帧里会留下前一帧的字形
+  （实测 `┘`/`┌·f`/`│ M apps/...` 之类残字）。这是仓库已记录的"cell-diff 渲染器对单行改动可能不重发"
+  现象（§6），**不是本次引入**（改动前的抓帧里也有，只是残字不同），本轮**未修**。
+  影响：视觉上可能短暂残留旧字符；不影响任何行为断言。
+- 搜索浮层用带边框的 box，Ink 画的是同样几行**不带边框**（内容一致，边框是本仓库浮层的既有视觉语言）。
+- 匹配列表用 `sliceWindow` 窗口化，Ink 是固定前 5 条且选中项可能移出列表（本实现是改进，非回退）。
+- 文档里"多行显示是缺口"的旧记载本轮一并更正；`§9`/`§12` 的"仍未做"清单若仍含该项，以本节为准。

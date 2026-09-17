@@ -13,6 +13,7 @@ import { resolveViewKey, type ViewKeyContext } from "../src/opentui/viewkeys.js"
 function ctx(overrides: Partial<ViewKeyContext> = {}): ViewKeyContext {
   return {
     selectorOpen: false,
+    searchOpen: false,
     awaitingApproval: false,
     paletteOpen: false,
     mentionOpen: false,
@@ -271,4 +272,84 @@ test("insert-mode Esc enters vim normal mode (unless streaming)", () => {
   );
   // With vim disabled nothing changes.
   assert.deepEqual(resolveViewKey(ctx({ name: "escape" })), { layer: "global" });
+});
+
+test("Ctrl-R opens the reverse search; a plain r never does", () => {
+  assert.deepEqual(resolveViewKey(ctx({ name: "r", ctrl: true, sequence: "\u0012" })), {
+    layer: "search",
+    action: "open",
+  });
+  // Measured with opentui's own parser: 0x12 is name="r" ctrl=true.
+  assert.deepEqual(resolveViewKey(ctx({ name: "r", ctrl: true, sequence: "" })), {
+    layer: "search",
+    action: "open",
+  });
+  // A plain "r" reaches this resolver whenever the textarea is blurred (the
+  // same trap that made a name-only Ctrl-G match dangerous).
+  assert.equal(resolveViewKey(ctx({ name: "r", sequence: "r" })).layer, "ignore");
+  assert.deepEqual(resolveViewKey(ctx({ name: "g", sequence: "g" })).layer, "ignore");
+});
+
+test("open search owns pick/cancel/move and swallows mode-changing keys", () => {
+  const open = { searchOpen: true };
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "return" })), {
+    layer: "search",
+    action: "pick",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "escape" })), {
+    layer: "search",
+    action: "cancel",
+  });
+  // Esc cancels the search rather than reaching the frozen global correction,
+  // matching the selector layer's precedence.
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "escape", streaming: true })), {
+    layer: "search",
+    action: "cancel",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "up" })), {
+    layer: "search",
+    action: "up",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "down" })), {
+    layer: "search",
+    action: "down",
+  });
+  // Tab would switch panels and Ctrl-R would re-enter (and reset) the search.
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "tab" })), {
+    layer: "search",
+    action: "ignore",
+  });
+  assert.deepEqual(
+    resolveViewKey(ctx({ ...open, name: "r", ctrl: true, sequence: "\u0012" })),
+    { layer: "search", action: "ignore" },
+  );
+});
+
+test("printable keys still reach the composer while search is open", () => {
+  const open = { searchOpen: true };
+  // The query IS the composer content, so these must not be intercepted.
+  assert.equal(resolveViewKey(ctx({ ...open, name: "a", sequence: "a" })).layer, "ignore");
+  assert.equal(
+    resolveViewKey(ctx({ ...open, name: "slash", sequence: "/" })).layer,
+    "ignore",
+  );
+  // ...and Ctrl-C/L keep their frozen global meaning.
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "c", ctrl: true })), {
+    layer: "global",
+  });
+  assert.deepEqual(resolveViewKey(ctx({ ...open, name: "l", ctrl: true })), {
+    layer: "global",
+  });
+  // The palette must not be able to steal Enter from the search.
+  assert.deepEqual(resolveViewKey(ctx({ ...open, paletteOpen: true, name: "return" })), {
+    layer: "search",
+    action: "pick",
+  });
+});
+
+test("a selector still outranks an open search", () => {
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: true, searchOpen: true, name: "return" })),
+    { layer: "selector" },
+  );
 });

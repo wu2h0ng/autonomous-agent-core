@@ -36,3 +36,19 @@ export function sliceWindow<T>(
     after: total - end,
   };
 }
+
+/** Largest number of content rows an overlay box may claim. */
+export const OVERLAY_MAX_ROWS = 12;
+
+/**
+ * Height in terminal rows for an overlay box holding `contentRows` rows.
+ *
+ * This has to be explicit. A sibling `<text>` inside a flex column measures
+ * zero height in opentui, and a border box with no height measured the same
+ * way, so every overlay used to be painted ON TOP of its neighbours (the
+ * palette's items landed on the composer's border row). With an explicit height
+ * the box claims its rows and the flexible transcript shrinks to match.
+ */
+export function overlayRows(contentRows: number): number {
+  return Math.min(Math.max(contentRows, 0) + 2, OVERLAY_MAX_ROWS);
+}

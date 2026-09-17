@@ -20,14 +20,14 @@ import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "
 import type { ChatMessage, TuiController } from "../controller.js";
 import type { ComposerState } from "../composer.js";
 import { handleGlobalKey } from "../keys.js";
-import { layoutFor } from "../layout.js";
+import { layoutFor, composerRows } from "../layout.js";
 import { filterCommands } from "../commands.js";
 import {
   filterSelectorItems,
   moveSelector,
   numberedChoice,
 } from "../selector.js";
-import { sliceWindow } from "./overlays.js";
+import { overlayRows, sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { viewTheme } from "./theme-colors.js";
 import { codeBlockRenderNode, highlightStyleTable } from "./code-highlight.js";
@@ -82,6 +82,24 @@ const SAMPLE_INTERVAL_MS = 3000;
  */
 const CODE_BLOCK_RENDER_NODE = codeBlockRenderNode();
 
+/**
+ * One row of an overlay list (commands / selector / files / reverse search).
+ *
+ * `height: 1` is load-bearing: a sibling `<text>` inside a flex COLUMN measures
+ * zero height in opentui, so without it every row of an overlay collapsed onto a
+ * single line — and onto the border row — which is why overlay contents could
+ * only ever be asserted by behaviour rather than by reading the frame.
+ */
+function OverlayRow({ text, fg }: { text: string; fg?: string | undefined }) {
+  // `fg` is spread conditionally: with exactOptionalPropertyTypes an explicit
+  // `fg={undefined}` is not assignable to the renderable's `fg`.
+  return (
+    <text style={{ height: 1 }} {...(fg === undefined ? {} : { fg })}>
+      {text}
+    </text>
+  );
+}
+
 function line(message: ChatMessage): string {
   if (message.panel) {
     return [message.panel.title, ...message.panel.lines].join("  ");
@@ -112,6 +130,11 @@ function roleColour(theme: ThemeColors, message: ChatMessage): string {
 
 function terminalWidth(): number {
   return process.stdout.columns ?? 80;
+}
+
+/** Terminal height for the composer's growth cap (#12 multiline). */
+function terminalRows(): number {
+  return process.stdout.rows ?? 24;
 }
 
 export function App({
@@ -148,6 +171,13 @@ export function App({
   // must not also submit - otherwise one Enter runs the action twice.
   const agentsPanelRef = useRef(false);
   const overlayOwnsEnterRef = useRef(false);
+  /**
+   * #14: synchronous mirrors of the search state. The router must see the new
+   * value for the VERY NEXT key (the same trap the vim insert flag documents),
+   * so the flag is written in the handler, not only via React state.
+   */
+  const searchOpenRef = useRef(false);
+  const searchDraftRef = useRef("");
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
@@ -156,6 +186,8 @@ export function App({
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchIndex, setSearchIndex] = useState(0);
   const [vimInsert, setVimInsert] = useState(true);
   // Synchronous mirror of vimInsert: the router must see the new mode for the
   // VERY NEXT key, which a React state update cannot guarantee.
@@ -233,13 +265,20 @@ export function App({
     ? filterSelectorItems(selector.items, selectorQuery)
     : [];
   const selectorState = { items: selectorItems, index: selectorIndex };
-  const palette = input.startsWith("/") && !input.includes(" ")
+  // #14: while the reverse search is open the composer holds the QUERY, so the
+  // slash palette must stay out of the way (Ink gates its palette the same way).
+  const palette = !searchOpen && input.startsWith("/") && !input.includes(" ")
     ? filterCommands(input)
     : [];
+  const searchMatches = searchOpen ? (historyRef.current?.search(input) ?? []) : [];
 
   useEffect(() => {
     setPaletteIndex(0);
   }, [input]);
+
+  useEffect(() => {
+    setSearchIndex(0);
+  }, [input, searchOpen]);
 
   useEffect(() => {
     if (mention === null) return;
@@ -286,7 +325,8 @@ export function App({
   agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
   // `selector` is `null` (not `undefined`) when closed (controller.pendingSelector);
   // test `!== null`, otherwise this is always true and the composer can never submit.
-  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0;
+  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0 || searchOpen;
+  searchOpenRef.current = searchOpen;
   const activePanel: PanelId = awaiting
     ? "transcript"
     : panels.includes(selected)
@@ -335,6 +375,7 @@ export function App({
     const sequence = key.sequence ?? "";
     const owner = resolveViewKey({
       selectorOpen: selector,
+      searchOpen: searchOpenRef.current,
       awaitingApproval: awaiting,
       paletteOpen: palette.length > 0,
       mentionOpen: mentionMatches.length > 0,
@@ -388,6 +429,42 @@ export function App({
       case "approval": {
         if (owner.action === "approve") void controller.approve();
         else if (owner.action === "reject") void controller.reject();
+        return;
+      }
+      case "search": {
+        if (owner.action === "open") {
+          // Save the live draft, then turn the composer into the query box.
+          // Update the ref FIRST so the very next key already routes as search.
+          searchDraftRef.current = input;
+          searchOpenRef.current = true;
+          setSearchOpen(true);
+          setSearchIndex(0);
+          setComposerText("");
+          return;
+        }
+        if (owner.action === "cancel") {
+          searchOpenRef.current = false;
+          setSearchOpen(false);
+          setComposerText(searchDraftRef.current);
+          return;
+        }
+        if (owner.action === "pick") {
+          const pick = searchMatches[Math.min(searchIndex, Math.max(0, searchMatches.length - 1))];
+          searchOpenRef.current = false;
+          setSearchOpen(false);
+          // No match: fall back to the saved draft (Ink does the same).
+          setComposerText(pick ?? searchDraftRef.current);
+          return;
+        }
+        if (owner.action === "up" || owner.action === "down") {
+          if (searchMatches.length === 0) return;
+          const step = owner.action === "down" ? 1 : -1;
+          setSearchIndex((current) => {
+            const next = current + step;
+            return next < 0 ? 0 : next >= searchMatches.length ? searchMatches.length - 1 : next;
+          });
+          return;
+        }
         return;
       }
       case "global": {
@@ -672,40 +749,108 @@ export function App({
         {transcript}
         {panels.length > 1 ? sidebar : null}
       </box>
-      {mentionMatches.length > 0 ? (
-        <box border title="files" style={{ flexDirection: "column", paddingLeft: 1 }}>
+      {searchOpen ? (
+        (() => {
+          // Windowed (not Ink's fixed first 5) because the full-screen's own
+          // palette/selector overlays window the same way, so the highlighted
+          // row can never scroll out of the list.
+          const window = sliceWindow(searchMatches, searchIndex, 5);
+          const content = 1 + Math.max(window.items.length, 1);
+          return (
+            <box
+              border
+              style={{
+                flexDirection: "column",
+                paddingLeft: 1,
+                height: overlayRows(content),
+              }}
+            >
+              <OverlayRow
+                text={`reverse search (Ctrl-R): ${input || "…"}`}
+                fg={theme.accent}
+              />
+              {window.items.map((match, index) => (
+                <OverlayRow
+                  key={`r${index}`}
+                  text={`${index === window.index ? "› " : "  "}${match}`}
+                  fg={index === window.index ? theme.paletteSelected : theme.notice}
+                />
+              ))}
+              {searchMatches.length === 0 ? <OverlayRow text="no matching history" /> : null}
+            </box>
+          );
+        })()
+      ) : null}
+      {!searchOpen && mentionMatches.length > 0 ? (
+        <box
+          border
+          title="files"
+          style={{
+            flexDirection: "column",
+            paddingLeft: 1,
+            height: overlayRows(Math.min(mentionMatches.length, 8) + 1),
+          }}
+        >
           {mentionMatches.slice(0, 8).map((path, index) => (
-            <text key={`m${index}`}>{`${index === 0 ? "▌ " : "  "}@${path}`}</text>
+            <OverlayRow key={`m${index}`} text={`${index === 0 ? "▌ " : "  "}@${path}`} />
           ))}
-          <text>{"[tab] complete"}</text>
+          <OverlayRow text="[tab] complete" />
         </box>
       ) : null}
       {selector ? (
-        <box border title={selector.title} style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {(() => {
-            const window = sliceWindow(selectorItems, selectorIndex, 8);
-            return window.items.map((item, index) => (
-              <text key={`s${index}`}>
-                {`${index === window.index ? "▌ " : "  "}${item}`}
-              </text>
-            ));
-          })()}
-          <text>{`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}</text>
-        </box>
+        (() => {
+          const window = sliceWindow(selectorItems, selectorIndex, 8);
+          return (
+            <box
+              border
+              title={selector.title}
+              style={{
+                flexDirection: "column",
+                paddingLeft: 1,
+                height: overlayRows(window.items.length + 1),
+              }}
+            >
+              {window.items.map((item, index) => (
+                <OverlayRow
+                  key={`s${index}`}
+                  text={`${index === window.index ? "▌ " : "  "}${item}`}
+                />
+              ))}
+              <OverlayRow
+                text={`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}
+              />
+            </box>
+          );
+        })()
       ) : null}
       {palette.length > 0 ? (
-        <box border title="commands" style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {(() => {
-            const window = sliceWindow(palette, paletteIndex, 6);
-            return window.items.map((command, index) => (
-              <text key={`c${index}`}>
-                {`${index === window.index ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
-              </text>
-            ));
-          })()}
-        </box>
+        (() => {
+          const window = sliceWindow(palette, paletteIndex, 6);
+          return (
+            <box
+              border
+              title="commands"
+              style={{
+                flexDirection: "column",
+                paddingLeft: 1,
+                height: overlayRows(window.items.length),
+              }}
+            >
+              {window.items.map((command, index) => (
+                <OverlayRow
+                  key={`c${index}`}
+                  text={`${index === window.index ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
+                />
+              ))}
+            </box>
+          );
+        })()
       ) : null}
-      <box border title="message" style={{ height: 5, paddingLeft: 1 }}>
+      <box
+        border
+        title="message"
+        style={{ height: composerRows(input, terminalRows()), paddingLeft: 1 }}
+      >
         <textarea
           ref={composerRef}
           placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"

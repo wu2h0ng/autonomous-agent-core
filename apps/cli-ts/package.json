@@ -36,6 +36,7 @@
     "check:highlight": "bun run scripts/highlight_render_check.ts",
     "check:highlight:pty": "uv run python scripts/pty_highlight_check.py",
     "check:home": "uv run python scripts/pty_home_frame_check.py",
+    "check:search": "uv run python scripts/pty_search_check.py",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
   },
