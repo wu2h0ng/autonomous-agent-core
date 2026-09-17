@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -344,13 +345,83 @@ class DeterministicProvider(ProviderPort):
         )
 
 
+_REDACTED_CREDENTIAL = "[redacted-credential]"
+
+# Provider-supplied refusal text becomes the turn's final, durable text: the
+# operator reads it in a terminal and it is stored in the failure record. It is
+# untrusted on two boundaries at once, so it is normalized once here instead of
+# at each adapter's call site:
+#
+# - terminal control: an ANSI/CSI/OSC sequence can repaint the line the operator
+#   reads, and an invisible bidi override can reorder it;
+# - host absolute paths: they add nothing the operator can act on, and the
+#   model-visible convention for them elsewhere in this package
+#   (``agent_loop._model_visible_unknown_detail``) is ``[host-path]/<name>``;
+# - credential-shaped tokens: a provider echoing a key back must not write it
+#   into a durable record;
+# - characters that cannot be serialized: a lone surrogate (a provider JSON
+#   ``\udXXX`` escape for half of a pair) made ``ProviderFailure``'s own
+#   ``string_unicode`` validation raise, so the refusal came back as a MALFORMED
+#   failure whose text named a ValidationError instead of the refusal.
+#
+# Newlines and runs of whitespace are flattened to single spaces, so the detail
+# stays one line, and the result is sliced to _REFUSAL_DETAIL_LIMIT characters
+# (a plain slice is safe for multi-byte text).
+_ANSI_SEQUENCE_PATTERN = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\-_])"
+)
+_INVISIBLE_FORMAT_PATTERN = re.compile(
+    r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]"
+)
+_UNSERIALIZABLE_PATTERN = re.compile(r"[\ud800-\udfff]")
+_CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Same shape as agent_loop's path pattern: two or more slash-separated segments,
+# not preceded by a word, path or tilde character, so the relative paths callers
+# already use (``sub/fixture.txt``) are left alone.
+_ABSOLUTE_PATH_PATTERN = re.compile(r"(?<![\w./~-])(?:/[A-Za-z0-9._+@%=-]+){2,}")
+# A key starts its own word: ``risk-owned`` is not one.
+_SECRET_TOKEN_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_.-]{3,}", re.IGNORECASE
+)
+_REFUSAL_DETAIL_LIMIT = 300
+
+
+def _sanitized_refusal_detail(detail: str) -> str:
+    """One line of provider-supplied refusal text, safe to store and to render.
+
+    Pure string handling with no filesystem or model access, so it cannot itself
+    raise or resolve anything.
+    """
+
+    text = _ANSI_SEQUENCE_PATTERN.sub("", detail)
+    text = _INVISIBLE_FORMAT_PATTERN.sub("", text)
+    text = _UNSERIALIZABLE_PATTERN.sub("", text)
+    text = _ABSOLUTE_PATH_PATTERN.sub(
+        lambda match: "[host-path]/" + match.group(0).rsplit("/", 1)[-1], text
+    )
+    text = _SECRET_TOKEN_PATTERN.sub(_REDACTED_CREDENTIAL, text)
+    text = _CONTROL_CHARACTER_PATTERN.sub(" ", text)
+    return " ".join(text.split())[:_REFUSAL_DETAIL_LIMIT].rstrip()
+
+
 class OpenAICompatibleProvider(ProviderPort):
     """OpenAI-compatible chat/completions transport.
 
-    The three transport hooks (``_request_body``, ``_transport_headers``,
-    ``_parse_completion``) plus ``DEFAULT_ENDPOINT_PATH`` are the seam that
-    native-protocol subclasses override; the invocation-binding, credential and
-    failure machinery is shared and unchanged.
+    The transport hooks (``_request_body``, ``_transport_headers``,
+    ``_parse_completion``, ``_refusal_text``) plus ``DEFAULT_ENDPOINT_PATH`` are
+    the seam that native-protocol subclasses override; the invocation-binding,
+    credential and failure machinery is shared and unchanged.
+
+    ``_refusal_text`` is a transport hook, not an optional extra: ``_invoke``
+    calls it on every non-streaming payload *before* ``_parse_completion``, and a
+    native protocol that leaves it alone inherits the OpenAI-compatible refusal
+    shape (``message.refusal`` / ``finish_reason=content_filter``). A native
+    refusal the base shape does not recognise then falls through to the
+    completion mapper, where the native payload surfaces as a MALFORMED failure
+    instead of a REFUSED one - the turn shows an error that does not name the
+    refusal. Every subclass overrides it; both shipped natives do, and the hook
+    contract is pinned by
+    ``tests/product/test_provider_failure_visibility.py``.
     """
 
     DEFAULT_ENDPOINT_PATH = "/chat/completions"
@@ -927,7 +998,9 @@ class OpenAICompatibleProvider(ProviderPort):
         that said nothing and never said why. OpenAI-compatible transports put
         the text in ``message.refusal`` (content stays null) and moderation
         blocks set ``finish_reason=content_filter``. Native-protocol subclasses
-        override this with their own refusal shape.
+        override this with their own refusal shape and may return the provider's
+        own words: the text is untrusted, so ``_refusal`` normalizes, redacts and
+        bounds it before it reaches the durable failure record.
         """
 
         choices = payload.get("choices") or []
@@ -948,13 +1021,14 @@ class OpenAICompatibleProvider(ProviderPort):
         """The single REFUSED shape: non-retryable, bounded, credential-free.
 
         ``detail`` is provider/model-supplied text and ends up in the durable
-        failure record, so it is truncated here rather than at each call site.
+        failure record, so it is normalized here rather than at each call site.
         """
 
+        sanitized = _sanitized_refusal_detail(detail) or "unspecified reason"
         return self._failure(
             request,
             ProviderErrorCode.REFUSED,
-            f"provider refused: {detail[:300]}",
+            f"provider refused: {sanitized}",
             False,
         )
 
@@ -1791,13 +1865,39 @@ def _gemini_tool(capability_id: str) -> dict[str, object]:
 
 
 # GenerateContent finishReason values that mean the provider blocked the content
-# instead of finishing: SAFETY, RECITATION, PROHIBITED_CONTENT, SPII and
-# BLOCKLIST. The remaining documented values are either a normal completion
-# (STOP, MAX_TOKENS, FINISH_REASON_UNSPECIFIED), a malformed/unexpected tool
-# call (MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS) or
-# an unsupported input (LANGUAGE, OTHER), none of which is a refusal.
+# instead of finishing. Text generation blocks with SAFETY, RECITATION,
+# PROHIBITED_CONTENT, SPII and BLOCKLIST; image generation reports its own
+# blocks, and leaving those out sent a blocked image turn to the completion
+# mapper, which reported the text-less candidate as MALFORMED (ValueError when it
+# carried no content at all, ValidationError when it carried only the blocked
+# image) instead of as a REFUSED turn. IMAGE_SAFETY ("generated images have
+# safety violations") and IMAGE_PROHIBITED_CONTENT ("the generated images have
+# prohibited content") are in the FinishReason enum of the vendored
+# ``@google/genai`` 1.30.0; IMAGE_RECITATION belongs to the same family but is
+# not in that copy of the enum, and is kept because a stale entry here costs a
+# finer name in one message whereas a missing one misreports a refusal as an
+# internal error.
+#
+# This is a known-blocks set, not a classification of the whole enum: the other
+# documented values are a normal completion (STOP, MAX_TOKENS,
+# FINISH_REASON_UNSPECIFIED), a malformed or unexpected tool call
+# (MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS), an
+# unsupported input or other stop (LANGUAGE, OTHER) or an image that was never
+# produced (NO_IMAGE), none of which is a content block. An unlisted value is
+# left to the completion mapper. Blocked prompt reasons (``promptFeedback``)
+# need no list at all - every reason except BLOCKED_REASON_UNSPECIFIED is a
+# block.
 _GEMINI_BLOCKING_FINISH_REASONS = frozenset(
-    {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST"}
+    {
+        "SAFETY",
+        "RECITATION",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "BLOCKLIST",
+        "IMAGE_SAFETY",
+        "IMAGE_PROHIBITED_CONTENT",
+        "IMAGE_RECITATION",
+    }
 )
 
 

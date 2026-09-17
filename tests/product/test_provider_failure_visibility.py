@@ -5,7 +5,9 @@ sees, so it has to name the cause and the next step - and it is durable, so it
 must never contain the credential. These cases pin the HTTP status -> error code
 classification, the message text, retryability, and the absence of the key, plus
 the refusal shape of each of the three adapters (OpenAI-compatible, Anthropic
-Messages, Gemini generateContent), which otherwise arrive as an empty answer.
+Messages, Gemini generateContent), which otherwise arrive as an empty answer,
+plus what a refusal is allowed to carry: the detail is provider-supplied text
+that reaches both a terminal and the durable record.
 """
 
 from __future__ import annotations
@@ -505,6 +507,79 @@ def test_anthropic_streaming_refusal_is_a_refusal_not_an_empty_answer(  # type: 
     assert deltas == [], "a refusal must not be streamed as assistant text"
 
 
+def test_anthropic_end_turn_with_stop_details_is_not_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # stop_details can ride along with a normal end_turn. Treating every payload
+    # that carries one as a refusal would turn ordinary answers into failures, so
+    # the stop_reason is what decides - pin it, because nothing else does.
+    _json_reply(
+        {
+            "id": "msg:ok",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "here is the answer"}],
+            "stop_reason": "end_turn",
+            "stop_details": {
+                "type": "refusal",
+                "category": "general_harms",
+                "explanation": "This request violates our usage policy.",
+            },
+            "usage": {"input_tokens": 3, "output_tokens": 5},
+        }
+    )
+    result = _scripted_provider(monkeypatch, AnthropicMessagesProvider).complete(
+        _request()
+    )
+    assert not isinstance(result, ProviderFailure), result
+    assert result.text == "here is the answer"
+    assert result.finish_reason == "end_turn"
+
+
+def test_anthropic_streaming_end_turn_with_stop_details_is_not_a_refusal(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    _anthropic_sse_reply(
+        [
+            (
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {"id": "msg:stream", "usage": {"input_tokens": 4}},
+                },
+            ),
+            (
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "answer"},
+                },
+            ),
+            (
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {
+                        "stop_reason": "end_turn",
+                        "stop_details": {
+                            "type": "refusal",
+                            "category": "bio",
+                            "explanation": "This request violates our usage policy.",
+                        },
+                    },
+                    "usage": {"output_tokens": 2},
+                },
+            ),
+        ]
+    )
+    deltas: list[str] = []
+    result = _scripted_provider(
+        monkeypatch, AnthropicMessagesProvider
+    ).complete_streaming(_request(), on_text_delta=deltas.append)
+    assert not isinstance(result, ProviderFailure), result
+    assert result.text == "answer"
+    assert deltas == ["answer"]
+
+
 def test_gemini_safety_finish_reason_is_a_refusal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     # A blocked candidate has no text at all, so it used to read as an empty
     # answer instead of a refusal.
@@ -629,6 +704,72 @@ def test_unset_gemini_block_reason_is_not_a_refusal(monkeypatch) -> None:  # typ
     assert result.text == "ok"
 
 
+def test_gemini_image_block_finish_reasons_are_refusals(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Image generation reports its own blocks, separate from the text ones, and a
+    # blocked image leaves the candidate without text: no candidate content at
+    # all, or a content list holding only the blocked image. Without these values
+    # in the block set the first shape failed parts validation and the second one
+    # reached ProviderResponse with an empty text, so the operator read
+    # "provider response malformed: ValueError/ValidationError" where the
+    # provider had actually refused.
+    for reason in ("IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION"):
+        for candidate in (
+            {"finishReason": reason},
+            {
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {
+                            "inlineData": {
+                                "mimeType": "image/png",
+                                "data": "aW1hZ2U=",
+                            }
+                        }
+                    ],
+                },
+                "finishReason": reason,
+            },
+        ):
+            _json_reply(
+                {
+                    "responseId": "resp:image-block",
+                    "candidates": [candidate],
+                    "usageMetadata": {"promptTokenCount": 7},
+                }
+            )
+            result = _scripted_provider(monkeypatch, GeminiGenerativeProvider).complete(
+                _request()
+            )
+            assert isinstance(result, ProviderFailure), result
+            assert result.code is ProviderErrorCode.REFUSED, result
+            assert result.retryable is False
+            assert reason in result.safe_message, result.safe_message
+
+
+def test_gemini_non_blocking_finish_reasons_stay_responses(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Guard the other direction: the block set must not swallow ordinary
+    # completions such as a length-truncated answer.
+    for reason in ("MAX_TOKENS", "LANGUAGE", "OTHER"):
+        _json_reply(
+            {
+                "responseId": "resp:ok",
+                "candidates": [
+                    {
+                        "content": {"role": "model", "parts": [{"text": "partial"}]},
+                        "finishReason": reason,
+                    }
+                ],
+                "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 2},
+            }
+        )
+        result = _scripted_provider(monkeypatch, GeminiGenerativeProvider).complete(
+            _request()
+        )
+        assert not isinstance(result, ProviderFailure), result
+        assert result.text == "partial"
+        assert result.finish_reason == reason.lower()
+
+
 def test_native_refusals_are_bounded(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     # A runaway explanation must not bloat the durable failure record.
     _json_reply(
@@ -647,3 +788,128 @@ def test_native_refusals_are_bounded(monkeypatch) -> None:  # type: ignore[no-un
     )
     assert isinstance(result, ProviderFailure), result
     assert len(result.safe_message) < 400, result.safe_message
+
+
+_REFUSAL_SECRET = "sk-live-REFUSALDEADBEEFDEADBEEF"
+
+
+def test_a_refusal_with_a_lone_surrogate_is_refused_not_malformed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Half of a surrogate pair can arrive as a JSON ``\udXXX`` escape, which
+    # json.loads turns into a Python string that cannot be encoded as UTF-8. That
+    # string became ProviderFailure.safe_message, whose own string_unicode
+    # validation raised, so a refusal reached the operator as "provider response
+    # malformed: ValidationError" - an internal error where the provider had
+    # refused.
+    _json_reply(
+        {
+            "id": "resp:refusal",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "refusal": "blocked \ud800 request",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+    )
+    result = _scripted_provider(monkeypatch, OpenAICompatibleProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED, result
+    assert "ValidationError" not in result.safe_message
+    assert "blocked" in result.safe_message
+    assert "request" in result.safe_message
+    # The durable record has to be encodable; a lone surrogate raises here.
+    result.safe_message.encode("utf-8")
+
+
+def test_refusal_text_cannot_inject_a_host_path_a_key_ansi_or_a_newline(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    # The refusal detail is provider-supplied text that becomes the turn's
+    # durable final text, so it reaches two boundaries at once: the operator's
+    # terminal (ANSI repaints the line it is on, a newline forges another one)
+    # and the failure record (an absolute path names the host, a key echoed back
+    # is stored as a credential).
+    _json_reply(
+        {
+            "id": "resp:refusal",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "refusal": (
+                            "\x1b[31mBlocked\x1b[0m by policy\n"
+                            f"key {_REFUSAL_SECRET}\n"
+                            "at /Users/somebody/private-project/secret.py\ttail\x07"
+                        ),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+    )
+    result = _scripted_provider(monkeypatch, OpenAICompatibleProvider).complete(
+        _request()
+    )
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED
+    message = result.safe_message
+    # The refusal itself survives.
+    assert "Blocked by policy" in message
+    # The path keeps its name but loses the host's layout.
+    assert "[host-path]/secret.py" in message
+    assert "/Users/somebody" not in message
+    # The key is gone, and so is the credential the adapter was given.
+    assert _REFUSAL_SECRET not in message
+    assert "[redacted-credential]" in message
+    assert _SECRET not in message
+    # One line, no control characters, no half-stripped escape sequence.
+    for forbidden in ("\x1b", "[31m", "[0m", "\n", "\r", "\t", "\x07"):
+        assert forbidden not in message, repr(message)
+    assert len(message) <= len("provider refused: ") + 300
+
+
+class _NativeProbeProvider(OpenAICompatibleProvider):
+    """A new native protocol that overrides only the refusal hook."""
+
+    def _refusal_text(self, payload: dict[str, object]) -> str | None:
+        return "native protocol refusal"
+
+
+def test_the_base_adapter_runs_the_refusal_hook_before_the_completion_mapper(  # type: ignore[no-untyped-def]
+    monkeypatch,
+) -> None:
+    # The payload is a native refusal shape the base class knows nothing about:
+    # it carries no `choices` at all, so if `_invoke` stopped calling
+    # `_refusal_text` the KeyError would surface as MALFORMED and the operator
+    # would read an internal error where the provider had refused.
+    _json_reply({"native": {"status": "refused"}})
+    result = _scripted_provider(monkeypatch, _NativeProbeProvider).complete(_request())
+    assert isinstance(result, ProviderFailure), result
+    assert result.code is ProviderErrorCode.REFUSED, result
+    assert "native protocol refusal" in result.safe_message
+
+
+def test_every_native_adapter_overrides_the_refusal_hook() -> None:
+    # The base class carries a working OpenAI-compatible implementation, so a new
+    # native protocol that forgets `_refusal_text` inherits it silently and its
+    # refusals arrive as MALFORMED. The hook contract is written down in
+    # OpenAICompatibleProvider and enforced here for every subclass, which is the
+    # nearest thing to an abstract method the shared base can have.
+    contract = OpenAICompatibleProvider.__doc__ or ""
+    assert "_refusal_text" in contract
+    subclasses = OpenAICompatibleProvider.__subclasses__()
+    assert len(subclasses) >= 3, subclasses
+    for subclass in subclasses:
+        assert "_refusal_text" in vars(subclass), (
+            f"{subclass.__name__} inherits the OpenAI-compatible refusal shape: "
+            "override _refusal_text, or a native refusal is reported as MALFORMED"
+        )
