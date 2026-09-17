@@ -6,7 +6,7 @@
  */
 import { highlight } from "cli-highlight";
 
-const EXTENSION_LANGUAGE: Record<string, string> = {
+export const EXTENSION_LANGUAGE: Record<string, string> = {
   ts: "typescript",
   tsx: "typescript",
   js: "javascript",

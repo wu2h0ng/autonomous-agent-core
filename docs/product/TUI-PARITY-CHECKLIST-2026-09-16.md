@@ -24,14 +24,14 @@
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
 | 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
-| 16 | 代码语法高亮（彩色） | ✓ | ✗ | **未生效（已实测）** | stub 现在返回 fenced python 块且**渲染正常**，但代码 token 的 fg 全为默认白 → 注册的 `SyntaxStyle` scope **未被 markdown 渲染器应用**；诚实复现器 `scripts/pty_highlight_check.py`（`CODE_COLOURED: False`，未修好前 exit 1）|
+| 16 | 代码语法高亮（彩色） | ✓ | ✓ | **DONE** | 见 §12：内置 tree-sitter 语法只有 {js,ts,markdown,zig}，```python 无 parser → 无高亮可着色；改由我们自己算区间经 `CodeRenderable.onHighlight` 注入。证据：`scripts/highlight_render_check.ts`（无头、含反向对照）+ `scripts/pty_highlight_check.py`（`CODE_DISTINCT_COLOURS: 4`、`HIGHLIGHT_OK: True`）|
 | 17 | 主题真正生效（颜色） | ✓ | ✓ | **DONE** | `theme-colors.ts` 把 `THEMES` 的 Ink 颜色名解析为 hex，并接到 transcript（按角色）、审批卡、顶栏、footer、composer 边框；pty `THEME_APPLIED` 断言 footer 的 SGR 随 `/theme mono` 变化 |
 | 18 | 首页/欢迎面板 | ✓ | ✗ | **缺失** | `HomeView` 仅 Ink |
 | 19 | `/status`、`/cost`、todo 面板 | ✓ | ✓ | DONE | 面板消息已渲染（`line()` 处理 `message.panel`） |
 
 ## 2. 结论
 
-- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭；**退役 Ink 仍缺 #14（ctrl+r 历史搜索）、#16（彩色高亮）、#17（主题配色）、#18（首页）与多行显示/滚动**（mentions、vim、多行/编辑器、历史、历史搜索、Markdown、高亮、主题配色、首页）。
+- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭，#17 由切片 E 关闭，#16 由切片 F 关闭；**退役 Ink 仍缺 #14（ctrl+r 历史搜索）、#18（首页）与多行显示/滚动**。
 - 迁移不变量：`SurfaceClient`/`TuiController`/协议/审批/C7 **不动**（纯视图层）。
 - 退役方式（对齐后）：按 Stage 2f 的做法删 Ink 视图与依赖，保留回归清单与本文件的 DONE 证据。
 
@@ -104,6 +104,8 @@
 
 实测结论：① 提交两行草稿后 transcript 的 `line1`/`line2` 分属不同行 → 多行显示正常；② opentui 自带默认调色（placeholder `fg=(102,102,102)`），`THEMES` 需显式覆盖才生效。
 
+**2026-09-17 修正（见 §12.5）**：该工具原先不认 256 色 `38;5;N`（并把其中的 `N` 误当独立 ANSI 码，报出**完全错误**的颜色），且跳过空格写入（残留上一帧字形 → `find_row` 假阴性）。两者都会伪造证据，已修 + 加自检用例。
+
 ## 11. 切片 E（2026-09-17）：主题真正生效（#17 DONE）
 
 - **纯模块** `src/opentui/theme-colors.ts`：`INK_HEX` 映射 + `hexFor()` + `viewTheme(name)`（把 `src/theme.ts` 的 Ink 颜色名解析为具体 hex；opentui 对 hex 解析可靠）。单测 `test/opentui-theme-colors.test.ts`（断言每个 token 都是 hex，且 `default`/`mono`/`ansi` 之间确实可区分——否则 `/theme` 只改名字）。
@@ -111,12 +113,77 @@
 - **证据**：`scripts/pty_theme_check.py`（基于 `frame_reader`）——同一 token 的 SGR 在 `/theme mono` 前后不同：连续 2 次 `THEME_APPLIED: True`（footer `ASK`：default 灰 → mono 白）。整网回归同批全绿（不变式/parity_a/b/vim/p3a/多会话）。
 - **诚实边界**：① header token（`noem`）在该抓帧中未被工具定位到（`None`），故断言只覆盖 footer；② #16 的作用域颜色**已注册但未验证**（需要含代码块的回复）。
 
-### 11.1 #16 实测结论（2026-09-17，未生效）
+### 11.1 #16 实测结论（2026-09-17，**已被 §12 推翻并修正**）
 
 - 为验证给 hermetic stub 的回复加了 fenced python 代码块（`dev_daemon.py`，仅测试夹具）。
-- 用 `frame_reader` 断言：代码块**确实渲染**（`FENCED_CODE_RENDERED: True`，26 个代码 token 可见），
+- 用 `frame_reader` 断言：代码块**确实渲染**（`FENCED_CODE_RENDERED: True`），
   但 **`CODE_COLOURED: False`** —— 所有 token 的 fg 都是默认 `(255,255,255)`。
-- 结论：`SyntaxStyle.registerStyle("keyword"/"string"/"comment"/"function")` **没有被 markdown 渲染器应用**。
-  下一步需查 opentui 高亮器期望的 **scope 词表/样式形状**（core 里出现过 `comment`/`function`/`string`/`string.special.url`
-  等名字，但显然还需正确的注册形状或 `SyntaxStyle.fromStyles(...)` 用法）。
-- 保留 `scripts/pty_highlight_check.py` 作为**诚实复现器**：修好前它 exit 1，修好后应打印 `CODE_COLOURED: True`。
+- **当时的归因（错）**：`SyntaxStyle.registerStyle(...)` 没有被 markdown 渲染器应用，下一步去查 scope 词表/注册形状。
+- 保留 `scripts/pty_highlight_check.py` 作为复现器。**保留本节是为了记录错误归因**：真正的原因是"没有高亮可着色"（语法缺失），不是"作用域没生效"；见 §12。
+
+## 12. 切片 F（2026-09-17）：代码语法高亮（#16 DONE）
+
+### 12.1 修正后的根因（实测，推翻 §11.1 的归因）
+
+- `MarkdownRenderable` 创建代码块时**已经**传了 `treeSitterClient`；`CodeRenderable` 更是在构造里就
+  `options.treeSitterClient ?? getTreeSitterClient()` **兜底**，而该 client 工作正常（`isInitialized(): true`）。
+  所以"没有 client / client 从未被调用"不成立。
+- 真正的缺口是**语法覆盖**：`@opentui/core` 内置的默认 parser 只有
+  `{javascript, typescript, markdown, markdown_inline, zig}`（wasm + `highlights.scm` 随包，离线可用）。
+  ` ```python ` 因此解析到一个**没有 parser 的 filetype**，client 直接回
+  `"No parser available for filetype python"` → `highlights = []` → 没有任何区间可着色 → 全白。
+  **作用域注册从来不是问题**：`treeSitterToTextChunks` 的解析是 `getStyle(group)` → 失败再退到
+  `getStyle(group.split(".")[0])`，注册 `keyword`/`string`/… 形状是对的，只是没东西可套。
+- 判别实验（`spike/tree-sitter-coverage.ts`，可复跑）：`PARSERS PRESENT: typescript, javascript,
+  javascriptreact, typescriptreact, markdown, markdown_inline, zig` / `PARSERS ABSENT: python, rust, go,
+  bash, json, sql, yaml, ruby, c, cpp, java, html, css`；`highlightOnce(fixture,"python")` → `highlights=null`
+  + warning，`highlightOnce(fixture,"typescript")` → **47 条**（同一 client）。
+
+### 12.2 选型：不逐个 vendor 语法，复用 Ink 路径已经在用的高亮器
+
+- 方案 A（给 python 补一个 tree-sitter wasm + query）只能一个语言一个语言地补（agent 会吐 rust/go/sql/yaml/bash…），
+  且要往仓库里放二进制资源。
+- 采用方案 B：`src/highlight.ts`（Ink 路径）背后的 **highlight.js 本机已有 191 种语言**。
+  自己算出 `[start, end, scope]` 区间，经 opentui **受支持的** `CodeRenderable.onHighlight` 钩子注入：
+  - `onHighlight` 在 `highlights.length >= 0` 时**总会被调用**（即使 tree-sitter 结果为空）；
+  - 返回非空区间即走 `treeSitterToTextChunks`，由 `SyntaxStyle` 把 scope 名解析成颜色；
+  - 有 tree-sitter 结果时（js/ts/markdown/zig）保留原生结果，无语法时用我们的。
+- 兼容性同一性：与 Ink 路径**同一个高亮引擎**，这正是 parity 的目标语义。
+
+### 12.3 实现
+
+- `src/opentui/code-highlight.ts`（纯模块）：`fenceLanguage()`（把 `py`/`ts`/`sh`/`yml` 归一到规范名）、
+  `codeHighlightRanges()`（走 highlight.js token 树取区间，未知语言/解析失败一律 `[]`，fail-soft）、
+  `highlightStyleTable()`（highlight.js token 类 + tree-sitter capture 名两套词表 → 主题 token，含 `default`）、
+  `codeBlockRenderNode()`（`<markdown renderNode>` 钩子；**必须**把它调过的 `context.defaultRender()` 原样返回，
+  否则 markdown 渲染器会销毁这个默认 renderable、代码块整个消失）。
+- `src/opentui/app.tsx`：`SyntaxStyle` 改为注册整张作用域表；`<markdown>` 接 `renderNode`（模块级常量，身份稳定）。
+- `highlight.js` 提升为显式依赖（此前仅经 `cli-highlight` 传递）。
+- 未映射的 scope（如 `emphasis`）刻意留空 → 落到 `default`（`theme.assistant`），不硬凑颜色。
+
+### 12.4 证据
+
+- **无头**（`scripts/highlight_render_check.ts`，`bun run`，因 OpenTUI 原生渲染器无 node FFI）：用 opentui 自带
+  `createTestRenderer` 直接读**渲染器单元格缓冲**，断言精确的 scope→颜色映射：
+  `def`/`return` → `#11a8cd`(accent)、`"hello "` → `#0dbc79`(toolDone)、`greet(...)` → `#e5e510`(toolPending)、
+  注释 → `#808080`(notice)、未映射的 `+ name` → 默认色；并逐行断言代码块文本**未被着色破坏**。
+  带**反向对照**：同一文档**不接** `renderNode` 时 python 块必须**无颜色** —— 否则该检查无法证伪。
+- **PTY 端到端**（`scripts/pty_highlight_check.py`）：`CODE_TOKEN_COUNT: 14`、`CODE_DISTINCT_COLOURS: 4`
+  `[(0,175,135),(0,175,215),(128,128,128),(215,215,0)]`、`FENCED_CODE_RENDERED: True`、`HIGHLIGHT_OK: True`（exit 0）。
+- 单测 `test/opentui-code-highlight.test.ts`（5 条）：别名归一、作用域表（含 `default`、`comment` 为 dim、
+  `keyword` 与 `title` 不同色）、三种主题下颜色确实变化、python 区间命中 `def`/`return`/`"hello "`/注释/`greet`、
+  未知语言与空语言 fail-soft。全量 **171 + 19 = 190 pass**。
+- 颜色编码说明：终端报 256 色，所以线上到的是**托盘索引**（keyword→38、string→36、title→184、comment→8），
+  不是主题 hex；断言因此用托盘 RGB。
+
+### 12.5 顺带修好的证据工具缺陷（`frame_reader.py`）
+
+排查中发现两个会**伪造证据**的缺陷，已修 + 加自检：
+
+1. **只认真彩 `38;2;r;g;b`，不认 256 色 `38;5;N`** —— 更糟的是它会把 `ESC[38;5;36m` 里的 `36` 当**独立 ANSI 码**，
+   于是托盘 36（青绿）被报成 ANSI 36（`(17,168,205)` 青色）。本轮就一度据此误判 `"hello "` 被染成了 keyword 色。
+   现按真实 xterm 托盘查表，并加自检：`38;5;36` 必须得到 `PALETTE_256[36]`，且**不得**等于 `(17,168,205)`。
+2. **空格字符被跳过**（`byte > b" "`）—— 空格不清除上一帧残留字形，于是文本行里留着上一帧的边框字符。
+   后果是 `find_row("def ")` 在侧栏有内容（重绘更多）时**假阴性**（`FENCED_CODE_RENDERED: False`），
+   同一检查的结果会随无关的仓库脏度变化。现空格按真实终端语义写入单元格，并加自检。
+

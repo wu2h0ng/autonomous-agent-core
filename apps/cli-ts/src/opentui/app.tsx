@@ -30,6 +30,7 @@ import {
 import { sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { viewTheme } from "./theme-colors.js";
+import { codeBlockRenderNode, highlightStyleTable } from "./code-highlight.js";
 import type { ThemeColors } from "../theme.js";
 import { applyVimAction, offsetFromCursor, resolveVimKey } from "./vim.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
@@ -69,6 +70,15 @@ const TREE_INTERVAL_MS = 5000;
 
 const PANEL_SCROLL_LINES = 5;
 const SAMPLE_INTERVAL_MS = 3000;
+
+/**
+ * #16: fenced-code highlighting hook for every `<markdown>` in the transcript.
+ * The bundled tree-sitter grammars cover only js/ts/markdown/zig, so a
+ * ```python fence rendered with no highlights at all; `codeBlockRenderNode`
+ * attaches our own ranges through CodeRenderable's supported `onHighlight`.
+ * Module-scope stable, so a re-render never rebuilds the blocks.
+ */
+const CODE_BLOCK_RENDER_NODE = codeBlockRenderNode();
 
 function line(message: ChatMessage): string {
   if (message.panel) {
@@ -153,14 +163,10 @@ export function App({
   const theme = viewTheme(controller.themeName);
   const syntaxStyle = useMemo(() => {
     const style = SyntaxStyle.create();
-    // #16: colour the code/markdown scopes from the active theme.
-    for (const [scope, colour] of [
-      ["keyword", theme.accent],
-      ["string", theme.toolDone],
-      ["comment", theme.notice],
-      ["function", theme.user],
-    ] as const) {
-      style.registerStyle(scope, { fg: colour });
+    // #16: register the scope vocabulary the code highlighter actually emits
+    // (highlight.js token classes + tree-sitter capture names + `default`).
+    for (const [scope, definition] of Object.entries(highlightStyleTable(theme))) {
+      style.registerStyle(scope, definition);
     }
     return style;
   }, [controller.themeName]);
@@ -544,6 +550,7 @@ export function App({
               key={`f${index}`}
               content={message.content}
               syntaxStyle={syntaxStyle}
+              renderNode={CODE_BLOCK_RENDER_NODE}
               fg={theme.assistant}
             />
           ) : (
