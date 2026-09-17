@@ -19,6 +19,9 @@ from agent_os_contracts import (
 )
 from agent_os_core import SituationalTrustDenied
 from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from tests.product.test_data_agent_external_report_adapter import (
+    _adapter as _external_report_adapter,
+)
 from tests.product.test_data_agent_situated_http import NOW, TRACE_ID, _situated_app
 from tests.product.test_protocol_event_ingress import (
     _cloud_event,
@@ -27,20 +30,32 @@ from tests.product.test_protocol_event_ingress import (
 
 
 POLICY_DIGEST = "9" * 64
-AUTHORIZATION_SCOPE_DIGEST = content_digest(
-    {
-        "principal_id": "user:local",
-        "tenant_id": "tenant:local",
-        "workspace_id": "workspace:local",
-        "mandate_id": "mandate:build-agent-os",
-        "environment_binding_id": "binding:data-agent-reports",
-        "environment_binding_version": 1,
-        "environment_binding_digest": (
-            "866b22d41dde83e25afb71fdeb350d1de"
-            "cd1c0a9dbb4e73a2398fc04cf4751bd"
-        ),
-    }
-)
+
+
+def _authorization_scope_digest() -> str:
+    """Derive the scope digest the situated service computes for this fixture.
+
+    The binding digest is the report adapter's admission-policy digest, which is
+    bound to the fixture epoch, so it cannot be frozen as a literal.
+    """
+
+    adapter, _broker, _transport = _external_report_adapter()
+    return content_digest(
+        {
+            "principal_id": "user:local",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "mandate_id": "mandate:build-agent-os",
+            "environment_binding_id": "binding:data-agent-reports",
+            "environment_binding_version": 1,
+            "environment_binding_digest": (
+                adapter.admission_policy_descriptor.policy_digest
+            ),
+        }
+    )
+
+
+AUTHORIZATION_SCOPE_DIGEST = _authorization_scope_digest()
 
 
 def _require_m1b() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,7 @@ from apps.api_server import _data_agent_situated_startup as startup
 from apps.api_server._data_agent_situated_startup import (
     DataAgentSituatedStartupConfigError,
 )
+from tests.product._situated_epoch import NOW
 from tests.product.test_data_agent_situated_startup import (
     RESOLVER_ENV_KEY,
     provider_credential,
@@ -38,8 +39,6 @@ from tests.product.test_data_agent_situated_startup import (
     write_canonical,
     write_config,
 )
-
-NOW = datetime(2026, 7, 17, 0, 0, tzinfo=timezone.utc)
 
 
 def _build() -> Any:

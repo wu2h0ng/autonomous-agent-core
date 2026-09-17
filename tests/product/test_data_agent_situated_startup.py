@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,7 @@ from apps.api_server._data_agent_situated_startup import (
     DataAgentSituatedStartupConfigError,
     load_data_agent_situated_startup_config,
 )
+from tests.product._situated_epoch import NOW
 
 
 def load_data_agent_situated_startup_provisioning(path: Path) -> Any:
@@ -431,9 +432,6 @@ class TestEnvironmentBoundary:
             load_data_agent_situated_startup_config(path)
         assert RESOLVER_ENV_KEY not in str(excinfo.value)
         assert RESOLVER_ENV_KEY not in repr(excinfo.value)
-
-
-NOW = datetime(2026, 7, 17, 0, 0, tzinfo=timezone.utc)
 
 
 def source_credential() -> CredentialRef:
