@@ -1210,10 +1210,19 @@ def test_unknown_effect_keeps_pending_and_stops_provider_continuation(
         app.resume_task(session.task_id)
 
 
-def test_non_deferred_unknown_stops_without_tool_reply_or_replan(
+def test_non_deferred_unknown_answers_tool_call_and_concludes_the_turn(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """S2: a post-dispatch unknown still stops the turn fail-closed (no replan,
+    one dispatch, Run PAUSED, resume blocked), but it now concludes VISIBLY.
+
+    The old behaviour (no TOOL reply, turn left open) is the defect this test
+    used to pin: the model never learned the outcome, the durable turn never
+    resolved, and the operator saw only a reason-less stall. The fail-closed
+    assertions are unchanged; the two that asserted the silent turn are
+    replaced by the answers the loop now owes both the model and the surface.
+    """
     (tmp_path / "fixture.txt").write_text("stable\n", encoding="utf-8")
     app = chat_app(
         tmp_path,
@@ -1252,6 +1261,9 @@ def test_non_deferred_unknown_stops_without_tool_reply_or_replan(
     result = loop.run_turn(session, "edit")
 
     assert result.stop_reason == "unknown_requires_review"
+    assert "UNKNOWN_REQUIRES_REVIEW" in result.text
+    assert "POST_DISPATCH_UNCERTAIN" in result.text
+    assert "not retried" in result.text
     assert dispatches == 1
     assert isinstance(app.provider, DeterministicProvider)
     assert len(app.provider.requests) == 1
@@ -1259,13 +1271,33 @@ def test_non_deferred_unknown_stops_without_tool_reply_or_replan(
         session.task_id,
         session.session_id,
     )
-    assert not any(
-        message.role is ProviderMessageRole.TOOL for message in projected.history
-    )
-    assert projected.resumable_turn_id == result.turn_id.turn_id
+    # The model-visible result: the reason, the review requirement and the
+    # explicit statement that the action was not retried.
+    tools = [
+        message
+        for message in projected.history
+        if message.role is ProviderMessageRole.TOOL
+    ]
+    assert [message.tool_call_id for message in tools] == ["call-edit"]
+    payload = json.loads(tools[0].content)
+    assert payload["reason_code"] == "POST_DISPATCH_UNCERTAIN"
+    assert payload["effect_unknown"] is True
+    assert payload["dispatched"] is True
+    assert payload["auto_retry"] is False
+    assert payload["requires_human_review"] is True
+    assert payload["stop_reason"] == "unknown_requires_review"
+    assert payload["reservation_id"].startswith("reservation-")
+    # The turn is no longer silently open: the surface gets a durable outcome.
+    assert _event_count(
+        app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED
+    ) == 1
+    assert projected.resumable_turn_id is None
     run = app.tasks.get_task(session.task_id).run
     assert run is not None
     assert run.status is RunStatus.PAUSED
+    # Fail-closed is intact: the unknown pause still blocks every auto-resume.
+    with pytest.raises(InvalidTransitionError, match="UNKNOWN_REQUIRES_REVIEW"):
+        app.resume_task(session.task_id)
 
 
 def test_reject_after_c7_change_clears_pending_and_allows_replan(

@@ -32,6 +32,7 @@ class CapabilityEffectUnknown(CapabilityDenied):
         self.action_digest = action.action_digest()
         self.idempotency_key = action.idempotency_key
         self.reason_code = reason_code
+        self.detail = detail
         self.reservation_id = reservation_id
         super().__init__(
             f"UNKNOWN_REQUIRES_REVIEW [{reason_code}]: {detail}"
