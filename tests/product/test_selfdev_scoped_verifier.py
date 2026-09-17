@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import subprocess
@@ -31,6 +32,20 @@ from domain_packs.developer_agent import (
     WorkspaceSandbox,
 )
 from tests.product.test_responsibility_controller import _linked_worktree
+
+# The SELFDEV verifier refuses without an OS filesystem sandbox
+# (workspace_capability.py:1735 checks `shutil.which("sandbox-exec")`), and
+# sandbox-exec is macOS-only: on Linux the capability denies by design rather
+# than running tests unsandboxed. Tests that drive that path are skipped there
+# with the same condition the kernel uses, instead of asserting a flow the
+# platform cannot provide.
+REQUIRES_OS_SANDBOX = pytest.mark.skipif(
+    shutil.which("sandbox-exec") is None,
+    reason=(
+        "SELFDEV verifier requires the macOS sandbox-exec tier; "
+        "the capability denies without it"
+    ),
+)
 
 
 def _base_binding(workspace: Path, head: str, path: str) -> dict[str, str]:
@@ -68,7 +83,9 @@ def test_scoped_verifier_uses_only_bound_paths_and_records_exact_argv(
             return subprocess.CompletedProcess(argv, 0, "1 passed\n", "")
         return real_run(argv, **kwargs)
 
-    monkeypatch.setattr(capability_module.shutil, "which", lambda _: "/usr/bin/sandbox-exec")
+    monkeypatch.setattr(
+        capability_module.shutil, "which", lambda _: "/usr/bin/sandbox-exec"
+    )
     monkeypatch.setattr(capability_module.subprocess, "run", capture_scoped_pytest)
 
     result = sandbox._dispatch(
@@ -118,7 +135,9 @@ def test_selfdev_organ_fails_unbound_before_agent_loop_and_forwards_sealed_bindi
 
     organ = SelfDevelopmentOrgan(
         workspace=workspace,
-        execute_task=lambda _task_id, context, _assert_current, _effect: contexts.append(context),
+        execute_task=lambda _task_id, context, _assert_current, _effect: (
+            contexts.append(context)
+        ),
         execute_agent_loop=execute_agent_loop,
     )
     base = {
@@ -146,13 +165,13 @@ def test_selfdev_organ_fails_unbound_before_agent_loop_and_forwards_sealed_bindi
         object(),
     )
     assert agent_loop_calls == 1
-    envelope = cast(
-        dict[str, object], contexts[0]["selfdev_execution_envelope"]
-    )
+    envelope = cast(dict[str, object], contexts[0]["selfdev_execution_envelope"])
     assert envelope["verifier_bindings"] == [binding]
 
 
-def test_run_coordinator_snapshot_contains_only_head_and_sealed_verifier_bindings() -> None:
+def test_run_coordinator_snapshot_contains_only_head_and_sealed_verifier_bindings() -> (
+    None
+):
     binding = {
         "schema_version": "1.0",
         "path": "tests/product/test_provider_robustness.py",
@@ -219,7 +238,9 @@ def test_scoped_verifier_rejects_snapshot_reorder_extra_digest_and_worktree_drif
             return subprocess.CompletedProcess(argv, 0, "unexpected run\n", "")
         return real_run(argv, **kwargs)
 
-    monkeypatch.setattr(capability_module.shutil, "which", lambda _: "/usr/bin/sandbox-exec")
+    monkeypatch.setattr(
+        capability_module.shutil, "which", lambda _: "/usr/bin/sandbox-exec"
+    )
     monkeypatch.setattr(
         capability_module.subprocess,
         "run",
@@ -254,6 +275,7 @@ def test_scoped_verifier_rejects_snapshot_reorder_extra_digest_and_worktree_drif
         )
 
 
+@REQUIRES_OS_SANDBOX
 def test_scoped_pass_ignores_unrelated_failure_and_test_write_attempt_fails_closed(
     tmp_path: Path,
 ) -> None:
@@ -308,17 +330,13 @@ def test_scoped_pass_ignores_unrelated_failure_and_test_write_attempt_fails_clos
     passing, passing_report = run_path(passing_path)
     assert passing["exit_code"] == 0
     assert unrelated_path not in str(passing_report["stdout"])
-    passing_bindings = cast(
-        list[dict[str, str]], passing_report["verifier_bindings"]
-    )
+    passing_bindings = cast(list[dict[str, str]], passing_report["verifier_bindings"])
     assert passing_bindings[0]["path"] == passing_path
 
     preimage = (workspace / write_path).read_bytes()
     denied, denied_report = run_path(write_path)
     assert denied["exit_code"] != 0
-    denied_bindings = cast(
-        list[dict[str, str]], denied_report["verifier_bindings"]
-    )
+    denied_bindings = cast(list[dict[str, str]], denied_report["verifier_bindings"])
     assert denied_bindings[0]["path"] == write_path
     assert (workspace / write_path).read_bytes() == preimage
 
@@ -352,9 +370,7 @@ def test_scoped_pass_ignores_unrelated_failure_and_test_write_attempt_fails_clos
             completed_sequence=10,
             completed_at=frozen_at + timedelta(seconds=10),
         )
-        return DeterministicOutcomeEvaluator(
-            lambda _task_id, _run_id: report
-        ).evaluate(
+        return DeterministicOutcomeEvaluator(lambda _task_id, _run_id: report).evaluate(
             expected,
             task_id=expected.task_id,
             run_id="run:scoped-verifier",

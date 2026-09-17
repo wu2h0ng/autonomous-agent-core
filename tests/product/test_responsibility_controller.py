@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -40,7 +41,11 @@ from agent_os_contracts import (
     content_digest,
 )
 from agent_os_core.errors import RunExecutionError
-from agent_os_core import DeterministicProvider, ExecutionLease, TASK_CONFIGURATION_CAPABILITY
+from agent_os_core import (
+    DeterministicProvider,
+    ExecutionLease,
+    TASK_CONFIGURATION_CAPABILITY,
+)
 from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.capability import CapabilityBroker
 from agent_os_core.responsibility_controller import (
@@ -80,6 +85,19 @@ from tests.product.test_long_horizon_execution import (
 )
 from tests.product.test_mandate_observation_authorization import NOW, _apps, _command
 from tests.product.test_mandate_outcome_portfolio import _budget
+
+# Flows whose "tests" node runs the SELFDEV verifier need the macOS
+# sandbox-exec tier: without it the capability denies by design
+# (workspace_capability.py:1735) instead of running tests unsandboxed, so the
+# dependent run fails. Skip those flows where the sandbox cannot exist rather
+# than asserting something the platform refuses to do.
+REQUIRES_OS_SANDBOX = pytest.mark.skipif(
+    shutil.which("sandbox-exec") is None,
+    reason=(
+        "the SELFDEV verifier requires the macOS sandbox-exec tier; "
+        "the capability denies without it"
+    ),
+)
 
 AUTHORITY_BEARER = "test-only-agent-work-authority-bearer"
 
@@ -244,10 +262,7 @@ def _verified_responsibility(
         "mandate:build-agent-os",
         admin.principal,
     )
-    if (
-        selfdev_spec is not None
-        and selfdev_spec.edit_mode == "agent_loop_precise"
-    ):
+    if selfdev_spec is not None and selfdev_spec.edit_mode == "agent_loop_precise":
         snapshot = owner.seal_task_configuration(task.task_id, {})
         owner.start_run(task.task_id, snapshot.snapshot_id)
     return database, owner, admin, task.task_id, attached
@@ -303,9 +318,7 @@ def _controller(database, owner, admin, tmp_path: Path):
                 invoke_with_receipt,
             )
             if not captured:
-                raise ResponsibilityLoopEffectUnknown(
-                    "effect requires reconciliation"
-                )
+                raise ResponsibilityLoopEffectUnknown("effect requires reconciliation")
             return captured[0]
 
         owner.run_task(
@@ -383,9 +396,7 @@ def test_controller_executes_selected_linked_task_without_opening_chat_task(
         raise AssertionError("responsibility work must not create a chat Task")
 
     owner.open_chat_session = forbidden_chat  # type: ignore[method-assign]
-    binding, loop_store, controller = _controller(
-        database, owner, admin, tmp_path
-    )
+    binding, loop_store, controller = _controller(database, owner, admin, tmp_path)
     result = controller.run_once(
         binding,
         process_instance_id="process:controller-A",
@@ -605,12 +616,7 @@ def _linked_worktree(tmp_path: Path) -> tuple[Path, str, str]:
         check=True,
     )
     target = (
-        source
-        / "packages"
-        / "os_core"
-        / "src"
-        / "agent_os_core"
-        / "selfdev_fixture.py"
+        source / "packages" / "os_core" / "src" / "agent_os_core" / "selfdev_fixture.py"
     )
     target.parent.mkdir(parents=True)
     target.write_text("VALUE = True\n", encoding="utf-8")
@@ -735,6 +741,8 @@ def _selfdev_agent_loop_workflow() -> WorkflowGraph:
             )
         ),
     )
+
+
 def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
     tmp_path: Path,
 ) -> None:
@@ -774,20 +782,20 @@ def test_selfdev_organ_admits_exact_linked_worktree_and_derives_inputs(
                     "repository_head": head,
                     "isolated_branch": branch,
                     "allowed_write_path": "packages/os_core/src/agent_os_core/selfdev_fixture.py",
-                        "verifier_command": "pytest",
-                        "verifier_bindings": [
-                            binding.model_dump(mode="json")
-                            for binding in spec.verifier_bindings
-                        ],
-                        "verifier_binding_digest": content_digest(
-                            {
-                                "verifier_bindings": [
-                                    binding.model_dump(mode="json")
-                                    for binding in spec.verifier_bindings
-                                ]
-                            }
-                        ),
-                        "rollback_strategy": "compensate_task",
+                    "verifier_command": "pytest",
+                    "verifier_bindings": [
+                        binding.model_dump(mode="json")
+                        for binding in spec.verifier_bindings
+                    ],
+                    "verifier_binding_digest": content_digest(
+                        {
+                            "verifier_bindings": [
+                                binding.model_dump(mode="json")
+                                for binding in spec.verifier_bindings
+                            ]
+                        }
+                    ),
+                    "rollback_strategy": "compensate_task",
                     "prohibited_effects": (
                         "main",
                         "master",
@@ -961,12 +969,14 @@ def test_selfdev_organ_rejects_dirty_large_and_out_of_scope_changes(
         capture_output=True,
     )
     large_spec = spec.model_copy(
-        update={"repository_head": subprocess.run(
-            ["git", "-C", str(isolated), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()}
+        update={
+            "repository_head": subprocess.run(
+                ["git", "-C", str(isolated), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        }
     )
     with pytest.raises(SelfDevelopmentOrganBlocked, match="SELFDEV_TARGET_TOO_LARGE"):
         organ("task:selfdev", large_spec, lambda _phase: None, lambda *_args: None)
@@ -979,12 +989,14 @@ def test_selfdev_organ_rejects_dirty_large_and_out_of_scope_changes(
         capture_output=True,
     )
     clean_spec = spec.model_copy(
-        update={"repository_head": subprocess.run(
-            ["git", "-C", str(isolated), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()}
+        update={
+            "repository_head": subprocess.run(
+                ["git", "-C", str(isolated), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        }
     )
     scope_drift = responsibility_surface.SelfDevelopmentOrgan(
         workspace=isolated,
@@ -1097,6 +1109,7 @@ def test_real_agent_surface_runs_bound_selfdev_organ_on_same_linked_task(
     assert owner.tasks.current_outcome(task_id) is None
 
 
+@REQUIRES_OS_SANDBOX
 def test_real_agent_surface_precise_agent_loop_edits_two_files_on_same_task(
     tmp_path: Path,
 ) -> None:
@@ -1300,6 +1313,7 @@ def test_real_agent_surface_returns_typed_block_on_selfdev_head_drift(
     assert owner.tasks.current_outcome(task_id) is None
 
 
+@REQUIRES_OS_SANDBOX
 def test_selfdev_approval_help_resumes_exact_task_and_rolls_back_not_met_patch(
     tmp_path: Path,
 ) -> None:
@@ -1450,7 +1464,9 @@ def test_selfdev_approval_help_resumes_exact_task_and_rolls_back_not_met_patch(
     )
     assert answer["task_approval_recorded"] is True
     assert owner.tasks.get_task(task_id).approval is not None
-    assert owner.tasks.get_task(task_id).approval.actor_id == admin.principal.principal_id
+    assert (
+        owner.tasks.get_task(task_id).approval.actor_id == admin.principal.principal_id
+    )
 
     completed = run_responsibility_work(
         app=admin,
@@ -1742,7 +1758,9 @@ def test_precise_selfdev_provider_failure_after_edit_fails_and_compensates(
     assert aggregate.run is not None
     assert aggregate.run.status.value == "FAILED"
     assert target.read_text(encoding="utf-8") == preimage
-    assert any(record.status.value == "COMPENSATED" for record in aggregate.compensations)
+    assert any(
+        record.status.value == "COMPENSATED" for record in aggregate.compensations
+    )
     with pytest.raises(RunExecutionError, match="requires effect custody"):
         owner.compensate_task(task_id)
     with sqlite3.connect(database) as connection:
@@ -1755,6 +1773,7 @@ def test_precise_selfdev_provider_failure_after_edit_fails_and_compensates(
     assert owner.tasks.current_outcome(task_id) is None
 
 
+@REQUIRES_OS_SANDBOX
 def test_selfdev_verifier_cannot_write_original_operational_state(
     tmp_path: Path,
 ) -> None:
@@ -1975,9 +1994,7 @@ def test_process_b_finishes_cycle_after_crash_following_settlement(
         execute_task=lambda *_args: pytest.fail(
             "settled responsibility must not execute twice"
         ),
-        select_route=lambda _item, _commitment: (
-            ResponsibilityOrganRoute.ORDINARY_TASK
-        ),
+        select_route=lambda _item, _commitment: ResponsibilityOrganRoute.ORDINARY_TASK,
         hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
         clock=lambda: NOW,
     ).run_once(
@@ -2106,8 +2123,7 @@ def test_run_coordinator_stale_responsibility_fence_blocks_tool_effect(
     assert "before_tool_effect" in phases
     events = owner.tasks._event_store.read(task_id)
     assert not any(
-        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
-        for event in events
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in events
     )
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
     assert database.exists()
@@ -2141,8 +2157,7 @@ def test_run_coordinator_routes_tool_effect_through_responsibility_custody(
     assert len(custody_calls[0][1]) == 64
     events = owner.tasks._event_store.read(task_id)
     assert not any(
-        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
-        for event in events
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in events
     )
 
 
@@ -2198,9 +2213,7 @@ def test_takeover_does_not_repeat_effect_that_became_unknown_after_ttl(
         loop_store=loop_store,
         actor=admin.principal,
         execute_task=execute_task,
-        select_route=lambda _item, _commitment: (
-            ResponsibilityOrganRoute.ORDINARY_TASK
-        ),
+        select_route=lambda _item, _commitment: ResponsibilityOrganRoute.ORDINARY_TASK,
         hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
         clock=clock,
     )
@@ -2414,7 +2427,9 @@ def test_applied_effect_reconciliation_restores_original_task_receipt_binding(
     def crash_before_task_receipt(*_args, **_kwargs):
         raise SystemExit("process died before Task receipt")
 
-    monkeypatch.setattr(owner.tasks, "_record_action_receipt", crash_before_task_receipt)
+    monkeypatch.setattr(
+        owner.tasks, "_record_action_receipt", crash_before_task_receipt
+    )
     with pytest.raises(SystemExit, match="before Task receipt"):
         pipeline.execute(
             action,
@@ -2474,9 +2489,7 @@ def test_missing_outcome_emits_typed_help_without_unauthorized_work(
         loop_store=loop_store,
         actor=admin.principal,
         execute_task=no_outcome,
-        select_route=lambda _item, _commitment: (
-            ResponsibilityOrganRoute.ORDINARY_TASK
-        ),
+        select_route=lambda _item, _commitment: ResponsibilityOrganRoute.ORDINARY_TASK,
         hcw_evaluator_root_id="hcw-evaluator:agent-work:v1",
         clock=lambda: NOW,
     )
@@ -2501,10 +2514,7 @@ def test_missing_outcome_emits_typed_help_without_unauthorized_work(
     )
     assert len(help_requests) == 1
     assert help_requests[0].help_request_id == result.help_request_id
-    assert (
-        help_requests[0].gap_kind
-        is OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME
-    )
+    assert help_requests[0].gap_kind is OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME
 
     still_waiting = controller.run_once(
         binding,
@@ -2720,12 +2730,10 @@ def test_real_process_a_to_b_to_a_restores_one_cycle_without_terminal_json(
     cycle_id = first_payload["cycles"][0]["cycle_id"]
     assert cycle_id is not None
     assert not terminal_projection.exists()
-    help_request = (
-        admin.mandate_outcome_portfolio_store.list_help_requests(
-            "mandate:build-agent-os",
-            admin.principal,
-        )[0]
-    )
+    help_request = admin.mandate_outcome_portfolio_store.list_help_requests(
+        "mandate:build-agent-os",
+        admin.principal,
+    )[0]
 
     process_b = run_process(
         "agent",
@@ -2755,9 +2763,7 @@ def test_real_process_a_to_b_to_a_restores_one_cycle_without_terminal_json(
     assert process_a_resumed.returncode == 0, process_a_resumed.stderr
     resumed_payload = json.loads(process_a_resumed.stdout)
     settled = next(
-        cycle
-        for cycle in resumed_payload["cycles"]
-        if cycle["state"] == "SETTLED"
+        cycle for cycle in resumed_payload["cycles"] if cycle["state"] == "SETTLED"
     )
     assert settled["cycle_id"] == cycle_id
     assert settled["settlement_id"] is not None
