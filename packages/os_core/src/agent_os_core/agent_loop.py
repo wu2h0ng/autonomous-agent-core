@@ -748,6 +748,13 @@ class AgentLoop:
                 )
             except Exception as exc:
                 self._sandbox.release_execution_lease(execution_lease)
+                # Same durable signal as the unapproved path: an approved call
+                # that the capability layer still refuses (the file turned
+                # read-only, the digest changed between approval and dispatch)
+                # sealed nothing, so the card it created must not stay pending.
+                self._record_tool_failure(
+                    pending.action, pending.proposal.proposal_id, exc
+                )
                 tool_message = self._tool_message(
                     pending.proposal,
                     {"error": f"{type(exc).__name__}: {exc}"},
@@ -1342,6 +1349,47 @@ class AgentLoop:
             raise RunExecutionError("chat provider exhausted without a response")
         return last_failure
 
+    def _record_tool_failure(
+        self,
+        action: ActionContract,
+        provider_tool_call_id: str,
+        exc: BaseException,
+    ) -> None:
+        """Durable node-level failure for a tool call that sealed no result.
+
+        A refusal taken before dispatch produces no receipt (a receipt attests
+        that a dispatch executed, and none did) and no `NODE_COMPLETED`
+        (nothing completed), so the durable stream held nothing at all for it:
+        the model was told through the tool result, but every operator surface
+        that projects the stream - the TUI tool card, `/export` - showed a call
+        that stayed pending forever with no reason. The reason is recorded here
+        as a node-level failure instead. This is not a receipt and it does not
+        change receipt semantics: no reservation, no seal, no
+        `ACTION_RECEIPT_RECORDED`, and the Run is untouched.
+
+        Only failures the broker did not convert into a typed UNKNOWN reach
+        this path (ADR-0059 turns every post-dispatch failure into one), so the
+        event claims exactly what the loop knows: this proposal produced no
+        sealed result, and this is why.
+        """
+
+        self._tasks.append_event(
+            action.task_id,
+            TaskEventType.NODE_FAILED,
+            {
+                "node_id": action.node_id,
+                "action_id": action.action_id,
+                "provider_tool_call_id": provider_tool_call_id,
+                "agent_loop_dynamic_action": True,
+                "capability_id": action.capability_id,
+                "action_digest": action.action_digest(),
+                "error": f"{type(exc).__name__}: {exc}",
+                "exception": type(exc).__name__,
+                "error_code": f"error:{type(exc).__name__}",
+            },
+            correlation_id=action.run_id,
+        )
+
     def _record_tool_completion(
         self,
         action: ActionContract,
@@ -1522,6 +1570,7 @@ class AgentLoop:
         except ResponsibilityLoopStaleFence:
             raise
         except Exception as exc:
+            self._record_tool_failure(action, proposal.proposal_id, exc)
             return self._tool_message(
                 proposal,
                 {"error": f"{type(exc).__name__}: {exc}"},

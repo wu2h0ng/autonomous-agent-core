@@ -71,9 +71,13 @@ _OVERWRITE_GUARD_UNCHECKED_DETAIL = (
 # TUI. Redaction rewrites such a path relative to the workspace, or to a bare
 # filename when it leaves the workspace. The lookbehind keeps path *fragments*
 # alone: in ``sub/fixture.txt`` the slash follows a word character, so a
-# relative path the caller already uses is never rewritten.
+# relative path the caller already uses is never rewritten. A leading ``~`` is
+# part of the match: a home path such as ``~/.agent-os/x`` was left verbatim,
+# because the lookbehind saw the ``~`` as a boundary the pattern may not start
+# after.
+_PATH_SEGMENT = r"[A-Za-z0-9._+@%=-]+"
 _ABSOLUTE_PATH_PATTERN = re.compile(
-    r"(?<![\w./~-])/[A-Za-z0-9._+@%=-]+(?:/[A-Za-z0-9._+@%=-]+)*"
+    rf"(?<![\w./~-])(?:~[A-Za-z0-9._-]*|)/{_PATH_SEGMENT}(?:/{_PATH_SEGMENT})*"
 )
 # The workspace root is substituted literally before the pattern runs, because
 # the pattern stops at a space and a project directory can contain one
@@ -81,6 +85,22 @@ _ABSOLUTE_PATH_PATTERN = re.compile(
 # character, so the slash that follows it is not a boundary the pattern would
 # rewrite; the sentinel itself contains no slash and cannot match.
 _WORKSPACE_ROOT_SENTINEL = "__WORKSPACE_ROOT__"
+
+
+def _scope_workspace_root(message: str, root_text: str) -> str:
+    """Replace the workspace root only where it is a whole path prefix.
+
+    A bare textual replace rewrites a *sibling* directory that merely starts
+    with the root's name: for root ``/tmp/x/ws`` the host path
+    ``/tmp/x/ws-backup/secret.txt`` came back as ``.-backup/secret.txt``, which
+    reads as a workspace-relative path and hides the leak redaction exists to
+    remove. The match must start at a path boundary and end at one.
+    """
+
+    if not root_text:
+        return message
+    pattern = re.compile(r"(?<![\w./~-])" + re.escape(root_text) + r"(?![\w.+@%=-])")
+    return pattern.sub(_WORKSPACE_ROOT_SENTINEL, message)
 
 
 def _redact_host_paths(message: str, root: Path) -> str:
@@ -93,10 +113,7 @@ def _redact_host_paths(message: str, root: Path) -> str:
     final name.
     """
 
-    root_text = str(root)
-    scoped = (
-        message.replace(root_text, _WORKSPACE_ROOT_SENTINEL) if root_text else message
-    )
+    scoped = _scope_workspace_root(message, str(root))
 
     def replace(match: re.Match[str]) -> str:
         raw = match.group(0)
