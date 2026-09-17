@@ -19,6 +19,7 @@ import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type {
   PermissionMode,
   SurfaceFileEntry,
@@ -28,6 +29,31 @@ import type {
 } from "./contracts.js";
 
 export const STALL_DEFAULT_MS = 30_000;
+
+/** Bounded refresh-and-resend budget for a command the kernel rejected with a
+ * stale event cursor, and the pause between attempts. */
+export const SEQUENCE_RETRY_LIMIT = 2;
+export const SEQUENCE_RETRY_DELAY_MS = 40;
+
+/**
+ * True when the kernel rejected a command because the client's tracked
+ * `expected_event_sequence` no longer matches durable truth
+ * (`SurfaceSequenceConflict`, HTTP 409) — the one rejection a fresh read can
+ * fix.
+ *
+ * Only this rejection is retryable. HTTP 409 is overloaded on the surface
+ * (`surface_routes._surface_error_status` maps `SurfaceIdempotencyConflict` and
+ * `InvalidTransitionError` to 409 too), and the transport keeps only the
+ * message, so the match is on the kernel's frozen wording
+ * (`surface_runtime._require_sequence`). Everything else surfaces unchanged.
+ */
+export function isSequenceConflict(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return (
+    message.includes("SurfaceSequenceConflict") ||
+    message.includes("does not match current sequence")
+  );
+}
 
 /** Kernel sentinel for "no error" (`agent_os_contracts.authority.NO_ERROR_CODE`).
  * Every receipt carries it; it must never render as an error. */
@@ -265,6 +291,8 @@ export interface ControllerDeps {
   clock?: () => number;
   stallMs?: number;
   pollMs?: number;
+  /** Pause between refresh-and-resend attempts after a stale-cursor rejection. */
+  sequenceRetryDelayMs?: number;
   /** Observer for streamed assistant deltas (headless stream-json). Pure
    * notification — never feeds back into controller state. */
   onDelta?: (delta: string) => void;
@@ -332,6 +360,10 @@ export class TuiController {
   private readonly pollMs: number;
   private readonly onDelta: ((delta: string) => void) | undefined;
   private readonly doctor: (() => Promise<string>) | undefined;
+  private readonly sequenceRetryDelayMs: number;
+  /** The correction currently being sent, if any. Esc is a physical key: a
+   * held or repeated press must not fan out into one POST per key event. */
+  private interruptInFlight: Promise<"corrected" | "closed"> | null = null;
   private busy = false;
 
   constructor(
@@ -343,6 +375,7 @@ export class TuiController {
     this.pollMs = deps.pollMs ?? 100;
     this.onDelta = deps.onDelta;
     this.doctor = deps.doctor;
+    this.sequenceRetryDelayMs = deps.sequenceRetryDelayMs ?? SEQUENCE_RETRY_DELAY_MS;
   }
 
   subscribe(listener: () => void): () => void {
@@ -628,14 +661,30 @@ export class TuiController {
       return;
     }
     const mode = arg.toUpperCase() as PermissionMode;
-    // Refresh the tracked event sequence first: durable progress learned via
-    // events() does not advance the client's per-session command cursor.
-    const fresh = await this.client.getSession(this.sessionId);
-    this.mode = fresh.permission_mode;
-    const updated = await this.client.setPermissionMode(this.sessionId, mode as PermissionMode);
-    this.mode = updated.permission_mode;
-    this.snapshot = updated;
-    this.push({ role: "system", content: `permission mode → ${this.mode}` });
+    const sessionId = this.sessionId;
+    // Same two round trips as a correction (refresh, then command), so the same
+    // stale-cursor rejection is possible here and is handled the same way. The
+    // failure is caught here rather than left to the caller: the submit path in
+    // the view is fire-and-forget, so a rejection used to escape as an
+    // unhandled rejection with no trace in the transcript, and an operator who
+    // does not know the mode did not change will act on the wrong one.
+    try {
+      const updated = await this.controlWithRetry(sessionId, () =>
+        this.client.setPermissionMode(sessionId, mode, `cli-ts-mode:${randomUUID()}`),
+      );
+      this.mode = updated.permission_mode;
+      this.snapshot = updated;
+      this.push({ role: "system", content: `permission mode → ${this.mode}` });
+    } catch (cause) {
+      const current = this.snapshot?.permission_mode ?? this.mode;
+      this.mode = current;
+      this.push({
+        role: "system",
+        content:
+          `permission mode change to ${mode} FAILED (${(cause as Error).message}) — ` +
+          `still ${current}; the kernel did not change it`,
+      });
+    }
   }
 
   /** `/export [path]` — write the in-session transcript (0600, explicit path). */
@@ -991,6 +1040,44 @@ export class TuiController {
     this.push({ role: "system", content: `session ${this.sessionId} opened` });
   }
 
+  /**
+   * Send a control command (correction, permission mode) with a bounded
+   * refresh-and-resend loop.
+   *
+   * `expected_event_sequence` is read from the client's last observed snapshot,
+   * and a running turn keeps appending durable events. The refresh GET and the
+   * command POST are two round trips, so a commit landing between them rejects
+   * the command with 409 `SurfaceSequenceConflict` even though the refresh was
+   * correct when it was read (measured on a real daemon: 9 stale-cursor
+   * rejections across 20 Esc presses mid-turn). Resending from a *fresh* read is
+   * the only sound fix — the cursor is derived from durable truth, never
+   * guessed or fudged forward.
+   *
+   * Each attempt re-reads; only a stale-cursor rejection is retried, and the
+   * caller's idempotency key is reused across attempts so a resend can never
+   * re-apply a command that already landed (the kernel refuses a digest
+   * mismatch under a claimed key instead of executing twice).
+   */
+  private async controlWithRetry<T>(
+    sessionId: string,
+    send: () => Promise<T>,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= SEQUENCE_RETRY_LIMIT; attempt += 1) {
+      this.snapshot = await this.client.getSession(sessionId);
+      try {
+        return await send();
+      } catch (cause) {
+        lastError = cause;
+        if (!isSequenceConflict(cause)) throw cause;
+        if (attempt < SEQUENCE_RETRY_LIMIT) {
+          await new Promise((resolve) => setTimeout(resolve, this.sequenceRetryDelayMs));
+        }
+      }
+    }
+    throw lastError;
+  }
+
   /** Single predicate for "a new turn may start now" — used by both the
    * submit router and the queue drain so they can never disagree. */
   private canStartTurn(): boolean {
@@ -1087,6 +1174,18 @@ export class TuiController {
       } else {
         this.lastError = (cause as Error).message;
         this.status = "idle";
+        // A turn-level failure is often itself a stale cursor (the kernel
+        // rejected begin-turn/some command for an event sequence the client had
+        // not seen). Re-read durable truth before the next command, otherwise
+        // every following command fails the same way. The refresh must not
+        // replace the real error, so a failing read is ignored here.
+        if (this.sessionId) {
+          try {
+            this.adoptSnapshot(await this.client.getSession(this.sessionId));
+          } catch {
+            /* the turn error above stays the reported one */
+          }
+        }
       }
       this.emit();
     } finally {
@@ -1208,6 +1307,8 @@ export class TuiController {
         this.applyToolReceipt(payload);
       } else if (event.event_type === "NODE_COMPLETED") {
         this.applyToolCompletion(payload);
+      } else if (event.event_type === "NODE_FAILED") {
+        this.applyToolFailure(payload);
       }
     }
   }
@@ -1323,6 +1424,37 @@ export class TuiController {
     this.emit();
   }
 
+  /** A tool call that sealed nothing: refused before dispatch (so no receipt
+   * exists, because nothing was dispatched) or otherwise produced no result.
+   * The durable failure event carries the reason, so the card converges to
+   * `failed` instead of waiting for a result that will never come — the card
+   * used to sit at `⏵ pending` forever and `/export` said `tool [pending]`
+   * (round-3 audit). Assigned rather than appended, because the durable event
+   * can be replayed into the projection more than once. */
+  private applyToolFailure(payload: Record<string, unknown>): void {
+    const actionId = String(payload["action_id"] ?? "");
+    const nodeId = String(payload["node_id"] ?? "");
+    const index =
+      (actionId ? this.toolIndex.get(actionId) : undefined) ??
+      (nodeId ? this.nodeIndex.get(nodeId) : undefined);
+    if (index === undefined) return;
+    const message = this.messages[index];
+    const tool = message?.tool;
+    if (!tool) return;
+    const rawError = payload["error"];
+    const errorText = typeof rawError === "string" && rawError ? rawError : undefined;
+    if (errorText === undefined) return;
+    const bounded =
+      errorText.length > 120 ? `${errorText.slice(0, 120)}…` : errorText;
+    message.tool = {
+      ...tool,
+      status: "failed",
+      errorText,
+      resultSummary: `error ${bounded}`,
+    };
+    this.emit();
+  }
+
   /** Stall detection while streaming: quiet stream beyond the threshold. */
   tick(): void {
     if (this.status !== "streaming" || this.lastActivity === null) return;
@@ -1362,20 +1494,40 @@ export class TuiController {
     this.maybeDrain();
   }
 
-  /** Ctrl-C semantics: correction during activity, close when idle. */
+  /** Ctrl-C semantics: correction during activity, close when idle.
+   *
+   * One intent, one correction: while a correction is in flight, further Esc /
+   * Ctrl-C presses join it instead of starting another. A held or repeated key
+   * used to send one POST and one transcript line per key event — three
+   * identical "correction FAILED" lines and three requests for one operator
+   * decision. */
   async interrupt(source: "ctrl-c" | "escape" = "ctrl-c"): Promise<"corrected" | "closed"> {
+    if (this.interruptInFlight) return this.interruptInFlight;
+    const attempt = this.runInterrupt(source);
+    this.interruptInFlight = attempt;
+    try {
+      return await attempt;
+    } finally {
+      this.interruptInFlight = null;
+    }
+  }
+
+  private async runInterrupt(source: "ctrl-c" | "escape"): Promise<"corrected" | "closed"> {
     if (this.sessionId && (this.status === "streaming" || this.status === "stalled")) {
+      const sessionId = this.sessionId;
+      // One idempotency key for the operator's single intent, reused across the
+      // bounded resends below: if a correction did land and its response we
+      // never saw, the kernel answers from its idempotency record (or refuses a
+      // digest mismatch) instead of applying it a second time.
+      const idempotencyKey = `cli-ts-correction:${randomUUID()}`;
       try {
-        // Refresh the tracked event sequence first: durable progress learned via
-        // events() does not advance the client's per-session command cursor, so a
-        // correction sent straight away is rejected with 409
-        // SurfaceSequenceConflict - and keys.ts swallowed that rejection, so the
-        // operator believed the run had been corrected while the kernel had no
-        // record of it. `/mode` already refreshes for exactly this reason.
-        this.snapshot = await this.client.getSession(this.sessionId);
-        await this.client.correct(
-          this.sessionId,
-          `operator interrupt (${source})`,
+        await this.controlWithRetry(sessionId, () =>
+          this.client.correct(
+            sessionId,
+            `operator interrupt (${source})`,
+            "correction",
+            idempotencyKey,
+          ),
         );
       } catch (cause) {
         // Say so, loudly, on the surface the operator is looking at. Esc must not

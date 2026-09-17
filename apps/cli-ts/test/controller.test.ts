@@ -176,7 +176,12 @@ class FakeClient {
       total_tokens: 12,
     };
   }
-  async correct() {
+  async correct(
+    _sessionId?: string,
+    _reason?: string,
+    _action?: string,
+    _idempotencyKey?: string,
+  ) {
     return snapshot({ status: "CORRECTION_HALTED" });
   }
   filesList = [
@@ -464,48 +469,209 @@ test("ctrl-c during streaming issues a correction, not a silent kill", async () 
   assert.ok(controller.messages.some((m) => m.content.includes("correction issued")));
 });
 
-test("a rejected correction is reported instead of swallowed", async () => {
+test("a stale-cursor correction is retried from a fresh read and lands", async () => {
   // The kernel rejects a correction carrying a stale event cursor (409
-  // SurfaceSequenceConflict), and keys.ts swallowed that rejection: Esc looked
-  // like a successful redirect while the kernel had no record of it - the worst
-  // case being an operator who stops watching a run they believe they corrected.
-  class StaleCursorClient extends FakeClient {
+  // SurfaceSequenceConflict). The refresh GET and the command POST are two
+  // round trips and a running turn keeps appending durable events, so a commit
+  // landing between them rejects a correction that was correct when read
+  // (measured on a real daemon: 9 of 20 Esc presses mid-turn). The resend must
+  // re-read the cursor, and must carry the same idempotency key so it can never
+  // apply the operator's single correction twice.
+  class StaleOnceClient extends FakeClient {
     calls: string[] = [];
+    keys: (string | undefined)[] = [];
     async getSession() {
       this.calls.push("getSession");
       return super.getSession();
     }
-    async correct(): Promise<never> {
+    async correct(
+      _sid: string,
+      _reason: string,
+      _action: string,
+      key?: string,
+    ) {
       this.calls.push("correct");
+      this.keys.push(key);
+      if (this.calls.filter((call) => call === "correct").length === 1) {
+        throw new Error(
+          "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+        );
+      }
+      return snapshot({ status: "CORRECTION_HALTED" });
+    }
+  }
+  const client = new StaleOnceClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  assert.equal(await controller.interrupt("escape"), "corrected");
+
+  assert.deepEqual(
+    client.calls,
+    ["getSession", "correct", "getSession", "correct"],
+    "the resend must re-read durable truth first, not reuse the stale cursor",
+  );
+  assert.equal(client.keys.length, 2);
+  assert.equal(
+    client.keys[0],
+    client.keys[1],
+    "one operator intent keeps one idempotency key, so a resend cannot double-apply",
+  );
+  const messages = controller.messages.map((m) => m.content);
+  assert.ok(
+    messages.some((text) => text.includes("correction issued")),
+    `the absorbed retry must report success, got ${JSON.stringify(messages)}`,
+  );
+  assert.ok(
+    !messages.some((text) => text.includes("correction FAILED")),
+    "a correction that landed on the retry is not a failure",
+  );
+});
+
+test("a correction the kernel keeps rejecting is bounded and reported once", async () => {
+  class AlwaysStaleClient extends FakeClient {
+    posts = 0;
+    async correct(): Promise<never> {
+      this.posts += 1;
       throw new Error(
-        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 12",
       );
     }
   }
-  const client = new StaleCursorClient();
-  const controller = new TuiController(client as never, { pollMs: 1 });
+  const client = new AlwaysStaleClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
   (controller as never as { status: string }).status = "streaming";
   (controller as never as { sessionId: string | null }).sessionId = "s:1";
 
   await assert.rejects(() => controller.interrupt("escape"));
 
+  assert.equal(client.posts, 3, "one attempt plus a bounded two resends, then stop");
+  const failed = controller.messages.filter((m) => m.content.includes("correction FAILED"));
+  assert.equal(failed.length, 1, "the same failure is reported exactly once");
+  assert.match(failed[0]?.content ?? "", /was NOT corrected/);
+  assert.ok(
+    !controller.messages.some((m) => m.content.includes("correction issued")),
+    "a failed correction must not also claim success",
+  );
+});
+
+test("a successful correction is never resent", async () => {
+  const client = new FakeClient();
+  let posts = 0;
+  const raw = client.correct.bind(client);
+  client.correct = (async (...args: Parameters<FakeClient["correct"]>) => {
+    posts += 1;
+    return raw(...args);
+  }) as FakeClient["correct"];
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  assert.equal(await controller.interrupt("escape"), "corrected");
+  assert.equal(posts, 1);
+});
+
+test("a repeated Esc joins the correction already in flight", async () => {
+  // A held or repeated key used to send one POST and one transcript line per
+  // key event: three identical "correction FAILED" lines for one operator
+  // decision, and three chances to act on the same intent.
+  class SlowStaleClient extends FakeClient {
+    posts = 0;
+    async correct(): Promise<never> {
+      this.posts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new SlowStaleClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  const results = await Promise.allSettled([
+    controller.interrupt("escape"),
+    controller.interrupt("escape"),
+    controller.interrupt("escape"),
+  ]);
+
+  assert.deepEqual(
+    results.map((r) => r.status),
+    ["rejected", "rejected", "rejected"],
+  );
+  assert.equal(client.posts, 3, "three presses are one intended correction, retried bounded");
+  const failed = controller.messages.filter((m) => m.content.includes("correction FAILED"));
+  assert.equal(failed.length, 1, "the same failure is noticed once, not three times");
+});
+
+test("/mode failure is caught and reported instead of escaping the submit path", async () => {
+  // The view fires `void controller.submit(...)`, so a rejection here was an
+  // unhandled rejection with nothing in the transcript: the operator kept
+  // working under a mode the kernel never set.
+  class StaleModeClient extends FakeClient {
+    async setPermissionMode(): Promise<never> {
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 3 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new StaleModeClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  await controller.submit("open session");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  await assert.doesNotReject(() => controller.submit("/mode ACCEPT_IN_WORKSPACE"));
+
   const messages = controller.messages.map((m) => m.content);
   assert.ok(
     messages.some(
       (text) =>
-        text.includes("correction FAILED") && text.includes("was NOT corrected"),
+        text.includes("permission mode change to ACCEPT_IN_WORKSPACE FAILED") &&
+        text.includes("still ASK"),
     ),
     `expected an honest failure notice, got ${JSON.stringify(messages)}`,
   );
-  assert.ok(
-    !messages.some((text) => text.includes("correction issued")),
-    "a failed correction must not also claim success",
-  );
-  assert.deepEqual(
-    client.calls,
-    ["getSession", "correct"],
-    "the event cursor must be refreshed before correcting",
-  );
+  assert.equal(controller.mode, "ASK");
+});
+
+test("a turn-level failure re-reads durable truth before the next command", async () => {
+  // A failed turn is often a stale client cursor (the kernel rejected some
+  // command for a sequence the client had not observed). Leaving the old
+  // snapshot in place made every following command fail the same way.
+  class FailingTurnClient extends FakeClient {
+    async beginTurn(): Promise<never> {
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 1 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new FailingTurnClient();
+  client.snapshotSequence = 9;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("go");
+
+  assert.equal(controller.status, "idle");
+  assert.match(controller.lastError ?? "", /does not match current sequence 9/);
+  assert.equal(client.getSessionCalls, 1, "the snapshot must be re-read after the failure");
+  assert.equal(controller.currentSnapshot?.event_sequence, 9);
 });
 
 test("/doctor: wired probe text is surfaced; unavailable probe is honest", async () => {
@@ -919,6 +1085,17 @@ function completedEvent(seq: number, body: Record<string, unknown>) {
   };
 }
 
+function failedEvent(seq: number, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "NODE_FAILED",
+    payload_json: JSON.stringify(body),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
 function applyDurable(
   controller: TuiController,
 ): (next: number, events: unknown[]) => void {
@@ -1082,4 +1259,49 @@ test("/keys no longer advertises an unwired Ctrl-O panel (S1 audit)", async () =
     },
   };
   assert.match(renderTranscript([card], { sessionId: null, mode: "ASK", tokens: 0, goal: null }), /exit 1/);
+});
+
+test("a tool call that sealed nothing converges to failed, not pending (round-3 defect)", () => {
+  // A preflight refusal never dispatches, so no receipt and no NODE_COMPLETED
+  // exist; before this mapping the card sat at ⏵ pending forever and /export
+  // said `tool [pending]`, which is the operator-side half of S3's read-only
+  // refusal.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  const reason =
+    "CapabilityDenied: locked.txt is read-only (mode 0444); a workspace write keeps " +
+    "a file's permission bits, so the patch is refused -- make the file writable and apply the patch again";
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"locked.txt"}')]);
+  assert.equal(controller.messages[0]?.tool?.status, "pending");
+
+  apply(2, [
+    failedEvent(2, {
+      action_id: "a:edit",
+      node_id: "node:a:edit",
+      capability_id: "workspace.edit",
+      error: reason,
+      exception: "CapabilityDenied",
+    }),
+  ]);
+
+  const tool = controller.messages[0]?.tool;
+  assert.equal(tool?.status, "failed");
+  assert.equal(tool?.errorText, reason);
+  assert.match(tool?.resultSummary ?? "", /^error CapabilityDenied: locked\.txt is read-only/);
+  const rendered = renderTranscript(controller.messages, {
+    sessionId: null,
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(rendered, /failed/);
+  assert.match(rendered, /read-only \(mode 0444\)/);
+
+  // Replay: the durable event is applied again on a later drain and must not
+  // double the summary.
+  const summary = tool?.resultSummary;
+  apply(3, [
+    failedEvent(3, { action_id: "a:edit", node_id: "node:a:edit", error: reason }),
+  ]);
+  assert.equal(controller.messages[0]?.tool?.resultSummary, summary);
 });
