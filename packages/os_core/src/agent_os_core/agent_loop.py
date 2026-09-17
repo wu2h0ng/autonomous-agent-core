@@ -1665,12 +1665,40 @@ def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:
     return json.dumps(arguments, default=str)[:2000]
 
 
+_SUMMARY_VALUE_CHARS = 120
+
+
+def _scalar_summary(output: dict[str, Any]) -> dict[str, Any]:
+    """The small top-level scalars, which are the decision-relevant part.
+
+    Keys arrive key-sorted (canonical_output), so a payload whose bulk lives in
+    `matches` loses every field that sorts after it once the preview is cut -
+    `truncated_reason`, `scanned_files`, `unexamined_files`, `exit_code`, `mode`.
+    Those are exactly the fields that say WHY a result is incomplete, so they are
+    carried explicitly. Long strings are replaced by their length so the summary
+    itself stays bounded (a 5 MB read would otherwise re-inflate it).
+    """
+
+    summary: dict[str, Any] = {}
+    for key, value in output.items():
+        if value is None or isinstance(value, (bool, int, float)):
+            summary[key] = value
+        elif isinstance(value, str):
+            summary[key] = (
+                value
+                if len(value) <= _SUMMARY_VALUE_CHARS
+                else f"<omitted: {len(value)} chars>"
+            )
+    return summary
+
+
 def _truncate_json(output: dict[str, Any]) -> dict[str, Any]:
     rendered = json.dumps(output, default=str)
     if len(rendered) <= _MAX_TOOL_RESULT_CHARS:
         return output
     return {
         "truncated": True,
+        "summary": _scalar_summary(output),
         "preview": rendered[:_MAX_TOOL_RESULT_CHARS],
     }
 
