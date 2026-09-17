@@ -10,21 +10,20 @@ assumption that the opentui textarea now handles them natively:
   * ctrl-d deletes the character AT the cursor (forward delete)
   * a paste containing CR / CRLF becomes ONE newline
 
-MEASURED 2026-09-17 on this tree (bun src/opentui/main.tsx over a pty, hermetic
-daemon): all three are NOT_MET - the assumption does not hold. Typing "qwe" +
-0x7f + "r" leaves "qwer"; "asd" + Left + ctrl-d leaves "asd"; a bracketed paste
-of "p\\r\\nq" lands as one line "pq". Leading hypothesis: the view router claims
-printable keys and writes the draft through its own mirror (`setComposerText`),
-so the textarea never receives the editing keys it would otherwise handle.
+Read-back is row-level via `frame_reader.Screen` (deterministic terminal
+emulation), NOT a whole-buffer regex and NOT a forced repaint. An earlier
+version of this harness used those two and was itself the defect: it reported
+all three behaviours NOT_MET (`qwe`+0x7f+`r` -> `qwer`) when the textarea
+handles them correctly. Cause: a forced repaint read right after a key returns
+an empty/partial frame, and its ctrl-d expectation was wrong (`asd`+Left+ctrl-d
+yields `as`, not `ad`, so that assertion could never pass). Every byte the
+child writes is now fed to one Screen per case, and only the composer interior
+rows are asserted.
 
-This script is the assertion harness for that gap: it must print
-EDITOR_KEYS_OK: True once the behaviours are implemented. It is NOT wrapped as
-a passing test, precisely so the deficit stays visible.
-
-Scope, stated honestly: each case runs in its OWN process and is asserted on a
-forced full repaint (TIOCSWINSZ jiggle), so a stale frame cannot satisfy it. A
-raw CR is Enter, so case 3 uses bracketed paste framing; sending bare
-"p\\r\\nq" was measured to submit a turn instead (asserts nothing about paste).
+MEASURED 2026-09-17 with this version: EDITOR_KEYS_OK: True - composer goes
+`qwe` -> `qw` -> `qwr` with 0x7f, `jkl` -> `jk` with Left+ctrl-d, and a
+bracketed paste of `p\\r\\nq` lands as two rows `p` / `q`. The Ink-retirement
+assumption (native textarea handling) holds.
 
 Run from apps/cli-ts:
 
@@ -35,7 +34,6 @@ from __future__ import annotations
 import fcntl
 import os
 import pty
-import re
 import select
 import shutil
 import signal
@@ -46,32 +44,37 @@ import termios
 import time
 from pathlib import Path
 
+from frame_reader import Screen
+
 ROOT = Path(__file__).resolve().parents[3]
 CLI = ROOT / "apps" / "cli-ts"
-ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
-def strip(buf: bytes) -> str:
-    return ANSI.sub("", buf.decode(errors="replace")).replace("\x1b", "")
-
-
-def flat(text: str) -> str:
-    """Letters/slash/dot only: style resets can inject stray digits between
-    styled cells, so tokens are compared without them."""
-    return re.sub(r"[^a-z/._@-]", "", text.lower())
-
-
-def read(fd: int, seconds: float) -> str:
+def pump(screen: Screen, fd: int, seconds: float) -> None:
+    """Feed every byte the child writes into the screen emulator."""
     end = time.time() + seconds
-    buf = b""
     while time.time() < end:
         ready, _, _ = select.select([fd], [], [], 0.2)
-        if ready:
-            try:
-                buf += os.read(fd, 65536)
-            except OSError:
-                break
-    return strip(buf)
+        if not ready:
+            continue
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            return
+        screen.feed(data)
+
+
+def rows(screen: Screen) -> list[str]:
+    return [row.rstrip() for row in screen.text_rows()]
+
+
+def holds(screen: Screen, token: str) -> bool:
+    return any(token in row for row in rows(screen))
+
+
+def composer(screen: Screen) -> list[str]:
+    """The three interior rows of the "message" box (rows 35..37 at 40x120)."""
+    return [row.strip("│ ").rstrip() for row in rows(screen)[35:38]]
 
 
 def spawn(descriptor: Path) -> tuple[int, int]:
@@ -105,28 +108,19 @@ def kill(pid: int) -> None:
         pass
 
 
-def full_repaint(fd: int, master: int, rows: int = 40, cols: int = 120) -> str:
-    """Jiggle the window size so the renderer paints every cell again; the read
-    buffer then holds a complete frame instead of the last diff."""
-    for height in (rows + 1, rows):
-        fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", height, cols, 0, 0))
-        time.sleep(0.3)
-    return read(fd, 1.5)
-
-
-def type_chars(fd: int, text: bytes, delay: float = 0.06) -> None:
+def type_chars(fd: int, text: bytes, delay: float = 0.08) -> None:
     for ch in text:
         os.write(fd, bytes([ch]))
         time.sleep(delay)
 
 
 def case(name: str, descriptor: Path, body) -> bool:
-    pid, fd, master = 0, 0, 0
+    pid = 0
     try:
         pid, fd = spawn(descriptor)
-        master = fd
-        read(fd, 4)
-        ok = bool(body(fd, master))
+        screen = Screen(rows=40, cols=120)
+        pump(screen, fd, 4.0)
+        ok = bool(body(fd, screen))
     except Exception as exc:  # a dead pty surfaces here, never as a false pass
         print(f"CASE {name} ERROR:", exc)
         ok = False
@@ -136,50 +130,46 @@ def case(name: str, descriptor: Path, body) -> bool:
     return ok
 
 
-def backspace_case(fd: int, master: int) -> bool:
-    """qwe + 0x7f + r -> qwr (qwer would mean the backspace was dropped)."""
+def backspace_case(fd: int, screen: Screen) -> bool:
+    """qwe + 0x7f + r -> qwr (qwer would mean the 0x7f was dropped)."""
     type_chars(fd, b"qwe")
-    time.sleep(0.5)
+    pump(screen, fd, 0.6)
+    print("  composer after qwe:", composer(screen))
     os.write(fd, b"\x7f")
-    time.sleep(0.4)
-    type_chars(fd, b"r", delay=0.1)
-    text = flat(full_repaint(fd, master))
-    print("  backspace frame:", text[-80:])
-    return "qwr" in text and "qwer" not in text
+    pump(screen, fd, 0.5)
+    print("  composer after 0x7f:", composer(screen))
+    type_chars(fd, b"r")
+    pump(screen, fd, 0.6)
+    print("  composer after r:", composer(screen))
+    return "qwr" in composer(screen) and "qwer" not in composer(screen)
 
 
-def ctrl_d_case(fd: int, master: int) -> bool:
-    """asd + Left + ctrl-d -> ad (forward delete at the cursor)."""
-    type_chars(fd, b"asd")
-    time.sleep(0.5)
+def ctrl_d_case(fd: int, screen: Screen) -> bool:
+    """jkl + Left + ctrl-d -> jk: forward delete removes the char AT the cursor
+    (one Left from the end puts the cursor on 'l')."""
+    type_chars(fd, b"jkl")
+    pump(screen, fd, 0.6)
+    print("  composer after jkl:", composer(screen))
     os.write(fd, b"\x1b[D")
-    time.sleep(0.3)
+    pump(screen, fd, 0.3)
     os.write(fd, b"\x04")
-    time.sleep(0.6)
-    try:
-        text = flat(full_repaint(fd, master))
-    except OSError:
-        print("  ctrl-d killed the pty (treated as NOT_MET)")
-        return False
-    print("  ctrl-d frame:", text[-80:])
-    return "ad" in text and "asd" not in text
+    pump(screen, fd, 0.7)
+    print("  composer after Left + ctrl-d:", composer(screen))
+    line = "".join(composer(screen))
+    return "jk" in line and "jkl" not in line
 
 
-def crlf_case(fd: int, master: int) -> bool:
-    """A pasted CRLF must become one line break: both lines stay visible.
+def crlf_case(fd: int, screen: Screen) -> bool:
+    """Bracketed paste of "p\\r\\nq" must land as TWO rows (p above q).
 
-    A raw CR is Enter in a terminal, so a real paste must be bracketed
-    (ESC[200~ .. ESC[201~); sending bare "p\\r\\nq" submits a turn instead and
-    asserts nothing about paste handling (measured: it submitted).
+    A raw CR is Enter in a terminal, so bare "p\\r\\nq" submits a turn instead
+    of pasting; bracketed paste framing is what a real terminal sends.
     """
     os.write(fd, b"\x1b[200~p\r\nq\x1b[201~")
-    time.sleep(0.9)
-    raw = full_repaint(fd, master)
-    text = flat(raw)
-    print("  crlf frame:", text[-60:])
-    # Both pasted letters must be present and the CR must not have overwritten
-    # "p"; "pq" (everything on one line) would mean the break was dropped.
-    return "pq" not in text and "p" in text and "q" in text
+    pump(screen, fd, 1.0)
+    print("  composer after paste:", composer(screen))
+    inside = composer(screen)
+    return inside[0] == "p" and inside[1] == "q"
 
 
 def main() -> None:
