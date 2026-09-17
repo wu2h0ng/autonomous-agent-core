@@ -753,10 +753,27 @@ class OpenAICompatibleProvider(ProviderPort):
                 code = ProviderErrorCode.MALFORMED
             else:
                 code = ProviderErrorCode.UNAVAILABLE
+            # The message becomes the turn's final text, i.e. the only thing the
+            # operator reads. A bare "provider HTTP 401" names the symptom and
+            # nothing else, so the most common real failure - a missing, wrong or
+            # expired key - looked like an unexplained failure. Name the cause and
+            # the next step; never the credential value itself (safe_message is
+            # durable and must stay secret-free).
+            if code is ProviderErrorCode.AUTHENTICATION_FAILED:
+                message = (
+                    f"provider rejected the credential (HTTP {exc.code}) - "
+                    "check the configured provider key or re-run /provider"
+                )
+            elif code is ProviderErrorCode.RATE_LIMITED:
+                message = f"provider rate limited (HTTP {exc.code}) - retrying"
+            elif code is ProviderErrorCode.UNAVAILABLE:
+                message = f"provider unavailable (HTTP {exc.code}) - retrying"
+            else:
+                message = f"provider rejected the request (HTTP {exc.code})"
             return self._failure(
                 request,
                 code,
-                f"provider HTTP {exc.code}",
+                message,
                 code in {ProviderErrorCode.RATE_LIMITED, ProviderErrorCode.UNAVAILABLE},
             )
         except TimeoutError:
