@@ -945,6 +945,113 @@ def _serialize_message(message: ProviderMessage) -> dict[str, object]:
     return {"role": message.role.value.lower(), "content": message.content}
 
 
+# Factual per-tool descriptions carried to the model on every transport
+# (OpenAI tools, Anthropic tools, Gemini functionDeclarations). Each entry
+# states what the capability does, where its arguments live and which result
+# fields it returns -- including the truncation diagnostics of
+# ``workspace.search``, which are worthless to the model if the tool list does
+# not say they exist. The effect class and risk tier restate the domain pack's
+# ``CapabilitySpec`` and the frozen ``ACTION_RISK_TIERS`` allowlist; no policy is
+# added here. A capability with no entry keeps the generic fallback sentence.
+_TOOL_DESCRIPTIONS: dict[str, str] = {
+    "workspace.read": (
+        "Read one UTF-8 text file from the workspace. Argument: `path` "
+        "(required, workspace-relative; absolute paths, symlink paths and the "
+        "agent state directory are denied). Result: `path`, `content` (the "
+        "complete file text) and `sha256` (digest of `content`). "
+        "workspace.edit and workspace.apply_patch check their optional "
+        "`expected_sha256` against the target file before writing and deny on "
+        "mismatch. READ_ONLY, risk tier 1, no confirmation. A result "
+        "whose serialized JSON exceeds 8000 characters arrives as "
+        "`{truncated: true, preview: ...}`."
+    ),
+    "workspace.search": (
+        "Search the workspace in one of three modes, selected by the required "
+        "`mode` argument, under `path` (default \".\"). Mode \"ls\" lists one "
+        "directory and returns `entries`. Mode \"glob\" matches the glob "
+        "`pattern` and returns `matches`. Mode \"grep\" matches the regular "
+        "expression `pattern` (a file `path` searches that file) and returns "
+        "`matches` as \"relpath:lineno:line\", lines cut at 500 characters. "
+        ".git, node_modules, __pycache__, .venv, .agent-os-artifacts and "
+        ".agent_os are never searched. Results carry `truncated` (bool) and "
+        "`truncated_reason`: null when the search was complete, otherwise "
+        "\"scan_cap\" (only the first 1000 candidate files were read), "
+        "\"result_cap\" (the 200-entry result list is full) or \"output_cap\" (the "
+        "20000-character output budget was reached). grep also reports "
+        "`scanned_files` and `unexamined_files` (candidate files whose "
+        "contents were not read, e.g. those left behind by the scan cap). "
+        "`matches: []` with `truncated_reason: \"scan_cap\"` means the tree "
+        "was not searched exhaustively, so it does not establish that no match "
+        "exists. READ_ONLY, risk tier 1, no confirmation."
+    ),
+    "workspace.edit": (
+        "Replace one exact string in an existing workspace file. Arguments: "
+        "`path` (required), `old_string` (required; must occur exactly once in "
+        "the current file, otherwise the call is denied), `new_string` "
+        "(required) and optional `expected_sha256` (denied on mismatch instead "
+        "of overwriting a file that changed). Result: `path`, `sha256` and "
+        "`applied_sha256` (digest after the write), `before_sha256`, "
+        "`compensation_ref` and `manifest_sha256` (the durable snapshot that "
+        "backs compensation) and `replayed` (true when an identical prior "
+        "patch was already applied). SANDBOX_COMPENSATABLE, risk tier 2: "
+        "auto-allowed only when the session permission mode is "
+        "ACCEPT_IN_WORKSPACE, otherwise a human approval decision is required."
+    ),
+    "workspace.apply_patch": (
+        "Write a whole file in the workspace -- full-content replacement, or "
+        "creation of a new file. Arguments: `path` (required), `content` "
+        "(required, the complete new file text) and optional `expected_sha256` "
+        "(denied on mismatch). Result: `path`, `sha256` and `applied_sha256`, "
+        "`before_sha256`, `compensation_ref`, `manifest_sha256` and "
+        "`replayed`, the same durable snapshot binding workspace.edit returns. "
+        "SANDBOX_COMPENSATABLE, risk tier 2: auto-allowed only when the "
+        "session permission mode is ACCEPT_IN_WORKSPACE, otherwise a human "
+        "approval decision is required."
+    ),
+    "workspace.run_tests": (
+        "Run the project test suite inside the workspace. Arguments: `command` "
+        "(required; one of \"pytest\", \"python -m pytest\", "
+        "\"python3 -m pytest\") and optional `timeout_seconds` (1-120). "
+        "Result: `exit_code`, `digest` and `artifact_ids`; stdout and stderr "
+        "are not inline -- the full \"test-report.v1\" report (command, "
+        "exit_code, stdout, stderr) is stored content-addressed and named by "
+        "`artifact_ids`. Commands outside the allowlist are denied. "
+        "SANDBOX_IDEMPOTENT, risk tier 1, no confirmation."
+    ),
+    "workspace.shell": (
+        "Run an allowlisted shell command inside the workspace. Arguments: "
+        "`command` (required, allowlisted) and optional `timeout_seconds` "
+        "(1-300). Result: `exit_code`, `stdout` and `stderr`, each the last "
+        "4000 characters of its stream, plus `digest` and `artifact_ids` for "
+        "the full \"shell-report.v1\" report. Commands outside the allowlist "
+        "are denied. SANDBOX_IDEMPOTENT, risk tier 3: a human approval "
+        "decision is required and it is never auto-approved."
+    ),
+    "artifact.write": (
+        "Store string content as a content-addressed artifact. Argument: "
+        "`content` (this capability is declared with additionalProperties: "
+        "true, so no argument schema is published). Result: `artifact_ids` "
+        "(e.g. \"artifact:<sha256>\") and `digest` (sha256 of the content); "
+        "rewriting identical content is idempotent and writes nothing. "
+        "SANDBOX_IDEMPOTENT with CapabilitySpec risk tier 1, but "
+        "artifact.write is not in the permission gate's E2 allowlist "
+        "(ACTION_RISK_TIERS), which denies a capability outside that allowlist "
+        "in every permission mode without executing it."
+    ),
+    "session.todo_write": (
+        "Replace the session task list. Argument: `todos` (required array of "
+        "at most 100 items, each `{id, content, status}` with status one of "
+        "pending, in_progress, done) -- full-replace semantics, the submitted "
+        "list is the entire new list. Result: `ok`, `todos` (the normalized "
+        "stored list) and `count`. Session scratchpad only: no file, process "
+        "or network effect. TRANSACTIONAL_INTERNAL, risk tier 1, no "
+        "confirmation."
+    ),
+}
+
+_GENERIC_TOOL_DESCRIPTION = "Propose typed capability {capability_id}"
+
+
 def _tool_definition(capability_id: str) -> dict[str, object]:
     parameters = _WORKSPACE_TOOL_PARAMETERS.get(
         capability_id,
@@ -957,7 +1064,10 @@ def _tool_definition(capability_id: str) -> dict[str, object]:
         "type": "function",
         "function": {
             "name": capability_id.replace(".", "__"),
-            "description": f"Propose typed capability {capability_id}",
+            "description": _TOOL_DESCRIPTIONS.get(
+                capability_id,
+                _GENERIC_TOOL_DESCRIPTION.format(capability_id=capability_id),
+            ),
             "parameters": parameters,
         },
     }
