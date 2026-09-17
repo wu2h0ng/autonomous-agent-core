@@ -213,6 +213,36 @@ test("doctor: prints the launcher line even when the descriptor is missing", asy
   assert.ok(!text.includes("daemon (from descriptor):"));
 });
 
+test("doctor: a warned-about launcher never changes ok, so the exit code stays 0", async () => {
+  // The contract `cli.tsx` relies on: it maps report.ok to the process exit
+  // code, and notes are identity information, never a verdict. A runtime that is
+  // NOT the checkout the caller stands in (and is therefore the one auto-start
+  // may fall back to) must still leave a healthy daemon green.
+  const { fn } = fakeFetch(404, { protocol_version: "1.1" });
+  const warned: DoctorOptions[] = [
+    insideCheckout({ AGENT_OS_RUNTIME_CMD: "agent-os-runtime" }),
+    // a checkout with no uv on PATH: the PATH runtime is the first candidate
+    {
+      env: {},
+      resolve: {
+        hasOnPath: (name) => name === "agent-os-runtime",
+        findCheckout: () => CHECKOUT,
+        cwd: () => CHECKOUT,
+      },
+    },
+  ];
+  for (const options of warned) {
+    const report = await runDoctor(descriptorFile(), fn as never, options);
+    assert.ok(report.notes.some((note) => note.level === "warn"), "expected a warning line");
+    assert.ok(report.checks.every((check) => check.ok));
+    assert.equal(report.ok, true, renderDoctorText(report));
+  }
+  // outside this checkout the same non-checkout launcher is merely informational
+  const outside = await runDoctor(descriptorFile(), fn as never, outsideCheckout());
+  assert.ok(outside.notes.every((note) => note.level === "info"));
+  assert.equal(outside.ok, true, renderDoctorText(outside));
+});
+
 test("doctor: no launcher at all is reported, without failing the daemon checks", async () => {
   const { fn } = fakeFetch(404, { protocol_version: "1.1" });
   const report = await runDoctor(descriptorFile(), fn as never, {

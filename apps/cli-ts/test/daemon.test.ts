@@ -4,10 +4,17 @@
  * exists. No real process is spawned and no real network is used.
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import type { ChildProcess } from "node:child_process";
@@ -15,6 +22,7 @@ import {
   daemonHealthy,
   ensureDaemon,
   findCheckoutRoot,
+  resolveDaemonCandidates,
   resolveDaemonCommand,
   resolveDaemonLaunch,
   stopDaemon,
@@ -453,6 +461,293 @@ test("ensureDaemon fails closed when the launcher errors", async () => {
       /failed to start daemon/,
     );
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+/** A fake launcher that dies the way a broken checkout's launcher does. */
+function fakeExitingChild(exitCode: number): ChildProcess {
+  const child = {
+    unref() {},
+    once(event: string, cb: (arg?: unknown, extra?: unknown) => void) {
+      if (event === "exit") cb(exitCode, null);
+      if (event === "spawn") cb();
+      return child;
+    },
+  };
+  return child as unknown as ChildProcess;
+}
+
+test("resolveDaemonCandidates orders the checkout, PATH and uv launchers", () => {
+  const bothOnPath = (name: string): boolean =>
+    name === "agent-os-runtime" || name === "uv";
+  assert.deepEqual(
+    resolveDaemonCandidates({} as NodeJS.ProcessEnv, {
+      hasOnPath: bothOnPath,
+      findCheckout: () => "/repo",
+      cwd: () => "/repo",
+    }),
+    [
+      launch(["uv", "run", "agent-os-runtime"], "checkout", "/repo"),
+      launch(["agent-os-runtime"], "path"),
+      launch(["uv", "run", "agent-os-runtime"], "uv"),
+    ],
+  );
+  // AGENT_OS_RUNTIME_CMD is the ONLY candidate: the user named that command, so
+  // quietly starting a different runtime instead would betray the promise the
+  // override makes.
+  assert.deepEqual(
+    resolveDaemonCandidates(
+      { AGENT_OS_RUNTIME_CMD: "python -m x" } as NodeJS.ProcessEnv,
+      { hasOnPath: bothOnPath, findCheckout: () => "/repo", cwd: () => "/repo" },
+    ),
+    [launch(["python", "-m", "x"], "override")],
+  );
+  assert.deepEqual(resolveDaemonCandidates({} as NodeJS.ProcessEnv, noCheckout), []);
+});
+
+test("ensureDaemon falls back when the preferred launcher dies before readiness", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    const checkoutLog = join(dir, "daemon-launch-checkout.log");
+    const pathLog = join(dir, "daemon-launch-path.log");
+    const spawned: string[] = [];
+    const warnings: string[] = [];
+    let clock = 0;
+    const spawn = ((command: string, args: string[]) => {
+      spawned.push([command, ...args].join(" "));
+      if (command === "uv") {
+        // What a real broken checkout does: `uv run` exits 2 within
+        // milliseconds and puts the reason on stderr (measured 0.016s with a
+        // malformed uv.lock).
+        writeFileSync(checkoutLog, "key with no value, expected `=`\n");
+        return fakeExitingChild(2);
+      }
+      return fakeChild(() => writeFileSync(descriptorPath, descriptorJson()));
+    }) as DaemonDeps["spawn"];
+    const result = await ensureDaemon(
+      { descriptorPath, workspace: dir, database: join(dir, "db") },
+      {
+        fetch: okFetch,
+        spawn,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        now: () => clock,
+        warn: (message) => warnings.push(message),
+        resolveLaunch: () => [
+          launch(["uv", "run", "agent-os-runtime"], "checkout", "/broken/checkout"),
+          launch(["agent-os-runtime"], "path"),
+        ],
+      },
+    );
+    assert.equal(result.started, true);
+    assert.equal(result.descriptor.port, 12345);
+    assert.equal(spawned.length, 2, "the next candidate must be tried");
+    assert.match(spawned[0] ?? "", /^uv run agent-os-runtime --workspace /);
+    assert.match(spawned[1] ?? "", /^agent-os-runtime --workspace /);
+    // The failure was detected, not waited out: a blind wait would burn the
+    // whole 20s deadline before ever reaching the PATH launcher.
+    assert.ok(clock < 2000, `fell back only after ${clock}ms`);
+    // And the fallback is visible: what failed, where its output went, what took
+    // over. Silence here is what made the original regression mysterious.
+    assert.equal(warnings.length, 1);
+    const warning = warnings[0] ?? "";
+    assert.match(
+      warning,
+      /checkout launcher "uv run agent-os-runtime" \(checkout \/broken\/checkout\): exited 2 after 0\.00s/,
+    );
+    assert.match(warning, /daemon-launch-checkout\.log/);
+    assert.match(warning, /falling back to "agent-os-runtime" \(PATH\)/);
+    // the dead launcher's output is kept for the user; the live one's is not
+    assert.ok(existsSync(checkoutLog), "the failed launcher's output must be kept");
+    assert.ok(!existsSync(pathLog), "the successful launcher needs no capture file");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDaemon refuses when every launcher fails, quoting stderr but never secrets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    const pathLog = join(dir, "daemon-launch-path.log");
+    const TOKEN = "descriptor-token-must-never-be-printed";
+    let clock = 0;
+    const spawn = ((command: string) => {
+      if (command === "uv") {
+        writeFileSync(
+          join(dir, "daemon-launch-checkout.log"),
+          "error: Failed to parse `uv.lock`\nkey with no value, expected `=`\n",
+        );
+        return fakeExitingChild(2);
+      }
+      // A launcher that wrote a descriptor (so its token is on disk) and echoed
+      // that token before it died.
+      writeFileSync(
+        descriptorPath,
+        JSON.stringify({
+          protocol_version: "1.1",
+          pid: 5151,
+          boot_id: "boot:dead",
+          host: "127.0.0.1",
+          port: 12399,
+          bearer_token: TOKEN,
+          database_path: "/tmp/db",
+          workspace_path: "/tmp/ws",
+          created_at: new Date().toISOString(),
+        }),
+      );
+      writeFileSync(pathLog, `starting with token ${TOKEN}\nfatal: could not bind\n`);
+      return fakeExitingChild(3);
+    }) as DaemonDeps["spawn"];
+    await assert.rejects(
+      ensureDaemon(
+        { descriptorPath, workspace: dir, database: join(dir, "db"), timeoutSeconds: 5 },
+        {
+          fetch: badFetch,
+          spawn,
+          sleep: async (ms) => {
+            clock += ms;
+          },
+          now: () => clock,
+          warn: () => {},
+          resolveLaunch: () => [
+            launch(["uv", "run", "agent-os-runtime"], "checkout", "/broken/checkout"),
+            launch(["agent-os-runtime"], "path"),
+          ],
+        },
+      ),
+      (error: Error) => {
+        assert.match(error.message, /did not become ready in time/);
+        // the real cause, from the launcher's own stderr, for every candidate
+        assert.match(error.message, /key with no value, expected `=`/);
+        assert.match(error.message, /fatal: could not bind/);
+        assert.match(error.message, /exited 2 after 0\.00s/);
+        assert.match(error.message, /exited 3 after 0\.00s/);
+        assert.match(error.message, /full output: .*daemon-launch-path\.log/);
+        assert.ok(
+          !error.message.includes(TOKEN),
+          `the descriptor token leaked: ${error.message}`,
+        );
+        return true;
+      },
+    );
+    // the retained capture is redacted too, not only the message
+    const kept = readFileSync(pathLog, "utf8");
+    assert.ok(!kept.includes(TOKEN), `the token leaked into ${pathLog}: ${kept}`);
+    assert.match(kept, /fatal: could not bind/);
+    // one deadline covers the whole chain, fallbacks included
+    assert.ok(clock <= 5000, `the chain must fit one deadline: ${clock}ms`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDaemon captures a live launcher's stderr, not only its exit code", async () => {
+  // The DEFAULT spawn is used on purpose: only a real process can prove the
+  // launcher's stderr is wired to the capture file. A fake that writes the file
+  // itself passes even with `stdio: "ignore"` — which is exactly the defect.
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    const log = join(dir, "daemon-launch-path.log");
+    await assert.rejects(
+      ensureDaemon(
+        { descriptorPath, workspace: dir, database: join(dir, "db"), timeoutSeconds: 10 },
+        {
+          fetch: okFetch,
+          resolveLaunch: () => [
+            launch(["/bin/sh", "-c", 'echo "boom: could not bind" >&2; exit 7'], "path"),
+          ],
+        },
+      ),
+      (error: Error) => {
+        assert.match(error.message, /boom: could not bind/);
+        assert.match(error.message, /exited 7 after 0\.0\ds/);
+        return true;
+      },
+    );
+    assert.match(readFileSync(log, "utf8"), /boom: could not bind/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDaemon still quotes a launcher's stderr when the descriptor dir is absent", async () => {
+  const outer = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  const keptFiles: string[] = [];
+  try {
+    // A machine that has never run the daemon: the descriptor's directory does
+    // not exist yet, so the capture cannot sit beside it. Dropping the cause
+    // there is the same defect in a different state.
+    const descriptorPath = join(outer, "missing", "runtime.json");
+    await assert.rejects(
+      ensureDaemon(
+        { descriptorPath, workspace: outer, database: join(outer, "db"), timeoutSeconds: 10 },
+        {
+          fetch: okFetch,
+          resolveLaunch: () => [
+            launch(["/bin/sh", "-c", 'echo "boom: no runtime here" >&2; exit 7'], "path"),
+          ],
+        },
+      ),
+      (error: Error) => {
+        assert.match(error.message, /boom: no runtime here/);
+        const found = /full output: (.*)$/m.exec(error.message)?.[1];
+        assert.ok(found, `no retained capture named: ${error.message}`);
+        keptFiles.push(found);
+        return true;
+      },
+    );
+    const keptFile = keptFiles[0];
+    assert.ok(keptFile !== undefined, "the capture must be reported");
+    assert.match(readFileSync(keptFile, "utf8"), /boom: no runtime here/);
+  } finally {
+    for (const kept of keptFiles) {
+      await rm(dirname(kept), { recursive: true, force: true });
+    }
+    await rm(outer, { recursive: true, force: true });
+  }
+});
+
+test("ensureDaemon keeps AGENT_OS_RUNTIME_CMD above the whole fallback chain", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-os-daemon-"));
+  const previous = process.env.AGENT_OS_RUNTIME_CMD;
+  process.env.AGENT_OS_RUNTIME_CMD = "uv run agent-os-runtime";
+  try {
+    const descriptorPath = join(dir, "runtime.json");
+    const spawned: string[] = [];
+    const warnings: string[] = [];
+    let clock = 0;
+    // No injected launcher resolution here: the real resolver runs against
+    // process.env, so this proves the override outranks a checkout, PATH and uv
+    // that are all available on this machine.
+    await assert.rejects(
+      ensureDaemon(
+        { descriptorPath, workspace: dir, database: join(dir, "db"), timeoutSeconds: 5 },
+        {
+          fetch: okFetch,
+          spawn: ((command: string, args: string[]) => {
+            spawned.push([command, ...args].join(" "));
+            return fakeExitingChild(2);
+          }) as DaemonDeps["spawn"],
+          sleep: async (ms) => {
+            clock += ms;
+          },
+          now: () => clock,
+          warn: (message) => warnings.push(message),
+        },
+      ),
+      /did not become ready/,
+    );
+    assert.equal(spawned.length, 1, "the override is the only candidate");
+    assert.match(spawned[0] ?? "", /^uv run agent-os-runtime --workspace /);
+    assert.deepEqual(warnings, [], "an explicit command is not a hint to fall back from");
+  } finally {
+    if (previous === undefined) delete process.env.AGENT_OS_RUNTIME_CMD;
+    else process.env.AGENT_OS_RUNTIME_CMD = previous;
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -96,7 +96,9 @@ function launcherNotes(
         level: "info",
         text:
           `launcher: ${argv} — from the checkout at ${plan.checkoutRoot} (this ` +
-          "checkout); a daemon it starts runs there, while --workspace stays your directory",
+          "checkout); a daemon it starts runs there, while --workspace stays your directory. " +
+          "If that launcher cannot start, the client falls back to the next one (PATH, then " +
+          "uv run) and says so — this line names the most-preferred launcher",
       },
     ];
   }
