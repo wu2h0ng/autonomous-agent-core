@@ -52,7 +52,7 @@ jobs:
           # unittest.TestCase classes anyway (it is pytest-style: bare test
           # functions, fixtures, async cases). Measured on this tree:
           # `unittest discover -s tests` collects 1237 cases with 0 from
-          # tests/product/, while pytest collects 2626 items there.
+          # tests/product/, while pytest collects 2646 items there.
           # Without this step the whole governed product gate -- surface contracts,
           # situated, SRL working set and the SSE end-frame regression -- never ran
           # in CI at all. This is the command recorded in
@@ -90,52 +90,82 @@ jobs:
           # scripts and dist-info metadata these tests assert on, and it also
           # proves the wheel ships apps/api_server/*.html.
           pip install --no-deps .
-          # Collection floor, checked BEFORE the run. `pytest tests/product` exits 5
+          # SINGLE SOURCE OF TRUTH for what this gate measures and what it runs.
+          # The collect-only invocation and the real run below both read $PRODUCT_ARGS,
+          # so narrowing the gate narrows the same thing the floor measures. Hard-coding
+          # the target twice instead re-opens the hole the floor exists to close: with
+          # the collect line left at `tests/product` (measured: 2642 items on this tree)
+          # and only the run line narrowed to one file, the step printed "collected 2642
+          # items (floor 2500)", executed 4 of them and still exited 0.
+          # tests/product/test_ci_gate_wiring.py asserts the two invocations expand to
+          # the same command modulo --collect-only, so a -k/--ignore/--deselect added to
+          # one of them alone fails the wiring test as well.
+          PRODUCT_ARGS="tests/product"
+          # Collection floor, checked BEFORE the run. `pytest $PRODUCT_ARGS` exits 5
           # only when the collection is COMPLETELY empty, so a step quietly narrowed
           # to a subset -- an added `-k`/`--deselect`, a path that now points at one
           # file, a module deleted from disk -- still exits 0 and looks green while
           # most of the governed gate stopped running. Require the collection to be
-          # at least 2500 items: measured 2631 on this tree (2026-09-18; 2626 when
-          # the number above was recorded, so the suite is growing), and the largest
+          # at least 2500 items: measured 2646 on this tree (2026-09-18; 2639 at the
+          # commit this branch started from, 2631 when the earlier note was
+          # written, and the count keeps moving up as this branch adds its own guard
+          # tests -- which is why the floor is a round 2500 rather than the exact total), and the largest
           # single file in tests/product collects 148 items
           # (test_srl_event_admission.py), i.e. no legitimate subset is anywhere near
-          # 2500. 2500 (not 2631) leaves room to delete real tests on purpose without a
+          # 2500. 2500 (not 2642) leaves room to delete real tests on purpose without a
           # false alarm.
           # `--collect-only` performs the same imports as the real run, so a module
           # that cannot even be imported fails here as well; the explicit exit check
           # below turns that into a readable error instead of a bare non-zero step.
           # The count is taken from the per-item lines pytest prints (verified equal
-          # to pytest's own reported total: 2631) rather than from the summary line,
+          # to pytest's own reported total: 2642) rather than from the summary line,
           # whose wording is a pytest-version detail.
+          # What a full run of those items reports, for judging the floor (2026-09-18):
+          # 2640 passed / 1 skipped, plus 1 failure that appears ONLY in a copy which
+          # skipped the `pip install --no-deps .` above
+          # (test_installed_product_package_contains_api_surface_resources reads the
+          # INSTALLED distribution's file list). The same run in the worktree, whose
+          # suite held 2639 items before this branch added its own guard tests, was
+          # 2638 passed / 1 skipped. All three numbers count the same collection.
           COLLECT_LOG="$(mktemp)"
-          if ! PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest tests/product -q --collect-only > "$COLLECT_LOG"; then
-            echo "::error::tests/product did not collect -- a module failed to import, or the suite is empty:"
+          if ! PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q --collect-only > "$COLLECT_LOG"; then
+            echo "::error::$PRODUCT_ARGS did not collect -- a module failed to import, or the suite is empty:"
             tail -20 "$COLLECT_LOG"
             exit 1
           fi
           COLLECTED="$(awk '/::/ { items++ } END { print items + 0 }' "$COLLECT_LOG")"
-          echo "tests/product collected $COLLECTED items (floor 2500)"
+          echo "$PRODUCT_ARGS collected $COLLECTED items (floor 2500)"
           if [ "$COLLECTED" -lt 2500 ]; then
-            echo "::error::the governed product gate now collects only $COLLECTED items, below the floor of 2500. The suite was narrowed -- a -k/--deselect filter, a moved path, or deleted modules -- so most of the gate would silently stop running while this step stayed green."
+            echo "::error::the governed product gate now collects only $COLLECTED items, below the floor of 2500. $PRODUCT_ARGS was narrowed -- a -k/--deselect filter, a moved path, or deleted modules -- so most of the gate would silently stop running while this step stayed green."
             exit 1
           fi
-          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest tests/product -q
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q
 
   # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
   # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it
-  # runs on a different runtime (Bun) with its own suite (node:test, 195 cases). It had NO CI
+  # runs on a different runtime (Bun) with its own suite (node:test, 205 cases). It had NO CI
   # coverage at all, so a PR could break the user entry while every Python job stayed green.
   # A separate, parallel job rather than a step in `test`: it needs a node/bun toolchain the
   # Python job has no use for, and its failure should be attributable on its own.
   cli-ts:
     runs-on: ubuntu-latest
+    # Wall-clock bound, because this job has none of its own and CI's default is 360 minutes.
+    # It is the only job that installs a full node + bun toolchain, builds the client, packs the
+    # tarball and starts a hermetic daemon, so it is the slowest and the one that can HANG: the
+    # render tests spawn Bun (which can block on a renderer that never exits) and the install
+    # smoke spawns a daemon (which can block on a socket that never answers). Measured here, a
+    # healthy run is far inside this bound (the node:test suite itself: 205 cases / 0 fail in
+    # ~1.6 s; the build/pack/start hops dominate), so 20 minutes is a hang detector, not a
+    # performance gate -- it turns "the turn never finishes" into a 20-minute attributable
+    # failure instead of six hours of runner time.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       # Node is only the test DRIVER: scripts.test is `node --import tsx --test <files>`, and no
       # test file imports OpenTUI at runtime (the two render tests spawn Bun instead; everything
       # else touching @opentui is `import type`, erased at run time). Pinned because ubuntu-latest
       # ships whatever node it ships; 22 = the LTS line this suite was verified on (v22.23.0,
-      # 195 pass / 0 fail).
+      # 205 pass / 0 fail).
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -156,7 +186,7 @@ jobs:
       # fails here with "lockfile had changes, but lockfile is frozen", exit 1), so a stale
       # lockfile fails loudly instead of silently re-resolving to a different tree. It only
       # checks dependencies -- a scripts-only package.json edit does not trip it (verified).
-      # `npm ci` also installs and passes (verified in a clean copy: 195 pass), so it remains the
+      # `npm ci` also installs and passes (verified in a clean copy: 205 pass), so it remains the
       # fallback if bun install is ever unavailable.
       - name: Install (frozen lockfile)
         working-directory: apps/cli-ts
@@ -166,7 +196,7 @@ jobs:
       # test/test-list-guard.test.ts asserts the registered list against the files on disk in both
       # directions. They need no TTY: they spawn `bun run <harness>` and assert on its exit status
       # and its PASS marker, so the runner's piped stdout is fine (verified locally with
-      # stdout piped: 195 pass / 0 fail).
+      # stdout piped: 205 pass / 0 fail).
       - name: Tests
         working-directory: apps/cli-ts
         run: npm test
