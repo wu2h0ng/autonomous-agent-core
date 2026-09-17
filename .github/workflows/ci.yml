@@ -40,6 +40,50 @@ jobs:
           # standalone checkout (pydantic pin mirrors packages/contracts).
           pip install pytest pyyaml "pydantic>=2.13,<3"
           PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m unittest discover -s tests -p "test_*.py"
+      - name: Product suite (governed gate, pytest)
+        run: |
+          # Why this step exists: the deterministic step above is `unittest discover`,
+          # which cannot see the governed product suite at all -- tests/product has
+          # no __init__.py, so discovery never descends into it, and it holds ZERO
+          # unittest.TestCase classes anyway (it is pytest-style: bare test
+          # functions, fixtures, async cases). Measured on this tree:
+          # `unittest discover -s tests` collects 1237 cases with 0 from
+          # tests/product/, while pytest collects 2626 items there.
+          # Without this step the whole governed product gate -- surface contracts,
+          # situated, SRL working set and the SSE end-frame regression -- never ran
+          # in CI at all. This is the command recorded in
+          # docs/CURRENT_STATE.yaml test_commands.product, made self-contained
+          # (python -m pytest instead of uv) for this standalone checkout.
+          # Scope note: it covers tests/product only. The apps/cli-ts (Bun/Vitest)
+          # suite is NOT covered by CI yet and has no job here.
+          # Deps are pinned to pyproject: [project.optional-dependencies].product-test
+          # (pydantic/pytest/pyyaml) plus sqlglot, which is a plain runtime
+          # dependency (pyproject dependencies, exact pin 30.13.0) and is NOT in the
+          # extra -- without it every test importing apps.api_server fails at
+          # collection, because apps/api_server/app.py -> domain_packs/data_agent/
+          # runtime.py -> sql_safety.py imports sqlglot (verified: 69 collection
+          # errors, all ModuleNotFoundError: sqlglot). ruff is pinned separately in
+          # the lint step.
+          # Deliberately NO plain `pip install -e .`: the workspace packages are
+          # supplied by the PYTHONPATH below, whereas resolving
+          # agent-os-contracts==0.1.0 from an index would fail (the workspace
+          # members are not published).
+          pip install "pytest>=9,<10" "pyyaml>=6,<7" "pydantic>=2.13,<3" "sqlglot==30.13.0"
+          # The project itself must then be installed too: tests/product/
+          # test_product_entrypoint.py reads the INSTALLED distribution
+          # (importlib.metadata entry points / file list) and runs the
+          # agent-os-runtime + agent-os-work console scripts that sit next to
+          # sys.executable. In a clean checkout 4 of those 5 tests fail without
+          # this line (verified: 4 failed / 1 passed before, 5 passed after;
+          # `python -m apps.cli --help` needs no install and passes either way).
+          # `--no-deps` keeps what pip resolves to exactly the pinned runtime set
+          # above -- the workspace deps are on PYTHONPATH and must not be resolved
+          # by index.
+          # Not `-e`: a real (non-editable) install is what produces the console
+          # scripts and dist-info metadata these tests assert on, and it also
+          # proves the wheel ships apps/api_server/*.html.
+          pip install --no-deps .
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest tests/product -q
 
   # --- ARM-AT-FREEZE (not active yet) -----------------------------------------------------------
   # prereg-verify: machine-enforce "no mechanism change after a preregistration freeze" (the
