@@ -108,6 +108,15 @@ class CapabilityPort(Protocol):
 
     def release_execution_lease(self, lease: ExecutionLease) -> bool: ...
 
+    def preflight_action(self, action: ActionContract) -> None:
+        """Optional action-aware deterministic preflight (never required).
+
+        The broker calls this before reserving anything when a connector
+        exposes it, so a refusal stays a typed DENIED instead of becoming an
+        UNKNOWN outcome after reservation.
+        """
+        ...
+
 
 class CapabilityBroker:
     """The only production execution boundary for typed capability actions.
@@ -175,6 +184,14 @@ class CapabilityBroker:
         # Deterministic allowlist/path checks run before reservation: a DENIED
         # action never produces a reservation or an UNKNOWN record.
         self.connector.preflight(action.capability_id, args, action.idempotency_key)
+        # Optional action-aware preflight: a connector that needs the action's
+        # task/run identity (Form B agent.spawn enforces the per-parent-turn
+        # fan-out bound here, where a refusal is a typed DENIED before any
+        # reservation, never an UNKNOWN after one) exposes this method.
+        # Absent method = no change for every existing connector.
+        action_preflight = getattr(self.connector, "preflight_action", None)
+        if action_preflight is not None:
+            action_preflight(action)
         reserved = outcomes.reserve(action, execution_lease=execution_claim)
         if isinstance(reserved, CapabilityResult):
             return reserved

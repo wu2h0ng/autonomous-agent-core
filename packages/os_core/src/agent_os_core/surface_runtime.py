@@ -20,6 +20,8 @@ from agent_os_contracts import (
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
+    SurfaceChildAgentReconcileCommand,
+    SurfaceChildAgentsResponse,
     SurfaceClientRef,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
@@ -112,6 +114,12 @@ class SurfaceApplicationPort(Protocol):
     def surface_set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand
     ) -> SurfaceSessionSnapshot: ...
+
+    def surface_child_agents(self, session_id: str) -> SurfaceChildAgentsResponse: ...
+
+    def surface_reconcile_child_agents(
+        self, command: SurfaceChildAgentReconcileCommand
+    ) -> SurfaceChildAgentsResponse: ...
 
     def surface_provider_status(self) -> SurfaceProviderStatus: ...
 
@@ -309,6 +317,40 @@ class SurfaceRuntime:
             f"surface:correct:{command.session_id}",
             self._application.surface_correct_session,
         )
+
+    def child_agents(self, session_id: str) -> SurfaceChildAgentsResponse:
+        """Read-only attribution roll-up and orphan picture for one session.
+
+        A read, like the session snapshot and events endpoints: the caller is
+        already authenticated by the local bearer token, and the application
+        scopes the answer to this runtime's principal/tenant/workspace.
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        return self._application.surface_child_agents(session_id)
+
+    def reconcile_child_agents(
+        self, command: SurfaceChildAgentReconcileCommand
+    ) -> SurfaceChildAgentsResponse:
+        """Operator-declared burial of a session's ownerless children."""
+
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:children-reconcile:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceChildAgentsResponse,
+                operation=lambda: self._reconcile_child_agents_once(command),
+            )
+
+    def _reconcile_child_agents_once(
+        self, command: SurfaceChildAgentReconcileCommand
+    ) -> SurfaceChildAgentsResponse:
+        self._require_protocol(command.protocol_version)
+        self._require_principal_scope(command.client)
+        self._require_open_session(command.session_id)
+        return self._application.surface_reconcile_child_agents(command)
 
     def set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand

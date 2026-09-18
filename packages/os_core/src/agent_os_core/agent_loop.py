@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -72,7 +73,25 @@ CHAT_CAPABILITY_IDS: tuple[str, ...] = (
     "workspace.run_tests",
     "workspace.shell",
     "session.todo_write",
+    "agent.spawn",
 )
+
+# The interactive chat surface after the Form B child-agent switch has been
+# consulted: agent.spawn is advertised to the model only when the composition
+# root has enabled child agents (AGENT_OS_CHILD_AGENTS, default off). An
+# unadvertised agent.spawn proposal still fails closed: the loop refuses it as
+# an out-of-allowlist denial before any action is built.
+CHILD_AGENT_CAPABILITY_ID = "agent.spawn"
+
+
+def chat_capability_ids(*, child_agents_enabled: bool) -> tuple[str, ...]:
+    if child_agents_enabled:
+        return CHAT_CAPABILITY_IDS
+    return tuple(
+        capability_id
+        for capability_id in CHAT_CAPABILITY_IDS
+        if capability_id != CHILD_AGENT_CAPABILITY_ID
+    )
 
 # Action risk tiers live in permission_gate (frozen allowlist, E2); tier >= 3
 # escalates inside PolicyKernel and requires a digest-bound ApprovalDecision;
@@ -89,6 +108,7 @@ CHAT_GRANT_MAX_RISK_TIERS: dict[str, int] = {
     "workspace.edit": 2,
     "workspace.apply_patch": 2,
     "workspace.shell": 3,
+    "agent.spawn": 2,
 }
 
 _SYSTEM_PROMPT = (
@@ -226,6 +246,8 @@ class AgentLoop:
         permission_mode: PermissionMode = "ASK",
         permission_mode_event_id: str | None = None,
         deny_rules: Sequence[PermissionDenyRule] = (),
+        capability_ids: Sequence[str] | None = None,
+        wall_clock_deadline: float | None = None,
     ) -> None:
         self._tasks = tasks
         self._provider = provider
@@ -273,7 +295,27 @@ class AgentLoop:
         self._permission_mode: PermissionMode = permission_mode
         self._permission_mode_event_id = permission_mode_event_id
         self._deny_rules = tuple(deny_rules)
+        self._capability_ids: tuple[str, ...] = tuple(
+            capability_ids if capability_ids is not None else CHAT_CAPABILITY_IDS
+        )
+        # Optional runtime-only wall-clock bound (Form B child turns): a child
+        # spawn is synchronous, so without one the parent's turn inherits the
+        # child's whole duration. The loop checks the deadline at every step
+        # boundary and stops the turn itself - it is a real bound on the child,
+        # not an abandoned worker. It is never durable: a restart resets it.
+        self._wall_clock_deadline = wall_clock_deadline
         self._last_compaction: tuple[object, ...] | None = None
+
+    @property
+    def capability_ids(self) -> tuple[str, ...]:
+        """The exact capability ids this loop advertises and will accept."""
+
+        return self._capability_ids
+
+    def set_wall_clock_deadline(self, deadline: float | None) -> None:
+        """Bind (or clear) this loop's runtime-only wall-clock deadline."""
+
+        self._wall_clock_deadline = deadline
 
     @property
     def history(self) -> tuple[ProviderMessage, ...]:
@@ -862,6 +904,12 @@ class AgentLoop:
         seen_action_digests = dict(seen_action_digests or {})
         stop_reason = "max_steps"
         while steps < self._config.max_steps_per_turn:
+            if (
+                self._wall_clock_deadline is not None
+                and time.monotonic() > self._wall_clock_deadline
+            ):
+                stop_reason = "wall_clock_exceeded"
+                break
             if continuation is None:
                 if self._correction.halted(session.task_id, session.run_id, "provider"):
                     stop_reason = "correction_halted"
@@ -938,7 +986,7 @@ class AgentLoop:
             for index in range(start_index, len(proposals)):
                 proposal = proposals[index]
                 capability_id = proposal.capability_id
-                if capability_id not in CHAT_CAPABILITY_IDS:
+                if capability_id not in self._capability_ids:
                     # Fail closed in every mode: never executable, not
                     # approvable. The denial is recorded durably (E2) with
                     # reason and digest before the turn stops.
@@ -1279,7 +1327,7 @@ class AgentLoop:
                 run_id=session.run_id,
                 provider_profile_id=self._profile.profile_id,
                 messages=tuple(messages),
-                allowed_capability_ids=CHAT_CAPABILITY_IDS,
+                allowed_capability_ids=self._capability_ids,
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )

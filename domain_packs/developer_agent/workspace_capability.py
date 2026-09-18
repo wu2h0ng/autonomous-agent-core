@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_os_contracts import (
+    AGENT_SPAWN_CAPABILITY_ID,
     ActionContract,
     CapabilitySpec,
+    ChildAgentSpawnCommand,
     ReceiptStatus,
     SideEffectGuarantee,
     content_digest,
@@ -26,8 +28,13 @@ from agent_os_core import (
     CapabilityEffect,
     CapabilityEffectUnknown,
     CapabilityResult,
+    ChildAgentDisabled,
+    ChildAgentIndex,
+    ChildAgentNotSpawnable,
     DurableActionOutcomeRepository,
     ExecutionLease,
+    enforce_child_agent_depth,
+    enforce_child_agent_fan_out,
 )
 
 from .shell_denial import require_allowlisted_command
@@ -294,6 +301,8 @@ class DeveloperWorkspaceAdapter:
         idempotency_store: object | None = None,
         shell_allowlist: tuple[str, ...] | None = None,
         execution_isolation: str = EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
+        child_agent_spawner: object | None = None,
+        child_agents_enabled: bool = False,
     ) -> None:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -306,6 +315,19 @@ class DeveloperWorkspaceAdapter:
             else ("pytest", "python -m pytest", "python3 -m pytest")
         )
         self.set_execution_isolation(execution_isolation)
+        # Form B (ADR-0061): the spawner is injected by the composition root;
+        # this adapter owns no session semantics. Both the switch and the port
+        # default to the feature being unavailable.
+        self._child_agent_spawner = child_agent_spawner
+        self._child_agents_enabled = bool(child_agents_enabled)
+
+    def bind_child_agent_spawner(
+        self, spawner: object, *, enabled: bool
+    ) -> None:
+        """Composition-root binding for ``agent.spawn`` (off unless enabled)."""
+
+        self._child_agent_spawner = spawner
+        self._child_agents_enabled = bool(enabled)
 
     def set_shell_allowlist(self, allowlist: tuple[str, ...]) -> None:
         self._shell_allowlist = tuple(allowlist)
@@ -346,6 +368,69 @@ class DeveloperWorkspaceAdapter:
             self._preflight(capability_id, args, action_key)
         except Exception as exc:
             raise _redacted_error(exc, self.root) from None
+
+    def preflight_action(self, action: ActionContract) -> None:
+        """Action-aware deterministic deny before any reservation (Form B).
+
+        ``agent.spawn`` needs the action's task identity to count the children
+        already in flight for this parent turn; doing it in ``preflight`` keeps
+        an over-limit spawn a typed DENIED (no reservation, no receipt, no
+        UNKNOWN) instead of an ambiguous unknown outcome after reservation.
+        """
+
+        if action.capability_id != AGENT_SPAWN_CAPABILITY_ID:
+            return
+        try:
+            self._preflight_child_agent_spawn(action)
+        except Exception as exc:
+            raise _redacted_error(exc, self.root) from None
+
+    def child_agent_index(self) -> ChildAgentIndex | None:
+        """Durable child-agent index, or ``None`` without a durable store."""
+
+        store = self._idempotency_store
+        if store is None or not hasattr(store, "read") or not hasattr(
+            store, "list_task_ids"
+        ):
+            return None
+        return ChildAgentIndex(store)  # type: ignore[arg-type]
+
+    def _require_child_agent_spawner(self) -> object:
+        if not self._child_agents_enabled:
+            raise ChildAgentDisabled(
+                "child agents are disabled; the agent.spawn capability is not "
+                "enabled in this runtime (AGENT_OS_CHILD_AGENTS)"
+            )
+        if self._child_agent_spawner is None:
+            raise ChildAgentDisabled(
+                "child agents are enabled but no spawner is bound in this runtime"
+            )
+        return self._child_agent_spawner
+
+    def _preflight_child_agent_spawn(self, action: ActionContract) -> None:
+        self._require_child_agent_spawner()
+        args = json.loads(action.arguments_json)
+        if not isinstance(args, dict):
+            raise CapabilityDenied("capability arguments must be an object")
+        ChildAgentSpawnCommand.model_validate(args)
+        index = self.child_agent_index()
+        if index is None:
+            raise CapabilityDenied(
+                "child agents require the durable event store"
+            )
+        parent_turn_id = index.open_turn_id(action.task_id)
+        if parent_turn_id is None:
+            raise ChildAgentNotSpawnable(
+                "agent.spawn requires an open parent turn; this action is not "
+                "inside one"
+            )
+        enforce_child_agent_depth(index, action.task_id)
+        enforce_child_agent_fan_out(
+            index,
+            action.task_id,
+            parent_turn_id,
+            env=os.environ,
+        )
 
     def acquire_execution_lease(
         self, action: ActionContract, owner: str
@@ -423,6 +508,9 @@ class DeveloperWorkspaceAdapter:
             _normalize_todos(args)
             return
         if capability_id == "artifact.write":
+            return
+        if capability_id == AGENT_SPAWN_CAPABILITY_ID:
+            self._require_child_agent_spawner()
             return
         raise CapabilityDenied(f"capability is not registered: {capability_id}")
 
@@ -758,6 +846,20 @@ class DeveloperWorkspaceAdapter:
                 **common,
             ),
         }
+        if self._child_agents_enabled and self._child_agent_spawner is not None:
+            # Registered only when the composition root enabled the feature:
+            # an unregistered capability is absent from the trusted registry,
+            # so the broker refuses it and the policy kernel finds no grant.
+            specs[AGENT_SPAWN_CAPABILITY_ID] = CapabilitySpec(
+                capability_id=AGENT_SPAWN_CAPABILITY_ID,
+                version="1",
+                display_name="Spawn a governed child agent session",
+                side_effect_guarantee=SideEffectGuarantee.TRANSACTIONAL_INTERNAL,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=False,
+                **{**common, "risk_tier": 2, "timeout_seconds": 900},
+            )
         if include_internal:
             specs["workspace.compensate_patch"] = CapabilitySpec(
                 capability_id="workspace.compensate_patch",
@@ -786,9 +888,16 @@ class DeveloperWorkspaceAdapter:
             args = json.loads(action.arguments_json)
             if not isinstance(args, dict):
                 raise CapabilityDenied("capability arguments must be an object")
-            output = self._dispatch(
-                action.capability_id, args, action.idempotency_key
-            )
+            if action.capability_id == AGENT_SPAWN_CAPABILITY_ID:
+                # Handled here rather than in the dispatch table: the spawn
+                # needs this action's identity (its action_id is the child's
+                # spawn_id), and the table's signature stays as every other
+                # connector and test double knows it.
+                output = self._spawn_child_agent(args, action)
+            else:
+                output = self._dispatch(
+                    action.capability_id, args, action.idempotency_key
+                )
         except Exception as exc:
             raise _redacted_error(exc, self.root) from None
         return CapabilityEffect(status=ReceiptStatus.SUCCEEDED, output=output)
@@ -832,6 +941,24 @@ class DeveloperWorkspaceAdapter:
                 target.write_bytes(content)
             return {"artifact_ids": (f"artifact:{digest}",), "digest": digest}
         raise CapabilityDenied(f"capability is not registered: {capability_id}")
+
+    def _spawn_child_agent(
+        self, args: dict[str, object], action: ActionContract
+    ) -> dict[str, object]:
+        """Delegate one governed spawn to the composition-root spawner.
+
+        The connector holds no session semantics: it validates the frozen
+        command and hands the spawner the action, whose ``action_id`` is the
+        child's ``spawn_id`` (so a durable record, the child's fields and the
+        parent's receipt all name the same identity). Every rejection the
+        spawner raises propagates to the broker and becomes a typed outcome;
+        nothing here can widen a grant or approve anything.
+        """
+
+        spawner = self._require_child_agent_spawner()
+        command = ChildAgentSpawnCommand.model_validate(args)
+        result = spawner.spawn_child_agent(action, command)  # type: ignore[attr-defined]
+        return result.model_dump(mode="json")
 
     def read_artifact_bytes(self, artifact_id: str) -> bytes | None:
         prefix = "artifact:"

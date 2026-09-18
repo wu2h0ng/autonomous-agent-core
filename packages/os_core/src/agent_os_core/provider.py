@@ -34,6 +34,17 @@ from agent_os_contracts import (
 
 
 _WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
+    "agent.spawn": {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "minLength": 1},
+            "description": {"type": "string", "minLength": 1, "maxLength": 80},
+            "agent_type": {"type": "string", "enum": ["general", "explore"]},
+            "max_steps": {"type": "integer", "minimum": 1},
+        },
+        "required": ["prompt", "description"],
+        "additionalProperties": False,
+    },
     "workspace.read": {
         "type": "object",
         "properties": {"path": {"type": "string", "minLength": 1}},
@@ -1259,6 +1270,34 @@ def _serialize_message(message: ProviderMessage) -> dict[str, object]:
 # ``CapabilitySpec`` and the frozen ``ACTION_RISK_TIERS`` allowlist; no policy is
 # added here. A capability with no entry keeps the generic fallback sentence.
 _TOOL_DESCRIPTIONS: dict[str, str] = {
+    "agent.spawn": (
+        "Spawn one child agent as its own governed session/task/run and drive "
+        "its single turn to an end, then return its result. Arguments: "
+        "`prompt` (required, the child's first user message -- stored in the "
+        "child session's own message stream), `description` (required, at most "
+        "80 characters, the operator-visible label), `agent_type` (\"general\" "
+        "or \"explore\", default \"general\") and optional `max_steps`. An "
+        "\"explore\" child is read-only: it holds workspace.read and "
+        "workspace.search only. A \"general\" child inherits this session's "
+        "capabilities MINUS agent.spawn unless nested spawns are explicitly "
+        "enabled, and its grants are a validated non-widening subset of this "
+        "session's (same principal/tenant/workspace, no higher risk tier, no "
+        "larger budget). Result: `child_session_id`, `child_task_id`, `status` "
+        "(completed|failed|stopped|timeout|limit), `text` (the child's bounded "
+        "final assistant text), `steps`, `tokens`, `stop_reason`. `status` "
+        "\"stopped\" with `stop_reason` \"awaiting_approval\" means the child "
+        "parked on a permission prompt that only the operator can answer: the "
+        "child session then shows a pending approval and can be resumed from "
+        "the operator surface. At most 4 children may be in flight per parent "
+        "turn (AGENT_OS_MAX_CHILD_AGENTS); exceeding that is a typed refusal "
+        "before anything is created. The child's actions are never covered by "
+        "this call's approval: each needs its own decision, permit and, at "
+        "risk tier 3 or above, a real human approval bound to that child "
+        "action. TRANSACTIONAL_INTERNAL, risk tier 2: auto-allowed only when "
+        "the session permission mode is ACCEPT_IN_WORKSPACE, otherwise a human "
+        "approval decision is required. Unavailable when child agents are "
+        "switched off, in which case the proposal is denied in every mode."
+    ),
     "workspace.read": (
         "Read one UTF-8 text file from the workspace. Argument: `path` "
         "(required, workspace-relative; absolute paths, symlink paths and the "
