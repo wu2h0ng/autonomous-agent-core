@@ -46,6 +46,31 @@ class _StubHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
+        if status == 200:
+            # A scripted success, so the same stub can drive the happy path
+            # (the operator-log records need one).
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "id": "resp:stub",
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "stub reply",
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 1,
+                            "completion_tokens": 2,
+                            "total_tokens": 3,
+                        },
+                    }
+                ).encode()
+            )
+            return
         self.wfile.write(json.dumps({"error": {"message": "stub"}}).encode())
 
     def log_message(self, *_args: object) -> None:  # keep pytest output clean
@@ -940,9 +965,16 @@ class _RetryAfterHandler(BaseHTTPRequestHandler):
             {
                 "id": "resp:1",
                 "choices": [
-                    {"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+                    {
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             }
         ).encode()
         self.send_response(200)
@@ -1037,3 +1069,130 @@ def test_a_non_retryable_failure_does_not_honour_retry_after(monkeypatch) -> Non
     assert result.code is ProviderErrorCode.AUTHENTICATION_FAILED
     assert sleeps == [], sleeps
     assert provider._retry_after_hint is None  # type: ignore[attr-defined]
+
+
+# --- operator log ------------------------------------------------------------
+
+
+def _logged_request(text: str = "SECRET-PROMPT-TEXT"):
+    from agent_os_contracts import ProviderMessage, ProviderMessageRole, ProviderRequest
+
+    return ProviderRequest(
+        request_id="req:log",
+        task_id="task:1",
+        run_id="run:1",
+        provider_profile_id="provider-profile:default",
+        messages=(ProviderMessage(role=ProviderMessageRole.USER, content=text),),
+        timeout_seconds=30,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def _read_log(path) -> list[dict[str, object]]:  # type: ignore[no-untyped-def]
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_no_operator_log_without_the_env_variable(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.delenv("AGENT_OS_PROVIDER_LOG", raising=False)
+    monkeypatch.setenv("FAILURE_VISIBILITY_KEY", _SECRET)
+    provider = OpenAICompatibleProvider(
+        base_url=_stub([200]),
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        retry_base_seconds=0.0,
+    )
+    assert not isinstance(provider.complete(_request()), ProviderFailure)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_successful_call_writes_one_content_free_record(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    log = tmp_path / "nested" / "provider.jsonl"
+    monkeypatch.setenv("AGENT_OS_PROVIDER_LOG", str(log))
+    monkeypatch.setenv("FAILURE_VISIBILITY_KEY", _SECRET)
+    provider = OpenAICompatibleProvider(
+        base_url=_stub([200]),
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        retry_base_seconds=0.0,
+    )
+    result = provider.complete(_logged_request())
+    assert not isinstance(result, ProviderFailure), result
+
+    records = _read_log(log)
+    assert len(records) == 1, records
+    record = records[0]
+    assert record["event"] == "provider_attempt"
+    assert record["outcome"] == "response"
+    assert record["attempt"] == 0
+    assert record["provider_id"] == "openai-compatible"
+    assert record["model_id"] == "stub-model"
+    assert record["latency_ms"] >= 0
+    assert record["total_tokens"] == 3
+    assert "finish_reason" in record
+    # The log answers "how long / how many tokens / which failure" and nothing
+    # else: no prompt text, no completion text, no credential.
+    raw = log.read_text()
+    assert "SECRET-PROMPT-TEXT" not in raw
+    assert _SECRET not in raw
+    assert (log.stat().st_mode & 0o777) == 0o600
+
+
+def test_a_rate_limited_attempt_is_logged_with_its_retry_after(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Two records: the 429 (with the server's instruction) and the success after
+    # the retry.
+    import agent_os_core.provider as provider_module
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(provider_module.time, "sleep", sleeps.append)
+    log = (
+        __import__("pathlib").Path(
+            __import__("tempfile").mkdtemp(prefix="provider-log-")
+        )
+        / "provider.jsonl"
+    )
+    monkeypatch.setenv("AGENT_OS_PROVIDER_LOG", str(log))
+    monkeypatch.setenv("FAILURE_VISIBILITY_KEY", _SECRET)
+    _RETRY_AFTER.clear()
+    _RETRY_AFTER.append("3")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RetryAfterHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    provider = OpenAICompatibleProvider(
+        base_url=f"http://127.0.0.1:{server.server_address[1]}",
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        retry_base_seconds=0.0,
+    )
+    assert not isinstance(provider.complete(_request()), ProviderFailure)
+    assert sleeps == [3.0], sleeps
+
+    records = _read_log(log)
+    assert [record["outcome"] for record in records] == ["failure", "response"]
+    assert records[0]["code"] == "RATE_LIMITED"
+    assert records[0]["retryable"] is True
+    assert records[0]["retry_after_seconds"] == 3.0
+    assert records[0]["attempt"] == 0
+    assert records[1]["attempt"] == 1
+
+
+def test_an_unwritable_operator_log_does_not_break_the_call(
+    monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_LOG", str(blocker / "nested" / "log.jsonl"))
+    monkeypatch.setenv("FAILURE_VISIBILITY_KEY", _SECRET)
+    provider = OpenAICompatibleProvider(
+        base_url=_stub([200]),
+        model="stub-model",
+        credential=_credential(),
+        credentials=EnvCredentialBroker(),
+        retry_base_seconds=0.0,
+    )
+    result = provider.complete(_request())
+    assert not isinstance(result, ProviderFailure), result
+    assert not (blocker / "nested").exists()

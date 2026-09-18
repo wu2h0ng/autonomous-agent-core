@@ -189,6 +189,41 @@ def _retry_after_seconds(headers: object) -> float | None:
     return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
+def _operator_log_path() -> str | None:
+    """Where the operator's provider-attempt log goes, or None when disabled.
+
+    Opt-in by design: `AGENT_OS_PROVIDER_LOG` names a file, and nothing is
+    written (or created) without it. The log grows by one line per model call
+    attempt and is not rotated - a long-lived session appends to it.
+    """
+
+    raw = os.environ.get("AGENT_OS_PROVIDER_LOG")
+    return raw.strip() if raw and raw.strip() else None
+
+
+def _append_operator_log(record: dict[str, object]) -> None:
+    """Append one JSON line, and never let logging break a turn.
+
+    An unwritable path (a read-only directory, a path whose parent is a file, a
+    full disk) must not turn a successful model call into a failed one, so every
+    error here is swallowed - the same rule `saveState` follows for the CLI's own
+    state file.
+    """
+
+    path = _operator_log_path()
+    if path is None:
+        return
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, default=str) + "\n"
+        with open(target, "a", encoding="utf-8") as handle:
+            handle.write(line)
+        os.chmod(target, 0o600)
+    except Exception:
+        return
+
+
 def load_pricing_table() -> dict[str, dict[str, object]]:
     """Load an optional local pricing table for cost honesty (E3).
 
@@ -647,12 +682,25 @@ class OpenAICompatibleProvider(ProviderPort):
 
         result: ProviderResponse | ProviderFailure | None = None
         for attempt in range(attempts):
+            started = time.monotonic()
             result = self._invoke(
                 request,
                 allowed_capability_ids=allowed_capability_ids,
                 stream=stream,
                 on_text_delta=_text_delta if stream else on_text_delta,
                 on_reasoning_delta=_reasoning_delta if stream else on_reasoning_delta,
+            )
+            # The operator log is the only machine-readable record of what a
+            # session did at the model boundary (the durable audit is a different,
+            # kernel-side artifact). Opt-in, and never in the way of a turn.
+            _append_operator_log(
+                self._operator_log_record(
+                    request,
+                    attempt,
+                    stream,
+                    result,
+                    time.monotonic() - started,
+                )
             )
             if isinstance(result, ProviderResponse):
                 return result
@@ -669,6 +717,49 @@ class OpenAICompatibleProvider(ProviderPort):
                 time.sleep(delay)
         assert result is not None
         return result
+
+    def _operator_log_record(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        attempt: int,
+        stream: bool,
+        result: ProviderResponse | ProviderFailure,
+        elapsed_seconds: float,
+    ) -> dict[str, object]:
+        """One record per model call attempt, for an operator's own log.
+
+        Deliberately excludes everything a user typed or the model said: the log
+        answers "how long, how many tokens, which failure, after how many
+        retries", and writing prompt or completion text into a file the operator
+        did not ask for would be a privacy leak dressed up as observability.
+        """
+
+        record: dict[str, object] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": "provider_attempt",
+            "request_id": request.request_id,
+            "provider_id": self._credential.provider_id,
+            "model_id": self._model,
+            "attempt": attempt,
+            "stream": stream,
+            "latency_ms": round(elapsed_seconds * 1000, 1),
+            "outcome": "response"
+            if isinstance(result, ProviderResponse)
+            else "failure",
+        }
+        if isinstance(result, ProviderResponse):
+            record["input_tokens"] = result.usage.input_tokens
+            record["output_tokens"] = result.usage.output_tokens
+            record["total_tokens"] = result.usage.total_tokens
+            record["text_chars"] = len(result.text)
+            record["tool_proposals"] = len(result.tool_proposals)
+            record["finish_reason"] = result.finish_reason
+        else:
+            record["code"] = result.code.value
+            record["retryable"] = result.retryable
+            if self._retry_after_hint is not None:
+                record["retry_after_seconds"] = self._retry_after_hint
+        return record
 
     def _request_body(
         self,
