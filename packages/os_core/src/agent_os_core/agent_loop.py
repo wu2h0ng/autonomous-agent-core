@@ -358,9 +358,24 @@ class AgentLoop:
             )
         )
         self._resumable_turn_ids.add(turn_id.turn_id)
-        return self.resume_turn(session, turn_id)
+        return self.resume_turn(session, turn_id, started_here=True)
 
-    def resume_turn(self, session: ChatSession, turn_id: TurnId) -> TurnResult:
+    def resume_turn(
+        self,
+        session: ChatSession,
+        turn_id: TurnId,
+        *,
+        started_here: bool = False,
+    ) -> TurnResult:
+        """Drive one durable open turn.
+
+        `started_here` marks a turn whose durable `SESSION_TURN_STARTED` was
+        written by *this* call (`run_turn`): only then may a Run that turned
+        PAUSED in between be treated as the end of that same turn. A restored
+        turn (`started_here=False`) belongs to an earlier process and stays
+        fail-closed.
+        """
+
         self._require_session_binding(session)
         if (
             turn_id.session_id != session.session_id
@@ -414,6 +429,34 @@ class AgentLoop:
                 or run.run_id != session.run_id
                 or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
             ):
+                if (
+                    started_here
+                    and run is not None
+                    and run.run_id == session.run_id
+                    and run.status is RunStatus.PAUSED
+                ):
+                    # The operator's stop won the race for this turn's own first
+                    # writes: `run_turn` had already read a runnable Run, and the
+                    # pause became durable before this call committed the turn
+                    # start. The turn is durable and the provider was never
+                    # called, so it must end durably here as
+                    # `stopped_by_operator`. Raising instead would leave this
+                    # SESSION_TURN_STARTED without its SESSION_TURN_COMPLETED, and
+                    # "uncommitted turn" is exactly that difference - every later
+                    # begin-turn on the session would fail SurfaceTurnInProgress,
+                    # so the stop would brick the session it stopped. The refusal
+                    # that follows is for a *restored* turn (another process's
+                    # durable turn, `started_here=False`): it must not be consumed
+                    # by a resume while the Run is PAUSED.
+                    stopped = TurnResult(
+                        turn_id=turn_id,
+                        text=_STOPPED_BY_OPERATOR_TEXT,
+                        steps=0,
+                        stop_reason="stopped_by_operator",
+                        total_tokens=0,
+                    )
+                    self._complete_turn(session, turn_id, stopped)
+                    return stopped
                 # Fail closed before any provider call, and before the durable
                 # turn can be consumed by a resume: a Run that is already PAUSED
                 # (or terminal) must be resumed explicitly first. The mid-turn

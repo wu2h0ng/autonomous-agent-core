@@ -30,6 +30,8 @@ from typing import Any
 import pytest
 from agent_os_contracts import (
     SURFACE_PROTOCOL_VERSION,
+    ProviderMessage,
+    ProviderMessageRole,
     RunStatus,
     SurfaceBeginTurnCommand,
     SurfaceClientRef,
@@ -39,6 +41,7 @@ from agent_os_contracts import (
     SurfaceStreamBinding,
     TaskEventDraft,
     TaskEventType,
+    TurnId,
 )
 from agent_os_core import (
     ConcurrentWriteError,
@@ -47,6 +50,7 @@ from agent_os_core import (
     InvalidTransitionError,
     SurfaceScopeError,
     SurfaceSequenceConflict,
+    SurfaceTurnInProgress,
 )
 from agent_os_core.provider import ProviderToolProposal
 
@@ -668,3 +672,151 @@ def test_pausing_one_session_leaves_another_session_running(
     assert app.surface.get_session(stopped.session_id).status is (
         SurfaceSessionStatus.PAUSED
     )
+
+
+def test_a_stop_that_lands_after_the_turn_started_still_ends_the_turn(
+    tmp_path: Path,
+) -> None:
+    """A stop that wins the race for the turn's own first writes must still
+    leave the session usable.
+
+    The operator's pause appends to the same optimistic stream the turn writes
+    to, so it can land after `run_turn`'s runnable-Run check and before that
+    turn's durable `SESSION_TURN_STARTED` (the loop's append-conflict retries
+    can widen that window). At that point the turn is about to be durable, the
+    provider has not been called, and the honest outcome is a turn that starts
+    and immediately ends as `stopped_by_operator`.
+
+    Raising instead leaves the durable `SESSION_TURN_STARTED` without its
+    `SESSION_TURN_COMPLETED`. Since "uncommitted turn" is computed as exactly
+    that difference, the session would be left permanently uncommitted and
+    every later begin-turn would fail `SurfaceTurnInProgress` - the stop would
+    brick the session it stopped. The test issues the stop through the kernel
+    because it has to land between two specific writes of the turn, which no
+    external client can time; the surface pause and the kernel pause write the
+    same durable `RUN_PAUSED` truth.
+    """
+
+    app = chat_app(tmp_path, scripted=(("must not run", ()),))
+    session, _ = app.open_chat_session("stop me", DeferredApprovalGateway())
+    record_message = app._record_chat_message
+    stopped: list[bool] = []
+
+    def sink(
+        chat_session: Any,
+        message_index: int,
+        message: Any,
+        turn_id: str | None,
+    ) -> None:
+        record_message(chat_session, message_index, message, turn_id)
+        if message.role is ProviderMessageRole.USER and not stopped:
+            stopped.append(True)
+            app.pause_task(session.task_id)
+
+    app._record_chat_message = sink  # type: ignore[method-assign]
+
+    begun = app.surface.begin_turn(
+        _begin_turn(
+            app,
+            session.session_id,
+            app.subscribe_stream(session.session_id),
+            text="stop me before the first provider call",
+        )
+    )
+    completed = _turn_completion(app, session.task_id, begun.turn_id)
+
+    assert completed["stop_reason"] == STOP_REASON
+    assert completed["steps"] == 0
+    assert _event_count(app, session.task_id, TaskEventType.SESSION_TURN_STARTED) == 1
+    assert _event_count(app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED) == 1
+    assert app.surface_has_uncommitted_turn(session.session_id) is False
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+    assert _run_status(app, session.task_id) is RunStatus.PAUSED
+
+    # Stopped, not wedged: resume, then the same session runs the next turn.
+    assert app.surface.resume(_resume_command(app, session.session_id)).status is (
+        SurfaceSessionStatus.ACTIVE
+    )
+    app._record_chat_message = record_message  # type: ignore[method-assign]
+    app.provider = DeterministicProvider(
+        scripted=(("second reply", ()),),
+        invocation_binding=app.provider.invocation_binding,
+    )
+    second = app.surface.begin_turn(
+        _begin_turn(
+            app,
+            session.session_id,
+            app.subscribe_stream(session.session_id),
+            text="second request",
+            key="idem:turn:2",
+        )
+    )
+    assert _turn_completion(app, session.task_id, second.turn_id)["stop_reason"] == (
+        "completed"
+    )
+
+
+def test_an_uncommitted_turn_is_still_never_consumed_by_a_retry(
+    tmp_path: Path,
+) -> None:
+    """Bypass detector for the two guards the stop path must not weaken.
+
+    A session whose turn is durably open while its Run is PAUSED is exactly the
+    state a stopped or crashed session comes back to. The session must still
+    (a) refuse a *second* concurrent turn (`SurfaceTurnInProgress`, one
+    in-flight turn per session) and (b) refuse to consume the stored open turn
+    at all - no provider call, no silent `SESSION_TURN_COMPLETED` - until the
+    operator resumes it. The state is built with the kernel's own writers, so
+    the test pins the durable shape rather than one composition path.
+    """
+
+    app = chat_app(tmp_path, scripted=(("must not run", ()),))
+    session, _ = app.open_chat_session("open turn", DeferredApprovalGateway())
+    projected = app.tasks.project_session(session.task_id, session.session_id)
+    turn_id = "turn-uncommitted-1"
+    request_text = "a request whose turn never committed"
+    app.tasks.record_session_message(
+        session.task_id,
+        session.session_id,
+        projected.next_message_index,
+        ProviderMessage(role=ProviderMessageRole.USER, content=request_text),
+        turn_id=turn_id,
+    )
+    app.tasks.append_event(
+        session.task_id,
+        TaskEventType.SESSION_TURN_STARTED,
+        {
+            "turn_id": turn_id,
+            "session_id": session.session_id,
+            "user_text": request_text,
+        },
+        correlation_id=session.run_id,
+    )
+    app.pause_task(session.task_id)
+
+    assert app.surface_has_uncommitted_turn(session.session_id) is True
+
+    with pytest.raises(SurfaceTurnInProgress):
+        app.surface.begin_turn(
+            _begin_turn(
+                app,
+                session.session_id,
+                app.subscribe_stream(session.session_id),
+                text="second request",
+            )
+        )
+
+    restored, loop = app.restore_chat_session(
+        session.session_id, DeferredApprovalGateway()
+    )
+    with pytest.raises(InvalidTransitionError, match="runnable Run"):
+        loop.resume_turn(
+            restored,
+            TurnId(turn_id=turn_id, session_id=session.session_id),
+        )
+
+    assert isinstance(app.provider, DeterministicProvider)
+    assert app.provider.requests == []
+    assert _event_count(app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED) == 0
+    assert app.surface_has_uncommitted_turn(session.session_id) is True
