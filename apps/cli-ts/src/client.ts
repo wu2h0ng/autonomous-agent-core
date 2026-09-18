@@ -27,6 +27,7 @@ import { z } from "zod";import {
   SurfaceTaskOverviewSchema,
   SurfaceTurnResponseSchema,
   TaskEventSchema,
+  TurnTraceSchema,
   type ProviderMetricsSnapshot,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
@@ -43,6 +44,7 @@ import { z } from "zod";import {
   type SurfaceTaskOverview,
   type SurfaceTurnResponse,
   type TaskEvent,
+  type TurnTrace,
 } from "./contracts.js";
 import { localHostname, type RuntimeDescriptor } from "./descriptor.js";
 import { parseSse } from "./sse.js";
@@ -234,6 +236,27 @@ export class SurfaceClient {
       `/v1/surface/observability/metrics?${query.toString()}`,
     );
     return this.unwrap(response, "metrics", ProviderMetricsSnapshotSchema);
+  }
+
+  /**
+   * Read-only trace of one governed turn: which durable records the turn
+   * contains, in order, and which id links each one to the turn.
+   *
+   * `turnId` is optional — without it the daemon traces the session's most
+   * recently started turn, which is what "the turn that just ran" means. An
+   * unknown turn is a typed 404 from the daemon, surfaced as a thrown error so
+   * the caller can say so rather than render an empty timeline.
+   */
+  async turnTrace(sessionId: string, turnId?: string): Promise<TurnTrace> {
+    if (!sessionId.trim()) throw new Error("session id must be non-empty");
+    const query = new URLSearchParams();
+    if (turnId !== undefined && turnId !== "") query.set("turn_id", turnId);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    const response = await this.request(
+      "GET",
+      `/v1/surface/sessions/${encodeURIComponent(sessionId)}/trace${suffix}`,
+    );
+    return this.unwrap(response, "trace", TurnTraceSchema);
   }
 
   /** Read-only session listing (C2). Returns [] if the runtime has no

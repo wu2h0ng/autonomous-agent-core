@@ -26,6 +26,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "provider call counts, latency, tokens and failure categories (no prompt text)",
   },
   {
+    name: "/trace",
+    argsHint: "[turn-id]",
+    description: "what the last turn (or a given turn) actually did, from the durable event log",
+  },
+  {
     name: "/provider",
     argsHint: "[set <base-url> <model> [endpoint-class]]",
     description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",
