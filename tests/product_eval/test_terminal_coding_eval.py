@@ -13,6 +13,18 @@ monkeypatches the code under test instead of fixing it, and a regression test
 whose verdict comes from reading the source text rather than from calling the
 function. Both were ACCEPTED (exit 0, bug intact) by the graders as first
 committed at 3fb0ff46, so both are pinned here as bypass-detecting cases.
+
+Closing those two bypasses changed the corpus, and the frozen digest says so:
+the graders live in the manifest's `verify_command`, and the inputs of the three
+affected tasks now state the acceptance rules they are graded by, so
+`manifests/coding_v1.json` moved from
+`fbfe1d70ac438b928276184a999cd6e0f91a5f0ab3ffa83118e13703fbf4c394` to
+`53b4b870bef8e24f9bdb2c4762d3f937bf59e90aab23782475955dc7c589ec15`. It was
+re-frozen through the corpus's own entry point
+(`python -m product_evals.terminal_agent_eval.coding_tasks`), not re-hashed at
+load time, and the three offline arms were re-run afterwards: their completion
+sets, steps and tool calls are unchanged, because the tightening rejects
+submissions the arms never made (only the counted input tokens moved).
 """
 
 from __future__ import annotations
