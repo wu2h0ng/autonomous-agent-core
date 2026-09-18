@@ -46,6 +46,10 @@ class PermissionGateDecision:
     basis: Literal["permission_mode", "out_of_allowlist", "rule"] | None = None
     mode_event_id: str | None = None
     rule_id: str | None = None
+    # The operator's own reason for the matching DENY rule ("deploy freeze"),
+    # carried so the refusal can be explained on the surface that has to show
+    # it. Descriptive only: it is never consulted for a decision.
+    rule_reason: str | None = None
 
 
 def evaluate_permission_gate(
@@ -113,4 +117,5 @@ def apply_deny_rules(
         risk_tier=decision.risk_tier,
         basis="rule",
         rule_id=rule.rule_id,
+        rule_reason=rule.reason,
     )
