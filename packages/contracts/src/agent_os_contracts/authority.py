@@ -13,6 +13,7 @@ from .common import (
     canonical_json,
     content_digest,
 )
+from .approval_choice import ApprovalChoiceSet
 from .evidence import Sha256Digest
 from .resource import ResourceBudget, RiskTier
 
@@ -208,6 +209,10 @@ class ApprovalDecision(ContractModel):
     reason: NonEmptyStr
     decided_at: UtcDateTime
     expires_at: UtcDateTime
+    # ADR-0014: optional human-facing choice set + the action the approver actually selected.
+    # Backward compatible (defaults None); enforced fail-closed for REVISE below.
+    choice_set: ApprovalChoiceSet | None = None
+    selected_action: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _validate_authority(self) -> ApprovalDecision:
@@ -215,6 +220,25 @@ class ApprovalDecision(ContractModel):
             raise ValueError("approval must be authored by a principal or tenant admin")
         if self.expires_at <= self.decided_at:
             raise ValueError("expires_at must be after decided_at")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_choice_set_discipline(self) -> ApprovalDecision:
+        labels = self.choice_set.action_labels() if self.choice_set is not None else ()
+        if self.disposition is ApprovalDisposition.REVISE:
+            if self.choice_set is None:
+                raise ValueError("a REVISE decision requires the surfaced approval choice set")
+            if self.selected_action is None:
+                raise ValueError("a REVISE decision must name the selected surfaced action")
+            if self.selected_action not in labels:
+                raise ValueError(
+                    "a REVISE decision must select an action within the surfaced choice set"
+                )
+        elif self.selected_action is not None:
+            if self.choice_set is None or self.selected_action not in labels:
+                raise ValueError(
+                    "a selected_action requires a choice set that surfaces it"
+                )
         return self
 
 

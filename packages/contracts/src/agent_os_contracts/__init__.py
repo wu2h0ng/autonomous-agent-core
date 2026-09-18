@@ -1,3 +1,7 @@
+from .approval_choice import (
+    ApprovalChoice,
+    ApprovalChoiceSet,
+)
 from .authority import (
     NO_APPROVAL_ID,
     ActionContract,
@@ -37,6 +41,7 @@ from .candidate import (
     rollback_receipt_digest,
 )
 from .c7_receipt import C7ClearanceReceipt
+from .consequence import ConsequencePreview
 from .common import (
     ContractModel,
     NonEmptyStr,
@@ -72,6 +77,20 @@ from .environment import (
     EnvironmentModelSnapshot,
     EnvironmentRelation,
     EnvironmentSourceCoverage,
+)
+from .governance_decision_seam import (
+    ALLOW,
+    DENY,
+    ESCALATE,
+    SEAM_CONTRACT_VERSION,
+    VERIFY_MORE,
+    GovernanceDecisionRequest,
+    GovernanceDecisionResponse,
+    VerifiedCandidate,
+    request_from_json,
+    request_to_json,
+    response_from_json,
+    response_to_json,
 )
 from .evidence import (
     ArtifactLocationClass,
@@ -373,6 +392,21 @@ from .trajectory import (
 )
 
 __all__ = [
+    "ALLOW",
+    "DENY",
+    "ESCALATE",
+    "SEAM_CONTRACT_VERSION",
+    "VERIFY_MORE",
+    "GovernanceDecisionRequest",
+    "GovernanceDecisionResponse",
+    "VerifiedCandidate",
+    "request_from_json",
+    "request_to_json",
+    "response_from_json",
+    "response_to_json",
+    "ConsequencePreview",
+    "ApprovalChoice",
+    "ApprovalChoiceSet",
     "ActionContract",
     "BindingStatus",
     "ActionPermit",
