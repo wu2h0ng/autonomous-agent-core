@@ -36,8 +36,9 @@ call that actually reached the provider.
 - ``attempts`` and ``failures`` still count every attempt record, a locally
   refused call included (it also appears in ``rate_limit.local_rejections``):
   the window's volume is the whole story, and only the latency distribution is
-  restricted to the calls that were sent. ``attempts`` and
-  ``latency.samples`` therefore differ by exactly the refusals.
+  restricted to the calls that were sent. On the adapter's own records the two
+  therefore differ by exactly the refusals; a foreign line without a latency
+  widens that gap without being an error.
 
 Content boundary: only the numeric/categorical fields of a record are read, so a
 prompt, a completion, a tool payload or a credential can neither be stored nor
