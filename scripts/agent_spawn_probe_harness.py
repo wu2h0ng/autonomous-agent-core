@@ -35,19 +35,37 @@ readers, the daemon start/crash/restart path -- and it needs no Form B. Without
 it, "everything BLOCKED" is indistinguishable from a harness that would crash the
 moment the kernel lands.
 
-What to expect on the frozen contract commit (PR #96)
-----------------------------------------------------
-Every probe reports BLOCKED, and the reason names a real prerequisite rather than
-an absence of effort. Verified on ``af797932``: ``agent.spawn`` is in none of the
-three tables the review's A6 requires (``permission_gate.ACTION_RISK_TIERS``,
-``agent_loop.CHAT_CAPABILITY_IDS``, ``agent_loop.CHAT_GRANT_MAX_RISK_TIERS``), the
-capability registry has no spec for it, **and** neither child-agent event can be
-appended: ``TaskAggregate._apply`` (``task_aggregate.py:447-467``) ends in
-``raise EventStreamError("unsupported task event")`` and its no-state-transition
-allowlist does not contain ``CHILD_AGENT_SPAWNED``/``CHILD_AGENT_FINISHED``, so
-the contract PR declared both event types without wiring the aggregate that
-rehydrates them. The kernel must fix that before any probe here can return
-anything but BLOCKED.
+What the harness has to do on a kernel that landed
+-------------------------------------------------
+On the frozen contract commit (``af797932``) every probe reported BLOCKED, and
+two of the named reasons were real repository gaps: ``agent.spawn`` was in none of
+the three tables the review's A6 requires (``permission_gate.ACTION_RISK_TIERS``,
+``agent_loop.CHAT_CAPABILITY_IDS``, ``agent_loop.CHAT_GRANT_MAX_RISK_TIERS``) and
+``TaskAggregate._apply`` had no arm for the two child-agent event types. The
+kernel (PR #98) closed both.
+
+Neither gap is a gap any more, so the harness now has to drive Form B the way the
+composition root does, and two earlier blockers were harness defects rather than
+missing wiring - each of them reproduced a *correct* fail-closed refusal:
+
+* **the switch must be on.** The runtime spec, the chat grant and the advertised
+  tool exist only when the composition root enables child agents
+  (``child_agents=True`` / ``AGENT_OS_CHILD_AGENTS=on``, default OFF), which is
+  ADR-0061 §8.1's global off switch. Constructing the application without it is
+  the fail-closed state, not a missing registration; every probe here therefore
+  builds its app with the feature enabled, which is exactly the "operator
+  explicitly enables it, single machine, single workspace" canary shape.
+* **the records go through the task service's typed writers.** Both event types
+  are protected truth events, so generic ``TaskService.append_event`` is
+  *supposed* to refuse them (``task_service.py:532-535``) - that refusal is an
+  invariant this harness now pins, not a blocker. The legal writers are
+  ``record_child_agent_spawned`` / ``record_child_agent_finished`` /
+  ``record_child_agent_reconciled`` (``task_service.py:663-716``).
+
+The harness never turns the switch off to make a probe easier, and the extra
+self-check below asserts the off state directly: with the feature off there is no
+``agent.spawn`` spec and a spawn proposal gets a durable typed denial, so
+registering the capability cannot have made it reachable.
 
 The probes drive the kernel only through
 ----------------------------------------
@@ -100,6 +118,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 from agent_os_contracts import (  # noqa: E402
     SURFACE_PROTOCOL_VERSION,
+    ApprovalDisposition,
     ProviderMessageRole,
     ProviderToolProposal,
     SurfaceBeginTurnCommand,
@@ -120,8 +139,10 @@ from agent_os_contracts.agent_spawn import (  # noqa: E402
     ChildAgentType,
 )
 from agent_os_core import (  # noqa: E402
+    AutoApproveGateway,
     DeferredApprovalGateway,
     DeterministicProvider,
+    InvalidTransitionError,
     SQLiteTaskEventStore,
 )
 from apps.api_server.app import AgentOSApplication  # noqa: E402
@@ -184,12 +205,25 @@ def _harden_process_env() -> Path:
     return root
 
 
-def _app(root: Path) -> AgentOSApplication:
+def _app(
+    root: Path, *, child_agents: bool = True, nested_child_agents: bool = False
+) -> AgentOSApplication:
+    """One throwaway composition root.
+
+    ``child_agents`` is on for the probes: Form B is OFF by default, so a harness
+    that never enables it only ever observes the fail-closed state (no
+    ``agent.spawn`` spec, no grant, no advertised tool). Enabling it here is the
+    same decision the operator makes with ``AGENT_OS_CHILD_AGENTS=on`` - and the
+    off-by-default self-check below drives the other side of that switch.
+    """
+
     root.mkdir(parents=True, exist_ok=True)
     (root / "workspace").mkdir(parents=True, exist_ok=True)
     app = AgentOSApplication(
         database=root / "agent-os.sqlite3",
         workspace=root / "workspace",
+        child_agents=child_agents,
+        nested_child_agents=nested_child_agents,
     )
     app.provider_configured = True
     return app
@@ -202,12 +236,20 @@ def _child_record_write_blocker() -> str | None:
     """Whether the two child-agent records can be appended durably at all.
 
     Behavioural, on a throwaway app with its own temp database, so it neither
-    needs Form B nor pollutes the probe's store. On the frozen contract commit
-    (PR #96) both event types are declared in ``TaskEventType`` but
-    ``TaskAggregate._apply`` has no arm for them, so ``task_service.append_event``
-    rehydrates, hits the final `raise EventStreamError("unsupported task event")`
-    and the write never lands. That is a hard prerequisite for every probe here,
-    so it is named rather than discovered later.
+    needs a running child agent nor pollutes a probe's store. Three facts are
+    established here, in this order:
+
+    1. every child-agent record type is a **protected truth event**, so the
+       generic ``TaskService.append_event`` refuses it with a typed
+       ``InvalidTransitionError`` - that refusal is the design, not a gap;
+    2. the task service's typed writers (``record_child_agent_spawned`` /
+       ``record_child_agent_finished``) accept the frozen payloads;
+    3. the record actually lands in the durable store and re-reads as
+       :class:`ChildAgentSpawned`.
+
+    A failure in (2) or (3) is a repository gap and is reported as one; a
+    *success* in (1) would mean a caller can write a child-agent record without
+    passing a typed writer, which is why it is asserted rather than assumed.
     """
 
     if _CHILD_RECORD_BLOCKER:
@@ -217,7 +259,7 @@ def _child_record_write_blocker() -> str | None:
         app = _app(root)
         try:
             session, _loop = app.open_chat_session(
-                "harness: aggregate probe", DeferredApprovalGateway()
+                "harness: aggregate probe", AutoApproveGateway()
             )
         except Exception as exc:
             message = (
@@ -243,15 +285,67 @@ def _child_record_write_blocker() -> str | None:
                 record.model_dump(mode="json"),
                 correlation_id=session.run_id,
             )
+        except InvalidTransitionError:
+            pass
+        except Exception as exc:
+            message = (
+                "the untyped writer refused CHILD_AGENT_SPAWNED with an "
+                f"unexpected error: {type(exc).__name__}: {exc}"
+            )
+            _CHILD_RECORD_BLOCKER.append(message)
+            return message
+        else:
+            message = (
+                "the generic TaskService.append_event accepted CHILD_AGENT_SPAWNED. "
+                "Child-agent records are protected truth events and must only be "
+                "written by a typed writer (task_service.py:80-96), so a caller "
+                "that bypasses one can persist a malformed or text-carrying "
+                "child-agent record. Re-run this harness after restoring the "
+                "protection."
+            )
+            _CHILD_RECORD_BLOCKER.append(message)
+            return message
+        try:
+            app.tasks.record_child_agent_spawned(
+                session.task_id, record, parent_run_id=session.run_id
+            )
         except Exception as exc:
             message = (
                 "the task service cannot durably append "
-                f"CHILD_AGENT_SPAWNED: {type(exc).__name__}: {exc}. The two "
-                "child-agent event types are declared in TaskEventType but "
-                "TaskAggregate._apply has no arm for them, so a child spawn or "
-                "completion cannot be recorded at all. Add them to the "
-                "no-state-transition audit-marker set (task_aggregate.py:447-463) or "
-                "give them a real state transition, and re-run this harness."
+                f"CHILD_AGENT_SPAWNED through its typed writer: "
+                f"{type(exc).__name__}: {exc}. The two child-agent event types are "
+                "declared in TaskEventType and protected, so nothing else may write "
+                "them (task_service.py:80-96); either "
+                "TaskService.record_child_agent_spawned is missing or it is broken. "
+                "Re-run this harness after fixing it."
+            )
+            _CHILD_RECORD_BLOCKER.append(message)
+            return message
+        stored = [
+            event
+            for event in app.store.read(session.task_id)
+            if event.event_type is TaskEventType.CHILD_AGENT_SPAWNED
+        ]
+        if len(stored) != 1:
+            message = (
+                "the typed writer reported success but the durable store holds "
+                f"{len(stored)} CHILD_AGENT_SPAWNED records instead of 1"
+            )
+            _CHILD_RECORD_BLOCKER.append(message)
+            return message
+        try:
+            replayed = ChildAgentSpawned.model_validate(stored[0].decoded_payload())
+        except Exception as exc:
+            message = (
+                "the durable CHILD_AGENT_SPAWNED record does not re-read as the "
+                f"frozen payload: {type(exc).__name__}: {exc}"
+            )
+            _CHILD_RECORD_BLOCKER.append(message)
+            return message
+        if replayed.spawn_id != record.spawn_id:
+            message = (
+                "the durable CHILD_AGENT_SPAWNED record re-reads with a different "
+                f"spawn id ({replayed.spawn_id!r} != {record.spawn_id!r})"
             )
             _CHILD_RECORD_BLOCKER.append(message)
             return message
@@ -270,8 +364,23 @@ def _kernel_blocker(app: AgentOSApplication) -> str | None:
     """
 
     from agent_os_core import agent_loop, permission_gate
+    from domain_packs.developer_agent import manifest as developer_agent_manifest
 
     blockers: list[str] = []
+
+    if not app.child_agents_enabled:
+        # ADR-0061 §8.1's global off switch. This is the fail-closed state, not a
+        # missing registration: with the feature off the spec, the grant and the
+        # advertised tool are all absent by design. A probe that ran in this
+        # state would be judging the switch, so it stops with the reason.
+        blockers.append(
+            "this application was built with child agents OFF "
+            "(AGENT_OS_CHILD_AGENTS unset/off = the fail-closed default): "
+            f"{AGENT_SPAWN_CAPABILITY_ID} has no runtime spec, no grant and no "
+            "advertised tool, so no child can be spawned. Build the probe's app "
+            "with child_agents=True (see _app) to drive Form B; the off state "
+            "itself is asserted by the self-checks."
+        )
 
     registration: list[str] = []
     if AGENT_SPAWN_CAPABILITY_ID not in permission_gate.ACTION_RISK_TIERS:
@@ -280,23 +389,34 @@ def _kernel_blocker(app: AgentOSApplication) -> str | None:
         registration.append("agent_loop.CHAT_CAPABILITY_IDS")
     if AGENT_SPAWN_CAPABILITY_ID not in agent_loop.CHAT_GRANT_MAX_RISK_TIERS:
         registration.append("agent_loop.CHAT_GRANT_MAX_RISK_TIERS")
+    if AGENT_SPAWN_CAPABILITY_ID not in developer_agent_manifest().capabilities:
+        # The pack that declares the capability (ADR-0061 §5.1); the kernel stays
+        # domain-free. Listing it is a registration of record and grants nothing.
+        registration.append("domain_packs.developer_agent.manifest().capabilities")
     if registration:
         blockers.append(
             f"{AGENT_SPAWN_CAPABILITY_ID} is not registered in: "
             + "; ".join(registration)
         )
-    else:
+    elif app.child_agents_enabled:
         specs = app.sandbox.specs(include_internal=True)
         if AGENT_SPAWN_CAPABILITY_ID not in specs:
             blockers.append(
-                "the capability registry exposes no "
+                "child agents are enabled in this application, yet the connector's "
+                "trusted registry exposes no "
                 f"{AGENT_SPAWN_CAPABILITY_ID} CapabilitySpec, so the broker would "
                 "refuse the dispatch (capability.py:_lookup_spec)"
+            )
+        elif AGENT_SPAWN_CAPABILITY_ID not in app.grants:
+            blockers.append(
+                "child agents are enabled and the spec exists, yet the composition "
+                f"root holds no {AGENT_SPAWN_CAPABILITY_ID} grant, so every spawn "
+                "would be refused as CAPABILITY_NOT_GRANTED (governance.py:351-352)"
             )
         else:
             try:
                 session, _loop = app.open_chat_session(
-                    "harness: probe", DeferredApprovalGateway()
+                    "harness: probe", AutoApproveGateway()
                 )
                 _ = session
             except Exception as exc:
@@ -507,6 +627,63 @@ def _decisions(app: AgentOSApplication, task_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _unresolved_approval_digests(app: AgentOSApplication, task_id: str) -> list[str]:
+    """The pending approval digests on one task's stream, oldest first.
+
+    Read from the durable events (``SESSION_APPROVAL_PENDING`` minus
+    ``SESSION_APPROVAL_RESOLVED``), so it is the operator's own view of the open
+    cards and not in-memory bookkeeping.
+    """
+
+    pending: list[str] = []
+    resolved: set[str] = set()
+    for event in app.store.read(task_id):
+        payload = event.decoded_payload()
+        if event.event_type is TaskEventType.SESSION_APPROVAL_PENDING:
+            digest = payload.get("action_digest")
+            if isinstance(digest, str):
+                pending.append(digest)
+        elif event.event_type is TaskEventType.SESSION_APPROVAL_RESOLVED:
+            digest = payload.get("action_digest")
+            if isinstance(digest, str):
+                resolved.add(digest)
+    return [digest for digest in pending if digest not in resolved]
+
+
+def _operator_approve_pending(
+    app: AgentOSApplication,
+    *,
+    session_id: str,
+    task_id: str,
+    reason: str,
+    max_rounds: int,
+) -> list[str]:
+    """Play the operator: answer each open card on one session, in order.
+
+    A child session always runs in permission mode ASK and its loop is built with
+    a deferred gateway (``app.py:3146-3153``: "a child never auto-allows a write
+    on the strength of the parent's permission mode"), so a *nested*
+    ``agent.spawn`` parks on the child's own card. A depth-2 tree therefore costs
+    one human decision per nested spawn, and a probe that wants to judge the
+    fan-out bound has to make those decisions. This drives the same application
+    entry point the surface's approval route calls
+    (``AgentOSApplication.decide_session_approval``, ``app.py:2348``) and returns
+    the digests it decided, so the caller can report the cost.
+    """
+
+    approved: list[str] = []
+    for _ in range(max_rounds):
+        pending = _unresolved_approval_digests(app, task_id)
+        if not pending:
+            break
+        digest = pending[-1]
+        app.decide_session_approval(
+            session_id, digest, ApprovalDisposition.APPROVE, reason
+        )
+        approved.append(digest)
+    return approved
+
+
 def _one_child(app: AgentOSApplication, *, description: str) -> ChildAgentSpawned:
     children = _spawned_children(app)
     matches = [child for child in children if child.description == description]
@@ -528,9 +705,20 @@ def _spawn_parent(
     agent_type: ChildAgentType = ChildAgentType.GENERAL,
     call_id: str = "call-harness-spawn",
 ) -> Any:
-    """Drive one parent turn that proposes exactly one ``agent.spawn``."""
+    """Drive one parent turn that proposes exactly one ``agent.spawn``.
 
-    session, loop = app.open_chat_session("harness: parent", DeferredApprovalGateway())
+    The gateway is the repository's hermetic test-support gateway
+    (``AutoApproveGateway``, the one the kernel's own product tests use): a fresh
+    session runs in permission mode ASK (``app.py:2214``), and ``agent.spawn`` is
+    pinned at tier 2, so the frozen E2 matrix returns REQUIRE_CONFIRM and a
+    deferred gateway would park every spawn on a card instead of driving it. This
+    harness judges what happens *after* the operator's confirmation; the
+    confirmation itself is the operator path the surface already owns. The gate
+    still runs and still records its verdict and provenance - the gateway answers
+    the prompt, it does not skip the gate.
+    """
+
+    session, loop = app.open_chat_session("harness: parent", AutoApproveGateway())
     provider = app.provider
     assert isinstance(provider, _PlannedProvider)
     provider.set_task_plan(
@@ -710,6 +898,13 @@ def _receipt_capability(receipt: dict[str, Any]) -> str | None:
 
 # --- P4 -----------------------------------------------------------------------
 
+E3_NOTE = (
+    "review E3 is still open: the kernel's nested-spawn switch is process "
+    "configuration (nested_child_agents=True / AGENT_OS_NESTED_CHILD_AGENTS), not "
+    "the authorized, durable, re-tightenable action E3 asks for, so P4 says nothing "
+    "about E3 - it only needs the grandchild layer to exist"
+)
+
 
 def _probe_p4(workdir: Path, options: argparse.Namespace) -> ProbeResult:
     """N bounds each parent turn's in-flight children, not the size of the tree."""
@@ -730,19 +925,18 @@ def _probe_p4(workdir: Path, options: argparse.Namespace) -> ProbeResult:
     marker_depth1 = "harness:p4:depth1"
     marker_depth2 = "harness:p4:depth2"
 
-    app = _app(workdir)
+    app = _app(workdir, nested_child_agents=True)
     _require_kernel(app)
     if not _nested_spawn_enabled(app):
         raise ProbeBlocked(
-            "P4 needs nested spawns enabled through an authorized action before a "
-            "depth-2 tree can exist. The harness found no way to enable them: "
-            f"{AGENT_SPAWN_CAPABILITY_ID} is (correctly) not granted to a general "
-            "child by default, and the harness refuses to enable it through an "
-            "environment variable -- review E3 requires nested-spawn enablement to "
-            "be an authorized, durable, re-tightenable action, not process env. "
-            "Give the kernel an operator-facing way to enable nested spawns and "
-            "record it in the harness."
+            "P4 needs nested spawns enabled before a depth-2 tree can exist, and "
+            "this application reports them off even though the harness asked the "
+            f"composition root for them. {E3_NOTE}"
         )
+    e3_observation = (
+        "nested spawns are ON for this probe through the composition root "
+        f"(nested_child_agents=True). {E3_NOTE}"
+    )
 
     def _depth2_plan() -> list[Any]:
         """A depth-1 child spawns `fan_out` grandchildren, then finishes."""
@@ -770,7 +964,7 @@ def _probe_p4(workdir: Path, options: argparse.Namespace) -> ProbeResult:
         prompt_rules=[(marker_depth1, lambda _first: _depth2_plan())],
     )
 
-    session, loop = app.open_chat_session("harness: p4 parent", DeferredApprovalGateway())
+    session, loop = app.open_chat_session("harness: p4 parent", AutoApproveGateway())
     provider = app.provider
     assert isinstance(provider, _PlannedProvider)
     provider.set_task_plan(
@@ -793,6 +987,24 @@ def _probe_p4(workdir: Path, options: argparse.Namespace) -> ProbeResult:
     loop.run_turn(session, "harness: spawn the depth-1 fan-out")
 
     spawned = _spawned_children(app)
+    depth1_pending = [
+        child
+        for child in spawned
+        if child.description.startswith(marker_depth1)
+    ]
+    # The operator's half: every nested spawn parks on the child's own card, so
+    # the grandchild layer exists only after a human decision per nested spawn.
+    approvals: dict[str, list[str]] = {}
+    for child in depth1_pending:
+        approvals[child.description] = _operator_approve_pending(
+            app,
+            session_id=child.child_session_id,
+            task_id=child.child_task_id,
+            reason="harness: operator approves the nested spawn",
+            max_rounds=fan_out + 2,
+        )
+
+    spawned = _spawned_children(app)
     by_parent_turn: dict[str, int] = {}
     for child in spawned:
         by_parent_turn[child.parent_turn_id] = by_parent_turn.get(child.parent_turn_id, 0) + 1
@@ -806,6 +1018,11 @@ def _probe_p4(workdir: Path, options: argparse.Namespace) -> ProbeResult:
         f"(depth-1={len(depth1)}, depth-2={len(depth2)})",
         f"heaviest parent turn holds {heaviest} children in flight",
         f"tree total against N**d (N={fan_out}, d=2) = {fan_out * fan_out}",
+        "operator approvals needed for the depth-2 tree: "
+        f"{sum(len(v) for v in approvals.values())} "
+        f"({ {k: len(v) for k, v in approvals.items()} }) -- a child session runs "
+        "in ASK, so every nested agent.spawn parks on the child's own card",
+        e3_observation,
     ]
     if not spawned:
         return ProbeResult(
@@ -846,12 +1063,17 @@ def _probe_p4(workdir: Path, options: argparse.Namespace) -> ProbeResult:
 def _nested_spawn_enabled(app: AgentOSApplication) -> bool:
     """Whether a general child may hold ``agent.spawn``.
 
-    Read from the only place the base contract exposes it: the loop's per-type
-    capability set is kernel-owned, so the harness looks for a documented,
-    authorized switch on the application rather than guessing.
+    Read from the only place the composition root exposes it. The kernel names
+    this decision ``nested_child_agents_enabled`` (``app.py``, from
+    ``AGENT_OS_NESTED_CHILD_AGENTS``, default OFF); the other names are accepted
+    so a rename shows up as a BLOCKED probe rather than as a silent False.
     """
 
-    for attribute in ("nested_spawn_enabled", "child_agent_nested_spawn_enabled"):
+    for attribute in (
+        "nested_child_agents_enabled",
+        "nested_spawn_enabled",
+        "child_agent_nested_spawn_enabled",
+    ):
         value = getattr(app, attribute, None)
         if isinstance(value, bool):
             return value
@@ -929,7 +1151,15 @@ def _probe_p5(workdir: Path, options: argparse.Namespace) -> ProbeResult:
 
 
 class _StubProviderHandler(BaseHTTPRequestHandler):
-    """OpenAI-compatible stub: spawn on the parent marker, hang on the child marker."""
+    """OpenAI-compatible stub: spawn on the parent marker, hang on the child marker.
+
+    It answers both wire shapes, because the runtime daemon streams text deltas on
+    the interactive surface path and sends ``stream: false`` for non-streaming
+    calls. A stub that only answers the non-streaming shape makes every turn end
+    as ``provider_failure:MALFORMED`` with zero steps, so no child is ever created
+    and P6 can never reach its subject. The repository's own daemon stub branches
+    the same way (``test_agent_spawn_daemon_e2e.py:60-98``).
+    """
 
     spawn_marker = ""
     hang_marker = ""
@@ -941,33 +1171,129 @@ class _StubProviderHandler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(length).decode("utf-8"))
         messages = body.get("messages") or []
         joined = json.dumps(messages)
-        message: dict[str, Any] = {"role": "assistant", "content": "stub: done"}
+        text = "stub: done"
+        tool_calls: tuple[dict[str, Any], ...] = ()
         if self.hang_marker and self.hang_marker in joined:
             type(self).children_started += 1
             time.sleep(60.0)
         elif self.spawn_marker and self.spawn_marker in joined:
-            message = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": "call-harness-spawn",
-                        "type": "function",
-                        "function": {
-                            "name": AGENT_SPAWN_CAPABILITY_ID.replace(".", "__"),
-                            "arguments": json.dumps(self.spawn_arguments),
-                        },
-                    }
-                ],
-            }
+            text = ""
+            tool_calls = (
+                {
+                    "id": "call-harness-spawn",
+                    "name": AGENT_SPAWN_CAPABILITY_ID.replace(".", "__"),
+                    "arguments": self.spawn_arguments,
+                },
+            )
+        if body.get("stream"):
+            self._send_sse(text, tool_calls)
+        else:
+            self._send_json(text, tool_calls)
+
+    def _send_json(
+        self, text: str, tool_calls: tuple[dict[str, Any], ...]
+    ) -> None:
+        message: dict[str, Any] = {"role": "assistant", "content": text}
+        if tool_calls:
+            message["tool_calls"] = [
+                {
+                    "id": tool["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "arguments": json.dumps(tool["arguments"]),
+                    },
+                }
+                for tool in tool_calls
+            ]
         payload = {
             "id": "cmpl-harness",
-            "choices": [{"message": message, "finish_reason": "stop"}],
+            "choices": [
+                {
+                    "message": message,
+                    "finish_reason": "tool_calls" if tool_calls else "stop",
+                }
+            ],
             "usage": {"prompt_tokens": 4, "completion_tokens": 4, "total_tokens": 8},
         }
-        encoded = json.dumps(payload).encode("utf-8")
+        self._respond(json.dumps(payload).encode("utf-8"), "application/json")
+
+    def _send_sse(self, text: str, tool_calls: tuple[dict[str, Any], ...]) -> None:
+        chunks: list[dict[str, Any]] = [
+            {
+                "id": "cmpl-harness",
+                "choices": [
+                    {"index": 0, "delta": {"role": "assistant", "content": ""}}
+                ],
+            }
+        ]
+        for index in range(0, len(text), 4):
+            chunks.append(
+                {"choices": [{"index": 0, "delta": {"content": text[index : index + 4]}}]}
+            )
+        for position, tool in enumerate(tool_calls):
+            chunks.append(
+                {
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": position,
+                                        "id": tool["id"],
+                                        "type": "function",
+                                        "function": {
+                                            "name": tool["name"],
+                                            "arguments": "",
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            )
+            arguments = json.dumps(tool["arguments"])
+            for index in range(0, len(arguments), 8):
+                chunks.append(
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "tool_calls": [
+                                        {
+                                            "index": position,
+                                            "function": {
+                                                "arguments": arguments[index : index + 8]
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    }
+                )
+        chunks.append(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "tool_calls" if tool_calls else "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 4, "total_tokens": 8},
+            }
+        )
+        lines = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+        lines += "data: [DONE]\n\n"
+        self._respond(lines.encode("utf-8"), "text/event-stream")
+
+    def _respond(self, encoded: bytes, content_type: str) -> None:
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
@@ -1030,6 +1356,9 @@ def _daemon_env(provider_url: str) -> dict[str, str]:
     env["AGENT_OS_PROVIDER_BASE_URL"] = provider_url
     env["AGENT_OS_PROVIDER_MODEL"] = "harness-stub-model"
     env["OPENAI_API_KEY"] = "harness-stub-key"
+    # Form B is OFF by default; the daemon is the composition root for this probe,
+    # so it has to be told to enable it, exactly as an operator would.
+    env["AGENT_OS_CHILD_AGENTS"] = "on"
     # Never let the daemon fall back to the operator's real store or keychain.
     env["AGENT_OS_DISABLE_KEYCHAIN"] = "1"
     env["PYTHONPATH"] = os.pathsep.join(
@@ -1159,6 +1488,16 @@ def _probe_p6(workdir: Path, options: argparse.Namespace) -> ProbeResult:
         )
         session_id = opened.session.session_id
         subscription = client.subscribe_stream(session_id)
+        # ``agent.spawn`` is tier 2, and a surface session starts in ASK, so the
+        # frozen E2 matrix would park this spawn on an operator card and P6 would
+        # have no child turn to kill. The operator's own mode switch is the fix -
+        # the same call the daemon e2e test makes
+        # (``test_agent_spawn_daemon_e2e.py:371``): operator-only, durably recorded
+        # as SESSION_PERMISSION_MODE_SET with a provenance chain, and it does not
+        # skip the gate (the verdict becomes MODE_AUTO_ALLOW with
+        # basis=permission_mode instead of REQUIRE_CONFIRM).
+        client.set_permission_mode(session_id, "ACCEPT_IN_WORKSPACE")
+        mode_snapshot = client.get_session(session_id)
         client.begin_turn(
             SurfaceBeginTurnCommand(
                 protocol_version=SURFACE_PROTOCOL_VERSION,
@@ -1176,7 +1515,7 @@ def _probe_p6(workdir: Path, options: argparse.Namespace) -> ProbeResult:
                     runtime_boot_id=subscription.runtime_boot_id,
                     stream_id=subscription.stream_id,
                 ),
-                expected_event_sequence=opened.event_sequence,
+                expected_event_sequence=mode_snapshot.event_sequence,
                 idempotency_key="harness:p6:turn:1",
                 requested_at=datetime.now(timezone.utc),
             )
@@ -1215,6 +1554,9 @@ def _probe_p6(workdir: Path, options: argparse.Namespace) -> ProbeResult:
         }
         observations = [
             f"child task={child_task_id}",
+            "parent session permission mode=ACCEPT_IN_WORKSPACE (the operator switch "
+            "the surface owns; in the default ASK mode the tier-2 spawn parks on a "
+            "card and no child exists for this probe to kill)",
             f"child turns started={(started_before or set())}",
             f"child turns completed={(completed_before or set())}",
         ]
@@ -1429,9 +1771,27 @@ def _probe_p12(workdir: Path, options: argparse.Namespace) -> ProbeResult:
         for receipt in receipts_before
         if _receipt_status(receipt) == "UNKNOWN"
     ]
+    # What the fault DID leave behind, so the FAIL below is read against the whole
+    # picture rather than against a single absent record. Both lists are facts
+    # about the durable stream; neither changes the probe's verdict.
+    all_receipts = _all_payloads(app, TaskEventType.ACTION_RECEIPT_RECORDED)
+    unknown_tool_results = [
+        payload
+        for payload in _payloads_of(
+            app, child.child_task_id, TaskEventType.SESSION_MESSAGE_RECORDED
+        )
+        if "UNKNOWN_REQUIRES_REVIEW" in json.dumps(payload)
+    ]
     observations = [
         f"injected faults={faults}",
         f"child receipts={[(_receipt_capability(r), _receipt_status(r)) for r in receipts_before]}",
+        "receipts carrying status UNKNOWN anywhere in the store="
+        f"{sum(1 for receipt in all_receipts if _receipt_status(receipt) == 'UNKNOWN')}"
+        f" of {len(all_receipts)}",
+        "the same fault in the child's other durable forms: RUN_PAUSED events="
+        f"{len(_events_of(app, child.child_task_id, TaskEventType.RUN_PAUSED))}, "
+        "tool-result messages naming UNKNOWN_REQUIRES_REVIEW="
+        f"{len(unknown_tool_results)}",
     ]
     if not faults:
         raise ProbeBlocked(
@@ -1802,14 +2162,22 @@ def _selfcheck_child_record_write_path(workdir: Path) -> str:
     """Whether the task service can append the two child-agent records at all.
 
     This is the write half of the durable model. The harness's readers are checked
-    above through the store; this checks the path the KERNEL must use
-    (``task_service.append_event``), and reports what it finds either way.
+    above through the store; this checks the write path the kernel must use and
+    reports what it finds either way. A repository gap (no typed writer, or a
+    writer that does not land) is named as one; the *refusal* of the generic
+    writer is the protected-event invariant and is reported as the expected
+    behaviour it is.
     """
 
     blocker = _child_record_write_blocker()
     if blocker is not None:
         return f"REPOSITORY GAP (not a harness failure): {blocker}"
-    return "task_service.append_event accepts CHILD_AGENT_SPAWNED"
+    return (
+        "the generic task-service writer refused CHILD_AGENT_SPAWNED with a typed "
+        "InvalidTransitionError (protected event), the typed "
+        "record_child_agent_spawned writer accepted the frozen payload, and the "
+        "record re-read from the durable store as ChildAgentSpawned"
+    )
 
 
 def _selfcheck_daemon_plumbing(workdir: Path) -> str:
@@ -1897,12 +2265,81 @@ def _selfcheck_daemon_plumbing(workdir: Path) -> str:
     )
 
 
+def _selfcheck_form_b_switch_is_off_by_default(workdir: Path) -> str:
+    """Registering ``agent.spawn`` must not make it reachable.
+
+    ``agent.spawn`` now appears in the frozen E2 table, in
+    ``CHAT_CAPABILITY_IDS``/``CHAT_GRANT_MAX_RISK_TIERS`` and in the developer
+    domain pack's manifest. This check drives the other side of the switch and
+    asserts that none of that reaches an operator until the composition root
+    enables child agents: no runtime spec, no grant, not advertised, and a
+    provider proposal for it is refused with a durable typed denial rather than
+    being hidden or silently dropped.
+    """
+
+    from agent_os_core import agent_loop, permission_gate
+
+    app = _app(workdir, child_agents=False)
+    assert app.child_agents_enabled is False
+    assert AGENT_SPAWN_CAPABILITY_ID in permission_gate.ACTION_RISK_TIERS, (
+        "this check is about the switch, not about registration: the capability "
+        "must already be in the frozen E2 table for the off state to mean anything"
+    )
+    assert AGENT_SPAWN_CAPABILITY_ID in agent_loop.CHAT_CAPABILITY_IDS
+    assert AGENT_SPAWN_CAPABILITY_ID not in app.sandbox.specs(include_internal=True)
+    assert AGENT_SPAWN_CAPABILITY_ID not in app.grants
+    assert AGENT_SPAWN_CAPABILITY_ID not in app.chat_capability_ids
+
+    app.provider = _PlannedProvider(
+        invocation_binding=app.provider.invocation_binding,
+        task_plans={},
+    )
+    session, loop = app.open_chat_session("harness: off switch", AutoApproveGateway())
+    provider = app.provider
+    assert isinstance(provider, _PlannedProvider)
+    provider.set_task_plan(
+        session.task_id,
+        [
+            (
+                "",
+                (
+                    _spawn_proposal(
+                        "call-harness-off",
+                        prompt="harness: off-switch child",
+                        description="off-switch child",
+                    ),
+                ),
+            ),
+            ("harness: the proposal was refused", ()),
+        ],
+    )
+    loop.run_turn(session, "harness: try to spawn with the switch off")
+
+    denials = _payloads_of(app, session.task_id, TaskEventType.POLICY_VERDICT_RECORDED)
+    assert any(
+        denial.get("capability_id") == AGENT_SPAWN_CAPABILITY_ID
+        and denial.get("verdict") == "DENY"
+        for denial in denials
+    ), (
+        "a spawn proposal with the feature off left no durable denial: the refusal "
+        f"is not visible to an operator (recorded verdicts: {denials})"
+    )
+    assert _all_payloads(app, TaskEventType.CHILD_AGENT_SPAWNED) == []
+    assert _receipts(app, session.task_id) == []
+    return (
+        "with child agents left off (the default), agent.spawn has no spec, no "
+        "grant and is not advertised, and a proposal for it produced one durable "
+        "DENY and no child record and no receipt"
+    )
+
+
 SELFCHECKS: tuple[tuple[str, Callable[[Path], str]], ...] = (
     ("contract round-trip", _selfcheck_contract_roundtrip),
     ("planned provider", _selfcheck_planned_provider),
     ("prompt-marker rule", _selfcheck_prompt_rule),
     ("child-record readers", _selfcheck_child_record_parsing),
     ("child-record write path", _selfcheck_child_record_write_path),
+    ("off by default", _selfcheck_form_b_switch_is_off_by_default),
     ("daemon crash/restart plumbing", _selfcheck_daemon_plumbing),
 )
 
@@ -1992,7 +2429,15 @@ PROBES: tuple[ProbeSpec, ...] = (
         falsifier=(
             "Any single parent turn with more than N children in flight."
         ),
-        requires="Form B kernel + an authorized way to enable nested spawns",
+        requires=(
+            "Form B kernel + nested spawns enabled by the composition root "
+            "(nested_child_agents=True, the same switch as "
+            "AGENT_OS_NESTED_CHILD_AGENTS) + one operator approval per nested "
+            "spawn, which this harness submits through "
+            "AgentOSApplication.decide_session_approval because a child always "
+            "runs in ASK. Review E3 is still open: the nested-spawn switch is "
+            "process configuration, not an authorized durable action"
+        ),
         run=_probe_p4,
     ),
     ProbeSpec(
