@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TuiController, STALL_DEFAULT_MS, renderTranscript, toolState } from "../src/controller.js";
 import type { ChatMessage } from "../src/controller.js";
+import { SurfaceHttpError } from "../src/client.js";
 import type {
   PermissionMode,
   SurfaceSessionSnapshot,
@@ -176,13 +177,22 @@ class FakeClient {
       total_tokens: 12,
     };
   }
+  /** Every pause/resume/correction command this client was asked to send. */
+  correctCalls: {
+    sessionId: string | undefined;
+    reason: string | undefined;
+    action: string | undefined;
+  }[] = [];
+  /** Durable session status the control command answers with. */
+  correctStatus: SurfaceSessionSnapshot["status"] = "CORRECTION_HALTED";
   async correct(
-    _sessionId?: string,
-    _reason?: string,
-    _action?: string,
+    sessionId?: string,
+    reason?: string,
+    action?: string,
     _idempotencyKey?: string,
   ) {
-    return snapshot({ status: "CORRECTION_HALTED" });
+    this.correctCalls.push({ sessionId, reason, action });
+    return snapshot({ status: this.correctStatus });
   }
   filesList = [
     { path: "fixture.txt", size: 12, mtime: "2026-09-11T00:00:00Z" },
@@ -1574,5 +1584,170 @@ test("approving does not mark the card rejected", async () => {
     controller.messages.some((message) =>
       message.content.includes("APPROVE: workspace.edit"),
     ),
+  );
+});
+
+/** The stop-key tests live here rather than in keys.test.ts because what they
+ * pin is the CONTROLLER half: the real pause command, and a transcript that
+ * never claims a stop the kernel did not perform. keys.test.ts owns the routing
+ * (which key calls it). */
+
+const settled = (ms = 20): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+test("ctrl-x pauses the session through the real endpoint and does not claim it stopped", async () => {
+  const client = new FakeClient();
+  client.correctStatus = "PAUSED";
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+
+  // A turn in flight: not awaited, so the controller is observed while
+  // streaming, which is the only state a stop may act on.
+  const turn = controller.submit("do the thing");
+  await settled();
+  assert.equal(controller.status, "streaming", "the turn must be in flight for this test");
+
+  assert.equal(await controller.stopTurn(), "stopped");
+
+  // 1. It went through the REAL surface control command — the same one
+  //    `noem session pause <session-id>` sends — and nothing local.
+  assert.equal(client.correctCalls.length, 1, "exactly one pause command");
+  assert.equal(client.correctCalls[0]?.action, "pause");
+  assert.equal(client.correctCalls[0]?.sessionId, "s:1");
+  assert.match(client.correctCalls[0]?.reason ?? "", /operator stop \(ctrl-x\)/);
+
+  const said = (): string => controller.messages.map((m) => m.content).join("\n");
+  assert.match(said(), /stop requested/);
+  // 2. The status reported is the kernel's own returned status, verbatim.
+  assert.match(said(), /stop applied: session status PAUSED/);
+  // 3. ... but "applied" is not "the turn is over": the stop stays requested
+  //    until the DURABLE turn record ends the turn, and until then nothing in
+  //    the transcript may say the turn stopped.
+  assert.match(said(), /the terminal state arrives with the durable turn record/);
+  assert.equal(controller.stopRequested, true, "still stopping until the durable record says otherwise");
+  assert.doesNotMatch(said(), /turn stopped by the operator/);
+  assert.equal(controller.status, "streaming");
+
+  // The durable record finally ends the turn.
+  client.completedTokens = 7;
+  client.completedStopReason = "stopped_by_operator";
+  client.completedSteps = 2;
+  await turn;
+
+  assert.equal(controller.status, "idle");
+  assert.equal(controller.stopRequested, false);
+  assert.equal(controller.lastStopReason, "stopped_by_operator");
+  assert.match(
+    said(),
+    /turn stopped by the operator \(2 steps, tokens counted\) — the session is PAUSED/,
+  );
+  assert.match(said(), /noem session resume s:1/);
+});
+
+test("a stop the kernel rejects is reported typed and never as a stop", async () => {
+  const rejections: Array<[SurfaceHttpError, RegExp]> = [
+    [
+      new SurfaceHttpError(409, "cannot move run from PAUSED to PAUSED"),
+      /HTTP 409: cannot move run from PAUSED to PAUSED — the stop was NOT applied; the run is PAUSED \(already stopped\)/,
+    ],
+    [
+      new SurfaceHttpError(409, "cannot move run from SUCCEEDED to PAUSED"),
+      /the stop was NOT applied; the run is SUCCEEDED/,
+    ],
+    [
+      new SurfaceHttpError(403, "surface principal is outside this session scope"),
+      /HTTP 403.*the stop was NOT applied \(this client is outside the session's scope\)/,
+    ],
+    [
+      new SurfaceHttpError(503, "ConcurrentWriteError: optimistic append conflict"),
+      /HTTP 503: ConcurrentWriteError: optimistic append conflict — the stop was NOT applied/,
+    ],
+  ];
+
+  for (const [error, expected] of rejections) {
+    class RejectingClient extends FakeClient {
+      async correct(): Promise<never> {
+        throw error;
+      }
+    }
+    const client = new RejectingClient();
+    const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+    const turn = controller.submit("do the thing");
+    await settled();
+    assert.equal(controller.status, "streaming");
+
+    assert.equal(await controller.stopTurn(), "failed");
+
+    const said = controller.messages.map((m) => m.content).join("\n");
+    assert.match(said, /stop FAILED — /);
+    assert.match(said, expected);
+    assert.doesNotMatch(said, /stop applied/);
+    // Not stopped: the run is still going, and the view must not show the
+    // stopping state any more either (nothing is being stopped).
+    assert.equal(controller.stopRequested, false);
+    assert.equal(controller.status, "streaming");
+
+    client.completedTokens = 1; // end the turn so the test does not leak a poller
+    await turn;
+  }
+});
+
+test("a stop with nothing in flight sends nothing and says so", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  assert.equal(await controller.stopTurn(), "no-turn");
+  assert.equal(client.correctCalls.length, 0, "nothing may be paused on an idle keypress");
+  assert.match(
+    controller.messages.map((m) => m.content).join("\n"),
+    /no turn in flight \(status idle\) — nothing was sent/,
+  );
+  assert.equal(controller.stopRequested, false);
+});
+
+test("a stale-cursor stop is retried from a fresh read, with one idempotency key", async () => {
+  // The kernel rejects a control command carrying a stale event cursor (409
+  // SurfaceSequenceConflict). A pause mid-turn is the likeliest command in the
+  // whole surface to lose that race — the turn it is stopping appends to the
+  // same optimistic stream. The resend must re-read durable truth and must carry
+  // the same idempotency key, so one operator keypress can never pause twice.
+  class StaleOnceClient extends FakeClient {
+    calls: string[] = [];
+    keys: (string | undefined)[] = [];
+    async getSession() {
+      this.calls.push("getSession");
+      return super.getSession();
+    }
+    async correct(_sid: string, _reason: string, _action: string, key?: string) {
+      this.calls.push("correct");
+      this.keys.push(key);
+      if (this.calls.filter((call) => call === "correct").length === 1) {
+        throw new Error(
+          "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+        );
+      }
+      return snapshot({ status: "PAUSED" });
+    }
+  }
+  const client = new StaleOnceClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  // No live turn: this test is about the retry sequence, and a running turn's
+  // durable poller interleaves its own getSession calls (measured).
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  assert.equal(await controller.stopTurn(), "stopped");
+  assert.deepEqual(
+    client.calls,
+    ["getSession", "correct", "getSession", "correct"],
+    "the resend must re-read durable truth, not reuse the stale cursor",
+  );
+  assert.equal(client.keys[0], client.keys[1], "one operator intent keeps one idempotency key");
+  assert.match(
+    controller.messages.map((m) => m.content).join("\n"),
+    /stop applied: session status PAUSED/,
   );
 });

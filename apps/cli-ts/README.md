@@ -51,10 +51,17 @@ Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
 Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it.
 `y`/`n` answer approval cards; Esc issues a correction during a turn
-(Ctrl-C exits); Ctrl-L clears the view. `/vim`
+(Ctrl-C exits); **Ctrl-X stops the running turn** — it sends the real session
+pause (`POST /v1/surface/sessions/{id}/pause`, the same command as
+`noem session pause <session-id>`), reports "stop requested", shows its own
+`stopping…` state until the durable turn record ends the turn, and leaves the
+session PAUSED (resume it with `noem session resume <session-id>`);
+Ctrl-L clears the view. `/vim`
 enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
 and `dd`/`dw`/`cw` operators). Tab switches the focused panel and PgUp/PgDn
-scroll it.
+scroll it. Ctrl-X outranks every layer (vim normal mode, an open picker,
+Ctrl-R, an open palette, a pending approval), so a stop never depends on what
+is on screen.
 
 The key/command surface above is asserted where it can be: unit tests for the
 key resolver (`test/opentui-viewkeys.test.ts`, `test/opentui-vim.test.ts`) and
@@ -87,6 +94,8 @@ npm run check:entry      # the unified entry: node subcommands, node FFI advice,
 npm run check:home       # the home panel owns the first frame
 npm run check:search     # Ctrl-R reverse search + multiline composer
 npm run check:highlight  # fenced-code colouring (headless + pty)
+npm run check:stop       # Ctrl-X stops a mid-turn run (real pause; honest stopping state)
+npm run check:deny       # a rule DENY renders as its own card in a real frame
 ```
 
 ## Other entry points
@@ -116,9 +125,15 @@ npm run live:pty                    # real provider multi-turn in a real pty
   the retired Ink path but NOT Ink-only: `src/opentui/code-highlight.ts` depends
   on `EXTENSION_LANGUAGE`, so do not delete it with other legacy files.
 - `scripts/dev_daemon.py` — hermetic daemon with scripted streaming provider (no network)
+- `scripts/stop_daemon.py` — the same, with the first provider call held open so a
+  mid-turn stop is reachable from a terminal (no default descriptor path: it can
+  never write the operator's `~/.agent-os`)
+- `scripts/deny_daemon.py` — the same, with a durable operator DENY rule seeded
+  before the session opens, so one scripted turn produces a rule refusal and an
+  ordinary tool failure in the same transcript
 - `scripts/smoke.ts` — headless end-to-end walk of the frozen order (exit 1 on violation)
 - `scripts/pty_*.py` — real-pty checks: render/typing/Enter/narrow+resize/approval,
-  theme, highlighting, home frame, search, unified entry
+  theme, highlighting, home frame, search, unified entry, Ctrl-X stop, DENY card
 - `scripts/frame_reader.py` — terminal emulator used by every pty check to
   reconstruct the screen (assert what a human sees, not stripped bytes)
 - `scripts/compile.ts` — `bun build --compile` wrapper (bakes the version in)

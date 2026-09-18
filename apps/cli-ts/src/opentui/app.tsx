@@ -697,7 +697,11 @@ export function App({
         {controller.reasoningText ? (
           <text>{`🧠 ${controller.reasoningText}`}</text>
         ) : null}
-        {controller.status === "streaming" ? <text>streaming…</text> : null}
+        {controller.stopRequested ? (
+          <text>{`stopping… (stop requested; ends at the next safe point)`}</text>
+        ) : controller.status === "streaming" ? (
+          <text>streaming…</text>
+        ) : null}
         {controller.lastError ? (
           <text>{`error: ${controller.lastError}`}</text>
         ) : null}

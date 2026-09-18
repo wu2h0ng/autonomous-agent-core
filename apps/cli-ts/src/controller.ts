@@ -14,7 +14,7 @@
  */
 
 import type { SurfaceClient } from "./client.js";
-import { SurfaceStreamStaleError } from "./client.js";
+import { SurfaceHttpError, SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
@@ -65,6 +65,45 @@ export type ControllerStatus =
   | "awaiting_approval"
   | "stalled"
   | "closed";
+
+/** What an operator stop request (Ctrl-X) actually did.
+ *
+ * `stopped`  the kernel accepted the pause and its own returned session
+ *            snapshot says so; the turn still ends on the kernel's schedule.
+ * `no-turn`  nothing was in flight, so nothing was sent.
+ * `failed`   the pause was sent and REJECTED — named by the kernel, never
+ *            rendered as a stop.
+ */
+export type StopOutcome = "stopped" | "no-turn" | "failed";
+
+/** Operator-facing reason a stop was rejected, with the kernel's own wording.
+ *
+ * The surface overloads HTTP 409, so `isSequenceConflict` claims the retryable
+ * half and everything else reaches the operator. A rejected transition
+ * (`cannot move run from X to PAUSED`, `task_service.update_run_status`) is the
+ * one case where "not stopped" would itself be a lie: the run is already PAUSED,
+ * or it is terminal and there is nothing left to stop. Say which. */
+export function stopFailureText(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const status =
+    cause instanceof SurfaceHttpError ? `HTTP ${cause.statusCode}` : "no HTTP status";
+  const transition = /cannot move run from (\w+) to (\w+)/.exec(message);
+  if (transition) {
+    return (
+      `${status}: ${message} — the stop was NOT applied; the run is ${transition[1]}` +
+      (transition[1] === "PAUSED"
+        ? " (already stopped)"
+        : " (a PAUSED run is already stopped; a SUCCEEDED/CANCELLED/FAILED run has nothing left to stop)")
+    );
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 403) {
+    return `${status}: ${message} — the stop was NOT applied (this client is outside the session's scope)`;
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 409) {
+    return `${status}: ${message} — the stop was NOT applied (a stale event cursor survived the bounded refresh-and-resend)`;
+  }
+  return `${status}: ${message} — the stop was NOT applied`;
+}
 
 export interface ToolCall {
   actionId: string;
@@ -354,6 +393,13 @@ export class TuiController {
    * never part of the assistant message). Reset at the start of each turn. */
   reasoningText = "";
   lastError: string | null = null;
+  /** A stop has been REQUESTED and the turn has not ended yet. The view renders
+   * its own "stopping…" state from this, so an accepted pause is never shown as
+   * a finished stop: the surface pause is only answered once an in-flight
+   * capability dispatch has finished, and the turn ends at the kernel's next
+   * safe point, not when this client's POST returns. Cleared when the turn ends
+   * (the durable record is the only thing that can end it). */
+  stopRequested = false;
 
   private sessionId: string | null = null;
   private taskId: string | null = null;
@@ -773,7 +819,8 @@ export class TuiController {
         "backspace/delete delete backward · ctrl-d delete forward",
         "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
         "ctrl-a/ctrl-e line start/end",
-        "esc correction · ctrl-c exit · ctrl-l clear view",
+        "ctrl-x stop the running turn (pauses the session) · esc correction",
+        "ctrl-c exit · ctrl-l clear view",
         "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
       ],
     };
@@ -1247,6 +1294,12 @@ export class TuiController {
       this.emit();
     } finally {
       this.busy = false;
+      // The turn is over (resolved, stalled or failed): whatever the stop did,
+      // "stopping…" is no longer a state the client may claim.
+      if (this.stopRequested) {
+        this.stopRequested = false;
+        this.emit();
+      }
       this.maybeDrain();
     }
   }
@@ -1343,7 +1396,18 @@ export class TuiController {
           const steps = Number(payload["steps"] ?? 0);
           this.push({
             role: "system",
-            content: `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
+            content:
+              this.lastStopReason === "stopped_by_operator"
+                ? // The kernel's own semantics for this reason (frozen in
+                  // SurfaceTurnResponse): the operator durably paused the
+                  // session, the turn ended before its next provider call or
+                  // capability dispatch, and the Run STAYS PAUSED until an
+                  // explicit resume. Ending the turn is not the same as being
+                  // runnable again, so name the recovery step.
+                  `turn stopped by the operator (${steps} steps, tokens counted) — the session is PAUSED ` +
+                  "and the turn ended before its next step; resume with " +
+                  `\`noem session resume ${this.sessionId ?? "<session-id>"}\``
+                : `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
           });
         }
         this.status = "idle";
@@ -1721,5 +1785,91 @@ export class TuiController {
     this.status = "closed";
     this.emit();
     return "closed";
+  }
+
+  /**
+   * Operator stop (Ctrl-X): pause this session's Run through the surface
+   * protocol, `POST /v1/surface/sessions/{session_id}/pause`.
+   *
+   * It is the same command `noem session pause <session-id>` sends, through the
+   * existing `SurfaceClient`: a real governed control command, not a local flag
+   * and not a client-side "cancelled" render. The kernel moves the Run to
+   * PAUSED, the loop ends the turn at its next safe point with
+   * `stop_reason=stopped_by_operator`, and a capability that was already
+   * dispatched is not aborted. This method can approve nothing, reject nothing,
+   * widen no grant and write no C7 state — a stop only ever removes work.
+   *
+   * Honesty rules, each of which a unit test pins:
+   *
+   *  - "requested" is stated before the POST is sent, and `stopRequested` is
+   *    kept until the DURABLE turn record ends the turn. The pause is answered
+   *    only once an in-flight capability dispatch has finished (#77), so a
+   *    resolved promise is not a stopped turn and must never be rendered as one.
+   *  - on acceptance the reported status is the kernel's own returned snapshot
+   *    status, verbatim — never an inferred "stopped".
+   *  - every rejection is rendered with its HTTP status, the kernel's wording
+   *    and an explicit "the stop was NOT applied" (`stopFailureText`), and a
+   *    rejection that means "the run is already PAUSED / terminal" says that
+   *    instead of claiming a failed stop.
+   */
+  async stopTurn(source: "ctrl-x" | "command" = "ctrl-x"): Promise<StopOutcome> {
+    if (!this.sessionId || (this.status !== "streaming" && this.status !== "stalled")) {
+      // Deliberately NOT a blind pause: pausing an idle session leaves it PAUSED
+      // and refusing new turns (kernel-enforced), which is a trap for a key
+      // pressed with nothing running. `noem session pause <id>` still does it on
+      // purpose from a shell.
+      this.push({
+        role: "system",
+        content:
+          `stop: no turn in flight (status ${this.status}) — nothing was sent. ` +
+          "Pausing an idle session would leave it PAUSED and refuse the next turn.",
+      });
+      this.emit();
+      return "no-turn";
+    }
+    const sessionId = this.sessionId;
+    const queued = this.queue.length;
+    this.stopRequested = true;
+    this.push({
+      role: "system",
+      content:
+        "stop requested — pausing the session (the turn ends at its next safe point; " +
+        "a capability already dispatched is not aborted)",
+    });
+    this.emit();
+    // One key for the operator's single intent, reused across the bounded
+    // refresh-and-resend: if a pause did land and its response we never saw, the
+    // kernel answers from its idempotency record instead of applying it twice.
+    const idempotencyKey = `cli-ts-pause:${randomUUID()}`;
+    try {
+      const snapshot = await this.controlWithRetry(sessionId, () =>
+        this.client.correct(
+          sessionId,
+          `operator stop (${source})`,
+          "pause",
+          idempotencyKey,
+        ),
+      );
+      this.snapshot = snapshot;
+      this.push({
+        role: "system",
+        content:
+          `stop applied: session status ${snapshot.status} (durable, read back from the kernel) — ` +
+          "the terminal state arrives with the durable turn record" +
+          (queued > 0
+            ? `; ${queued} queued message(s) cannot run while the session is PAUSED`
+            : ""),
+      });
+      this.emit();
+      return "stopped";
+    } catch (cause) {
+      this.stopRequested = false;
+      this.push({
+        role: "system",
+        content: `stop FAILED — ${stopFailureText(cause)}`,
+      });
+      this.emit();
+      return "failed";
+    }
   }
 }
