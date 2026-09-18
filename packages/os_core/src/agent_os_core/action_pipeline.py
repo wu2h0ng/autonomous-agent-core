@@ -253,8 +253,12 @@ class ActionPipeline:
         if replayed is not None:
             return replayed
         self._tasks.assert_external_exact_approval(action, approval)
+        # A capability with no grant in this loop's grant map is a typed
+        # policy denial (CAPABILITY_NOT_GRANTED via PolicyKernel), not a
+        # KeyError: a narrowed child loop must fail closed *visibly*, with a
+        # durable POLICY_DECIDED(DENY) instead of an untyped tool failure.
         grant = (
-            self._grant[cid]
+            self._grant.get(cid)
             if isinstance(self._grant, dict)
             else self._grant
         )
@@ -423,8 +427,12 @@ class ActionPipeline:
                 "workspace.compensate_patch is coordinator-only"
             )
         self._tasks.assert_external_exact_approval(action, approval)
+        # A capability with no grant in this loop's grant map is a typed
+        # policy denial (CAPABILITY_NOT_GRANTED via PolicyKernel), not a
+        # KeyError: a narrowed child loop must fail closed *visibly*, with a
+        # durable POLICY_DECIDED(DENY) instead of an untyped tool failure.
         grant = (
-            self._grant[cid]
+            self._grant.get(cid)
             if isinstance(self._grant, dict)
             else self._grant
         )

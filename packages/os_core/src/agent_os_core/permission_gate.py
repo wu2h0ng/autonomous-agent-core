@@ -28,6 +28,16 @@ ACTION_RISK_TIERS: dict[str, int] = {
     "workspace.edit": 2,
     "workspace.apply_patch": 2,
     "workspace.shell": 3,
+    # Form B (ADR-0061 §5.8): spawning a child session/task/run is a
+    # consequential but reversible action, so it is registered at tier 2
+    # rather than tier 3 (which would make every spawn a human approval).
+    # Registering it at all is what keeps it governed: an unregistered
+    # capability is DENY_OUT_OF_ALLOWLIST in every mode. In ACCEPT_IN_WORKSPACE
+    # the frozen matrix auto-allows tier 2 with durable mode provenance; under
+    # ASK the operator sees a confirmation card. The child's own actions are
+    # never covered by this entry - each one needs its own grant, decision,
+    # permit, approval (when tier >= 3) and receipt.
+    "agent.spawn": 2,
 }
 
 

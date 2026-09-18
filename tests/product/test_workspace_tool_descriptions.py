@@ -43,6 +43,7 @@ from domain_packs.developer_agent import DeveloperWorkspaceAdapter
 # CHAT_CAPABILITY_IDS is the interactive chat surface; artifact.write is in the
 # developer pack's specs(), which the execution path sends in full.
 DESCRIBED: tuple[str, ...] = (
+    "agent.spawn",
     "workspace.read",
     "workspace.search",
     "workspace.edit",
@@ -190,6 +191,15 @@ def test_descriptions_restate_the_registered_effect_class_and_risk_tier(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     specs = DeveloperWorkspaceAdapter(workspace).specs()
+    # agent.spawn is registered only when the composition root enables child
+    # agents; its description must still restate the registered spec.
+    specs.update(
+        DeveloperWorkspaceAdapter(
+            workspace,
+            child_agent_spawner=object(),
+            child_agents_enabled=True,
+        ).specs()
+    )
 
     for capability_id in DESCRIBED:
         spec = specs[capability_id]
