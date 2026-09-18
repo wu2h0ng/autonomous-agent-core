@@ -8,7 +8,10 @@ the *same* for every child on every process generation:
 * the durable index over ``CHILD_AGENT_SPAWNED`` / ``CHILD_AGENT_FINISHED`` and
   the ``child_agent`` block of a child session's ``SESSION_OPENED`` payload;
 * the read-side C7 halt cascade (:class:`ChildAgentHaltCascade`);
-* crash burial (:class:`ChildAgentBurial`), an operator-declared reconciliation;
+* crash burial (:class:`ChildAgentBurial`): an operator-declared reconciliation of
+  a child no live worker owns - a crashed generation's child, or one whose spawn
+  call died inside the current generation. A child parked on its own pending
+  approval is never buriable; only the operator may resolve it;
 * the per-parent-turn fan-out bound and the nested-spawn depth bound;
 * the attribution projection over the durable records.
 

@@ -108,8 +108,11 @@ exactly that (`test_attribution_includes_children_without_copying_their_text`).
 - **Burial** (requirement 2): a child whose owning runtime generation is gone is
   closed by an **operator declaration** with `status=failed`,
   `stop_reason=unknown_requires_review` and a `CHILD_AGENT_RECONCILED` block
-  naming `CHILD_RUNTIME_GENERATION_GONE`, the declaring operator and the live
-  generation. Never `completed`. The frozen `ChildAgentStatus` enum has no
+  naming `CHILD_RUNTIME_GENERATION_GONE` (a crashed generation's child) or
+  `CHILD_SPAWN_ABANDONED` (a spawn call that died inside this generation), the
+  declaring operator and the live generation. Never `completed`. A child parked
+  on its own pending approval is refused: only the operator's APPROVE/REJECT
+  may resolve that one, and it is not orphaned until it is decided. The frozen `ChildAgentStatus` enum has no
   `unknown` member, so "unknown" is carried by the stop reason and the
   reconciliation block; extending the enum is a contract decision this slice
   does not take.
