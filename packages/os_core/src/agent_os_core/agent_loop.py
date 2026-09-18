@@ -600,6 +600,7 @@ class AgentLoop:
                     basis="rule",
                     reason="denied by an operator permission rule",
                     rule_id=deny_rule.rule_id,
+                    rule_reason=deny_rule.reason,
                 )
                 raise RunExecutionError(
                     "denied by an operator permission rule: pending action is blocked"
@@ -1480,16 +1481,25 @@ class AgentLoop:
                     else "capability is outside the frozen session allowlist"
                 ),
                 rule_id=gate.rule_id if denied_by_rule else None,
+                rule_reason=gate.rule_reason if denied_by_rule else None,
             )
+            # The model-visible result names the refusal and, for a rule denial,
+            # the rule it came from: an unnamed "a rule forbids this" left the
+            # model free to report success for work that never happened.
             return self._tool_message(
                 proposal,
                 {
                     "error": (
-                        "denied: an operator permission rule forbids this capability"
+                        f"denied: operator permission rule {gate.rule_id} "
+                        f"forbids {capability_id}"
                         if denied_by_rule
                         else "denied: capability is outside the allowlist"
                     ),
                     "denied": True,
+                    "executed": False,
+                    "basis": "rule" if denied_by_rule else "out_of_allowlist",
+                    "rule_id": gate.rule_id if denied_by_rule else None,
+                    "capability_id": capability_id,
                 },
             )
         if gate.outcome is PermissionGateOutcome.REQUIRE_CONFIRM:
@@ -1591,7 +1601,12 @@ class AgentLoop:
     ) -> None:
         """E2: durably record a fail-closed denial for a provider proposal
         whose capability is outside the frozen session allowlist. No Action is
-        built and no ApprovalDecision can ever authorize it."""
+        built and no ApprovalDecision can ever authorize it.
+
+        No Action exists on this path, so the identity of the refused attempt is
+        the proposal itself (id + arguments): the denial is the only record of
+        it, and a surface has to be able to say what was refused.
+        """
         self._tasks.append_event(
             session.task_id,
             TaskEventType.POLICY_VERDICT_RECORDED,
@@ -1606,6 +1621,8 @@ class AgentLoop:
                         "utf-8"
                     )
                 ).hexdigest(),
+                "proposal_id": proposal.proposal_id,
+                "arguments_json": proposal.arguments_json,
                 "reason": "capability is outside the frozen session allowlist",
             },
         )
@@ -1620,11 +1637,20 @@ class AgentLoop:
         reason: str | None,
         mode_event_id: str | None = None,
         rule_id: str | None = None,
+        rule_reason: str | None = None,
     ) -> None:
         """E2 durable policy verdict: an auto-allowance is recorded with
         provenance (basis=permission_mode + mode_event_id), never as an
         ApprovalDecision; an out-of-allowlist denial is recorded with reason; a
-        DENY-by-rule records the exact rule_id."""
+        DENY-by-rule records the exact rule_id.
+
+        A DENY verdict is the only durable trace a refused action leaves (it is
+        never proposed, dispatched or receipted), so it carries the full identity
+        of the refused action — action_id, node_id and the arguments — plus the
+        rule name and the operator's reason. Without them a surface cannot say
+        *what* was refused, and the defect was exactly that: the denial reached
+        nobody.
+        """
         self._tasks.append_event(
             session.task_id,
             TaskEventType.POLICY_VERDICT_RECORDED,
@@ -1633,9 +1659,13 @@ class AgentLoop:
                 "basis": basis,
                 "mode_event_id": mode_event_id,
                 "rule_id": rule_id,
+                "rule_reason": rule_reason,
                 "capability_id": action.capability_id,
                 "risk_tier": action.risk_tier,
                 "action_digest": action.action_digest(),
+                "action_id": action.action_id,
+                "node_id": action.node_id,
+                "arguments_json": action.arguments_json,
                 "reason": reason,
             },
         )

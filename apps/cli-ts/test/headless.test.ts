@@ -38,6 +38,8 @@ class StubClient {
   stopReason: string | null = null;
   tokens = 10;
   approvalPending = false;
+  /** Durable refusal records this turn's drain returns (defect b). */
+  denials: Record<string, unknown>[] = [];
 
   async openSession() {
     return snapshot();
@@ -100,6 +102,19 @@ class StubClient {
     } else if (this.tokens > 0) {
       const tokens = this.tokens;
       this.tokens = 0;
+      // A refusal is recorded durably BEFORE the turn completes (the kernel
+      // records the verdict while the proposal is being decided), so the deny
+      // event and the completion arrive in the same batch, in sequence order.
+      this.denials.forEach((denial, index) => {
+        events.push({
+          event_id: `e:deny:${index}`,
+          task_id: "task:1",
+          event_type: "POLICY_VERDICT_RECORDED",
+          payload_json: JSON.stringify(denial),
+          occurred_at: new Date().toISOString(),
+          sequence: after + 1 + index,
+        });
+      });
       events.push({
         event_id: "e:tc",
         task_id: "task:1",
@@ -112,7 +127,7 @@ class StubClient {
             : {}),
         }),
         occurred_at: new Date().toISOString(),
-        sequence: after + 1,
+        sequence: after + 1 + events.length,
       });
     }
     return { task_id: "task:1", after_sequence: after, next_sequence: after + events.length, events };
@@ -218,4 +233,103 @@ test("headless transport error: exit 1", async () => {
   const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
   assert.equal(payload["subtype"], "error");
   assert.match(String(payload["stop_reason"]), /connection refused/);
+});
+
+test("headless refuses to report success when the kernel denied the action (defect b)", async () => {
+  // The kernel refuses a rule-denied edit before it is proposed, so the turn
+  // itself completes normally and the model can answer "done" while the file is
+  // untouched. Exit 0 / subtype success for that was the defect: a script (or a
+  // caller) had no way to tell "applied" from "refused and never executed".
+  const client = new StubClient();
+  client.chunks = ["done, fixture.txt is fixed"];
+  client.denials = [
+    {
+      verdict: "DENY",
+      basis: "rule",
+      mode_event_id: null,
+      rule_id: "rule-1",
+      rule_reason: "deploy freeze",
+      capability_id: "workspace.edit",
+      risk_tier: 2,
+      action_digest: "digest-1",
+      action_id: "a:edit",
+      node_id: "node:a:edit",
+      arguments_json: JSON.stringify({ path: "fixture.txt" }),
+      reason: "denied by an operator permission rule",
+    },
+  ];
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "fix fixture.txt", outputFormat: "json" }, io);
+
+  assert.notEqual(code, HEADLESS_EXIT.OK);
+  assert.equal(code, HEADLESS_EXIT.DENIED);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload["subtype"], "denied");
+  assert.equal(payload["is_error"], true);
+  assert.equal(payload["stop_reason"], "denied_by_rule:rule-1");
+  // The turn really did complete and its tokens were counted: the refusal is
+  // reported as a refusal, never as a fabricated failure of the transport.
+  assert.equal(payload["total_tokens"], 10);
+  assert.equal(payload["text"], "done, fixture.txt is fixed");
+});
+
+test("headless text mode says which action was refused, on stderr", async () => {
+  const client = new StubClient();
+  client.chunks = ["all done"];
+  client.denials = [
+    {
+      verdict: "DENY",
+      basis: "out_of_allowlist",
+      mode_event_id: null,
+      capability_id: "workspace.exfiltrate",
+      risk_tier: null,
+      action_digest: "digest-x",
+      proposal_id: "call-x",
+      arguments_json: JSON.stringify({ path: "secrets.txt" }),
+      reason: "capability is outside the frozen session allowlist",
+    },
+  ];
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "exfiltrate", outputFormat: "text" }, io);
+  assert.equal(code, HEADLESS_EXIT.DENIED);
+  assert.match(io.err.join(""), /refused: workspace\.exfiltrate · denied:out_of_allowlist/);
+  assert.match(io.err.join(""), /NOT executed/);
+  assert.match(io.err.join(""), /noem: denied \(denied:out_of_allowlist\)/);
+});
+
+test("a refused action is not reported as success on a later clean turn", async () => {
+  // Turn-scoped: the previous turn's refusal must not poison a later turn that
+  // was not denied (a persistent flag would be its own lie).
+  const client = new StubClient();
+  client.chunks = ["first"];
+  client.denials = [
+    {
+      verdict: "DENY",
+      basis: "rule",
+      rule_id: "rule-1",
+      rule_reason: "deploy freeze",
+      capability_id: "workspace.edit",
+      action_id: "a:edit",
+      node_id: "node:a:edit",
+      arguments_json: "{}",
+      reason: "denied by an operator permission rule",
+    },
+  ];
+  const io = capture();
+  assert.equal(
+    await runHeadless(client as never, { prompt: "first", outputFormat: "json" }, io),
+    HEADLESS_EXIT.DENIED,
+  );
+  const first = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.match(String(first["stop_reason"]), /denied_by_rule:rule-1/);
+
+  const clean = capture();
+  client.denials = [];
+  client.chunks = ["second"];
+  client.tokens = 7;
+  assert.equal(
+    await runHeadless(client as never, { prompt: "second", outputFormat: "json" }, clean),
+    HEADLESS_EXIT.OK,
+  );
+  assert.equal((JSON.parse(clean.out.join("")) as Record<string, unknown>)["subtype"], "success");
 });

@@ -93,7 +93,7 @@ npm run check:highlight  # fenced-code colouring (headless + pty)
 
 ```bash
 npm run doctor                      # read-only probes: descriptor/auth/protocol
-npm run dev -- -p "hello"           # headless one-shot (exit codes 0/1/2/3)
+npm run dev -- -p "hello"           # headless one-shot (exit codes 0/1/2/3/4; 4 = an action was refused)
 npm run dev -- -p "hello" --output-format json
 npm run smoke:pty                   # real-pty TUI regression (3 phases)
 npm run compile                     # single-file binary (bun build --compile)

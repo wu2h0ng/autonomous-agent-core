@@ -88,6 +88,21 @@ export interface ToolCall {
   errorText?: string;
 }
 
+/** A refusal the kernel recorded durably (`POLICY_VERDICT_RECORDED` with
+ * `verdict=DENY`). This is the ONLY trace a refused action leaves: it is never
+ * proposed (`ACTION_PROPOSED`), never dispatched (no receipt) and never
+ * completed, so without this the operator sees nothing at all and headless
+ * reports a clean success for work that never happened. */
+export interface PolicyDenial {
+  capabilityId: string;
+  /** `rule` = an operator DENY rule; `out_of_allowlist` = fail-closed outside
+   * the frozen session allowlist. */
+  basis: "rule" | "out_of_allowlist";
+  ruleId: string | null;
+  /** Operator-facing reason (the rule's own reason, or the kernel's basis). */
+  reason: string;
+}
+
 /** Operator-facing state of a tool card: the receipt's dispatch status refined
  * by the tool's own result. The receipt keeps its own semantics — `failed` is
  * still exactly "the dispatch did not succeed" (`ReceiptStatus` FAILED /
@@ -354,6 +369,12 @@ export class TuiController {
   /** Message index by proposed action node id — the fallback key for
    * NODE_COMPLETED payloads that carry no action_id. */
   private readonly nodeIndex = new Map<string, number>();
+  /** Refusals recorded durably during the turn in flight (or the last one).
+   * Turn-scoped: reset at the start of every turn, so a headless one-shot can
+   * answer "was anything refused this turn?" without reading the whole log. */
+  private readonly turnDenials: PolicyDenial[] = [];
+  /** Refused-action identities already counted this turn (replay guard). */
+  private readonly deniedActionKeys = new Set<string>();
   private readonly listeners = new Set<() => void>();
   private readonly clock: () => number;
   private readonly stallMs: number;
@@ -402,6 +423,13 @@ export class TuiController {
   /** Snapshot of queued messages (for `/queue`). */
   get queuedMessages(): readonly string[] {
     return this.queue;
+  }
+
+  /** Refusals recorded during the current (or last) turn, in order. Each one
+   * already has a card in the transcript; headless reads this to refuse to
+   * report a clean success for work the kernel never let happen. */
+  get policyDenials(): readonly PolicyDenial[] {
+    return this.turnDenials;
   }
 
   /** Latest non-failed todo_write list (full-replace semantics), newest card
@@ -1122,6 +1150,8 @@ export class TuiController {
     this.busy = true;
     this.lastError = null;
     this.lastStopReason = null;
+    this.turnDenials.length = 0;
+    this.deniedActionKeys.clear();
     try {
       await this.ensureSession();
       const sessionId = this.sessionId!;
@@ -1309,6 +1339,8 @@ export class TuiController {
         this.applyToolCompletion(payload);
       } else if (event.event_type === "NODE_FAILED") {
         this.applyToolFailure(payload);
+      } else if (event.event_type === "POLICY_VERDICT_RECORDED") {
+        this.applyPolicyVerdict(payload, event.sequence);
       }
     }
   }
@@ -1453,6 +1485,81 @@ export class TuiController {
       resultSummary: `error ${bounded}`,
     };
     this.emit();
+  }
+
+  /** The durable `POLICY_VERDICT_RECORDED` verdict — an operator-visible card
+   * for the refusals that used to leave no trace at all.
+   *
+   * A DENY is the ONLY record a refused action produces: the kernel never
+   * proposes it (`ACTION_PROPOSED`), never dispatches it (no receipt) and never
+   * completes it. The card is therefore built from the verdict itself — a
+   * refusal is not a proposal and must never be projected as one (no pending
+   * state, no approval affordance, no receipt semantics touched).
+   *
+   * An ALLOW verdict (`basis=permission_mode`) is prior session policy, not an
+   * operator-visible outcome, and projects nothing.
+   *
+   * Idempotent under replay: the card is keyed by the refused action's identity
+   * (`action_id`, else `node_id`, else the durable event sequence) and a second
+   * application of the same verdict only refreshes that card. */
+  private applyPolicyVerdict(payload: Record<string, unknown>, sequence: number): void {
+    if (String(payload["verdict"] ?? "") !== "DENY") return;
+    const capabilityId = String(payload["capability_id"] ?? "unknown");
+    const byRule = String(payload["basis"] ?? "") === "rule";
+    const ruleId =
+      typeof payload["rule_id"] === "string" && payload["rule_id"] ? payload["rule_id"] : null;
+    const ruleReason =
+      typeof payload["rule_reason"] === "string" ? payload["rule_reason"] : "";
+    const kernelReason = typeof payload["reason"] === "string" ? payload["reason"] : "";
+    const argsJson =
+      typeof payload["arguments_json"] === "string" ? payload["arguments_json"] : "{}";
+    const reason = byRule
+      ? `denied by rule ${ruleId ?? "(unnamed)"}${ruleReason ? ` — ${ruleReason}` : ""}`
+      : `denied — ${kernelReason || "not permitted in this scope"}`;
+    const summary = reason.length > 160 ? `${reason.slice(0, 160)}…` : reason;
+    const actionId =
+      String(payload["action_id"] ?? payload["node_id"] ?? "") || `policy-deny:${sequence}`;
+    const nodeId = String(payload["node_id"] ?? "");
+
+    if (!this.deniedActionKeys.has(actionId)) {
+      this.deniedActionKeys.add(actionId);
+      this.turnDenials.push({
+        capabilityId,
+        basis: byRule ? "rule" : "out_of_allowlist",
+        ruleId,
+        reason: summary,
+      });
+    }
+
+    const existing =
+      this.toolIndex.get(actionId) ?? (nodeId ? this.nodeIndex.get(nodeId) : undefined);
+    if (existing !== undefined) {
+      const message = this.messages[existing];
+      if (!message?.tool) return;
+      message.tool = {
+        ...message.tool,
+        status: "failed",
+        errorText: summary,
+        resultSummary: summary,
+      };
+      this.emit();
+      return;
+    }
+    this.toolIndex.set(actionId, this.messages.length);
+    if (nodeId) this.nodeIndex.set(nodeId, this.messages.length);
+    this.push({
+      role: "system",
+      content: "",
+      tool: {
+        actionId,
+        capabilityId,
+        argsSummary: summarizeArgs(argsJson),
+        argsJson,
+        status: "failed",
+        errorText: summary,
+        resultSummary: summary,
+      },
+    });
   }
 
   /** Stall detection while streaming: quiet stream beyond the threshold. */

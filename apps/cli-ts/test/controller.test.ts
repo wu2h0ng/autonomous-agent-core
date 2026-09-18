@@ -1096,6 +1096,42 @@ function failedEvent(seq: number, body: Record<string, unknown>) {
   };
 }
 
+/** The durable refusal record a DENY leaves (kernel `_record_policy_verdict`).
+ * Shaped after the real payload: a refused action is never proposed, dispatched
+ * or receipted, so this is the ONLY trace of it. */
+function verdictEvent(seq: number, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "POLICY_VERDICT_RECORDED",
+    payload_json: JSON.stringify(body),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function ruleDenial(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    verdict: "DENY",
+    basis: "rule",
+    mode_event_id: null,
+    rule_id: "rule-1",
+    rule_reason: "deploy freeze",
+    capability_id: "workspace.edit",
+    risk_tier: 2,
+    action_digest: "digest-1",
+    action_id: "a:edit",
+    node_id: "node:a:edit",
+    arguments_json: JSON.stringify({
+      path: "fixture.txt",
+      old_string: "stable\n",
+      new_string: "fixed\n",
+    }),
+    reason: "denied by an operator permission rule",
+    ...overrides,
+  };
+}
+
 function applyDurable(
   controller: TuiController,
 ): (next: number, events: unknown[]) => void {
@@ -1304,6 +1340,113 @@ test("a tool call that sealed nothing converges to failed, not pending (round-3 
     failedEvent(3, { action_id: "a:edit", node_id: "node:a:edit", error: reason }),
   ]);
   assert.equal(controller.messages[0]?.tool?.resultSummary, summary);
+});
+
+test("a permission DENY reaches the operator as a failed card (defect b)", () => {
+  // The kernel refuses the action before proposing it, so no ACTION_PROPOSED,
+  // no receipt and no completion ever exist — the durable verdict is the ONLY
+  // trace. Before this projection the transcript showed nothing at all while
+  // headless reported success, so this test is also the bypass detector: delete
+  // the POLICY_VERDICT_RECORDED branch and it goes red.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+
+  apply(1, [verdictEvent(1, ruleDenial())]);
+
+  const tool = controller.messages[0]?.tool;
+  assert.ok(tool, "the refusal must produce a card");
+  assert.equal(tool?.status, "failed");
+  assert.equal(toolState(tool!), "failed");
+  assert.equal(tool?.capabilityId, "workspace.edit");
+  assert.equal(tool?.argsSummary, "fixture.txt", "the card names what was attempted");
+  assert.match(tool?.resultSummary ?? "", /denied by rule rule-1/);
+  assert.match(tool?.resultSummary ?? "", /deploy freeze/);
+  // A refusal is not a proposal: never pending, never approvable.
+  assert.notEqual(toolState(tool!), "pending");
+
+  const rendered = renderTranscript(controller.messages, {
+    sessionId: "s:1",
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(rendered, /- tool \[failed\] workspace\.edit \(fixture\.txt\)/);
+  assert.match(rendered, /denied by rule rule-1/);
+  assert.ok(!rendered.includes("[pending]"), "a refusal must not export as pending");
+
+  assert.equal(controller.policyDenials.length, 1);
+  assert.equal(controller.policyDenials[0]?.basis, "rule");
+  assert.equal(controller.policyDenials[0]?.ruleId, "rule-1");
+
+  // Replay of the same durable verdict must not double the card or the count.
+  apply(2, [verdictEvent(2, ruleDenial())]);
+  assert.equal(controller.messages.length, 1);
+  assert.equal(controller.policyDenials.length, 1);
+});
+
+test("an out-of-allowlist DENY also produces a failed card", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [
+    verdictEvent(1, {
+      verdict: "DENY",
+      basis: "out_of_allowlist",
+      mode_event_id: null,
+      capability_id: "workspace.exfiltrate",
+      risk_tier: null,
+      action_digest: "digest-x",
+      proposal_id: "call-x",
+      arguments_json: JSON.stringify({ path: "fixture.txt" }),
+      reason: "capability is outside the frozen session allowlist",
+    }),
+  ]);
+  const tool = controller.messages[0]?.tool;
+  assert.equal(tool?.status, "failed");
+  assert.equal(tool?.capabilityId, "workspace.exfiltrate");
+  assert.match(tool?.resultSummary ?? "", /outside the frozen session allowlist/);
+  assert.equal(controller.policyDenials[0]?.basis, "out_of_allowlist");
+  assert.equal(controller.policyDenials[0]?.ruleId, null);
+});
+
+test("a mode ALLOW verdict is not an operator-visible card", () => {
+  // `POLICY_VERDICT_RECORDED(ALLOW, basis=permission_mode)` is prior session
+  // policy, not an outcome: it must not grow a card of its own.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [
+    verdictEvent(1, {
+      verdict: "ALLOW",
+      basis: "permission_mode",
+      mode_event_id: "evt-1",
+      rule_id: null,
+      capability_id: "workspace.edit",
+      risk_tier: 2,
+      action_digest: "digest-1",
+      action_id: "a:edit",
+      node_id: "node:a:edit",
+      arguments_json: "{}",
+      reason: null,
+    }),
+  ]);
+  assert.equal(controller.messages.length, 0);
+  assert.equal(controller.policyDenials.length, 0);
+});
+
+test("a DENY for an already-proposed action fails that card instead of adding one", () => {
+  // The resume path: the action was escalated (card exists, pending), the
+  // operator then added a DENY rule and pressed approve — the kernel refuses and
+  // the card must converge to failed rather than stay pending forever.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"fixture.txt"}')]);
+  assert.equal(controller.messages[0]?.tool?.status, "pending");
+
+  apply(2, [verdictEvent(2, ruleDenial())]);
+
+  assert.equal(controller.messages.length, 1, "no second card for the same action");
+  assert.equal(controller.messages[0]?.tool?.status, "failed");
+  assert.match(controller.messages[0]?.tool?.resultSummary ?? "", /denied by rule rule-1/);
+  assert.equal(controller.policyDenials.length, 1);
 });
 
 test("a rejected approval resolves the card instead of leaving it pending", async () => {
