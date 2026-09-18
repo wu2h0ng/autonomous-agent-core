@@ -25,6 +25,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -125,7 +126,7 @@ def main() -> None:
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor_path),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),

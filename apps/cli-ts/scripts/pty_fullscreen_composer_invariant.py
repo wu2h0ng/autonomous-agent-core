@@ -27,6 +27,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -91,14 +92,14 @@ def kill(pid: int) -> None:
         pass
 
 
-def main() -> None:
+def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="composer-inv-"))
     descriptor = tmp / "r.json"
     workspace = tmp / "ws"
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),
@@ -160,11 +161,17 @@ def main() -> None:
         os.write(fd, b"\x03")
         time.sleep(0.4)
         kill(pid)
-        print("INVARIANT_OK:", palette_ok and ran_status and alive and no_unknown)
+        ok = palette_ok and ran_status and alive and no_unknown
+        print("INVARIANT_OK:", ok)
+        # The verdict is the EXIT STATUS, not the printed line. Printed-only
+        # booleans are how a check stays green through the very regression it
+        # names: a caller that runs this script and reads its exit code (CI does)
+        # could never fail on it.
+        return 0 if ok else 1
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -130,7 +130,7 @@ def main() -> int:
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),

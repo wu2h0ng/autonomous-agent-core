@@ -40,6 +40,8 @@
     "check:home": "uv run python scripts/pty_home_frame_check.py",
     "check:entry": "uv run python scripts/pty_entry_check.py",
     "check:search": "uv run python scripts/pty_search_check.py",
+    "check:frames": "node scripts/pty-ci.mjs --all",
+    "check:frames:ci": "node scripts/pty-ci.mjs",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
   },
