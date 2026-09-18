@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     ActionContract,
+    AgentRun,
     ApprovalDecision,
     ApprovalDisposition,
     BindingStatus,
@@ -19,6 +21,7 @@ from agent_os_contracts import (
     PermissionMode,
     PrincipalIdentity,
     PrincipalRole,
+    ProviderAttemptFailure,
     ProviderFailure,
     ProviderMessage,
     ProviderMessageRole,
@@ -188,6 +191,48 @@ class TurnResult:
 
 def _session_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# How many failed attempts of one model call may be written to the durable log.
+#
+# The loop makes `max_provider_retries + 1` attempts, so the ordinary ceiling is
+# the configured retry budget (3 at the product default, 2 retries) and a failed
+# attempt ends the turn - a failing turn therefore costs at most this many
+# records, one per network attempt it actually made. The provider cannot raise
+# that count: only the session's own configuration can, and the limit keeps a
+# session configured with an absurd retry budget from growing the log without
+# bound. It is deliberately far above any retry budget the product configures, so
+# in ordinary operation it never truncates evidence.
+_PROVIDER_ATTEMPT_FAILURE_RECORD_LIMIT = 16
+
+
+class _AttemptDeltaSink:
+    """Per-attempt delta fan-out that remembers whether anything was streamed.
+
+    ``emitted`` is the same fact the adapter's own retry rule turns on ("a stream
+    that has already emitted a delta is never retried: replaying would duplicate
+    output"), and the durable attempt record states it so an operator can see
+    whether a failed attempt had already produced output. Text and reasoning
+    deltas both count, exactly as they do inside the adapter.
+    """
+
+    def __init__(
+        self,
+        *,
+        on_text: Callable[[str], None],
+        on_reasoning: Callable[[str], None],
+    ) -> None:
+        self.emitted = False
+        self._on_text = on_text
+        self._on_reasoning = on_reasoning
+
+    def text(self, chunk: str) -> None:
+        self.emitted = True
+        self._on_text(chunk)
+
+    def reasoning(self, chunk: str) -> None:
+        self.emitted = True
+        self._on_reasoning(chunk)
 
 
 class AgentLoop:
@@ -1241,7 +1286,9 @@ class AgentLoop:
     ) -> ProviderResponse | ProviderFailure:
         attempts = self._config.max_provider_retries + 1
         last_failure: ProviderFailure | None = None
-        for _ in range(attempts):
+        recorded_failures = 0
+        node_id = f"{turn_id.turn_id}-step-{step + 1}"
+        for attempt in range(attempts):
             aggregate = self._tasks.get_task(session.task_id)
             run = aggregate.run
             snapshot = aggregate.configuration_snapshot
@@ -1283,16 +1330,36 @@ class AgentLoop:
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
+            deltas = _AttemptDeltaSink(
+                on_text=self._emit_text_delta,
+                on_reasoning=self._emit_reasoning_delta,
+            )
+            started_at = _session_now()
+            started_monotonic = time.monotonic()
             response = self._provider.complete_streaming(
                 request,
-                on_text_delta=self._emit_text_delta,
-                on_reasoning_delta=self._emit_reasoning_delta,
+                on_text_delta=deltas.text,
+                on_reasoning_delta=deltas.reasoning,
             )
             if isinstance(response, ProviderFailure):
                 last_failure = response
                 if response.request_id != request.request_id:
                     raise RunExecutionError(
                         "chat provider failure request binding mismatch"
+                    )
+                if recorded_failures < _PROVIDER_ATTEMPT_FAILURE_RECORD_LIMIT:
+                    recorded_failures += 1
+                    self._record_provider_attempt_failure(
+                        session=session,
+                        run=run,
+                        turn_id=turn_id.turn_id,
+                        node_id=node_id,
+                        attempt_index=attempt,
+                        attempts_planned=attempts,
+                        failure=response,
+                        emitted_output=deltas.emitted,
+                        started_at=started_at,
+                        latency_ms=(time.monotonic() - started_monotonic) * 1000.0,
                     )
                 if response.retryable:
                     continue
@@ -1348,6 +1415,55 @@ class AgentLoop:
         if last_failure is None:
             raise RunExecutionError("chat provider exhausted without a response")
         return last_failure
+
+    def _record_provider_attempt_failure(
+        self,
+        *,
+        session: ChatSession,
+        run: AgentRun,
+        turn_id: str,
+        node_id: str,
+        attempt_index: int,
+        attempts_planned: int,
+        failure: ProviderFailure,
+        emitted_output: bool,
+        started_at: datetime,
+        latency_ms: float,
+    ) -> None:
+        """Durably record one failed model call, or nothing at all.
+
+        A failure to record must never be worse than the failure being recorded:
+        the attempt is already over and the turn is about to stop on it, so every
+        error here is swallowed - the same rule the adapter's own operator log
+        follows. Nothing about a missing record is inferred later; the log simply
+        holds one fewer attempt.
+        """
+
+        try:
+            self._tasks.record_provider_attempt_failure(
+                session.task_id,
+                ProviderAttemptFailure(
+                    attempt_failure_id=failure.failure_id,
+                    request_id=failure.request_id,
+                    node_id=node_id,
+                    task_id=session.task_id,
+                    run_id=run.run_id,
+                    session_id=session.session_id,
+                    turn_id=turn_id,
+                    attempt_index=attempt_index,
+                    attempts_planned=attempts_planned,
+                    code=failure.code,
+                    retryable=failure.retryable,
+                    emitted_output=emitted_output,
+                    provider_profile_id=self._profile.profile_id,
+                    model_id=self._profile.model_id,
+                    safe_message=failure.safe_message,
+                    latency_ms=max(0.0, round(latency_ms, 3)),
+                    started_at=started_at,
+                ),
+            )
+        except Exception:  # noqa: BLE001 - evidence must not fail the turn
+            return
 
     def _record_tool_failure(
         self,

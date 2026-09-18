@@ -15,6 +15,7 @@ from agent_os_contracts import (
     CorrectionEpochVector,
     PendingSurfaceApproval,
     PermissionMode,
+    ProviderAttemptFailure,
     ProviderMessage,
     ProviderMessageRole,
     ProviderToolProposal,
@@ -475,6 +476,41 @@ def _strict_project(
 
             if event.event_type is TaskEventType.SESSION_CONTEXT_COMPACTED:
                 # Audit-only marker: carries no projected session state.
+                continue
+
+            if event.event_type is TaskEventType.PROVIDER_ATTEMPT_FAILED:
+                # Audit-only, like the compaction marker: a failed model attempt is
+                # evidence about a turn, never an assertion that one started or
+                # finished, so it can neither open nor close a turn here.
+                if closed:
+                    raise SessionProjectionError("session event recorded after close")
+                if ref is None:
+                    raise SessionProjectionError(
+                        "provider attempt failure recorded before session open"
+                    )
+                if set(payload) != {
+                    "session_id",
+                    "turn_id",
+                    "provider_attempt_failure",
+                }:
+                    raise SessionProjectionError(
+                        "provider attempt failure fields are invalid"
+                    )
+                try:
+                    attempt = ProviderAttemptFailure.model_validate(
+                        payload["provider_attempt_failure"]
+                    )
+                except (KeyError, ValidationError, TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        f"invalid provider attempt failure record: {exc}"
+                    ) from exc
+                if (
+                    attempt.session_id != ref.session_id
+                    or attempt.turn_id != payload["turn_id"]
+                ):
+                    raise SessionProjectionError(
+                        "provider attempt failure binding mismatch"
+                    )
                 continue
 
             if event.event_type is TaskEventType.SESSION_CLOSED:

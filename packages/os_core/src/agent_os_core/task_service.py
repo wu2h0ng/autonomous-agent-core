@@ -35,6 +35,7 @@ from agent_os_contracts import (
     PolicyDecision,
     PolicyVerdict,
     PrincipalRole,
+    ProviderAttemptFailure,
     ProviderMessage,
     ProviderMessageRole,
     ProviderToolProposal,
@@ -80,6 +81,7 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.ACTION_RECEIPT_RECORDED,
         TaskEventType.ARTIFACT_RECORDED,
         TaskEventType.OUTCOME_OBSERVED,
+        TaskEventType.PROVIDER_ATTEMPT_FAILED,
         TaskEventType.SESSION_APPROVAL_PENDING,
         TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
         TaskEventType.SESSION_APPROVAL_RESOLVED,
@@ -564,6 +566,47 @@ class TaskService:
                 "node_id": node_id,
                 "provider_output": provider_output,
                 "provider_execution_receipt": receipt.model_dump(mode="json"),
+            },
+            occurred_at=self._clock(),
+            correlation_id=run.run_id,
+            causation_id=aggregate.last_event_id,
+        )
+        self._event_store.append(
+            task_id,
+            expected_sequence=aggregate.sequence,
+            drafts=(draft,),
+        )
+        return self.get_task(task_id)
+
+    def record_provider_attempt_failure(
+        self,
+        task_id: str,
+        attempt: ProviderAttemptFailure,
+    ) -> TaskAggregate:
+        """Append one failed provider attempt through its typed writer.
+
+        The success counterpart of this record (``record_provider_response``)
+        attests an execution; this one attests that no execution produced a
+        response, and why. It carries no authority and changes no Run state: a
+        failed attempt is evidence about the turn, never a transition of it.
+        """
+
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise InvalidTransitionError(
+                "provider attempt failure requires an active Run"
+            )
+        if attempt.task_id != task_id or attempt.run_id != run.run_id:
+            raise InvalidTransitionError("provider attempt failure binding mismatch")
+        draft = TaskEventDraft.build(
+            event_id=self._id_factory("event"),
+            task_id=task_id,
+            event_type=TaskEventType.PROVIDER_ATTEMPT_FAILED,
+            payload={
+                "session_id": attempt.session_id,
+                "turn_id": attempt.turn_id,
+                "provider_attempt_failure": attempt.model_dump(mode="json"),
             },
             occurred_at=self._clock(),
             correlation_id=run.run_id,
