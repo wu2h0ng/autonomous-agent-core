@@ -150,6 +150,13 @@ from .provider import (
     TurnId,
     provider_execution_receipt_digest,
 )
+from .provider_metrics import (
+    ProviderFailureCategory,
+    ProviderLatencyStats,
+    ProviderMetricsSnapshot,
+    ProviderRateLimitStats,
+    ProviderTokenTotals,
+)
 from .protocol_ingress import (
     ActorRef,
     DelegationRef,
@@ -557,6 +564,11 @@ __all__ = [
     "ProcedureCandidate",
     "ProviderErrorCode",
     "ProviderFailure",
+    "ProviderFailureCategory",
+    "ProviderLatencyStats",
+    "ProviderMetricsSnapshot",
+    "ProviderRateLimitStats",
+    "ProviderTokenTotals",
     "ProviderExecutionReceipt",
     "ProviderInvocationBinding",
     "ProviderDecisionRequest",

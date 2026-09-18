@@ -51,6 +51,11 @@ class TurnId(ContractModel):
 
 class ProviderErrorCode(str, Enum):
     RATE_LIMITED = "RATE_LIMITED"
+    # The client's own pacing bound refused the call before it was sent. It is a
+    # separate code from RATE_LIMITED because the operator's next step differs:
+    # the provider never saw this request, so waiting/retrying the provider is
+    # not what is needed - the local limit is.
+    LOCAL_RATE_LIMITED = "LOCAL_RATE_LIMITED"
     TIMEOUT = "TIMEOUT"
     MALFORMED = "MALFORMED"
     REFUSED = "REFUSED"

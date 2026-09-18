@@ -32,6 +32,15 @@ from agent_os_contracts import (
     content_digest,
 )
 
+from .client_rate_limit import (
+    ClientRateLimitConfig,
+    LocalRateLimitRejection,
+    ProviderRateLimitGate,
+    rate_limit_key,
+    retry_after_cap_seconds,
+)
+from .provider_metrics import shared_provider_metrics_ledger
+
 
 _WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
     "workspace.read": {
@@ -143,18 +152,11 @@ def _optional_float_env(name: str) -> float | None:
         return None
 
 
-# A Retry-After instruction is honoured up to this many seconds. A provider (or
-# anything in front of it) can otherwise ask for an hour of silence and the turn
-# would sit there; the cap keeps the server's pacing advisory rather than a way
-# to stall the operator.
-_MAX_RETRY_AFTER_SECONDS = 30.0
-
-
+# A Retry-After instruction is honoured up to this many seconds; the bound (and
+# the cross-call cooldown's) lives in `client_rate_limit` so both sides of
+# "wait, but not forever" cannot drift.
 def _retry_after_cap_seconds() -> float:
-    configured = _optional_float_env("AGENT_OS_PROVIDER_MAX_RETRY_AFTER_SECONDS")
-    if configured is None or configured < 0:
-        return _MAX_RETRY_AFTER_SECONDS
-    return configured
+    return retry_after_cap_seconds()
 
 
 def _retry_after_seconds(headers: object) -> float | None:
@@ -189,12 +191,15 @@ def _retry_after_seconds(headers: object) -> float | None:
     return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
-def _operator_log_path() -> str | None:
+def provider_log_path() -> str | None:
     """Where the operator's provider-attempt log goes, or None when disabled.
 
     Opt-in by design: `AGENT_OS_PROVIDER_LOG` names a file, and nothing is
     written (or created) without it. The log grows by one line per model call
     attempt and is not rotated - a long-lived session appends to it.
+
+    Public because the log is also a read surface: the metrics route can
+    aggregate the operator's own file instead of this process's window.
     """
 
     raw = os.environ.get("AGENT_OS_PROVIDER_LOG")
@@ -210,7 +215,7 @@ def _append_operator_log(record: dict[str, object]) -> None:
     state file.
     """
 
-    path = _operator_log_path()
+    path = provider_log_path()
     if path is None:
         return
     try:
@@ -522,6 +527,8 @@ class OpenAICompatibleProvider(ProviderPort):
         max_tokens: int | None = None,
         max_retries: int | None = None,
         retry_base_seconds: float | None = None,
+        rate_limit_gate: ProviderRateLimitGate | None = None,
+        rate_limit_config: ClientRateLimitConfig | None = None,
         opener: Callable[..., object] | None = None,
         provider_profile: ProviderProfile | None = None,
     ) -> None:
@@ -568,6 +575,14 @@ class OpenAICompatibleProvider(ProviderPort):
         # Set from a Retry-After header by the HTTPError path and consumed by the
         # retry loop; None means "no instruction from the server".
         self._retry_after_hint: float | None = None
+        # The client's own pacing (rate, concurrency, cross-call 429 cooldown).
+        # The gate carries the configuration; the state behind it is shared
+        # process-wide, so a reconfigure does not forget a cooldown.
+        self._rate_limit_gate = (
+            rate_limit_gate
+            if rate_limit_gate is not None
+            else ProviderRateLimitGate(rate_limit_config)
+        )
         self._pricing = load_pricing_table()
         self._opener = opener or urllib.request.urlopen
         self._invocation_binding: ProviderInvocationBinding | None = None
@@ -663,10 +678,16 @@ class OpenAICompatibleProvider(ProviderPort):
         A stream that has already emitted a delta is never retried: replaying
         would duplicate output. Read-only completions carry no side effects, so
         retrying before any output is safe.
+
+        The client also paces itself here: every attempt takes a slot from the
+        rate limiter, and a 429 leaves a cooldown behind for other calls. A call
+        whose wait would exceed the configured bound is refused locally rather
+        than stalling the turn.
         """
 
         attempts = max(1, int(self._max_retries) + 1)
         emitted = False
+        gate_key = rate_limit_key(self._credential.provider_id, self._effective_base_url())
 
         def _text_delta(chunk: str) -> None:
             nonlocal emitted
@@ -682,41 +703,97 @@ class OpenAICompatibleProvider(ProviderPort):
 
         result: ProviderResponse | ProviderFailure | None = None
         for attempt in range(attempts):
-            started = time.monotonic()
-            result = self._invoke(
-                request,
-                allowed_capability_ids=allowed_capability_ids,
-                stream=stream,
-                on_text_delta=_text_delta if stream else on_text_delta,
-                on_reasoning_delta=_reasoning_delta if stream else on_reasoning_delta,
-            )
-            # The operator log is the only machine-readable record of what a
-            # session did at the model boundary (the durable audit is a different,
-            # kernel-side artifact). Opt-in, and never in the way of a turn.
-            _append_operator_log(
-                self._operator_log_record(
-                    request,
-                    attempt,
-                    stream,
-                    result,
-                    time.monotonic() - started,
+            reserve_started = time.monotonic()
+            try:
+                # A retry of the call that received the 429 has already honoured
+                # that instruction through this loop's own bounded backoff;
+                # waiting for the cooldown again would double it. Other calls
+                # defer, which is what makes the instruction outlive the call.
+                lease = self._rate_limit_gate.reserve(
+                    gate_key, defer_to_cooldown=attempt == 0
                 )
+            except LocalRateLimitRejection as rejection:
+                refused = self._failure(
+                    request,
+                    ProviderErrorCode.LOCAL_RATE_LIMITED,
+                    f"local client rate limit refused the call: {rejection}",
+                    False,
+                )
+                record = self._operator_log_record(
+                    request, attempt, stream, refused, time.monotonic() - reserve_started
+                )
+                record["local_rate_limit_rejected"] = True
+                record["local_rate_limit_reason"] = rejection.reason
+                record["local_rate_limit_required_wait_seconds"] = round(
+                    rejection.required_wait_seconds, 3
+                )
+                self._emit_attempt_record(record)
+                return refused
+            # Measured after our own pacing: `latency_ms` stays the provider's
+            # request time and the local wait is reported on its own field, so a
+            # cooldown does not show up as a slow provider in the distribution.
+            started = time.monotonic()
+            try:
+                result = self._invoke(
+                    request,
+                    allowed_capability_ids=allowed_capability_ids,
+                    stream=stream,
+                    on_text_delta=_text_delta if stream else on_text_delta,
+                    on_reasoning_delta=(
+                        _reasoning_delta if stream else on_reasoning_delta
+                    ),
+                )
+            finally:
+                lease.release()
+            record = self._operator_log_record(
+                request,
+                attempt,
+                stream,
+                result,
+                time.monotonic() - started,
             )
+            if lease.waited_seconds > 0:
+                record["local_rate_limit_wait_ms"] = round(
+                    lease.waited_seconds * 1000, 1
+                )
+                record["local_rate_limit_reason"] = lease.reason
+            self._emit_attempt_record(record)
             if isinstance(result, ProviderResponse):
                 return result
+            # The server's own instruction wins over our backoff, bounded by the
+            # cap so a hostile or mistaken header cannot stall the turn; the hint
+            # belongs to this attempt and is cleared once used. Its effect
+            # outlives the call: a 429 defers other calls to this provider even
+            # when this call itself cannot be retried any further.
+            hint, self._retry_after_hint = self._retry_after_hint, None
+            if result.code is ProviderErrorCode.RATE_LIMITED:
+                self._rate_limit_gate.note_rate_limited(gate_key, hint)
             if not result.retryable or emitted or attempt >= attempts - 1:
                 return result
             delay = self._retry_base_seconds * (2**attempt)
-            # The server's own instruction wins over our backoff, bounded by the
-            # cap so a hostile or mistaken header cannot stall the turn; the hint
-            # belongs to this attempt and is cleared once used.
-            hint, self._retry_after_hint = self._retry_after_hint, None
             if hint is not None:
                 delay = min(max(delay, hint), _retry_after_cap_seconds())
             if delay > 0:
                 time.sleep(delay)
         assert result is not None
         return result
+
+    def _effective_base_url(self) -> str:
+        """The endpoint the calls actually go to (a profile may pin it)."""
+
+        if self._invocation_binding is not None:
+            return self._invocation_binding.base_url
+        return self._base_url
+
+    def _emit_attempt_record(self, record: dict[str, object]) -> None:
+        """Publish one attempt to the operator log and the process ledger.
+
+        Both readers consume the identical dict, so the durable file and the
+        in-process metrics cannot disagree about what happened.
+        """
+
+        _append_operator_log(record)
+        shared_provider_metrics_ledger().record(record)
 
     def _operator_log_record(
         self,

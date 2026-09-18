@@ -116,6 +116,26 @@ from .provider import (
     EnvCredentialBroker,
     OpenAICompatibleProvider,
     ProviderPort,
+    provider_log_path,
+)
+from .client_rate_limit import (
+    ClientRateLimitConfig,
+    LocalRateLimitRejection,
+    ProviderRateLimitGate,
+    ProviderRateLimitState,
+    client_rate_limit_config_from_env,
+    rate_limit_key,
+    reset_shared_rate_limit_state,
+    retry_after_cap_seconds,
+    shared_rate_limit_state,
+)
+from .provider_metrics import (
+    ProviderLogRecords,
+    ProviderMetricsLedger,
+    aggregate_provider_metrics,
+    read_provider_log,
+    reset_shared_provider_metrics_ledger,
+    shared_provider_metrics_ledger,
 )
 from .protocol_ingress import (
     EventEnvelopeAdapter,
@@ -630,5 +650,21 @@ __all__ = [
     "SurfaceStreamGone",
     "SurfaceTurnInProgress",
     "command_digest",
+    "ClientRateLimitConfig",
+    "LocalRateLimitRejection",
+    "ProviderRateLimitGate",
+    "ProviderRateLimitState",
+    "client_rate_limit_config_from_env",
+    "rate_limit_key",
+    "reset_shared_rate_limit_state",
+    "retry_after_cap_seconds",
+    "shared_rate_limit_state",
+    "ProviderLogRecords",
+    "ProviderMetricsLedger",
+    "aggregate_provider_metrics",
+    "read_provider_log",
+    "reset_shared_provider_metrics_ledger",
+    "shared_provider_metrics_ledger",
+    "provider_log_path",
 
 ]

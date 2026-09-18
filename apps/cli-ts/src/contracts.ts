@@ -294,6 +294,64 @@ export const SurfaceProviderStatusSchema = z.object({
 });
 export type SurfaceProviderStatus = z.infer<typeof SurfaceProviderStatusSchema>;
 
+/**
+ * Aggregated provider boundary (`GET /v1/surface/observability/metrics`).
+ *
+ * Content-free by construction: the kernel aggregates call counts, latency,
+ * token totals and failure codes, so there is no field here that can carry a
+ * prompt, a completion or a credential. Fields the kernel sends as optional
+ * (a partial/older payload) stay optional so an older daemon degrades instead
+ * of failing the whole panel.
+ */
+export const ProviderMetricsSnapshotSchema = z.object({
+  schema_version: z.literal("1.0").optional(),
+  source: z.enum(["in_process", "log_file"]),
+  taken_at: z.string(),
+  window_started_at: z.string().nullable().optional(),
+  window_ended_at: z.string().nullable().optional(),
+  window_records: z.number().int().nonnegative(),
+  window_truncated: z.boolean().optional(),
+  ignored_lines: z.number().int().nonnegative().optional(),
+  calls: z.number().int().nonnegative(),
+  attempts: z.number().int().nonnegative(),
+  responses: z.number().int().nonnegative(),
+  failures: z.number().int().nonnegative(),
+  retries: z.number().int().nonnegative(),
+  latency: z.object({
+    samples: z.number().int().nonnegative(),
+    mean_ms: z.number().nullable().optional(),
+    p50_ms: z.number().nullable().optional(),
+    p90_ms: z.number().nullable().optional(),
+    p95_ms: z.number().nullable().optional(),
+    max_ms: z.number().nullable().optional(),
+  }),
+  tokens: z.object({
+    input_tokens: z.number().int().nonnegative(),
+    output_tokens: z.number().int().nonnegative(),
+    total_tokens: z.number().int().nonnegative(),
+    usage_samples: z.number().int().nonnegative(),
+  }),
+  failure_categories: z
+    .array(
+      z.object({
+        code: z.string(),
+        count: z.number().int().nonnegative(),
+        retryable: z.boolean(),
+      }),
+    )
+    .default([]),
+  rate_limit: z.object({
+    rate_limited_attempts: z.number().int().nonnegative(),
+    retry_after_observed: z.number().int().nonnegative(),
+    max_retry_after_seconds: z.number().nullable().optional(),
+    local_waits: z.number().int().nonnegative(),
+    local_wait_ms_total: z.number().nonnegative(),
+    local_wait_ms_max: z.number().nonnegative(),
+    local_rejections: z.number().int().nonnegative(),
+  }),
+});
+export type ProviderMetricsSnapshot = z.infer<typeof ProviderMetricsSnapshotSchema>;
+
 export interface SurfaceProviderClearCommand {
   protocol_version: typeof SURFACE_PROTOCOL_VERSION;
   client: SurfaceClientRef;

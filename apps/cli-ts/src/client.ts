@@ -18,6 +18,7 @@ import { z } from "zod";import {
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
   SurfaceProviderStatusSchema,
+  ProviderMetricsSnapshotSchema,
   SurfaceSessionListResponseSchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
@@ -26,6 +27,7 @@ import { z } from "zod";import {
   SurfaceTaskOverviewSchema,
   SurfaceTurnResponseSchema,
   TaskEventSchema,
+  type ProviderMetricsSnapshot,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
   type SurfaceClientRef,
@@ -214,6 +216,24 @@ export class SurfaceClient {
       client: this.clientRef(),
     });
     return this.unwrap(response, "provider", SurfaceProviderStatusSchema);
+  }
+
+  /**
+   * Aggregated provider boundary (read-only): call/attempt counts, latency,
+   * tokens, failure categories and both directions of rate limiting.
+   *
+   * `process` (the default) is the runtime's own bounded window; `log` is the
+   * operator's provider log file, which only exists when the daemon was started
+   * with AGENT_OS_PROVIDER_LOG. Either way the payload is content-free, so it is
+   * safe to render in the transcript.
+   */
+  async providerMetrics(source: "process" | "log" = "process"): Promise<ProviderMetricsSnapshot> {
+    const query = new URLSearchParams({ source });
+    const response = await this.request(
+      "GET",
+      `/v1/surface/observability/metrics?${query.toString()}`,
+    );
+    return this.unwrap(response, "metrics", ProviderMetricsSnapshotSchema);
   }
 
   /** Read-only session listing (C2). Returns [] if the runtime has no

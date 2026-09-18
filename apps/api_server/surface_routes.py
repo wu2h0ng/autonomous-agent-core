@@ -41,6 +41,10 @@ from agent_os_core import (
     SurfaceSessionNotFound,
     SurfaceStreamGone,
     TaskNotFoundError,
+    aggregate_provider_metrics,
+    provider_log_path,
+    read_provider_log,
+    shared_provider_metrics_ledger,
 )
 from agent_os_core.session_stream import StreamCursor
 
@@ -176,6 +180,9 @@ class SurfaceRoutes:
             if method == "GET" and parsed.path == "/v1/surface/provider":
                 self._get_provider(handler)
                 return
+            if method == "GET" and parsed.path == "/v1/surface/observability/metrics":
+                self._get_provider_metrics(handler, parsed)
+                return
             if method == "GET":
                 session_id = _match_surface_session_leaf(handler.path, "conflict")
                 if session_id is not None:
@@ -263,6 +270,48 @@ class SurfaceRoutes:
             200,
             {"provider": self._runtime.provider_status().model_dump(mode="json")},
         )
+
+    def _get_provider_metrics(self, handler: Any, parsed: Any) -> None:
+        """Aggregated provider boundary, content-free.
+
+        Two sources, one record stream. ``process`` (default) is the bounded
+        window this process produced - available even when the operator log is
+        off, and the only source a running daemon can answer without being told
+        where a file is. ``log`` aggregates the operator's own
+        ``AGENT_OS_PROVIDER_LOG`` file, which is the durable copy
+        (``source: "log_file"`` in the body names which was read).
+
+        Neither source can carry prompt text, completion text or a credential:
+        the records themselves have no such field, and only numeric/categorical
+        fields are aggregated.
+        """
+
+        from urllib.parse import parse_qs
+
+        query = parse_qs(parsed.query)
+        source_values = query.get("source", ["process"])
+        if len(source_values) != 1:
+            raise ValueError("source must be provided at most once")
+        source = source_values[0]
+        if source == "process":
+            snapshot = shared_provider_metrics_ledger().snapshot()
+        elif source == "log":
+            log_path = provider_log_path()
+            if log_path is None:
+                raise ValueError(
+                    "AGENT_OS_PROVIDER_LOG is not set: the log source is not available"
+                )
+            loaded = read_provider_log(log_path)
+            snapshot = aggregate_provider_metrics(
+                loaded.records,
+                source="log_file",
+                ignored_lines=loaded.ignored_lines,
+            )
+        else:
+            raise ValueError(
+                f"unknown metrics source {source!r}: expected process or log"
+            )
+        handler._json(200, {"metrics": snapshot.model_dump(mode="json")})
 
     def _post_provider(self, handler: Any) -> None:
         body = handler._body()
