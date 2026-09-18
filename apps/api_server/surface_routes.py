@@ -166,7 +166,11 @@ class SurfaceRoutes:
         try:
             self.authenticate(handler.headers.get("Authorization"))
         except SurfaceAuthenticationError:
-            handler._json(401, {"error": "local_authentication_failed"})
+            # Through the projection like every other body. Nothing was
+            # negotiated yet, so this projects at the oldest minor — which is
+            # harmless for a body with no version-dependent field in it, and
+            # keeps this from becoming a fourth exit that silently does not.
+            self._respond(handler, 401, {"error": "local_authentication_failed"})
             return
         parsed = urlparse(handler.path)
         method = handler.command
@@ -527,15 +531,15 @@ class SurfaceRoutes:
         self._write_frame_sse(handler, batch)
 
     def _write_frame_sse(self, handler: Any, batch: SurfaceStreamBatch) -> None:
-        payload: list[str] = []
+        lines: list[str] = []
         for frame in batch.frames:
-            payload.append(f"id: {frame.frame_sequence}\n")
-            payload.append(f"event: {frame.kind.value}\n")
-            payload.append(f"data: {canonical_json(frame.model_dump(mode='json'))}\n\n")
+            lines.append(f"id: {frame.frame_sequence}\n")
+            lines.append(f"event: {frame.kind.value}\n")
+            lines.append(f"data: {self._sse_data(handler, frame.model_dump(mode='json'))}\n\n")
         cursor = {"next_sequence": batch.next_sequence}
-        payload.append("event: cursor\n")
-        payload.append(f"data: {canonical_json(cursor)}\n\n")
-        body = "".join(payload).encode("utf-8")
+        lines.append("event: cursor\n")
+        lines.append(f"data: {self._sse_data(handler, cursor)}\n\n")
+        body = "".join(lines).encode("utf-8")
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream")
         for name, value in _tauri_origin_cors(handler.headers.get("Origin")).items():
@@ -600,15 +604,15 @@ class SurfaceRoutes:
         return batch
 
     def _write_sse(self, handler: Any, batch: Any, after_sequence: int) -> None:
-        payload: list[str] = []
+        lines: list[str] = []
         for event in batch.events:
-            payload.append(f"id: {event.sequence}\n")
-            payload.append(f"event: {event.event_type.value}\n")
-            payload.append(f"data: {canonical_json(event.model_dump(mode='json'))}\n\n")
+            lines.append(f"id: {event.sequence}\n")
+            lines.append(f"event: {event.event_type.value}\n")
+            lines.append(f"data: {self._sse_data(handler, event.model_dump(mode='json'))}\n\n")
         cursor = {"next_sequence": batch.next_sequence}
-        payload.append("event: cursor\n")
-        payload.append(f"data: {canonical_json(cursor)}\n\n")
-        body = "".join(payload).encode("utf-8")
+        lines.append("event: cursor\n")
+        lines.append(f"data: {self._sse_data(handler, cursor)}\n\n")
+        body = "".join(lines).encode("utf-8")
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream")
         for name, value in _tauri_origin_cors(handler.headers.get("Origin")).items():
@@ -649,16 +653,49 @@ class SurfaceRoutes:
         return getattr(handler, "_surface_protocol", SURFACE_PROTOCOL_MIN_SUPPORTED)
 
     def _respond(self, handler: Any, status: int, payload: Any) -> None:
-        """Serialize a response at the version this request negotiated.
+        """Serialize a JSON response at the version this request negotiated.
 
-        Every Surface response leaves through here so the projection cannot be
-        forgotten on one route: a negotiated older reader gets a payload whose
+        Every Surface JSON response leaves through here so the projection cannot
+        be forgotten on one route: a negotiated older reader gets a payload whose
         added fields are removed and whose ``protocol_version`` matches what it
         actually carries.
+
+        The two SSE endpoints do not go through this method — they write their own
+        body — so they project through ``_sse_data`` instead. Those are the only
+        two response bodies that bypass this seam, and
+        ``test_surface_protocol_1_2.py`` pins both facts structurally.
         """
 
         handler._json(
             status, downgrade_surface_payload(payload, self._negotiated_protocol(handler))
+        )
+
+    def _sse_data(self, handler: Any, value: dict[str, Any]) -> str:
+        """One projected SSE ``data:`` body at the negotiated version.
+
+        A streamed frame is a Surface response like any other, so it is projected
+        the same way and for the same reason: a field added above the negotiated
+        minor must not reach a reader that did not negotiate it, or the next
+        additive minor leaks through the stream channel.
+
+        Projecting a frame means exactly what it means for a JSON body — the
+        registered additive fields are removed from the serialized frame. The
+        frames and events carry no ``protocol_version`` of their own (the batch
+        envelope does, and that envelope is not what is sent), so nothing inside a
+        frame is relabelled.
+
+        Both SSE writers emit one fully-buffered body with ``Content-Length`` and
+        a single ``wfile.write``; no bytes reach the socket before the whole batch
+        is projected, so this is not a per-chunk hook that could half-apply.
+
+        One limit worth naming: a ``TaskEvent`` is serialized with its payload as
+        the opaque ``payload_json`` string, and a string is not descended into. A
+        field added inside that payload is therefore not projected — only fields
+        of the declared event shape are.
+        """
+
+        return canonical_json(
+            downgrade_surface_payload(value, self._negotiated_protocol(handler))
         )
 
     def _require_protocol_header(self, handler: Any) -> str:

@@ -19,14 +19,30 @@ from pydantic import Field, ValidationError
 from agent_os_contracts import (
     ContractModel,
     NonEmptyStr,
+    SURFACE_PROTOCOL_VERSION,
     SurfaceProtocolVersion,
+    SurfaceProtocolVersionError,
     UtcDateTime,
     canonical_json,
+    parse_surface_protocol_version,
+    surface_protocol_readable_versions,
 )
 
 
 class RuntimeDescriptorError(ValueError):
     """The runtime descriptor is missing, malformed, or unsafe."""
+
+
+class RuntimeDescriptorProtocolError(RuntimeDescriptorError):
+    """The descriptor names a surface protocol version this build does not read.
+
+    A version skew, not a corrupt file: the descriptor is well-formed JSON with a
+    well-formed ``MAJOR.MINOR`` version, and it is simply outside the range this
+    build negotiates. Kept as its own type because the reaction differs — a skew
+    means another build's daemon is probably RUNNING, so replacing its descriptor
+    (which is its only handle) is the wrong move, while a genuinely unreadable
+    file is not evidence of anything.
+    """
 
 
 class RuntimeDescriptor(ContractModel):
@@ -58,7 +74,12 @@ def generate_boot_id() -> str:
 
 
 def load_runtime_descriptor(path: Path) -> RuntimeDescriptor:
-    """Parse and validate one private runtime descriptor file."""
+    """Parse and validate one private runtime descriptor file.
+
+    A descriptor written by another build is reported as the version skew it is
+    rather than as a schema failure: the same ``MAJOR.MINOR`` that this build
+    refuses to speak is what tells an operator which side to upgrade.
+    """
 
     try:
         raw = path.read_text(encoding="utf-8")
@@ -74,6 +95,22 @@ def load_runtime_descriptor(path: Path) -> RuntimeDescriptor:
         ) from exc
     if not isinstance(value, dict):
         raise RuntimeDescriptorError("runtime descriptor must be a JSON object")
+    declared = value.get("protocol_version")
+    if isinstance(declared, str):
+        try:
+            parse_surface_protocol_version(declared)
+        except SurfaceProtocolVersionError:
+            # Not a version at all; the schema error below is the honest report.
+            pass
+        else:
+            readable = surface_protocol_readable_versions(SURFACE_PROTOCOL_VERSION)
+            if declared not in readable:
+                raise RuntimeDescriptorProtocolError(
+                    f"runtime descriptor {path} speaks surface protocol {declared}, "
+                    f"which this build does not read (reads {', '.join(readable)}); "
+                    "this is a version skew, not a corrupt descriptor — upgrade the "
+                    "older side, or delete the descriptor if no daemon is running"
+                )
     try:
         return RuntimeDescriptor.model_validate(value)
     except ValidationError as exc:

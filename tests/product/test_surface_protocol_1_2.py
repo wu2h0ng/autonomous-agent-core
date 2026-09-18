@@ -65,6 +65,17 @@ from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
 from apps.api_server.surface_routes import SurfaceRoutes
 from apps.cli.surface_client import SurfaceClient, SurfaceProtocolMismatch
+from apps.runtime_daemon import (
+    RuntimeConfig,
+    _reject_live_descriptor,
+    daemon_status,
+    start_runtime,
+)
+from apps.runtime_daemon.descriptor import (
+    RuntimeDescriptorError,
+    RuntimeDescriptorProtocolError,
+    load_runtime_descriptor,
+)
 
 NOW = datetime(2026, 9, 18, tzinfo=timezone.utc)
 
@@ -297,6 +308,12 @@ class _PlainReader:
     def post(self, path: str, body: dict, *, protocol: str | None) -> tuple[int, dict]:
         return self._send("POST", path, protocol=protocol, body=body)
 
+    def sse(self, path: str, *, protocol: str | None) -> tuple[int, str]:
+        """Raw SSE body: the frame ``data:`` lines carry no JSON envelope to unwrap."""
+
+        status, raw = self._raw("GET", path, protocol=protocol)
+        return status, raw.decode("utf-8")
+
     def _send(
         self,
         method: str,
@@ -305,6 +322,17 @@ class _PlainReader:
         protocol: str | None,
         body: dict | None = None,
     ) -> tuple[int, dict]:
+        status, raw = self._raw(method, path, protocol=protocol, body=body)
+        return status, json.loads(raw)
+
+    def _raw(
+        self,
+        method: str,
+        path: str,
+        *,
+        protocol: str | None,
+        body: dict | None = None,
+    ) -> tuple[int, bytes]:
         headers = {"Authorization": f"Bearer {self.token}"}
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -318,9 +346,9 @@ class _PlainReader:
         )
         try:
             with urllib.request.urlopen(request) as response:
-                return response.status, json.loads(response.read())
+                return response.status, response.read()
         except urllib.error.HTTPError as exc:
-            return exc.code, json.loads(exc.read())
+            return exc.code, exc.read()
 
 
 def _proposal(call_id: str, capability_id: str, arguments: dict[str, Any]) -> Any:
@@ -444,12 +472,160 @@ def test_http_listing_refuses_an_unnegotiable_header(
     assert "MAJOR.MINOR" in payload["message"] or "negotiates" in payload["message"]
 
 
-# --- the runtime and CLI gates negotiate too ---------------------------------
+@pytest.mark.parametrize("version", surface_protocol_supported_versions())
+def test_http_listing_matches_every_declared_minor(
+    listing_server: tuple[AgentOSApplication, _PlainReader], version: str
+) -> None:
+    """The PROPERTY the equality gate is only a heuristic for, asserted per version.
+
+    This is the coverage that actually holds against a distribution-dependent
+    branch on the read path. The syntactic gate below cannot see a branch on an
+    arbitrarily named variable — it was reproduced that adding
+    ``if server_version != "1.2": ...`` leaves that gate green — so the guarantee
+    is measured here instead: every declared minor is requested over real HTTP and
+    the body it receives must be the body its own contract declares.
+    """
+
+    _, reader = listing_server
+
+    status, payload = reader.get("/v1/surface/sessions?limit=20", protocol=version)
+
+    assert status == 200, payload
+    assert payload["protocol_version"] == version
+    summary = payload["sessions"][0]
+    if "awaiting_approval" in surface_protocol_unknown_fields(version):
+        assert "awaiting_approval" not in summary
+    else:
+        assert summary["awaiting_approval"] is True
 
 
-def _open_command(app: AgentOSApplication, key: str) -> dict:
+# --- (e) reverse skew: an older build meeting a newer descriptor -------------
+
+
+def _skewed_descriptor_bytes(version: str) -> str:
+    """A descriptor exactly as the OTHER build would write it.
+
+    Written as raw JSON on purpose: this build cannot construct a
+    ``RuntimeDescriptor`` at a version it does not declare, and that is the whole
+    point — the file on disk is produced by a build whose version union differs.
+    """
+
+    return json.dumps(
+        {
+            "schema_version": "1.0",
+            "protocol_version": version,
+            "pid": 4242,
+            "boot_id": "boot:protocol-1-2:skew",
+            "host": "127.0.0.1",
+            "port": 18787,
+            "bearer_token": "0" * 43,
+            "database_path": "/tmp/agent-os.sqlite3",
+            "workspace_path": "/tmp/agent-os-workspace",
+            "created_at": "2026-09-18T00:00:00+00:00",
+        }
+    )
+
+
+def test_a_descriptor_from_the_older_minor_still_loads(tmp_path: Path) -> None:
+    """The reverse direction that must keep working: this build reads 1.1."""
+
+    path = tmp_path / "runtime.json"
+    path.write_text(_skewed_descriptor_bytes(SURFACE_PROTOCOL_MIN_SUPPORTED))
+
+    # Compared through the parser, like every other version assertion in this
+    # file: pinning the literal would be the very defect these tests prevent.
+    loaded = load_runtime_descriptor(path)
+    assert parse_surface_protocol_version(loaded.protocol_version) == (1, 1)
+
+
+@pytest.mark.parametrize("version", ["1.0", "1.3", "2.0"])
+def test_an_unreadable_descriptor_version_fails_typed_not_as_a_schema_dump(
+    tmp_path: Path, version: str
+) -> None:
+    """The skew is named, instead of a bare "invalid schema" the operator must guess at."""
+
+    path = tmp_path / "runtime.json"
+    path.write_text(_skewed_descriptor_bytes(version))
+
+    with pytest.raises(RuntimeDescriptorProtocolError) as rejected:
+        load_runtime_descriptor(path)
+
+    # Still a RuntimeDescriptorError for every existing handler, plus the detail
+    # an operator needs: which version, which side is behind, what to do.
+    assert isinstance(rejected.value, RuntimeDescriptorError)
+    assert version in str(rejected.value)
+    assert "skew" in str(rejected.value)
+    assert SURFACE_PROTOCOL_VERSION in str(rejected.value)
+
+
+def test_a_descriptor_that_is_not_a_version_at_all_is_still_a_schema_error(
+    tmp_path: Path,
+) -> None:
+    """The skew report is narrow: only a well-formed MAJOR.MINOR earns it."""
+
+    path = tmp_path / "runtime.json"
+    path.write_text(_skewed_descriptor_bytes("nonsense"))
+
+    with pytest.raises(RuntimeDescriptorError) as rejected:
+        load_runtime_descriptor(path)
+
+    assert not isinstance(rejected.value, RuntimeDescriptorProtocolError)
+
+
+def test_daemon_status_names_the_skew_instead_of_crashing(tmp_path: Path) -> None:
+    path = tmp_path / "runtime.json"
+    path.write_text(_skewed_descriptor_bytes("1.3"))
+
+    status = daemon_status(path)
+
+    assert status["status"] == "invalid"
+    assert "1.3" in status["error"]
+    assert "skew" in status["error"]
+
+
+def test_starting_a_daemon_never_clobbers_a_skewed_descriptor(
+    tmp_path: Path,
+) -> None:
+    """A skewed descriptor may belong to a RUNNING daemon: refusing beats replacing.
+
+    Before this, an unreadable descriptor was silently treated as "no daemon
+    here", so a second daemon started over the same identity and rewrote the file
+    — stranding the first daemon by removing the only handle to it.
+    """
+
+    config = RuntimeConfig(
+        database=tmp_path / "agent-os.sqlite3",
+        workspace=tmp_path,
+        descriptor_path=tmp_path / "runtime.json",
+        port=0,
+    )
+    config.descriptor_path.write_text(_skewed_descriptor_bytes("1.3"))
+    before = config.descriptor_path.read_text(encoding="utf-8")
+
+    with pytest.raises(RuntimeDescriptorProtocolError):
+        start_runtime(config)
+
+    assert config.descriptor_path.read_text(encoding="utf-8") == before
+
+
+def test_an_unreadable_not_json_descriptor_is_still_replaceable(
+    tmp_path: Path,
+) -> None:
+    """The refusal is narrow: only a version skew blocks a start, junk does not."""
+
+    path = tmp_path / "runtime.json"
+    path.write_text("not json", encoding="utf-8")
+
+    # Returns instead of raising: this path is replaceable, as before.
+    assert _reject_live_descriptor(path) is None
+
+
+# --- (c)/(d) the structural checks -------------------------------------------
+
+
+def _open_command(app: AgentOSApplication, key: str, *, version: str = SURFACE_PROTOCOL_VERSION) -> dict:
     return {
-        "protocol_version": SURFACE_PROTOCOL_VERSION,
+        "protocol_version": version,
         "client": {
             "client_id": "client:protocol-1-2:1",
             "client_type": "TEST",
@@ -529,7 +705,22 @@ def test_cli_client_reads_an_older_runtime_but_not_a_foreign_one() -> None:
 
 
 def _is_version_operand(operand: ast.expr) -> bool:
-    """Whether an expression IS a surface protocol version (not a payload key)."""
+    """Whether an expression IS a surface protocol version (not a payload key).
+
+    Name-based on purpose, and therefore a heuristic with two known blind spots,
+    both measured rather than assumed:
+
+    * an arbitrarily named variable (``server_version``) holding a version is not
+      recognised, so a gate written against one is invisible here — reproduced by
+      injecting ``if server_version != "1.2": raise ...``, which leaves this check
+      green;
+    * the mirror image, a benign assertion about a version read out of data
+      (``descriptor.protocol_version == "1.1"``) IS reported, so such assertions
+      compare through ``parse_surface_protocol_version`` instead.
+
+    That is why the per-version HTTP property test above exists: it is behavioral,
+    so no naming choice hides a branch from it.
+    """
 
     if isinstance(operand, ast.Name):
         return "protocol_version" in operand.id.lower()
@@ -617,4 +808,98 @@ def test_no_protocol_version_equality_gate_survives() -> None:
         "a surface protocol version is compared for equality instead of "
         "negotiated; an equality gate silently rejects every other declared "
         "minor:\n" + "\n".join(offenders)
+    )
+
+
+# --- (d) no response body bypasses the projection ----------------------------
+
+
+def _routes_class_methods(path: Path) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == "SurfaceRoutes":
+            return {
+                item.name: item
+                for item in node.body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+    raise AssertionError(f"SurfaceRoutes not found in {path}")
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for item in ast.walk(node):
+        if not isinstance(item, ast.Call):
+            continue
+        if isinstance(item.func, ast.Name):
+            names.add(item.func.id)
+        elif isinstance(item.func, ast.Attribute):
+            names.add(item.func.attr)
+    return names
+
+
+def _writes_a_body(node: ast.AST) -> bool:
+    """Whether this method puts response bytes/JSON on the wire itself."""
+
+    for item in ast.walk(node):
+        if not isinstance(item, ast.Call):
+            continue
+        func = item.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        if func.attr in {"send_response", "_json"}:
+            return True
+        # `handler.wfile.write(...)` — the raw socket write, which is what the
+        # SSE writers use instead of `_json`.
+        if func.attr == "write" and isinstance(func.value, ast.Attribute):
+            return True
+    return False
+
+
+def _reaches_projection(
+    name: str,
+    methods: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    seen: frozenset[str],
+) -> bool:
+    """Whether this method (or a sibling it calls) projects the payload."""
+
+    if name in seen:
+        return False
+    called = _called_names(methods[name])
+    if "downgrade_surface_payload" in called:
+        return True
+    return any(
+        call in methods and _reaches_projection(call, methods, seen | {name})
+        for call in called
+    )
+
+
+def test_every_surface_response_writer_reaches_the_projection() -> None:
+    """Every method that writes a body must project it, directly or via a sibling.
+
+    This is the structural half of the coverage for the seam: the SSE writers do
+    not go through ``_respond``, so what has to hold is that no response-writing
+    method exists whose call graph skips ``downgrade_surface_payload``. It is a
+    structural check, not a proof — a body could still be written through a helper
+    on a different class (``Handler._json``) — so the per-version HTTP tests above
+    remain the behavioral guarantee.
+    """
+
+    routes_path = (
+        Path(__file__).resolve().parents[2] / "apps" / "api_server" / "surface_routes.py"
+    )
+    methods = _routes_class_methods(routes_path)
+
+    writers = {name for name, node in methods.items() if _writes_a_body(node)}
+    assert writers == {"_respond", "_write_sse", "_write_frame_sse"}, (
+        "the set of Surface response writers changed; every one of them must "
+        f"project the payload at the negotiated version: {sorted(writers)}"
+    )
+
+    gaps = sorted(
+        name for name in writers if not _reaches_projection(name, methods, frozenset())
+    )
+    assert gaps == [], (
+        "these Surface response writers bypass the negotiated projection, so a "
+        f"field added by a later minor leaks to an older reader: {gaps}"
     )
