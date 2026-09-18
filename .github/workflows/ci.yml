@@ -282,11 +282,19 @@ jobs:
           # capability. The live arm of the same corpus needs AGENT_OS_PROVIDER_PROFILE plus
           # <PROFILE>_BASE_URL/_MODEL/_API_KEY and is skipped here; the second file below asserts
           # that the live arm fails closed while those are absent.
-          # Measured on this tree 2026-09-18: 15 passed, 1 skipped in ~6 s, and the identical run
-          # reported 0 failures before this step was added (the two files are green in isolation).
+          # The third file is the MCP PRECONDITION measurement (capability_horizon.py): it re-runs
+          # the corpus's own reference solutions through the real loop to show that all six demand
+          # nothing outside CHAT_CAPABILITY_IDS, and probes the gate itself -- a capability that is
+          # registered but not exposed is denied with basis=out_of_allowlist and leaves no effect,
+          # while the frozen projection records 0 tool calls and 0 denials for that turn. It gates
+          # the claim in docs/product/MCP-PRECONDITION-EVIDENCE-2026-09-18.md: widen the chat
+          # surface or teach the projection to count a horizon denial, and this file fails.
+          # Measured on this tree 2026-09-18: 22 passed, 1 skipped in ~10 s, and the identical run
+          # reported 0 failures before the horizon file was added (15 passed, 1 skipped in ~6 s).
           PYTHONPATH=src:packages/contracts/src:packages/os_core/src \
             python -m pytest tests/product_eval/test_terminal_coding_eval.py \
-                            tests/product_eval/test_terminal_coding_eval_live.py -q
+                            tests/product_eval/test_terminal_coding_eval_live.py \
+                            tests/product_eval/test_terminal_coding_horizon.py -q
 
   # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
   # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it
