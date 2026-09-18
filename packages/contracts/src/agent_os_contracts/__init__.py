@@ -378,6 +378,17 @@ from .trajectory import (
     TrajectoryStep,
     WorkingSetRef,
 )
+from .trace import (
+    TraceGap,
+    TraceGapKind,
+    TraceLinkKind,
+    TraceSpan,
+    TraceSpanBasis,
+    TraceSpanKind,
+    TraceSpanStatus,
+    TraceTurnState,
+    TurnTrace,
+)
 
 __all__ = [
     "ActionContract",
@@ -630,6 +641,15 @@ __all__ = [
     "TaskStatus",
     "TrajectoryProjection",
     "TrajectoryStep",
+    "TraceGap",
+    "TraceGapKind",
+    "TraceLinkKind",
+    "TraceSpan",
+    "TraceSpanBasis",
+    "TraceSpanKind",
+    "TraceSpanStatus",
+    "TraceTurnState",
+    "TurnTrace",
     "TaskConfigurationSnapshot",
     "TaskConfigurationSnapshotCommand",
     "UtcDateTime",
