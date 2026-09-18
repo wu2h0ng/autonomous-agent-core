@@ -282,8 +282,15 @@ jobs:
           # capability. The live arm of the same corpus needs AGENT_OS_PROVIDER_PROFILE plus
           # <PROFILE>_BASE_URL/_MODEL/_API_KEY and is skipped here; the second file below asserts
           # that the live arm fails closed while those are absent.
-          # Measured on this tree 2026-09-18: 15 passed, 1 skipped in ~6 s, and the identical run
-          # reported 0 failures before this step was added (the two files are green in isolation).
+          # It is also the only CI dependency tests/product_eval/ has, and `grep -n product_eval
+          # .github/workflows/ci.yml` matches this step and nothing else -- so its own wiring is
+          # asserted in tests/product/test_ci_gate_wiring.py, which used to pass with this whole
+          # step deleted (its product-suite predicate matches `tests/product\b`, never
+          # `tests/product_eval`), emptied into an echo, or given continue-on-error.
+          # Measured on this tree 2026-09-18: 19 passed, 1 skipped in ~8 s (15 passed before this
+          # commit's grader hardening added four cases), and the two files are green when run
+          # together on their own -- that is the local baseline, not a CI one: this step is what
+          # puts them in CI at all.
           PYTHONPATH=src:packages/contracts/src:packages/os_core/src \
             python -m pytest tests/product_eval/test_terminal_coding_eval.py \
                             tests/product_eval/test_terminal_coding_eval_live.py -q

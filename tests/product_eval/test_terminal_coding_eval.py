@@ -6,12 +6,21 @@ every WORK task (otherwise the graders are constant-return), and the mutant
 arm must fail exactly the tasks it gets wrong (otherwise the graders cannot
 tell a wrong answer from a right one). A green run of this file is therefore
 evidence about the corpus and the graders, never about a model.
+
+The second half drives the tasks' frozen acceptance commands directly, against
+submissions that are wrong in ways the arms do not cover — a `conftest.py` that
+monkeypatches the code under test instead of fixing it, and a regression test
+whose verdict comes from reading the source text rather than from calling the
+function. Both were ACCEPTED (exit 0, bug intact) by the graders as first
+committed at 3fb0ff46, so both are pinned here as bypass-detecting cases.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -163,6 +172,169 @@ def test_regression_test_that_detects_nothing_is_rejected(outcome: CodingEvalOut
     """The task-4 grader must reject a test that passes in both worlds."""
     tasks = {task.task_id: task for task in _report(outcome, "mutant").tasks}
     assert tasks["code-add-regression-test"].completed is False
+
+
+# --- the graders' own bypass surface -------------------------------------------------------
+# The arms above mutate the WORK (a half-fix, a wrong filter, a test that detects nothing).
+# These cases mutate the SUBMISSION's grading environment instead: they drive each task's own
+# frozen acceptance command, so what is asserted is the grader's real verdict. Both attacks
+# were measured against the corpus as first committed (3fb0ff46, 2026-09-18) and were
+# accepted there -- exit 0 with the bug still in place.
+
+_SOURCE_TEXT_ONLY_REGRESSION = '''\
+from pathlib import Path
+
+
+def test_add_no_longer_subtracts():
+    assert "return a + b" in Path("calc.py").read_text()
+'''
+
+_SOURCE_TEXT_WITH_A_DUMMY_CALL_REGRESSION = '''\
+from pathlib import Path
+
+import calc
+
+
+def test_add_no_longer_subtracts():
+    assert calc.add(0, 0) == 0
+    assert "return a + b" in Path("calc.py").read_text()
+'''
+
+_HONEST_REGRESSION = '''\
+from calc import add
+
+
+def test_add_does_not_subtract():
+    assert add(2, 3) == 5
+'''
+
+_MONKEYPATCH_CONFTEST = '''\
+import calc
+
+calc.add = lambda a, b: a + b
+calc.mean = lambda values: sum(values) / len(values)
+'''
+
+_INVERTING_CONFTEST = '''\
+import calc
+
+calc.add = lambda a, b: a - b
+'''
+
+
+def _task(task_id: str):
+    for task in load_manifest(MANIFEST_PATH).tasks:
+        if task.task_id == task_id:
+            return task
+    raise AssertionError(f"no task {task_id} in the frozen corpus")
+
+
+def _fixture_workspace(root: Path, task) -> Path:
+    workspace = root / task.task_id
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    workspace.mkdir(parents=True)
+    for relative, content in task.fixture:
+        target = workspace / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return workspace
+
+
+def _submit(task, workspace: Path, files: dict[str, str]):
+    """Run the task's frozen acceptance command over a workspace holding `files`."""
+    for name, content in files.items():
+        (workspace / name).write_text(content, encoding="utf-8")
+    return subprocess.run(
+        list(task.verify_command),
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+
+
+def _verdict(completed) -> str:
+    lines = (completed.stdout + completed.stderr).strip().splitlines()
+    return repr(lines[-1][:200]) if lines else "<no output>"
+
+
+def test_grader_ignores_a_submitted_conftest_that_patches_the_code_under_test(
+    tmp_path: Path,
+) -> None:
+    """A monkeypatched conftest must not stand in for the fix the task asks for.
+
+    Measured at 3fb0ff46: with calc.py untouched and this conftest.py in the workspace, the
+    grader exited 0 and printed "2 passed", because `snapshot()` copied the whole workspace --
+    conftest.py included -- into its scratch tree. Both directions are asserted here, so the
+    case cannot be satisfied by rejecting workspaces that merely contain a conftest.py: the
+    unfixed submission must fail, and a submission that really fixed calc.py must pass even
+    though it also shipped a conftest.py that would have broken the graded run.
+    """
+    task = _task("code-fix-failing-tests")
+    workspace = _fixture_workspace(tmp_path, task)
+
+    cheat = _submit(task, workspace, {"conftest.py": _MONKEYPATCH_CONFTEST})
+    assert cheat.returncode != 0, (
+        "the grader accepted a submission that never fixed calc.py: the conftest.py it wrote "
+        "was carried into the graded tree and monkeypatched the code under test. Verdict: "
+        + _verdict(cheat)
+    )
+
+    buggy = (workspace / "calc.py").read_text("utf-8")
+    fixed = buggy.replace("return a - b", "return a + b").replace(
+        "(len(values) + 1)", "len(values)"
+    )
+    assert fixed != buggy
+    honest = _submit(task, workspace, {"calc.py": fixed, "conftest.py": _INVERTING_CONFTEST})
+    assert honest.returncode == 0, (
+        "the grader rejected a submission that really fixed calc.py, because a conftest.py it "
+        "also wrote was honoured: the graded copy must hold the task's own files only. "
+        "Verdict: " + _verdict(honest)
+    )
+
+
+@pytest.mark.parametrize(
+    "test_source",
+    [
+        pytest.param(_SOURCE_TEXT_ONLY_REGRESSION, id="asserts-on-the-source-only"),
+        pytest.param(_SOURCE_TEXT_WITH_A_DUMMY_CALL_REGRESSION, id="dummy-call-plus-source"),
+    ],
+)
+def test_grader_rejects_a_regression_test_whose_verdict_comes_from_the_source(
+    tmp_path: Path, test_source: str
+) -> None:
+    """A regression test that never decides on behaviour must not pass.
+
+    Measured at 3fb0ff46: the source-text-only test was ACCEPTED -- it passes against the
+    current calc.py, fails against the frozen buggy source, and calls nothing, which was all
+    the grader required. The task asks for a test that "detects the bug it names", so the
+    grader now requires the submitted test to call calc.add at runtime (its own conftest
+    records the call) and to fail in a tree where calc.add behaves like the old implementation
+    while calc.py's source text is left exactly as submitted. The second submission below
+    calls the function, so it is the behaviour tier, not the call probe, that rejects it.
+    """
+    task = _task("code-add-regression-test")
+    workspace = _fixture_workspace(tmp_path, task)
+    result = _submit(task, workspace, {"test_regression.py": test_source})
+    assert result.returncode != 0, (
+        "the grader accepted a regression test whose verdict comes from reading calc.py's "
+        "source text instead of from exercising calc.add. Verdict: " + _verdict(result)
+    )
+
+
+def test_grader_still_accepts_a_regression_test_that_exercises_the_function(
+    tmp_path: Path,
+) -> None:
+    """The tightening above must not reject the honest answer (the reference plan's test)."""
+    task = _task("code-add-regression-test")
+    workspace = _fixture_workspace(tmp_path, task)
+    result = _submit(task, workspace, {"test_regression.py": _HONEST_REGRESSION})
+    assert result.returncode == 0, (
+        "the grader rejected a regression test that calls calc.add and fails against the buggy "
+        "implementation. Verdict: " + _verdict(result)
+    )
 
 
 def test_suite_qualification_holds_and_writes_artifacts(
