@@ -2,9 +2,20 @@
 
 - **状态**：`DOCS_ONLY / AUDIT_ONLY / 不含任何能力或 release 主张`
 - **审计对象**：本仓 `docs/CURRENT_STATE.yaml`、`docs/PROJECT_PLAN.md`、`docs/` 下 agent-cli/终端相关文档、`codebase_index.md`；外加**只读**审计根仓 `AI-Agent-Projects/docs/agent-cli/`。
-- **审计基线**：`autonomous-agent-core` worktree `.worktrees/wt-state-audit`，分支 `docs/state-freshness-audit-20260918`，`HEAD == origin/main == 03ac66b5`（PR #69 的 merge commit，2026-09-18；该提交的 main CI 实测 success，run `35294406879`）。
+- **审计基线**：`autonomous-agent-core` worktree `.worktrees/wt-state-audit`，分支 `docs/state-freshness-audit-20260918`，v1 测量时的 `HEAD == origin/main == 03ac66b5`（PR #69 的 merge commit，2026-09-18；该提交的 main CI 实测 success，run `35294406879`）。v1 落盘后本 worktree 的 `HEAD` 变为 `a1e52d22`（只新增本文档），`origin/main` 不变；v2 的复测在 `a1e52d22` 上完成。
 - **本文的性质**：一份「诚实地图」，不是新文档层。**宁可少报，不错报**；能实测的都附命令与原始输出；不能核实的一律显式列出。
 - **未做**（纪律）：不碰 `~/.agent-os/`；不修改根仓任何文件、不在根仓做任何 git 操作；不修改 `docs/CURRENT_STATE.yaml`（本轮协调者独占，改动写成 §7 的精确 diff）。
+
+## 修订记录 v2（2026-09-18，独立复核后）
+
+独立复核者复跑了 v1 的全部核查，四处不符。更正**不做静默改写**：保留原值、给出复核者数值、给出我自己的命令与输出，并标明哪些结论因此改变。所有测量仍然只在「树内容 = `03ac66b5`（= 当时的 `origin/main`）」的 worktree 上执行；v1 提交 `a1e52d22` 与本次更正提交只在 `docs/reviews/` 下新增本文档，不触碰任何被测文件。
+
+| # | 位置 | v1 原值 | 复核者数值 / 我的实测 | 判定 |
+|---|---|---|---|---|
+| R1 | §4.1(k)、§7 新增 **D15** | CLI 全量 **225 例**，并把 `CURRENT_STATE.yaml:42`/`:995` 的 225 当作当前值 | `03ac66b5` 的 `cli-ts` job = 34 files / **235 tests / 235 pass / 0 fail**（run `35294406879`，job `105443864770`）；**225 属于 run `35272942676`（head `203b8862`）** | 复核者正确。这同时是 **v1 的漏报**：`:42`/`:995` 自身即过期，已补入 §7 D15 |
+| R2 | §3 C8 | `grep -n 'apps/cli-ts\|…' codebase_index.md \| wc -l` → `0` | 同一命令实测 **`1`**（`codebase_index.md:112` 命中）；v1 把它写成 0 | 复核者正确。数字改为 1；原结论（§2 顶层地图无该行）改用**限定行区间**的命令才成立（实测仍 0） |
+| R3 | §3 C2、§5 第 9 条 | 用一句中文转述冒充 `grep` 输出（还标成【实测】）；把 `pty_theme_check.py` 的探针缺陷写成仍然存在 | 该缺陷在 v1 的基线上**已修好**：`1a9cf714`（`origin/main` 祖先）加了 `locate_row`(:87)、同行别名反冒充断言(:156-160)，并如实打印 `FOOTER_THEMED: False`(:182)；**同一提交**也修好了 `pty_fullscreen_vim.py`（`MARKER = b"qqwwzz"`(:48)、信号闸门 exit code(:260-264)） | 复核者正确。C2 改引真实命令输出、结论改挂修复后的证据；checklist `#11` 从「仍然正确、不要改」名单移出，另立 §3 C10 |
+| R4 | §4.2、§7 新增 **D16** | `git worktree list \| wc -l` = 28，写「7 个」却列了 8 个；未发现 `:995` 的 `:235` 已漂移 | 复测 **31** 个 worktree、其中 **11** 个生于 2026-09-18（逐个列出）；`grep -n timeout-minutes .github/workflows/ci.yml` 在 `03ac66b5` 为 `:28`/`:278`，而 `:995` 写 `:235`（那是 `203b8862` 的行号） | 复核者正确。计数与列表已对齐；`:995` 的行号漂移补入 §7 D16 |
 
 ## 0. 方法、判据与证据分级
 
@@ -267,21 +278,52 @@ $ grep -rn 'ink\b' apps/cli-ts/package.json | wc -l
 
 - **建议改法**：把 `:4` 改为 `DONE / INK_RETIRED_2026_09_17`，`:5` 的基线改为「冻结快照 `test/fixtures/ink-home-baseline.ts`（Ink 本体已删，快照保留为历史基线）」。
 
-### C2. 同一 checklist 的 #3 / #17 行把**同一条测量记成两条证据**
+### C2. 同一 checklist 的 #3 / #17 行把**同一条测量记成两条证据**（结论保留；R3 更正了证据与其中一处措辞）
 
-- **位置**：`:14`（#3 行）、`:28`（#17 行）
-- **原文要点**：`:18`「… `pty_theme_check.py` 现在**同时覆盖 header 与 footer**（`THEME_KEYS_CHANGED: ['header','footer']`）」；`:17`「pty `THEME_APPLIED` 断言 **footer** 的 SGR 随 `/theme mono` 变化」
-- **为什么过时**：与本仓 `CURRENT_STATE.yaml:36` 自己记录的探针缺陷冲突 —— 该 pin 明确写「`Screen.token_style('ASK')` 返回**第一行**含该 token 的行，而 header 状态行就含 `ASK`，所以两个 key 读的是同一行；`THEME_KEYS_CHANGED ['header','footer']` 是 header 读数的重复，footer 声称从未真正被测过」，并指明「footer 在源码里根本没有消费者」。
-- **核查命令与输出【实测】**：
+- **位置**：`:14`（#3 行）、`:28`（#17 行）。**v1 的勘误**：v1 把被引文本标成 `:18`/`:17`，与本条自己写的 `:14`/`:28` 不一致——实际出处就是 `:14` 与 `:28`（本条以下均按实测行号引用）。
+- **原文要点**：`:14`「… `pty_theme_check.py` 现在**同时覆盖 header 与 footer**（`THEME_KEYS_CHANGED: ['header','footer']`）」；`:28`「pty `THEME_APPLIED` 断言 **footer** 的 SGR 随 `/theme mono` 变化」。
+- **v1 的"为什么过时"是错的（R3）**：v1 引用 `CURRENT_STATE.yaml:36` 描述的**探针缺陷**（`Screen.token_style('ASK')` 返回首个含该 token 的行，于是 header/footer 两个 key 读到同一行）来论证这两行过时，并写道"脚本以 `Screen.token_style` 取首个含该 token 的行"——**那是修复前的行为**，在 v1 自己的基线 `03ac66b5` 上已由 `1a9cf714` 修好；v1 还把一句中文转述放进【实测】的代码块里，冒充 `grep` 输出。
+- **改用修复后的真实证据（结论仍成立，而且更强）【实测】**：脚本现在**按行**定位 key、对"两个 key 落在同一行"直接断言失败，并如实打印 `FOOTER_THEMED: False`。因此 `:14` 的"同时覆盖 header 与 footer（`THEME_KEYS_CHANGED: ['header','footer']`）"今天**既不是脚本的输出、也不成立**：footer 被单独测量后判为**没有主题证据**（据 `:156-185` 的代码路径，footer 的 SGR 前后一致 ⇒ `'footer' not in changed` ⇒ 打印出的 `THEME_KEYS_CHANGED` 不可能再含 `footer`；**该脚本我没有重跑**）。`:28` 把 `THEME_APPLIED` 的断言对象写成 footer，同样错（它是 header）。
 
 ```text
+$ git log -1 --format='%h %ad %s' --date=short 1a9cf714
+1a9cf714 2026-09-18 fix(tui): close the PR #69 review findings
+$ git merge-base --is-ancestor 1a9cf714 origin/main && echo IN_main
+IN_main                       # 修复就在本报告的基线里
+
+$ grep -n 'def locate_row\|Anti-impersonation\|THEME_KEYS_CHANGED\|FOOTER_THEMED' apps/cli-ts/scripts/pty_theme_check.py
+12:`THEME_KEYS_CHANGED ['header','footer']` from a single token. The footer is
+87:def locate_row(fd: int, screen: Screen, token: str, what: str) -> int:
+156:        # Anti-impersonation: two keys on one row are one piece of evidence.
+175:        print("THEME_KEYS_CHANGED:", changed)
+182:            "FOOTER_THEMED:", "footer" in changed,
+
+$ sed -n '156,160p' apps/cli-ts/scripts/pty_theme_check.py
+        # Anti-impersonation: two keys on one row are one piece of evidence.
+        assert before["header"][0] != before["footer"][0], (
+            "header and footer resolved to the SAME row "
+            f"({before['header'][0]}): the two keys are not independent evidence"
+        )
+
+$ sed -n '177,185p' apps/cli-ts/scripts/pty_theme_check.py
+        # The footer is reported as measured, never claimed. Its `<text>`
+        # (app.tsx: the `❯ ${mode} · …` line) carries no fg, and src/theme.ts's
+        # `footer` token has no consumer, so an identical SGR before/after is
+        # the honest result here - not a theme failure, and not header evidence.
+        print(
+            "FOOTER_THEMED:", "footer" in changed,
+            f"| footer row {before['footer'][0]} SGR {before['footer'][1]} -> {after['footer'][1]}"
+            " | the footer <text> renders with no fg token, so it is not counted as theme evidence",
+        )
+
 $ grep -rn 'theme\.footer\|theme\.border\|theme\.danger\|theme\.approvalTitle' apps/cli-ts/src | wc -l
 0
-$ grep -n 'token_style' apps/cli-ts/scripts/pty_theme_check.py | head -3
-（脚本以 Screen.token_style 取首个含该 token 的行）
 ```
 
-- **建议改法**：`:14` 改为「header 由 `pty_theme_check.py` 直接测量（`THEME_APPLIED`）；**footer 未经测量**——`theme.footer` 在 `apps/cli-ts/src` 零引用，footer 文本元素无 `fg`」；`:28` 的断言对象由 footer 改为 header。
+  （`1a9cf714` 的提交说明原话：「pty_theme_check's "footer" key actually re-read the header row; it locates by row, refuses a same-row alias, and reports FOOTER_THEMED False honestly.」**我依纪律没有重跑该 pty 脚本**（它会起 hermetic daemon，见 §6），上面是代码与提交记录的实测/文本证据。）
+
+- **为什么这两行仍然该改**：`1a9cf714` 只改了 checklist 的 `#11` 行与 §9 的证据段，**没有回改 `#3`/`#17`**，所以 `THEME_KEYS_CHANGED: ['header','footer']` 这个旧输出仍留在 `:14`，footer 的错误归属仍留在 `:28`。附带：`CURRENT_STATE.yaml:36` 的相关段落同样滞后——它用现在时描述该探针缺陷并写「the probe fix belongs in scripts/pty_theme_check.py（locate each key ON ITS OWN ROW, and refuse to count two keys resolved to the same row）」，而**同一个提交**已经把这件事做了（见 C10）。
+- **建议改法**：`:14` 改为「header 由 `pty_theme_check.py` 按行直接测量（`THEME_APPLIED`）；**footer 未经主题测量**——脚本单独定位 footer 行后如实报 `FOOTER_THEMED: False`，`theme.footer` 在 `apps/cli-ts/src` 零引用」；`:28` 的断言对象由 footer 改为 header。
 
 ### C3. checklist §2 结论段保留了被 §15.1 推翻的"仅 Bun"结论
 
@@ -345,14 +387,23 @@ $ grep -n '"bin"' -A6 apps/cli-ts/package.json | head -8
 ```
 
 - **§2 顶层地图（`:22-40`）缺 `apps/cli-ts/`**：该表列了 `apps/api_server/` 与 `apps/cli/`，**没有任何一行**指向 `apps/cli-ts/`（唯一用户入口）、`apps/runtime_daemon/`、`apps/macos/`、`domain_packs/data_agent/`。
-  - **核查命令与输出【实测】**：
+  - **核查命令与输出【实测】—— R2 更正**：v1 把下面的 `grep … | wc -l` 写成 `0`。**同一命令实测为 `1`**，命中的是 `codebase_index.md:112`（§5 段的 `apps/cli-ts` 字样，正是上面那条的另一处引用），所以那个 `0` 是**输出写错**，不是"文档里没有 `apps/cli-ts` 字符串"。结论（§2 顶层地图无该行）**仍然成立**，因为它讲的是**地图那 17 行**；改用限定行区间的命令即可直接证明：
 
 ```text
+$ grep -n 'apps/cli-ts\|runtime_daemon\|apps/macos\|domain_packs/data_agent' codebase_index.md | wc -l
+1
+$ grep -n 'apps/cli-ts\|runtime_daemon\|apps/macos\|domain_packs/data_agent' codebase_index.md
+112:The supported terminal entry is the npm `agentos` / `agent-os` / `agent-os-ts` bin (apps/cli-ts, TS/Ink) …
+
+$ sed -n '22,40p' codebase_index.md | grep -cE 'apps/cli-ts|runtime_daemon|apps/macos|domain_packs/data_agent'
+0
+$ sed -n '24,40p' codebase_index.md | grep -c '^| `'          # §2 地图的行数
+17
 $ ls apps/
 api_server  cli  cli-ts  macos  runtime_daemon
-$ grep -n 'apps/cli-ts\|runtime_daemon\|apps/macos\|domain_packs/data_agent' codebase_index.md | wc -l
-0
 ```
+
+  即：`codebase_index.md:112` 确实提到 `apps/cli-ts`（那是 §5 的旧措辞），但 §2 地图的 17 行里 0 次命中 —— 上面 (a) 的"措辞过时"与这里的"地图缺行"是两个独立缺陷，v1 把前者的命中数误写成了一个会推翻后者的 `0`。**已排除的一个替代解释**：本机 `/usr/bin/grep` 是 `BSD grep, GNU compatible 2.6.0-FreeBSD`，对 BRE 里的 `\|` 交替**能**正确匹配（实测见 §8），所以那个 `0` 不是 grep 语法差异造成的假阴性。
 
 - **§3 契约表（`:46-60`）缺 `surface.py`**：Surface 协议的唯一契约（`SURFACE_PROTOCOL_VERSION` 所在）不在表里；`mandate.py`/`srl_*.py`/`responsibility.py`/`outcome_portfolio.py` 等同样缺席。
   - **核查命令与输出【实测】**：
@@ -398,6 +449,34 @@ $ grep -n 'cli-ts\|terminal\|TUI\|Ink' docs/PROJECT_PLAN.md
 （无命中）
 ```
 - **建议**：不在本报告内代拟 PROJECT_PLAN 的 P 项（那属于 founder/CTO 授权序列），只提请协调者补一条指向 CURRENT_STATE `active_work` 的说明，或明确标注"本文件只覆盖研究线与 SPINE，终端产品线的授权序列见 CURRENT_STATE/GC"。
+
+### C10.（新增，R3 连带）checklist `#11`/§9 与 `CURRENT_STATE.yaml:32`/`:36` 仍把"脚本修复"写成待办，而它已在同一个提交里落地
+
+- **位置与原文要点**：
+  - `docs/product/TUI-PARITY-CHECKLIST-2026-09-16.md:22`（`#11` 行末句）：「该脚本信号的修复归属 `scripts/pty_fullscreen_vim.py`（**须改标记方式**，并让信号可失败）；见 §9、§14.4」。
+  - 同文件 `:101`（§9 证据段末句）：「脚本信号修复归属 `scripts/pty_fullscreen_vim.py`（**须改标记并让信号可失败**，原先恒 exit 0）」；`:312-313`（§14.4）仍把 `VIM_NORMAL_EDIT_SUBMITTED` 列为"两个 pre-existing `False`"之一。
+  - `docs/CURRENT_STATE.yaml:32`（pin `tui_parity_slice_d_vim_2026_09_17`）：「The script fix belongs in `scripts/pty_fullscreen_vim.py` (change the marker AND make the signal able to fail).」；`:36`（pin `tui_parity_slice_e_theme_colours_2026_09_17`）：「the probe fix belongs in `scripts/pty_theme_check.py`（locate each key ON ITS OWN ROW …）」。
+- **为什么过时**：这些"修复归属"的**待办语气**与它自己引用的行为复测是同一批文本，而修复已在 `1a9cf714` 落地（`origin/main` 的祖先，即本报告基线 `03ac66b5`）。**同一个提交既写下这些句子、也实现了修复**，所以这些句子从落盘那一刻起就描述错了状态。
+- **核查命令与输出【实测】**：
+
+```text
+$ git log -1 --format='%h %ad %s' --date=short 1a9cf714
+1a9cf714 2026-09-18 fix(tui): close the PR #69 review findings
+$ git show --stat --format='' 1a9cf714 -- apps/cli-ts/scripts/pty_fullscreen_vim.py apps/cli-ts/scripts/pty_theme_check.py
+ apps/cli-ts/scripts/pty_fullscreen_vim.py |  57 ++++++++++----
+ apps/cli-ts/scripts/pty_theme_check.py    | 122 ++++++++++++++++++++++++++----
+ 2 files changed, 147 insertions(+), 32 deletions(-)
+
+$ grep -n 'MARKER = \|VIM_SIGNALS_FAILED\|return 1 if failed' apps/cli-ts/scripts/pty_fullscreen_vim.py
+48:MARKER = b"qqwwzz"                     # 正是 #11 里"独立复测"用的、不可能与夹具碰撞的标记
+263:    print("VIM_SIGNALS_FAILED:", failed)
+264:    return 1 if failed else 0             # 信号现在闸门 exit code，不再"恒 exit 0"
+```
+
+  该提交的说明原话（逐条对应上列两句）：「pty_fullscreen_vim's `VIM_NORMAL_EDIT_SUBMITTED` was false by construction … the marker is replaced and the signals now gate the exit code」「pty_theme_check's "footer" key actually re-read the header row; it locates by row, refuses a same-row alias, and reports FOOTER_THEMED False honestly」。
+- **我不主张的部分**：该脚本现在的信号值（是否 `VIM_NORMAL_EDIT_SUBMITTED: True`）我**没有重跑** pty 脚本去核实（会起 hermetic daemon，见 §6）。这里只主张一件可代码核实的事：**"信号已死、修复待办"这些句子不再是当前状态**，`#11` 的尾句与 §9/§14.4、`:32`/`:36` 需要补一句"修于 `1a9cf714`"，不能继续作为"修复归属"的待办清单引用。
+- **建议改法**：`#11` 行与 §9 证据段的末句都改为「该信号已于 `1a9cf714`（2026-09-18）改用不碰撞标记 `qqwwzz` 并接入 exit code 闸门（见 `scripts/pty_fullscreen_vim.py:48`、`:260-264`）；本行引用的旧 `False` 是修复前的记录」；§14.4 的"两个 pre-existing `False`"加注日期；`:36` 的探针段与 `:32` 的 vim 段补 `RESOLVED 1a9cf714`（`:36` 的 diff 见 §7 **D17**）。
+- **对 §5 名单的影响**：`#11` 因此**不在**"仍然正确、不要改"之列（v1 的 §5 第 9 条已按此更正）；同一条里的 §14（浮层渲染缺陷）**保留**——它把缺陷与修复写在原位，实测仍然成立。
 
 ---
 
@@ -499,7 +578,35 @@ $ grep -nE "bun run scripts/compile|scripts/compile|npm pack|install -g|npm publ
   但**注意一个会误导读者的细节**：`scripts/install_smoke.sh`（ci.yml:372）现在会跑 `npm run pack:check`（= `npm pack --dry-run`），只是上面的模式匹配不到字符串 `npm pack`。
 - **(i) §7 表格第 3 行的"缺什么"已部分失效【实测】**：原文缺项写「把 `scripts/e2e.sh`（含 pty smoke）纳入 CI，或写等价的 CI 可跑断言；**CI 需 bun + uv/Python 两个运行时**」。"CI 需 bun + uv/Python 两个运行时"**已不再是缺口**：`cli-ts` job 现在有 `actions/setup-python@v5`(:361)、`pip install "sqlglot==30.13.0" …`(:365)、`bash scripts/install_smoke.sh`(:372)，且该步骤在 run 35294406879 上记录 `[install-smoke] 8 passed, 0 failed, 8 checks run`。`scripts/e2e.sh` 本身仍未进 CI（(h) 的 grep 未命中）——**这一半仍成立**。
 - **(j) §5 的 doctor 三档实测我没有复现（见 §6），且其行号引用已漂移【实测】**：文档引 `src/doctor.ts:5,39,64-65` 支撑"用故意不存在的 session id + GET，不创建状态"；现在 `PROBE_SESSION` 在 `doctor.ts:66`（`grep -n PROBE_SESSION src/doctor.ts` → `66:`、`166:`），`doctor.ts` 自 8ab29119 起 `+120` 行。四个检查项的名称与数量（descriptor/reachable/auth/protocol）**仍成立**。
-- **(k) §0/§10 的"`npm test` 全量 195 例"【实测】**：现在是 **225 例**（`CURRENT_STATE.yaml:42` 与 `:995` 都记了 225，CI run 35294406879 的 `cli-ts` job 为 34 files / 225 pass / 0 fail）。
+- **(k) §0/§10 的"`npm test` 全量 195 例"【实测】—— R1 更正**：v1 写「现在是 **225 例**……CI run 35294406879 的 `cli-ts` job 为 34 files / 225 pass / 0 fail」。**该数字与它归属的 run 都错了**：`35294406879`（head = `03ac66b5`）的 `cli-ts` job 是 **34 files / 235 tests / 235 pass / 0 fail**；**225 是更早的 run `35272942676`（head `203b8862`）**。两个 run 都是 34 个文件，差别只在用例数（`203b8862..03ac66b5` 之间 `apps/cli-ts/test` 新增 12 个 `test(`/`it(` 调用，净 +10 例）。**所以今天的值是 235。**
+
+```text
+$ gh run view 35294406879 --json headSha,jobs -q '.headSha, (.jobs[] | "\(.name) \(.conclusion) \(.databaseId)")'
+03ac66b563e689fd3c87d38eed2aae400989f6d5
+cli-ts success 105443864770
+test success 105443864967
+
+$ gh run view --job 105443864770 --log | grep -E '# (tests|pass|fail) ' | sed 's/.*# //' \
+    | awk '{s[$1]+=$2} END {print "# tests", s["tests"], "| # pass", s["pass"], "| # fail", s["fail"]}'
+# tests 235 | # pass 235 | # fail 0
+
+$ gh run view --job 105376480205 --log | grep -E '# (tests|pass|fail) ' | sed 's/.*# //' \
+    | awk '{s[$1]+=$2} END {print "# tests", s["tests"], "| # pass", s["pass"], "| # fail", s["fail"]}'
+# tests 225 | # pass 225 | # fail 0          # ← 这是 run 35272942676（head 203b8862）的 cli-ts job
+
+$ git diff --stat 203b8862..03ac66b5 -- apps/cli-ts
+ apps/cli-ts/scripts/test-ci.mjs          | 208 ++++++++++++++++++--
+ apps/cli-ts/src/controller.ts            | 219 +++++++++++++++++++--
+ apps/cli-ts/src/session-command.ts       |  73 ++++++-
+ apps/cli-ts/test/controller.test.ts      | 322 +++++++++++++++++++++++++++++--
+ apps/cli-ts/test/session-command.test.ts |  85 ++++++-
+ 5 files changed, 842 insertions(+), 65 deletions(-)
+```
+
+- **(k-2) 连带发现（v1 漏报，已补入 §7 D15）：`docs/CURRENT_STATE.yaml:42` 与 `:995` 自己也停在 225**【实测】**：
+  - `:42`（pin `tui_runtime_identity_2026_09_18`）：「Re-measured at this HEAD: `npm run test:ci` = 34 files / **225 tests / 225 pass / 0 fail** in 8s …」——锚在 `203b8862`，且该 pin 描述的工作已随 PR #69 进 main（见 A2），所以这个"this HEAD"已不是当前值。
+  - `:995`（`test_commands.ci`）：「Re-measured at this HEAD: `npm run test:ci` = 34 files / **225 tests** …」以及一句明确的当前值断言：「195 cases was the count when the `cli-ts` job first landed and 205 was the count at HEAD 426249e6, so BOTH numbers here were stale; **the current case count is 225**」。
+  - **判定**：v1 把这两处的 225 **当作当前值**引用（正是 (k) 出错的原因之一），应改为**过期项**：当前 `cli-ts` 用例数是 **235**（`03ac66b5`，run `35294406879`），225 属于 `203b8862`。写法上属"Measured now / current"无时间戳锚点的那一类（同等 A2 尾句）。修复 diff 见 §7 **D15**。
 
 ### 4.2 `TERMINAL-LINE-CONVERGENCE-PLAN-2026-09-17.md`
 
@@ -514,17 +621,22 @@ $ git rev-list --count 45b38993..origin/main
 
   落后 69 个提交，其中包含 PR #66/#69 等本方案讨论的对象。
 - **`:7` 附记「parity 剩余项：`#14 ctrl+r 历史搜索`、`#16 彩色语法高亮`、`#17 主题配色`、`#18 首页/欢迎面板`」——已过期【实测】**：这四项在**同一天**由切片 E/F/G/H 关闭，`docs/product/TUI-PARITY-CHECKLIST-2026-09-16.md:14-19` 的表格四行都写 DONE，`CURRENT_STATE.yaml:36-39` 逐条记录。**例外**：`#17` 的 DONE 只覆盖 header（见 C2）。
-- **§0「冻结声明：自本方案起**不再开新并行线**」——与今天的实测不符【实测】**：
+- **§0「冻结声明：自本方案起**不再开新并行线**」——与今天的实测不符【实测】**（**R4 更正**：v1 此行写「`git worktree list | wc -l` = 28」并说「其中 **7** 个 worktree 是 2026-09-18 新建」却列了 **8** 个名字——计数与自己的列表不一致。下面是**重新测量**的结果，计数与列表一致）：
 
 ```text
 $ git worktree list | wc -l
-28
-# 其中 7 个 worktree 是 2026-09-18 新建、且都从 03ac66b5 出发：
-wt-checkpoint-gc[docs/checkpoint-rewind-gc-20260918]  wt-contract-1-2[codex/contract-surface-1-2-20260918]
-wt-deny-visible[codex/deny-visibility-20260918]        wt-ops-ratelimit[codex/ops-client-ratelimit-20260918]
-wt-session-stop[codex/surface-session-stop-20260918]   wt-state-audit[docs/state-freshness-audit-20260918]
-wt-state-pin[docs/state-merge-pin-20260918]            wt-term-eval[codex/terminal-coding-eval-20260918]
+31
 
+$ for d in $(git worktree list --porcelain | grep '^worktree ' | sed 's/^worktree //'); do
+    printf '%s %s\n' "$(stat -f '%SB' -t '%Y-%m-%d' "$d")" "$(basename "$d")"; done | sort |
+    awk '$1=="2026-09-18"{n++; printf "%s  ", $2} END{printf "\ncount=%d\n", n}'
+wt-approval-events  wt-checkpoint-gc  wt-contract-1-2  wt-deny-visible  wt-mcp-precond  wt-ops-ratelimit  wt-review  wt-session-stop  wt-state-audit  wt-state-pin  wt-term-eval
+count=11
+```
+
+  即：v1 的列表（8 个名字）在写完后**又多了 3 个**（`wt-approval-events`、`wt-mcp-precond`、`wt-review`），今天出生于 2026-09-18 的 worktree 是 **11** 个、全仓 worktree 总数是 **31**。v1 的 `28`/`7` 我**无法回测**（worktree 是可增删的活对象），只能给出今天可复现的值；两点都比 v1 记录的更多，因此「该冻结今天没有成立」这一结论不受影响，反而更强。（`wt-state-audit` 即本文所在的 worktree。）
+
+```text
 $ git for-each-ref --format='%(committerdate:short) %(refname:short)' refs/remotes/origin | awk '$1 > "2026-09-17"'
 2026-09-18 origin/docs/terminal-gc-subagents-hooks-mcp-20260918
 2026-09-18 origin/main
@@ -559,7 +671,7 @@ $ git for-each-ref --format='%(committerdate:short) %(refname:short)' refs/remot
 6. **`codebase_index.md:157`「测试数字只存在于 CURRENT_STATE」是设计意图**，index 里没有测试数字**不是**缺陷。
 7. **`docs/product/PROJECT_PLAN.md:83`（P5 `PUSHED / MAIN_INTEGRATED / UNRELEASED`）正确**；`:158`（Data Agent donor 物理保留）正确。
 8. **`GC-TUI-FULLSCREEN-MIGRATION-2026-09-15.md` 的 §2 更正块（`:24-32`）与 `TUI-INK-RETIREMENT-PREP` 的 §1.1/§7 更正块**：都已就地标注为"更正/历史"，**不算过期**。
-9. **`docs/product/TUI-PARITY-CHECKLIST` 的 #11（vim 信号失效）与 §14（浮层渲染缺陷）**：两处都把"所引信号已失效/被撤回"写在原位，是**本仓最诚实的两处写法**，不要改。
+9. **`docs/product/TUI-PARITY-CHECKLIST` 的 §14（浮层渲染缺陷）**：把缺陷与修复写在原位，是**本仓最诚实的写法**，不要改。**（R3 更正：原 v1 第 9 条把 `#11` 与本条并列，说两处都"仍然正确、不要改"——那是错的。`#11` 的尾句写「该脚本信号的修复归属 `scripts/pty_fullscreen_vim.py`（须改标记方式，并让信号可失败）」，而该修复已在 `1a9cf714` 落地（`MARKER = b"qqwwzz"`、信号闸门 exit code），所以 `#11` **移出**本名单，改列为过期项，见 §3 **C10**（同处一并记 §9 证据段、§14.4 与 `CURRENT_STATE.yaml:32`/`:36` 的同类句子）。§14 保留在本名单。）
 10. **`CURRENT_STATE.yaml:50`（tool_failure_visibility_round2 的 macOS 2712/1 vs Linux 2706/7 平台差异、CI run 35272942676 的记录）与 `:45`（CI 文件集 gate）**：方法学与结论我未发现错误；`:45` 里"161/161 已过期"的自我更正方向也是对的（**该文件集计数我没有复测** —— 并发写者正在向 `tests/product` 加用例，本机计数不可比，见 §6）。
 
 ---
@@ -732,17 +844,75 @@ new: :989 保持不动，但在 :995 的 ci 字段里注明 CI 用的是 "PYTHON
      （两者等价，但读者会以为不一致）
 ```
 
+**D15（R1 新增）** `:42`、`:995` —— `cli-ts` 用例数停在 225
+
+```text
+old: :42  … Re-measured at this HEAD: `npm run test:ci` = 34 files / 225 tests / 225 pass / 0 fail in 8s …
+new: :42  … Re-measured at HEAD 203b8862: `npm run test:ci` = 34 files / 225 tests / 225 pass / 0 fail; superseded at
+          origin/main 03ac66b5, where the same CI step is 34 files / 235 tests / 235 pass / 0 fail
+          (run 35294406879, job 105443864770) …
+
+old: :995 … Re-measured at this HEAD: `npm run test:ci` = 34 files / 225 tests / 225 pass / 0 fail in ~8s …;
+          … so BOTH numbers here were stale; the current case count is 225 …
+new: :995 … Re-measured at HEAD 203b8862: `npm run test:ci` = 34 files / 225 tests / 225 pass / 0 fail in ~8s …;
+          … so BOTH numbers here were stale; the case count measured at origin/main 03ac66b5 is 235 over the SAME
+          34-file set (+10 net cases, added in apps/cli-ts/test/controller.test.ts and
+          apps/cli-ts/test/session-command.test.ts between 203b8862 and 03ac66b5) …
+```
+
+  证据见 §4.1(k)/(k-2)。注意这两句是 **"Measured now / the current case count is"** 语气（无 commit 锚点），与 `:34-40` 的日期化历史快照不同类；修复后请务必带上"HEAD + run id"，否则下一次又会漂。
+
+**D16（R4 新增）** `:995` —— `timeout-minutes` 的行号漂移
+
+```text
+old: :995 … Measured now with `grep -n timeout-minutes .github/workflows/ci.yml`: :28 `timeout-minutes: 30`
+          … and :235 `timeout-minutes: 20` (the `cli-ts` job, added by 46327499 at 01:57) …
+new: :995 … Measured 2026-09-18 at origin/main 03ac66b5 with `grep -n timeout-minutes .github/workflows/ci.yml`:
+          :28 `timeout-minutes: 30` (the `test` job) and :278 `timeout-minutes: 20` (the `cli-ts` job) —
+          `:235` was that line at the earlier head 203b8862 and is stale …
+```
+
+  证据：
+
+```text
+$ grep -n timeout-minutes .github/workflows/ci.yml
+28:    timeout-minutes: 30
+278:    timeout-minutes: 20
+$ git show 203b8862:.github/workflows/ci.yml | grep -n timeout-minutes
+28:    timeout-minutes: 30
+235:    timeout-minutes: 20
+```
+
+  （`grep -n product_eval .github/workflows/ci.yml` 无命中、两个 job 都已被 bound 这两点不受影响。）
+
+**D17（R3 新增）** `:32`、`:36` —— "脚本修复待办"的语气（修复已在同一提交落地）
+
+```text
+old: :32 … The script fix belongs in scripts/pty_fullscreen_vim.py (change the marker AND make the signal able to fail).
+new: :32 … RESOLVED 2026-09-18 in 1a9cf714: the marker is now `qqwwzz` and the signals gate the exit code
+          (scripts/pty_fullscreen_vim.py:48, :260-264); the `False` recorded above describes the pre-fix script only.
+
+old: :36 … the probe fix belongs in scripts/pty_theme_check.py (locate each key ON ITS OWN ROW, and refuse to count
+          two keys resolved to the same row as two pieces of evidence) …
+new: :36 … the probe fix WAS MADE in 1a9cf714 (locate_row; the same-row anti-impersonation assert at
+          scripts/pty_theme_check.py:156-160; the honest `FOOTER_THEMED: False` at :182), so this paragraph
+          records the pre-fix script only …
+```
+
+  证据见 §3 C10：同一提交既写下"修复归属"、又实现了修复，所以这两句从落盘起就不是当前状态。checklist 的 `#11` 行、§9 证据段与 §14.4 的"两个 pre-existing `False`"是同一处缺陷的另外三处，建议一并加注。
+
 ### 不出的 diff（有意）
 
 - `:9`/`:11` realtime-collab 的 `*_NOT_IMPLEMENTED`：证据不足以证伪（§5.3）。
 - `:34`-`:40` 的切片 D-J pin 的测试计数（162/187/209…）：**都是带日期的历史记录**，改动会伪造历史；只有被当作"当前值"引用时才需要澄清（对应建议：在文件顶部或 `test_commands` 处加一句"pin 内计数均为该日快照，当前 CI 计数见 `test_commands.ci`"）。
+- **反例（因此出 D15）**：`:42`/`:995` 的 `cli-ts` 用例数**不属于**上一条。它们写的是 `Measured now` / `the current case count is`，即**没有时间戳锚点的当前值断言**，读者会直接采信；这是 v1 自己也被误导的原因，所以必须改，而不是"保留历史"。
 - `docs/PROJECT_PLAN.md` 新增 P 项：属 founder/CTO 授权序列，不由审计代拟（见 C9）。
 
 ---
 
 ## 8. 附：本次实测命令与原始输出（可复现清单）
 
-全部在 `.worktrees/wt-state-audit`（`HEAD == origin/main == 03ac66b5`）执行；未启动任何 daemon，未触碰 `~/.agent-os/`。
+全部在 `.worktrees/wt-state-audit` 执行；v1 的测量在树内容 = `03ac66b5`（= 那时的 `origin/main`）上，v2（本次更正）的复测在 `HEAD = a1e52d22` 上——`a1e52d22` 只在 `docs/reviews/` 下新增本文档，故 `origin/main` 仍为 `03ac66b5`，被测文件逐字节相同。**未启动任何 daemon，未触碰 `~/.agent-os/`**（v2 结束时的 `pgrep` 见末尾）。
 
 ```text
 git rev-parse HEAD                                      → 03ac66b563e689fd3c87d38eed2aae400989f6d5
@@ -752,6 +922,16 @@ gh run list --branch main --limit 5 --json headSha,conclusion   → 03ac66b5 suc
 gh run view 35294406879 --json jobs -q '.jobs[] | "\(.name) \(.conclusion)"'  → cli-ts success / test success
 gh run view 35294406879 --log | grep 'tests/product collected|passed'
                                                         → 2754 collected (floor 2500) / 2747 passed, 7 skipped / exit 0
+# R1 更正：cli-ts job 的用例数（v2 复测；两个 run 的 cli-ts 都是 34 个测试文件）
+gh run view --job 105443864770 --log | grep -E '# (tests|pass|fail) ' | sed 's/.*# //' \
+  | awk '{s[$1]+=$2} END {print s["tests"], s["pass"], s["fail"]}'
+                                                        → 235 235 0     # run 35294406879（head 03ac66b5）
+gh run view --job 105376480205 --log | grep -E '# (tests|pass|fail) ' | sed 's/.*# //' \
+  | awk '{s[$1]+=$2} END {print s["tests"], s["pass"], s["fail"]}'
+                                                        → 225 225 0     # run 35272942676（head 203b8862）
+git diff --stat 203b8862..03ac66b5 -- apps/cli-ts
+                                                        → 5 files changed, 842 insertions(+), 65 deletions(-)
+                                                          （test/controller.test.ts +322/-…、test/session-command.test.ts +85；净 +10 例）
 
 git merge-base --is-ancestor 203b8862 origin/main      → YES
 git merge-base --is-ancestor 807a0590 origin/main      → YES
@@ -785,6 +965,8 @@ git show 8ab29119:.github/workflows/ci.yml | grep -n 'run:' → 163/172/177（3 
 grep -nE "bun run scripts/compile|scripts/compile|npm pack|install -g|npm publish|scripts/e2e|e2e\.sh|--compile" .github/workflows/ci.yml
                                                         → 无输出，exit 1
 grep -n timeout-minutes .github/workflows/ci.yml        → :28 (test,30) / :278 (cli-ts,20)
+                                                          # R4：这个值是对的，但 v1 没发现
+                                                          # docs/CURRENT_STATE.yaml:995 自己写的是 :235（203b8862 的行号）→ 已漂移，见 §7 D16
 grep -n product_eval .github/workflows/ci.yml           → 无命中
 
 bun install --frozen-lockfile                           → 59 packages installed, exit 0（bun.lock 未变）
@@ -801,26 +983,45 @@ grep -n 'AGENT_OS_PRICING_FILE|AGENT_OS_PROVIDER_MAX_RETRIES|AGENT_OS_PROVIDER_M
                                                         → 236 / 543 / 539
 git log -1 --format='%h %ad %s' --date=short -S 'AGENT_OS_PRICING_FILE' -- packages/os_core/src/agent_os_core/provider.py
                                                         → 632f46c2 2026-09-14 provider: … (Slices 6-7)
-grep -n 'theme\.footer|theme\.border|theme\.danger|theme\.approvalTitle' apps/cli-ts/src | wc -l → 0
+grep -rn 'theme\.footer|theme\.border|theme\.danger|theme\.approvalTitle' apps/cli-ts/src | wc -l → 0
 grep -n PROBE_SESSION apps/cli-ts/src/doctor.ts         → 66 / 166
 ls apps/cli-ts/src/App.tsx                              → No such file or directory
 grep -rn 'from "ink"' apps/cli-ts/src apps/cli-ts/test | wc -l → 0
 ls -la packages/os_core/src/agent_os_core/surface_runtime.py → 20648 bytes
 grep -c 'surface.py' codebase_index.md                  → 0
 grep -c 'surface_runtime' codebase_index.md             → 0
+grep -n 'apps/cli-ts\|runtime_daemon\|apps/macos\|domain_packs/data_agent' codebase_index.md | wc -l
+                                                        → 1（R2 更正：v1 写成 0；命中 codebase_index.md:112）
+grep --version                                          → "grep (BSD grep, GNU compatible) 2.6.0-FreeBSD"（BRE 的 `\|` 可用）
+sed -n '22,40p' codebase_index.md | grep -cE 'apps/cli-ts|runtime_daemon|apps/macos|domain_packs/data_agent'
+                                                        → 0（§2 顶层地图 17 行内确实 0 次命中 —— 结论仍成立）
 grep -n 'cli-ts|terminal|TUI|Ink' docs/PROJECT_PLAN.md  → 无命中
-git worktree list | wc -l                               → 28
+git worktree list | wc -l                               → 31（R4 更正：v1 记 28；v1 那行还写"7 个"却列了 8 个名字）
+# 按目录 birth time 过滤于 2026-09-18 的 worktree：11 个（v1 列了 8 个，之后又多了 3 个）
+for d in $(git worktree list --porcelain | grep '^worktree ' | sed 's/^worktree //'); do
+  printf '%s %s\n' "$(stat -f '%SB' -t '%Y-%m-%d' "$d")" "$(basename "$d")"; done | sort \
+  | awk '$1=="2026-09-18"{n++; printf "%s  ", $2} END{printf "\ncount=%d\n", n}'
+                                                        → wt-approval-events … wt-term-eval / count=11
 git for-each-ref --format='%(committerdate:short) %(refname:short)' refs/remotes/origin | awk '$1 > "2026-09-17"'
                                                         → 4 条（含 origin/docs/terminal-gc-subagents-hooks-mcp-20260918）
 
-git status --short                                      → 空（本报告落盘前；构建产物 dist/ 已在验证后删除）
-pgrep -f 'python -m apps\.runtime_daemon'               → 9909/9910/9912/9921
-  ps -o pid,ppid,command → 全部属于**另一个 workstream** 的 worktree
-  `.worktrees/wt-session-stop`（`/tmp/wtstop/…`），非本任务所起，未终止、不应终止
+# R3 更正：探针/vim 信号的修复就在基线里（v1 把"修复前"的行为写成了当前行为）
+git log -1 --format='%h %ad %s' --date=short 1a9cf714   → 1a9cf714 2026-09-18 fix(tui): close the PR #69 review findings
+git merge-base --is-ancestor 1a9cf714 origin/main && echo IN_main → IN_main
+grep -n 'def locate_row\|Anti-impersonation\|THEME_KEYS_CHANGED\|FOOTER_THEMED' apps/cli-ts/scripts/pty_theme_check.py
+                                                        → 12（注释）/87/156/175/182
+grep -n 'MARKER = \|VIM_SIGNALS_FAILED\|return 1 if failed' apps/cli-ts/scripts/pty_fullscreen_vim.py → 48/263/264
+# 未重跑任何 pty 脚本（会起 hermetic daemon，见 §6）
+
+git status --short                                      → 空（v1/v2 落盘前；构建产物 dist/ 已在验证后删除）
+pgrep -f 'python -m apps\.runtime_daemon'               → v1 时 9909/9910/9912/9921（另一 workstream 的 worktree），
+                                                          v2 复测时为空（exit 1）；本任务全程未启动 daemon
 ```
 
 ---
 
 ## 9. 一句话结论
 
-`docs/CURRENT_STATE.yaml` 的**内容层**在 2026-09-18 被维护得很勤（含大量主动更正段），但**它没有在 PR #69 合并后做一次全局重述**：凡是写着 "not merged to main / not pushed" 的地方现在都错了（8 处），顶层 `status`、`identity.first_vertical` 与 `freshness` 块各自自相矛盾或落后两个月；`tests/product` 的"23 个既存失败"已被 main 的 CI（2754 collected / 2747 passed / 7 skipped / exit 0）证伪。`codebase_index.md` 的结构性缺口（缺 `apps/cli-ts`、缺 `surface.py`、`TS/Ink` 措辞）比任何数字过期都更影响读者。根仓那份分发现状件**方向正确**（结构事实基本都还对），需要修的是**基线、三个打包数字、CI 步数与"CI 缺 Python 运行时"这一条**——外加一个真正值得修的方法学问题：它的**指纹命令与指纹数值不是同一个量**。
+`docs/CURRENT_STATE.yaml` 的**内容层**在 2026-09-18 被维护得很勤（含大量主动更正段），但**它没有在 PR #69 合并后做一次全局重述**：凡是写着 "not merged to main / not pushed" 的地方现在都错了（8 处），顶层 `status`、`identity.first_vertical` 与 `freshness` 块各自自相矛盾或落后两个月；`tests/product` 的"23 个既存失败"已被 main 的 CI（2754 collected / 2747 passed / 7 skipped / exit 0）证伪。**`cli-ts` 用例数（225→235）与两处「脚本/探针修复待办」的句子是同一种毛病的另一面**：它们都用 "Measured now / the current … / fix belongs in …" 的当前值语气，实际在 `203b8862` 或更早已被取代（见 §4.1(k)/(k-2) 与 §3 C10）。`codebase_index.md` 的结构性缺口（缺 `apps/cli-ts`、缺 `surface.py`、`TS/Ink` 措辞）比任何数字过期都更影响读者。根仓那份分发现状件**方向正确**（结构事实基本都还对），需要修的是**基线、三个打包数字、CI 步数与"CI 缺 Python 运行时"这一条**——外加一个真正值得修的方法学问题：它的**指纹命令与指纹数值不是同一个量**。
+
+**v2 自评（2026-09-18 独立复核后）**：复核者指出的四处不符全部按上文《修订记录 v2》更正。其中 R1 是**漏报**（v1 把 `CURRENT_STATE.yaml:42`/`:995` 自身的过期值当成了证据），R3 是**把修复前的行为写成了当前行为**，并用一句中文转述冒充命令输出。新增 finding 3 条（§7 D15/D16/D17 与 §3 C10）。教训留档给下一轮：**凡是无 commit/run 锚点的 "Measured now / current / belongs in" 句，一律按过期项复核；凡是被引用的"脚本待修"句，先在基线里对该文件跑一次 `git log`** —— v1 的四处错误里有三处属这两类。
