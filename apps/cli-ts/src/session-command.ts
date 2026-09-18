@@ -75,12 +75,35 @@ async function sendControlCommand(
   throw lastError;
 }
 
+/**
+ * The operator's reason text: everything after the session id, minus the CLI's
+ * own flags.
+ *
+ * The reason is durable evidence (`CORRECTION_WRITTEN.reason`), and the flags
+ * are not. Measured 2026-09-18: `noem session correct <id> "why" --descriptor
+ * /tmp/x.json` recorded the reason as `why --descriptor /tmp/x.json`, and
+ * `noem session pause <id> --descriptor /tmp/x.json` lost the default reason to
+ * the flag text entirely.
+ */
+function reasonFrom(args: readonly string[]): string {
+  const kept: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string;
+    if (arg === "--descriptor") {
+      index += 1; // the flag and its value are transport, never a reason
+      continue;
+    }
+    kept.push(arg);
+  }
+  return kept.join(" ").trim();
+}
+
 export async function runSessionCommand(
   options: SessionCommandOptions,
 ): Promise<number> {
   const sub = (options.args[0] ?? "show").toLowerCase();
   const sessionId = options.args[1];
-  const reason = options.args.slice(2).join(" ").trim();
+  const reason = reasonFrom(options.args.slice(2));
   if (!SUBCOMMANDS.has(sub)) {
     process.stderr.write(
       `noem: unknown session subcommand ${sub} (show | pause | resume | correct)\n`,
@@ -125,6 +148,21 @@ export async function runSessionCommand(
     process.stdout.write(
       `${JSON.stringify({ session_id: sessionId, status: snapshot.status }, null, 2)}\n`,
     );
+    // A resume that leaves the session unusable is not a success. Measured
+    // 2026-09-18 on a real daemon: `noem session resume` against a
+    // CORRECTION_HALTED session answered 200 with `{"status":
+    // "CORRECTION_HALTED"}` and exit 0, while every later turn was refused by
+    // the kernel — an exit-0 for an operation that changed nothing the operator
+    // can use.
+    if (action === "resume" && snapshot.status !== "ACTIVE") {
+      process.stderr.write(
+        `noem session resume: the kernel still reports ${snapshot.status} — this session cannot accept turns. ` +
+          (snapshot.status === "CORRECTION_HALTED"
+            ? "A correction halts the task and voids its sealed configuration; no terminal command restores it (start a new session).\n"
+            : "The Run is not runnable (resume the correction or the pause first).\n"),
+      );
+      return 1;
+    }
     return 0;
   } catch (cause) {
     // Non-zero exit and the reason on stderr: an operator scripting an emergency

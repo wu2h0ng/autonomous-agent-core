@@ -51,10 +51,18 @@ Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
 Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it.
 `y`/`n` answer approval cards; Esc issues a correction during a turn
-(Ctrl-C exits); Ctrl-L clears the view. `/vim`
+(Ctrl-C exits); Ctrl-L clears the view. A correction is not a benign
+interrupt: it halts the task, and the kernel then refuses every further turn in
+that session (the kernel reports `CORRECTION_HALTED` and says so on the
+transcript; start a new session to continue working). `/vim`
 enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
 and `dd`/`dw`/`cw` operators). Tab switches the focused panel and PgUp/PgDn
 scroll it.
+
+If the local runtime goes away mid-session, the read commands (`/task`,
+`/files`, `/doctor`) report the failure on the transcript and the app keeps
+running; a restarted runtime is not re-attached automatically (the descriptor
+carries a new port and token), so restart `noem` to talk to it.
 
 The key/command surface above is asserted where it can be: unit tests for the
 key resolver (`test/opentui-viewkeys.test.ts`, `test/opentui-vim.test.ts`) and
@@ -87,6 +95,7 @@ npm run check:entry      # the unified entry: node subcommands, node FFI advice,
 npm run check:home       # the home panel owns the first frame
 npm run check:search     # Ctrl-R reverse search + multiline composer
 npm run check:highlight  # fenced-code colouring (headless + pty)
+npm run check:runtime-lost  # the runtime dying mid-session is reported, not fatal
 ```
 
 ## Other entry points

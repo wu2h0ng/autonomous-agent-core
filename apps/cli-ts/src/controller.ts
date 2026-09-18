@@ -59,6 +59,38 @@ export function isSequenceConflict(cause: unknown): boolean {
  * Every receipt carries it; it must never render as an error. */
 export const NO_ERROR_CODE = "error:none";
 
+/**
+ * What the kernel's own `CORRECTION_HALTED` status means for the operator.
+ *
+ * Not a guess: measured on a real daemon (2026-09-18) - once a correction has
+ * landed on a surface session, every further turn is refused
+ * ("configuration correction epochs changed after seal"), `noem session resume`
+ * answers CORRECTION_HALTED, and even an out-of-band external
+ * `correction/resume` does not restore the sealed configuration. The session
+ * cannot be continued; only a new session can.
+ */
+export const HALT_NOTICE =
+  "this session is CORRECTION_HALTED — a correction halts the task and voids " +
+  "its sealed configuration, so the kernel refuses every further turn in this " +
+  "session. No command in this terminal restores it: start a new session " +
+  "(restart noem) and use /resume only to look at this one.";
+
+/**
+ * What the operator can actually DO about a stall.
+ *
+ * It used to say "try /retry": while the controller is stalled,
+ * `canStartTurn()` is false, so `/retry` (and every other message) is QUEUED,
+ * and the queue is only drained when the turn or approval resolves
+ * (`maybeDrain` runs from `runTurn`'s finally, `decide` and `interrupt`) — so
+ * the advice could not work, and the queue gave the operator a "will send when
+ * the current turn ends" promise for a turn that was never going to end.
+ * Esc is the way out: it issues the correction that clears the stalled state
+ * and then drains the queue.
+ */
+export const STALL_ADVICE =
+  "press Esc to leave the stalled state (a correction; the queued message runs " +
+  "once the stall clears), or check /status — /retry only queues here";
+
 export type ControllerStatus =
   | "idle"
   | "streaming"
@@ -381,6 +413,20 @@ export class TuiController {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Report a failure with no better channel to the operator's transcript.
+   *
+   * Used by the process-level unhandled-rejection backstop in `cli.tsx`: the
+   * view drives several controller entry points fire-and-forget, and a rejected
+   * promise nobody awaited is an unhandled rejection — on the shipped runtime
+   * that prints a stack into the TUI's alternate screen and can exit the
+   * process, losing the operator's session. Reporting it here keeps both the
+   * session and the frame.
+   */
+  notify(text: string): void {
+    this.push({ role: "system", content: text });
   }
 
   private emit(): void {
@@ -717,16 +763,23 @@ export class TuiController {
     }
   }
 
-  /** `/keys` card — one place with the keymap (discoverability). */
+  /** `/keys` card — one place with the keymap (discoverability).
+   *
+   * Corrected 2026-09-18 (operator dead-end sweep): the card advertised
+   * "ctrl-p/ctrl-n history" for the composer, but `resolveViewKey` routes
+   * ctrl+p/ctrl+n to the agents panel only — measured in a real pty, Ctrl-P on
+   * a one-line draft recalled nothing while Ctrl-A/Ctrl-E did work (the textarea
+   * handles those). The card must describe the keymap that exists.
+   */
   private keysPanel(): MessagePanel {
     return {
       title: "keyboard",
       lines: [
         "enter submit · ctrl-j newline · ctrl-g $EDITOR",
         "backspace/delete delete backward · ctrl-d delete forward",
-        "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
+        "↑/↓ history · ctrl-r reverse search (ctrl-p/ctrl-n: agents panel)",
         "ctrl-a/ctrl-e line start/end",
-        "esc correction · ctrl-c exit · ctrl-l clear view",
+        "esc correction (halts the session) · ctrl-c exit · ctrl-l clear view",
         "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
       ],
     };
@@ -937,13 +990,27 @@ export class TuiController {
   }
 
   /** Bounded workspace listing (server-side depth/noise bounded; client caps
-   * the display at 30 entries and always reports the true total). */
+   * the display at 30 entries and always reports the true total).
+   *
+   * A failed read is REPORTED, never thrown: the view submits commands
+   * fire-and-forget, so a rejection here is an unhandled rejection, which on
+   * the shipped runtime prints a stack into the TUI's alternate screen and
+   * tears the frame apart (measured with the daemon killed mid-session). */
   private async filesCommand(prefix: string | undefined): Promise<void> {
     if (!this.taskId) {
       this.push({ role: "system", content: "no session yet; send a message first" });
       return;
     }
-    const files = await this.client.files(this.taskId);
+    let files: Awaited<ReturnType<SurfaceClient["files"]>>;
+    try {
+      files = await this.client.files(this.taskId);
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `files unavailable: ${(cause as Error).message} (nothing was read)`,
+      });
+      return;
+    }
     const filtered = prefix ? files.filter((f) => f.path.startsWith(prefix)) : files;
     const shown = filtered.slice(0, 30);
     this.push({
@@ -961,7 +1028,16 @@ export class TuiController {
       this.push({ role: "system", content: "no session yet; send a message first" });
       return;
     }
-    const overview = await this.client.overview(this.taskId);
+    let overview: Awaited<ReturnType<SurfaceClient["overview"]>>;
+    try {
+      overview = await this.client.overview(this.taskId);
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `task overview unavailable: ${(cause as Error).message} (no status is being guessed)`,
+      });
+      return;
+    }
     this.push({
       role: "system",
       content:
@@ -1125,6 +1201,21 @@ export class TuiController {
     try {
       await this.ensureSession();
       const sessionId = this.sessionId!;
+      // A halted session refuses every turn, and the kernel's refusal
+      // ("configuration correction epochs changed after seal") names neither
+      // the correction nor what to do about it. Re-read durable truth first —
+      // an external authority can lift a halt out of band, so this is a read of
+      // the kernel's state, never a remembered flag — and if the halt still
+      // stands, say so and send nothing.
+      if (this.snapshot?.status === "CORRECTION_HALTED") {
+        const fresh = await this.client.getSession(sessionId);
+        this.snapshot = fresh;
+        if (fresh.status === "CORRECTION_HALTED") {
+          this.push({ role: "system", content: HALT_NOTICE });
+          this.emit();
+          return;
+        }
+      }
       if (!this.stream) {
         const subscription = await this.client.subscribeStream(sessionId);
         this.stream = {
@@ -1221,8 +1312,8 @@ export class TuiController {
           role: "system",
           content:
             this.lastDurableError === null
-              ? `no durable resolution within ${this.stallMs}ms — the daemon has not reported this turn's outcome yet, so the result is unknown (try /retry or /status)`
-              : `durable event drain failed: ${this.lastDurableError} — the cursor stays at ${this.durableCursor} so nothing is skipped, but this turn's outcome is unknown (try /retry or /status)`,
+              ? `no durable resolution within ${this.stallMs}ms — the daemon has not reported this turn's outcome yet, so the result is unknown (${STALL_ADVICE})`
+              : `durable event drain failed: ${this.lastDurableError} — the cursor stays at ${this.durableCursor} so nothing is skipped, but this turn's outcome is unknown (${STALL_ADVICE})`,
         });
         this.finalizeAll();
         return;
@@ -1472,18 +1563,79 @@ export class TuiController {
     await this.decide("REJECT");
   }
 
+  /**
+   * Answer the pending approval.
+   *
+   * Nothing here may reject: the view calls `approve()`/`reject()` from a
+   * `void ...` inside a key handler, and the y/n layer is chosen from render
+   * state, so a second press — or a press that arrives while the first decision
+   * is still in flight — reaches this method with nothing left to decide. That
+   * used to be an exception thrown into a void, i.e. an unhandled rejection
+   * that tore the TUI's frame apart on the shipped runtime. A decision that did
+   * not reach the kernel is now said out loud instead, and the controller stays
+   * on the approval so the operator can press again.
+   */
   private async decide(disposition: "APPROVE" | "REJECT"): Promise<void> {
-    if (this.status !== "awaiting_approval") throw new Error("no pending approval");
-    if (!this.sessionId) throw new Error("no session");
-    const snapshot = await this.client.getSession(this.sessionId);
+    if (this.status !== "awaiting_approval") {
+      this.push({
+        role: "system",
+        content: `no approval is pending — ${disposition} ignored (nothing was sent)`,
+      });
+      return;
+    }
+    if (!this.sessionId) {
+      this.push({
+        role: "system",
+        content: `no session — ${disposition} ignored (nothing was sent)`,
+      });
+      return;
+    }
+    const sessionId = this.sessionId;
+    let snapshot: SurfaceSessionSnapshot;
+    try {
+      snapshot = await this.client.getSession(sessionId);
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content:
+          `${disposition} FAILED (${(cause as Error).message}) — the kernel did not record it; ` +
+          "the approval is still pending (press again, or check /status)",
+      });
+      return;
+    }
     const pending = snapshot.pending_approval;
-    if (!pending) throw new Error("pending approval vanished");
-    const turn = await this.client.decideApproval(
-      this.sessionId,
-      pending.action_digest,
-      disposition,
-      `${disposition.toLowerCase()} via cli-ts`,
-    );
+    if (!pending) {
+      // The kernel has no pending approval for this session any more (it was
+      // decided elsewhere, or the turn resolved). Keep the operator's screen in
+      // step with durable truth instead of leaving the card up forever.
+      this.snapshot = snapshot;
+      this.status = snapshot.status === "WAITING_APPROVAL" ? "awaiting_approval" : "idle";
+      this.pendingPreview = snapshot.pending_approval?.preview ?? null;
+      this.push({
+        role: "system",
+        content: `the kernel reports no pending approval — ${disposition} was NOT recorded`,
+      });
+      this.finalizeAll();
+      this.maybeDrain();
+      return;
+    }
+    let turn: Awaited<ReturnType<SurfaceClient["decideApproval"]>>;
+    try {
+      turn = await this.client.decideApproval(
+        sessionId,
+        pending.action_digest,
+        disposition,
+        `${disposition.toLowerCase()} via cli-ts`,
+      );
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content:
+          `${disposition} FAILED (${(cause as Error).message}) — the kernel did not record it; ` +
+          "the approval is still pending (press again, or check /status)",
+      });
+      return;
+    }
     this.snapshot = turn.snapshot;
     this.push({ role: "system", content: `${disposition}: ${pending.capability_id}` });
     if (turn.text.trim()) this.push({ role: "assistant", content: turn.text });
@@ -1549,8 +1701,9 @@ export class TuiController {
       // never saw, the kernel answers from its idempotency record (or refuses a
       // digest mismatch) instead of applying it a second time.
       const idempotencyKey = `cli-ts-correction:${randomUUID()}`;
+      let corrected: SurfaceSessionSnapshot;
       try {
-        await this.controlWithRetry(sessionId, () =>
+        corrected = await this.controlWithRetry(sessionId, () =>
           this.client.correct(
             sessionId,
             `operator interrupt (${source})`,
@@ -1571,7 +1724,18 @@ export class TuiController {
         this.emit();
         throw cause;
       }
+      this.snapshot = corrected;
       this.push({ role: "system", content: "correction issued (operator interrupt)" });
+      // A correction is not a benign interrupt: it halts the task, and the
+      // kernel then refuses every further turn in this session (measured
+      // 2026-09-18: the sealed configuration binds the correction epoch, so the
+      // next turn is refused with "configuration correction epochs changed after
+      // seal"; no command in this terminal restores it). The kernel's own
+      // response says so - render it, instead of letting the operator discover
+      // it as a bare error on the next message.
+      if (corrected.status === "CORRECTION_HALTED") {
+        this.push({ role: "system", content: HALT_NOTICE });
+      }
       this.status = "idle";
       this.finalizeAll();
       this.maybeDrain();
