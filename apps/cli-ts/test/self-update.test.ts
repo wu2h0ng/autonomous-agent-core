@@ -14,6 +14,12 @@
  *   - "rollback" installs a real, deliberately broken artifact that passes
  *     shape and checksum, then asserts the PREVIOUS BYTES are back on disk AND
  *     still answer `--version` — a status assertion alone would not prove it.
+ *     No test pins WHICH rejection kind (`spawn_error` vs `exit_nonzero`) the
+ *     host reports for a file it will not run: that kind is platform-dependent
+ *     (macOS fails the spawn, Linux's `execvp` retries the file as
+ *     `/bin/sh <file>` and it exits non-zero), both mean "it did not run", and
+ *     pinning one is what made this suite green on macOS and red on Linux. The
+ *     decision logic is covered on every platform by INJECTING the kind.
  *   - "--check downloads nothing" points the manifest at an artifact that does
  *     not exist, so a check mode that quietly downloaded would report
  *     `source_unreachable` instead of `update_available`.
@@ -41,6 +47,7 @@ import {
   SELF_UPDATE_MANIFEST_SCHEMA,
   sourceUrl,
   STAGED_SUFFIX,
+  type SanityRejection,
   type SelfUpdateDeps,
   type SelfUpdateReport,
   type SelfUpdateStatus,
@@ -588,6 +595,24 @@ test("--check reports availability, downloads no artifact, and installs nothing"
 // Rollback — the failure paths that must not leave the install broken
 // ---------------------------------------------------------------------------
 
+/**
+ * The rejection kinds that both mean "the new artifact did not run".
+ *
+ * WHICH of the two an OS reports is platform-dependent, so no test may pin one:
+ *  - macOS does not retry a file the kernel will not execute, so the spawn
+ *    fails outright -> `spawn_error` (measured: libc `execvp` there reports
+ *    "Exec format error" instead of running it through a shell).
+ *  - Linux spawns through glibc's `execvp`, which on `ENOEXEC` RETRIES the file
+ *    as `/bin/sh <file>`. The process therefore DOES start — as a shell reading
+ *    binary garbage — and exits non-zero -> `exit_nonzero`.
+ * Pinning `spawn_error` here is exactly what made the truncated-Mach-O case
+ * green on macOS and red on the Linux runner, while the product contract
+ * ("rejected; previous install restored; restored binary still works") held on
+ * both. Do NOT re-tighten this to a single kind; see `SanityRejection` in
+ * `src/self-update.ts`.
+ */
+const DID_NOT_RUN: readonly SanityRejection[] = ["spawn_error", "exit_nonzero"];
+
 test("rollback: a broken artifact is installed, caught by its own --version, and the previous bytes are restored", async () => {
   const { dir, target, original } = installFixture();
   // Passes the shape check (a shebang) and the checksum; fails when RUN.
@@ -598,6 +623,9 @@ test("rollback: a broken artifact is installed, caught by its own --version, and
     assert.equal(statusOf(report), "rolled_back");
     assert.equal(report.exitCode, 1);
     assert.equal(report.ok, false);
+    // Deterministic on every POSIX host, unlike DID_NOT_RUN: a shebang is
+    // resolved by the KERNEL (binfmt_script), so the process always starts, runs
+    // `/bin/sh`, and exits 9 — no platform-specific spawn path is involved.
     assert.equal(report.rejection, "exit_nonzero");
     assert.match(report.detail, /restored 0\.1\.0/);
 
@@ -624,12 +652,80 @@ test("rollback: a truncated Mach-O passes shape + checksum and is caught when ex
   const published = publish({ version: "0.2.0", artifact: truncated });
   try {
     const report = await runSelfUpdate({ source: published.source, target, env: {}, deps: deps() });
+    // Assert the bytes reached the staged file, so the rejection below is from
+    // EXECUTING them and not from an earlier gate failing first.
+    assert.equal(report.measuredSha256, sha256(truncated), "the bytes must have passed shape + checksum");
+    assert.equal(report.bytes, truncated.length);
     assert.equal(statusOf(report), "rolled_back");
-    assert.equal(report.rejection, "spawn_error");
+    // The contract is "the artifact did not run and the install was rolled
+    // back", NOT which way the host refused to run it — that kind is
+    // platform-dependent (see DID_NOT_RUN). Asserting a single kind here is the
+    // defect this test was fixed for: green on macOS, red on the Linux runner.
+    assert.ok(
+      report.rejection !== null && DID_NOT_RUN.includes(report.rejection),
+      `the artifact must be rejected as un-runnable, got ${String(report.rejection)}: ${report.detail}`,
+    );
+    // Rollback is the part that matters, and it is asserted in full: the
+    // ORIGINAL BYTES are back on disk AND they still run.
     assert.deepEqual(readFileSync(target), original);
     assert.equal(spawnSync(target, ["--version"], { encoding: "utf8" }).stdout.trim(), CURRENT);
+    assert.ok(!existsSync(`${target}${BACKUP_SUFFIX}`));
+    assert.ok(!existsSync(`${target}${STAGED_SUFFIX}`));
+    assert.ok(!existsSync(`${target}${JOURNAL_SUFFIX}`));
   } finally {
     cleanup(dir, published.dir);
+  }
+});
+
+/**
+ * Both "did not run" kinds, INJECTED rather than produced by the host.
+ *
+ * A test that waits for the host OS to produce a kind can only ever prove one
+ * platform's behaviour (that is precisely how the truncated-Mach-O case passed
+ * on macOS while failing on Linux), so the decision logic is exercised here by
+ * having the probe report each kind directly. `runSelfUpdate` promises the same
+ * thing for both: reject the new bytes, restore the previous ones, verify the
+ * restore. The restored-binary assertion still uses a real spawn, so the
+ * rollback is proven by running a program, not by a status string.
+ */
+test("rollback: both un-runnable rejection kinds roll back identically", async () => {
+  for (const kind of DID_NOT_RUN) {
+    const { dir, target, original } = installFixture();
+    const published = publish({ version: "0.2.0" });
+    const probeDetail = `${kind}: injected — the candidate did not answer --version`;
+    try {
+      const report = await runSelfUpdate({
+        source: published.source,
+        target,
+        env: {},
+        deps: deps({
+          // What the real probe does, minus the host: the bytes on disk answer
+          // --version only while the ORIGINAL program is installed.
+          probe: (path) => {
+            const bytes = readFileSync(path);
+            if (bytes.equals(original)) return { ok: true, version: CURRENT };
+            return { ok: false, rejection: kind, detail: probeDetail };
+          },
+        }),
+      });
+      assert.equal(statusOf(report), "rolled_back", kind);
+      assert.equal(report.rejection, kind, kind);
+      assert.equal(report.exitCode, 1, kind);
+      assert.equal(report.ok, false, kind);
+      // The operator is shown what the probe reported, and nothing more: the
+      // message must not assert an OS-level cause the code cannot know.
+      assert.ok(report.detail.includes(probeDetail), `${kind}: ${report.detail}`);
+      assert.match(report.detail, /restored 0\.1\.0/, kind);
+      assert.deepEqual(readFileSync(target), original, kind);
+      const restored = spawnSync(target, ["--version"], { encoding: "utf8" });
+      assert.equal(restored.status, 0, kind);
+      assert.equal(restored.stdout.trim(), CURRENT, kind);
+      assert.ok(!existsSync(`${target}${BACKUP_SUFFIX}`), kind);
+      assert.ok(!existsSync(`${target}${STAGED_SUFFIX}`), kind);
+      assert.ok(!existsSync(`${target}${JOURNAL_SUFFIX}`), kind);
+    } finally {
+      cleanup(dir, published.dir);
+    }
   }
 });
 

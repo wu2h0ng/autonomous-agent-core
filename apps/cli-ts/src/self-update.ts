@@ -45,6 +45,27 @@
  *  10. the installed path answers `--version` with the
  *      version from step 3, in a fresh process              -> rolled_back / rollback_failed
  *
+ * STEP 10: "DID NOT RUN" IS PLATFORM-SPECIFIC, THE ROLLBACK IS NOT
+ *   When step 10 fails, the KIND recorded in `rejection` depends on how the host
+ *   spawns a file it will not run: on macOS the spawn fails outright
+ *   (`spawn_error`) — neither `posix_spawnp` nor that platform's libc `execvp`
+ *   retries a file whose format the kernel refuses (measured on macOS:
+ *   `execvp` there reports "Exec format error") — whereas Linux's glibc
+ *   `execvp` DOES retry an `ENOEXEC` file as `/bin/sh <file>`, so the candidate
+ *   starts for real, as a shell reading binary garbage, and exits non-zero
+ *   (`exit_nonzero`).
+ *   Both are treated identically here (reject, restore, re-verify); the kind is
+ *   for the operator's log and no code — and no test — may branch on it. The
+ *   `detail` carries the host's own words and never asserts a cause this module
+ *   cannot know.
+ *
+ *   One consequence of that fallback, stated rather than hidden: on Linux a
+ *   non-shebang image the kernel refuses is executed AS A SHELL SCRIPT, so for
+ *   such a candidate "it printed the version" is only as strong as the shell not
+ *   printing that string by accident. There is no way to disable `execvp`'s
+ *   fallback from `spawnSync`, and a different exec primitive would be a product
+ *   decision, so this is recorded as a limit instead of being papered over.
+ *
  * INTEGRITY, NOT AUTHENTICITY — the open limit
  *   The checksum proves the bytes are the bytes the manifest described; it does
  *   NOT prove who published the manifest. A source that can serve the manifest
@@ -147,11 +168,26 @@ export type SelfUpdateStatus =
   /** A previous interrupted run was found and resolved from what is installed. */
   | "interrupted_resolved";
 
-/** Why an installed candidate was rejected after the replace. */
+/**
+ * Why an installed candidate was rejected after the replace.
+ *
+ * `spawn_error` and `exit_nonzero` both mean the SAME thing to an operator —
+ * the new artifact did not run — and `runSelfUpdate` handles them identically
+ * (reject, restore the previous bytes, verify the restore). WHICH of the two is
+ * reported is platform-dependent and is NOT part of the contract:
+ *   - macOS does not retry a file the kernel will not execute: the spawn fails
+ *     (`spawn_error`) — that platform's libc `execvp` reports "Exec format
+ *     error" instead of running it through a shell;
+ *   - Linux spawns through glibc's `execvp`, which on `ENOEXEC` retries the file
+ *     as `/bin/sh <file>`, so the process DOES start (as a shell reading binary
+ *     garbage) and exits non-zero -> `exit_nonzero`.
+ * Nothing downstream may branch on the distinction, and `detail` relays the
+ * host's own words rather than a cause this module cannot know.
+ */
 export type SanityRejection =
-  /** The candidate could not be executed at all (ENOEXEC, EACCES, bad arch, signal). */
+  /** The candidate was not run to a usable answer: the spawn failed (EACCES, an unexecutable image on macOS, a missing interpreter for a shebang), or it ran and printed nothing for `--version`. */
   | "spawn_error"
-  /** The candidate ran and exited non-zero. */
+  /** The candidate ran — possibly through Linux's `/bin/sh` fallback for a file the kernel refused — and exited non-zero. */
   | "exit_nonzero"
   /** The candidate ran, exited zero, and reported a version other than the published one. */
   | "version_mismatch"
@@ -447,6 +483,12 @@ export function artifactImageKind(bytes: Uint8Array): "shebang" | "macho" | "elf
  * daemon behind: `--version` returns before daemon resolution today, and this
  * keeps a regression in that ordering from turning a self-update into an
  * autostart against the operator's real store.
+ *
+ * A candidate the kernel refuses does NOT necessarily take the `result.error`
+ * branch: on Linux glibc's `execvp` retries an `ENOEXEC` file as
+ * `/bin/sh <file>`, so the shell runs the bytes and the outcome arrives as a
+ * non-zero exit instead. Both outcomes are a rejection and both roll back; see
+ * `SanityRejection`.
  */
 export function defaultProbe(path: string, timeoutMs: number): ProbeOutcome {
   const result = spawnSync(path, [VERSION_ARG], {

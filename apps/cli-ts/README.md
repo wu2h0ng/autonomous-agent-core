@@ -77,7 +77,7 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 272 unit tests (a count that goes stale every time one is
+`npm test` runs the 273 unit tests (a count that goes stale every time one is
 added — re-measure with `npm test` rather than trusting this line);
 `npm run build` type-checks and emits `dist` (it is the release build — a
 release also wants `npm run compile`).
@@ -129,7 +129,13 @@ Honest limits: the checksum proves integrity, not authenticity — a source that
 serves the manifest can serve any artifact with a matching checksum, so a
 forged newer version string is not detectable until a signature exists (no
 signing utility exists in this repository, and no signature is claimed). A
-source publishing a genuinely older version IS refused.
+source publishing a genuinely older version IS refused. When a replacement is
+rejected because it did not run, the `rejection` field says which way, and its
+`spawn_error` / `exit_nonzero` split is **platform-dependent**, not a product
+promise: a file the kernel will not execute fails the spawn on macOS (its
+spawn path performs no shell fallback), while Linux's `execvp` retries it as
+`/bin/sh <file>`, so it does start, as a shell, and exits non-zero. Both roll
+back; treat `rolled_back` as the contract and `rejection` as the host's wording.
 
 This replaces a program file and nothing else: C7, permission modes, approval,
 policy, evidence and `ActionReceipt`/`ReceiptStatus` are untouched, and the
