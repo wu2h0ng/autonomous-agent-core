@@ -267,6 +267,7 @@ from .agent_loop import (
     ConfirmationGateway,
     NonInteractiveDenyGateway,
     TurnResult,
+    gateway_authority_id,
 )
 from .execution import (
     DeterministicOutcomeEvaluator,
@@ -593,6 +594,7 @@ __all__ = [
     "ConfirmationGateway",
     "NonInteractiveDenyGateway",
     "TurnResult",
+    "gateway_authority_id",
     "DeterministicOutcomeEvaluator",
     "ExecutionProfileError",
     "ExecutionProfilePort",
