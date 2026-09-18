@@ -39,7 +39,11 @@ from .client_rate_limit import (
     rate_limit_key,
     retry_after_cap_seconds,
 )
-from .provider_metrics import shared_provider_metrics_ledger
+from .provider_metrics import (
+    LOCAL_REJECTION_KEY,
+    PROVIDER_REQUEST_KEY,
+    shared_provider_metrics_ledger,
+)
 
 
 _WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
@@ -682,7 +686,9 @@ class OpenAICompatibleProvider(ProviderPort):
         The client also paces itself here: every attempt takes a slot from the
         rate limiter, and a 429 leaves a cooldown behind for other calls. A call
         whose wait would exceed the configured bound is refused locally rather
-        than stalling the turn.
+        than stalling the turn. A refused call sent nothing, so it reports no
+        provider latency at all: its record is flagged as unsent, and the
+        refusal and the local wait are counted on their own fields.
         """
 
         attempts = max(1, int(self._max_retries) + 1)
@@ -719,14 +725,31 @@ class OpenAICompatibleProvider(ProviderPort):
                     f"local client rate limit refused the call: {rejection}",
                     False,
                 )
+                # Nothing was sent, so this call has no provider latency: the
+                # record says so and reports what it actually cost - time spent
+                # waiting here before the refusal - on the wait field instead of
+                # leaking it into `latency_ms` as a ~0 ms sample.
+                waited_seconds = time.monotonic() - reserve_started
                 record = self._operator_log_record(
-                    request, attempt, stream, refused, time.monotonic() - reserve_started
+                    request,
+                    attempt,
+                    stream,
+                    refused,
+                    waited_seconds,
+                    sent=False,
                 )
-                record["local_rate_limit_rejected"] = True
+                record[LOCAL_REJECTION_KEY] = True
                 record["local_rate_limit_reason"] = rejection.reason
                 record["local_rate_limit_required_wait_seconds"] = round(
                     rejection.required_wait_seconds, 3
                 )
+                wait_ms = round(waited_seconds * 1000, 1)
+                # Below a millisecond this is the bookkeeping between asking for
+                # a slot and being refused, not a wait: reporting it would claim
+                # a delay the call never took. A concurrency refusal that really
+                # did wait is above it and is reported.
+                if wait_ms >= 1.0:
+                    record["local_rate_limit_wait_ms"] = wait_ms
                 self._emit_attempt_record(record)
                 return refused
             # Measured after our own pacing: `latency_ms` stays the provider's
@@ -802,6 +825,8 @@ class OpenAICompatibleProvider(ProviderPort):
         stream: bool,
         result: ProviderResponse | ProviderFailure,
         elapsed_seconds: float,
+        *,
+        sent: bool = True,
     ) -> dict[str, object]:
         """One record per model call attempt, for an operator's own log.
 
@@ -809,6 +834,13 @@ class OpenAICompatibleProvider(ProviderPort):
         answers "how long, how many tokens, which failure, after how many
         retries", and writing prompt or completion text into a file the operator
         did not ask for would be a privacy leak dressed up as observability.
+
+        ``sent`` is False only for a call the client's own rate limit refused
+        before any request was made. Such a call has no provider latency, so its
+        record carries no ``latency_ms`` and says ``provider_request: false``;
+        whatever it did cost (local waiting) is written by the caller onto the
+        wait field, and the metrics aggregator keeps it out of the latency
+        distribution on the strength of that flag.
         """
 
         record: dict[str, object] = {
@@ -819,11 +851,15 @@ class OpenAICompatibleProvider(ProviderPort):
             "model_id": self._model,
             "attempt": attempt,
             "stream": stream,
-            "latency_ms": round(elapsed_seconds * 1000, 1),
+            PROVIDER_REQUEST_KEY: sent,
             "outcome": "response"
             if isinstance(result, ProviderResponse)
             else "failure",
         }
+        # A call the client refused locally was never sent: there is no request
+        # time to report, so the field is absent rather than a 0 ms sample.
+        if sent:
+            record["latency_ms"] = round(elapsed_seconds * 1000, 1)
         if isinstance(result, ProviderResponse):
             record["input_tokens"] = result.usage.input_tokens
             record["output_tokens"] = result.usage.output_tokens

@@ -29,10 +29,13 @@ class ProviderFailureCategory(ContractModel):
 
 
 class ProviderLatencyStats(ContractModel):
-    """Attempt latency in milliseconds.
+    """Attempt latency in milliseconds, for calls that reached the provider.
 
-    ``samples == 0`` means the window had no timed attempt, and every statistic
-    is ``None`` - never a pseudo-zero latency.
+    ``samples`` counts exactly the calls that were sent: a call the client's own
+    rate limit refused locally was never sent, contributes no latency and is
+    reported in ``ProviderRateLimitStats.local_rejections`` instead. ``samples
+    == 0`` means the window had no timed provider call, and every statistic is
+    ``None`` - never a pseudo-zero latency.
     """
 
     samples: int = Field(ge=0)
@@ -57,6 +60,11 @@ class ProviderRateLimitStats(ContractModel):
 
     ``rate_limited_attempts``/``retry_after_observed`` are what the *provider*
     said; ``local_*`` is what the *client* did about it (and to itself).
+
+    ``local_rejections`` counts calls the client refused before sending them.
+    Such a call may also appear in ``local_waits`` when it waited before the
+    refusal, and its wait time is inside ``local_wait_ms_total`` - never inside
+    the latency distribution.
     """
 
     rate_limited_attempts: int = Field(ge=0)
@@ -69,7 +77,12 @@ class ProviderRateLimitStats(ContractModel):
 
 
 class ProviderMetricsSnapshot(ContractModel):
-    """The aggregated provider boundary over a bounded window."""
+    """The aggregated provider boundary over a bounded window.
+
+    ``attempts`` counts attempt records, including a call the client refused
+    locally (``rate_limit.local_rejections`` names those); ``latency.samples``
+    counts only the calls that were actually sent.
+    """
 
     source: Literal["in_process", "log_file"]
     taken_at: UtcDateTime

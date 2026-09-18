@@ -20,6 +20,12 @@ wait it took (``RateLimitLease.waited_seconds``), and a call whose wait would
 exceed ``AGENT_OS_PROVIDER_RATE_LIMIT_MAX_WAIT_SECONDS`` is refused with
 ``LocalRateLimitRejection`` instead of stalling the turn - the adapter turns that
 into a typed ``LOCAL_RATE_LIMITED`` failure, and no provider request is made.
+A refused call therefore has no provider latency to report: its record is
+flagged unsent (``provider_request: false``) and carries no ``latency_ms``, so
+the operator's latency distribution counts only calls that actually went out.
+The refusal is counted in ``local_rejections`` and any time the call spent
+waiting locally before the refusal goes to the local-wait field - never into
+``latency_ms``.
 
 State lives in :class:`ProviderRateLimitState`, which is shared process-wide so
 that two adapters over one provider identity (a reconfigure builds a new

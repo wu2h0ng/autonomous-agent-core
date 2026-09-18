@@ -528,6 +528,41 @@ def test_a_locally_refused_call_never_reaches_the_provider(monkeypatch) -> None:
     assert clock.sleeps == []
 
 
+def test_a_locally_refused_call_reports_no_provider_latency(  # type: ignore[no-untyped-def]
+    monkeypatch, tmp_path
+) -> None:
+    # A refusal sent nothing, so there is no provider time to report. The record
+    # says the call was not sent and carries no `latency_ms`: the fraction of a
+    # millisecond it spent inside the client must not become a latency sample
+    # that drags the operator's p50 to zero in the very window that shows a
+    # provider throttling us.
+    monkeypatch.setenv("CLIENT_RATE_LIMIT_KEY", _SECRET)
+    log = tmp_path / "provider.jsonl"
+    monkeypatch.setenv("AGENT_OS_PROVIDER_LOG", str(log))
+    clock = _FakeClock()
+    gate, _state = _gate(
+        clock, requests_per_second=0.1, burst=1, max_wait_seconds=1.0
+    )
+    base_url, hits = _stub([(200, None)])
+    provider = _provider(base_url, gate)
+
+    assert not isinstance(provider.complete(_request("req:1")), ProviderFailure)
+    refused = provider.complete(_request("req:2"))
+    assert isinstance(refused, ProviderFailure), refused
+
+    records = [json.loads(line) for line in log.read_text().splitlines() if line]
+    sent, rejected = records
+    assert sent["provider_request"] is True
+    assert sent["latency_ms"] >= 0
+
+    assert rejected["provider_request"] is False
+    assert "latency_ms" not in rejected, "no request means no provider latency"
+    assert rejected["local_rate_limit_rejected"] is True
+    assert rejected["local_rate_limit_reason"] == "rate_limit"
+    assert rejected["local_rate_limit_required_wait_seconds"] == pytest.approx(10.0)
+    assert len(hits) == 1
+
+
 def test_the_adapter_uses_the_shared_registry_by_default(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     # Without an injected gate, two adapters for the same provider identity share
     # the process-wide deferral registry.

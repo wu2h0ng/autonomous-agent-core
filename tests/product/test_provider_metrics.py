@@ -8,6 +8,10 @@ reading the JSONL by hand. This module surface is asserted here:
 
 - the aggregation is exact (counts, nearest-rank percentiles, token totals,
   failure categories) and refuses to invent a latency when it has no samples;
+- the latency distribution counts only calls that actually reached the provider:
+  a locally refused call contributes no sample - its refusal, and any time it
+  waited before the refusal, are counted on their own - and a call that waited
+  locally and then went out contributes its request time, never the wait;
 - the process ledger and the opt-in log file are the *same* record stream, so
   aggregating either agrees - the log stays the operator's durable copy and the
   ledger is what a running process can serve;
@@ -100,6 +104,33 @@ def _failure_record(**updates: object) -> dict[str, object]:
         "code": "RATE_LIMITED",
         "retryable": True,
         "retry_after_seconds": 2.0,
+    }
+    record.update(updates)
+    return record
+
+
+def _refusal_record(**updates: object) -> dict[str, object]:
+    """What the adapter writes for a call its own rate limit refused.
+
+    No ``latency_ms``: no request was made, so there is no provider time to
+    report, and ``provider_request: false`` says so to the aggregator.
+    """
+
+    record: dict[str, object] = {
+        "ts": "2026-09-18T10:00:07+00:00",
+        "event": "provider_attempt",
+        "request_id": "request:refused",
+        "provider_id": "openai-compatible",
+        "model_id": "stub-model",
+        "attempt": 0,
+        "stream": False,
+        "provider_request": False,
+        "outcome": "failure",
+        "code": "LOCAL_RATE_LIMITED",
+        "retryable": False,
+        "local_rate_limit_rejected": True,
+        "local_rate_limit_reason": "rate_limit",
+        "local_rate_limit_required_wait_seconds": 5.0,
     }
     record.update(updates)
     return record
@@ -352,6 +383,11 @@ def test_local_throttling_shows_up_in_the_snapshot(monkeypatch) -> None:
     snapshot = shared_provider_metrics_ledger().snapshot()
 
     assert clock.sleeps == [pytest.approx(4.0)]
+    assert snapshot.latency.samples == 1, "the deferred call did reach the provider"
+    assert snapshot.latency.max_ms is not None
+    assert snapshot.latency.max_ms < 1_000, (
+        "the 4 s local wait must not be inside the latency distribution"
+    )
     assert snapshot.rate_limit.local_waits == 1
     assert snapshot.rate_limit.local_wait_ms_total == pytest.approx(4_000.0)
     assert snapshot.rate_limit.local_wait_ms_max == pytest.approx(4_000.0)
@@ -385,10 +421,113 @@ def test_a_locally_refused_call_is_counted_as_a_rejection(monkeypatch) -> None:
     snapshot = shared_provider_metrics_ledger().snapshot()
 
     assert snapshot.rate_limit.local_rejections == 1
+    assert snapshot.latency.samples == 1, "only the call that was sent"
     assert snapshot.failures == 1
     assert [category.code for category in snapshot.failure_categories] == [
         ProviderErrorCode.LOCAL_RATE_LIMITED
     ]
+
+
+def test_only_the_calls_that_reached_the_provider_are_latency_samples(
+    monkeypatch, tmp_path: Path
+) -> None:
+    # The reviewer's case, end to end: one real call, one call the client
+    # refused locally, and one call that waited locally and then went out. The
+    # distribution must hold exactly the two that were sent, so a refusal's
+    # ~0 ms and a cooldown's 5 s are neither averaged in nor reported as the
+    # provider's latency; the ledger's own counters keep both visible.
+    from tests.product.test_client_rate_limit import (
+        _FakeClock,
+        _credential,
+        _request,
+        _stub,
+    )
+
+    monkeypatch.setenv("CLIENT_RATE_LIMIT_KEY", _SECRET)
+    log = tmp_path / "provider.jsonl"
+    monkeypatch.setenv("AGENT_OS_PROVIDER_LOG", str(log))
+    clock = _FakeClock()
+    state = ProviderRateLimitState(clock=clock.monotonic, sleeper=clock.sleep)
+    base_url, hits = _stub([(200, None), (200, None), (200, None)])
+
+    def _provider(max_wait_seconds: float) -> OpenAICompatibleProvider:
+        return OpenAICompatibleProvider(
+            base_url=base_url,
+            model="stub-model",
+            credential=_credential(),
+            credentials=EnvCredentialBroker(),
+            max_retries=0,
+            retry_base_seconds=0.0,
+            rate_limit_gate=ProviderRateLimitGate(
+                ClientRateLimitConfig(
+                    requests_per_second=0.2,
+                    burst=1,
+                    max_concurrency=0,
+                    max_wait_seconds=max_wait_seconds,
+                ),
+                state=state,
+            ),
+        )
+
+    # 0.2 requests/second, burst 1: the second call would wait 5 s. The strict
+    # gate refuses that wait; the patient one, over the same state, takes it.
+    strict = _provider(1.0)
+    patient = _provider(30.0)
+
+    assert not isinstance(strict.complete(_request("req:1")), ProviderFailure)
+    refused = strict.complete(_request("req:2"))
+    assert isinstance(refused, ProviderFailure)
+    assert refused.code is ProviderErrorCode.LOCAL_RATE_LIMITED
+    assert not isinstance(patient.complete(_request("req:3")), ProviderFailure)
+
+    snapshot = shared_provider_metrics_ledger().snapshot()
+
+    assert len(hits) == 2, "the refused call never reached the provider"
+    assert clock.sleeps == [pytest.approx(5.0)]
+    assert snapshot.latency.samples == len(hits), snapshot.latency
+    assert snapshot.latency.max_ms is not None
+    assert snapshot.latency.max_ms < 1_000, (
+        "neither the refusal nor the 5 s local wait belongs in the distribution"
+    )
+    assert snapshot.rate_limit.local_rejections == 1
+    assert snapshot.rate_limit.local_waits == 1
+    assert snapshot.rate_limit.local_wait_ms_total == pytest.approx(5_000.0)
+
+    records = [json.loads(line) for line in log.read_text().splitlines() if line]
+    refused_record = next(
+        record for record in records if record.get("local_rate_limit_rejected")
+    )
+    assert refused_record["provider_request"] is False
+    assert "latency_ms" not in refused_record
+    assert refused_record["local_rate_limit_required_wait_seconds"] == pytest.approx(
+        5.0
+    )
+
+
+def test_a_locally_refused_record_is_never_a_latency_sample() -> None:
+    # The record-level rule the adapter and the operator log share: a refusal is
+    # local and always happens before the request, so its record contributes no
+    # sample even when it also carries a ~0 ms latency - the shape a line has
+    # when its writer omits the `provider_request` flag.
+    legacy = _refusal_record(request_id="request:2", latency_ms=0.0)
+    legacy.pop("provider_request")
+    records = (
+        _record(request_id="request:1", latency_ms=9.2),
+        _refusal_record(),
+        legacy,
+    )
+
+    snapshot = aggregate_provider_metrics(records)
+
+    assert snapshot.latency.samples == 1, snapshot.latency
+    assert snapshot.latency.mean_ms == pytest.approx(9.2)
+    assert snapshot.latency.p50_ms == pytest.approx(9.2), (
+        "a refused call must not drag p50 towards zero"
+    )
+    assert snapshot.latency.max_ms == pytest.approx(9.2)
+    assert snapshot.attempts == 3, "the refusals are still counted, just not timed"
+    assert snapshot.failures == 2
+    assert snapshot.rate_limit.local_rejections == 2
 
 
 def test_a_snapshot_never_carries_content_or_a_credential(monkeypatch, tmp_path: Path) -> None:

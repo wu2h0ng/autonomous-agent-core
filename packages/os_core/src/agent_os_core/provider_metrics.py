@@ -19,6 +19,26 @@ Two readers, one record stream - which is what makes the numbers trustworthy:
 Both consume the identical dict the adapter writes, so they cannot drift, and a
 test pins that they agree on the same calls.
 
+One rule keeps the latency distribution honest: a sample is admitted only for a
+call that actually reached the provider.
+
+- A call the client's own rate limit refused locally was never sent, so its
+  record says ``provider_request: false`` and carries no ``latency_ms``. It
+  contributes no sample; its cost is reported where it belongs, in
+  ``rate_limit.local_rejections`` (and, if it waited before being refused, in
+  ``local_waits``), because "we did not call, we waited" is not "the provider
+  was slow".
+- A call that waited locally and then went out contributes exactly its request
+  time: the local wait is reported on ``local_rate_limit_wait_ms`` and is never
+  added into ``latency_ms``, so a cooldown cannot read as a slow provider.
+- A record that says nothing either way is treated as a sent call, so a foreign
+  line is still aggregated rather than silently dropped.
+- ``attempts`` and ``failures`` still count every attempt record, a locally
+  refused call included (it also appears in ``rate_limit.local_rejections``):
+  the window's volume is the whole story, and only the latency distribution is
+  restricted to the calls that were sent. ``attempts`` and
+  ``latency.samples`` therefore differ by exactly the refusals.
+
 Content boundary: only the numeric/categorical fields of a record are read, so a
 prompt, a completion, a tool payload or a credential can neither be stored nor
 surfaced here - even if a foreign record carried those keys.
@@ -46,6 +66,16 @@ from agent_os_contracts import (
 )
 
 ATTEMPT_EVENT = "provider_attempt"
+# Every attempt record states whether the call was sent to the provider. The
+# adapter writes False - with no ``latency_ms`` - for a call its own rate limit
+# refused before any request was made, and this aggregator admits a latency
+# sample only for the others. Held here because this module owns what the record
+# stream means; the adapter imports it rather than repeating the spelling.
+PROVIDER_REQUEST_KEY = "provider_request"
+# The refusal marker itself, read as a second, independent statement that no
+# request was made: a record that carries it is out of the latency distribution
+# even if it also carries a latency (a hand-written or foreign line).
+LOCAL_REJECTION_KEY = "local_rate_limit_rejected"
 DEFAULT_LEDGER_LIMIT = 4096
 
 # Percentiles are nearest-rank on the sorted samples: with few attempts (a
@@ -108,6 +138,23 @@ def _nearest_rank(samples: list[float], fraction: float) -> float:
     return samples[min(rank, len(samples)) - 1]
 
 
+def _reached_the_provider(record: Mapping[str, Any]) -> bool:
+    """Whether this record describes a call that actually went out.
+
+    Two fields can say "no request was made": ``provider_request: false``, which
+    the adapter writes on a call its own rate limit refused, and
+    ``local_rate_limit_rejected: true``, which states the same thing for a record
+    that omits the first field (a hand-written line, or a writer that forgets
+    it). Either one keeps the record out of the latency distribution; a record
+    that states neither is treated as a sent call, so a foreign line is still
+    aggregated rather than silently dropped.
+    """
+
+    if record.get(PROVIDER_REQUEST_KEY) is False:
+        return False
+    return record.get(LOCAL_REJECTION_KEY) is not True
+
+
 def _latency_stats(samples: list[float]) -> ProviderLatencyStats:
     if not samples:
         return ProviderLatencyStats(samples=0)
@@ -157,9 +204,13 @@ class _Aggregate:
         attempt_index = _as_int(record.get("attempt")) or 0
         if attempt_index > 0:
             self.retries += 1
-        latency = _as_float(record.get("latency_ms"))
-        if latency is not None and latency >= 0:
-            self.latencies.append(latency)
+        # Only a call that reached the provider has a provider latency to
+        # contribute; a locally refused call is counted as a rejection instead
+        # of being averaged in as a ~0 ms sample.
+        if _reached_the_provider(record):
+            latency = _as_float(record.get("latency_ms"))
+            if latency is not None and latency >= 0:
+                self.latencies.append(latency)
         timestamp = _as_timestamp(record.get("ts"))
         if timestamp is not None:
             if self.started_at is None or timestamp < self.started_at:
@@ -195,7 +246,7 @@ class _Aggregate:
             self.local_waits += 1
             self.local_wait_ms_total += wait_ms
             self.local_wait_ms_max = max(self.local_wait_ms_max, wait_ms)
-        if record.get("local_rate_limit_rejected") is True:
+        if record.get(LOCAL_REJECTION_KEY) is True:
             self.local_rejections += 1
 
     @staticmethod
@@ -395,6 +446,8 @@ def reset_shared_provider_metrics_ledger() -> None:
 __all__ = [
     "ATTEMPT_EVENT",
     "DEFAULT_LEDGER_LIMIT",
+    "LOCAL_REJECTION_KEY",
+    "PROVIDER_REQUEST_KEY",
     "ProviderLogRecords",
     "ProviderMetricsLedger",
     "aggregate_provider_metrics",
