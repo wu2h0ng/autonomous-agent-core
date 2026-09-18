@@ -29,6 +29,7 @@ from agent_os_contracts import (
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
     canonical_json,
 )
 from agent_os_core import (
@@ -40,6 +41,8 @@ from agent_os_core import (
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
     SurfaceStreamGone,
+    SurfaceTurnInProgress,
+    SurfaceTurnOwnedByLiveRuntime,
     TaskNotFoundError,
 )
 from agent_os_core.session_stream import StreamCursor
@@ -64,6 +67,8 @@ def _surface_error_status(exc: BaseException) -> int:
             SurfaceSequenceConflict,
             SurfaceIdempotencyConflict,
             InvalidTransitionError,
+            SurfaceTurnOwnedByLiveRuntime,
+            SurfaceTurnInProgress,
         ),
     ):
         return 409
@@ -217,6 +222,10 @@ class SurfaceRoutes:
                 session_id = _match_surface_session_leaf(handler.path, "begin-turn")
                 if session_id is not None:
                     self._post_begin_turn(handler, session_id)
+                    return
+                session_id = _match_surface_session_leaf(handler.path, "recover-turn")
+                if session_id is not None:
+                    self._post_recover_turn(handler, session_id)
                     return
                 session_id = _match_surface_session_leaf(handler.path, "mode")
                 if session_id is not None:
@@ -398,6 +407,23 @@ class SurfaceRoutes:
         handler._json(
             200,
             {"turn": self._runtime.decide_approval(command).model_dump(mode="json")},
+        )
+
+    def _post_recover_turn(self, handler: Any, session_id: str) -> None:
+        body = handler._body()
+        command = SurfaceTurnRecoveryCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            {
+                "recovery": self._runtime.recover_unknown_turn(command).model_dump(
+                    mode="json"
+                )
+            },
         )
 
     def _post_pause(self, handler: Any, session_id: str) -> None:

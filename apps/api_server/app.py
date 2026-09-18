@@ -57,6 +57,7 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
     ProtocolIngressReceipt,
+    RecoveredUnknownTurn,
     ResourceBudget,
     RunStatus,
     TaskConfigurationSnapshot,
@@ -85,6 +86,8 @@ from agent_os_contracts import (
     SurfaceConflictProjection,
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
     content_digest,
 )
@@ -146,12 +149,14 @@ from agent_os_core import (
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
+    SurfaceTurnOwnedByLiveRuntime,
     TaskService,
     EnvCredentialBroker,
     AnthropicMessagesProvider,
     GeminiGenerativeProvider,
     OpenAICompatibleProvider,
     build_recovery_snapshot,
+    dead_turn_recovery_notice,
     PromotionPolicyRegistry,
     split_correction_authority,
     PromotionPolicyV1,
@@ -456,6 +461,12 @@ class AgentOSApplication:
             self.workspace_fence
         )
         self._surface_conflicts: dict[str, SurfaceConflictProjection] = {}
+        # Turn ownership for THIS runtime generation only: session -> token of
+        # the begin-turn/synchronous turn this process is executing. In-memory
+        # by construction - a live owner is a process-local fact - and the only
+        # sound liveness test a dead-turn declaration can be checked against.
+        self._surface_turns_in_flight: dict[str, str] = {}
+        self._surface_turns_guard = RLock()
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
@@ -2051,6 +2062,7 @@ class AgentOSApplication:
             config=config,
             initial_history=(system_message,),
             message_sink=self._record_chat_message,
+            runtime_generation=(self._runtime_boot_id, os.getpid()),
             collaboration_preflight=self.collaboration_preflight,
             deny_rules=self.permission_rule_store.list_active(
                 tenant_id=self.principal.tenant_id,
@@ -2172,6 +2184,7 @@ class AgentOSApplication:
             initial_history=projected.history,
             message_sink=self._record_chat_message,
             resumable_turn_ids=resumable_turn_ids,
+            runtime_generation=(self._runtime_boot_id, os.getpid()),
             collaboration_preflight=self.collaboration_preflight,
             text_delta_sink=text_delta_sink,
             reasoning_delta_sink=reasoning_delta_sink,
@@ -2263,6 +2276,7 @@ class AgentOSApplication:
             command.session_id, DeferredApprovalGateway()
         )
         history_before = len(loop.history)
+        ownership = self._claim_surface_turn(command.session_id)
         try:
             result = loop.run_turn(session, command.text)
         except (WorkspaceWriteRejected, ReplanRequired) as exc:
@@ -2272,6 +2286,8 @@ class AgentOSApplication:
                     SurfaceConflictProjection.from_decision(decision)
                 )
             raise
+        finally:
+            self._release_surface_turn(command.session_id, ownership)
         return self._surface_turn_response(
             session.session_id,
             result,
@@ -2317,6 +2333,53 @@ class AgentOSApplication:
             else:
                 completed.add(turn_id)
         return bool(started - completed)
+
+    def surface_open_turn_id(self, session_id: str) -> str | None:
+        """The session's one open durable turn id, or None.
+
+        Same durable truth as `surface_has_uncommitted_turn`, named so an
+        operator notice can bind the exact turn it is talking about.
+        """
+        task_id = self.surface_task_for_session(session_id)
+        started: dict[str, int] = {}
+        completed: set[str] = set()
+        for event in self.store.read(task_id):
+            if event.event_type not in {
+                TaskEventType.SESSION_TURN_STARTED,
+                TaskEventType.SESSION_TURN_COMPLETED,
+            }:
+                continue
+            payload = json.loads(event.payload_json)
+            turn_id = payload.get("turn_id")
+            if not isinstance(turn_id, str) or not turn_id:
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                started.setdefault(turn_id, event.sequence)
+            else:
+                completed.add(turn_id)
+        open_turns = sorted(
+            (sequence, turn_id)
+            for turn_id, sequence in started.items()
+            if turn_id not in completed
+        )
+        return open_turns[-1][1] if open_turns else None
+
+    def _claim_surface_turn(self, session_id: str) -> str:
+        """Record that THIS generation owns the session's turn in flight."""
+        token = uuid4().hex
+        with self._surface_turns_guard:
+            self._surface_turns_in_flight[session_id] = token
+        return token
+
+    def _release_surface_turn(self, session_id: str, token: str) -> None:
+        with self._surface_turns_guard:
+            if self._surface_turns_in_flight.get(session_id) == token:
+                del self._surface_turns_in_flight[session_id]
+
+    def surface_turn_in_flight(self, session_id: str) -> bool:
+        """Whether this runtime generation is executing a turn for the session."""
+        with self._surface_turns_guard:
+            return session_id in self._surface_turns_in_flight
 
     def surface_begin_turn(
         self, command: SurfaceBeginTurnCommand
@@ -2365,6 +2428,11 @@ class AgentOSApplication:
             text_delta_sink=_sink,
             reasoning_delta_sink=_reasoning_sink,
         )
+        # Ownership of this turn for THIS generation, claimed before the worker
+        # can start: a dead-turn declaration must never close a turn this
+        # process is executing, and the claim must hold for the whole window in
+        # which the worker could be running.
+        ownership = self._claim_surface_turn(command.session_id)
 
         def _execute() -> None:
             try:
@@ -2379,6 +2447,7 @@ class AgentOSApplication:
             except BaseException as exc:  # surfaced to the caller below
                 failures.append(exc)
             finally:
+                self._release_surface_turn(command.session_id, ownership)
                 # stream_end (transient): the provider stream closed; the
                 # durable turn commit remains authoritative. Wait briefly for
                 # the authoritative turn_id — a fast provider can finish the
@@ -2482,6 +2551,49 @@ class AgentOSApplication:
             command.session_id,
             result,
             loop_after.history[history_before:],
+        )
+
+    def surface_recover_unknown_turn(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse:
+        """Operator declaration that this session's open turn is dead.
+
+        The turn is closed as an unknown outcome (never a success) with a typed,
+        durable record naming the turn, its owning runtime generation, the
+        generation that closed it, and the operator's reason. This is a
+        bookkeeping decision about an outcome that already happened, not an
+        approval: nothing here permits a capability, consumes or grants an
+        approval, or touches policy, evidence or C7.
+
+        Refused when this generation is still executing the session's turn:
+        only a runtime that no longer owns the turn may declare it dead.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("dead turn recovery requires principal authority")
+        if self.surface_turn_in_flight(command.session_id):
+            raise SurfaceTurnOwnedByLiveRuntime(
+                "this runtime generation is still executing this session's turn; "
+                "a live turn is never closed from under itself"
+            )
+        task_id = self.surface_task_for_session(command.session_id)
+        now = self._clock()
+        block = self.tasks.close_dead_session_turn(
+            task_id,
+            command.session_id,
+            turn_id=command.turn_id,
+            declared_by=actor.principal_id,
+            declared_at=now,
+            reason=command.reason,
+            runtime_boot_id=self._runtime_boot_id,
+            runtime_pid=os.getpid(),
+        )
+        return SurfaceTurnRecoveryResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            snapshot=self.surface_session_snapshot(command.session_id),
+            recovery=RecoveredUnknownTurn.model_validate(block),
+            notice=dead_turn_recovery_notice(block),
         )
 
     def surface_pause_session(

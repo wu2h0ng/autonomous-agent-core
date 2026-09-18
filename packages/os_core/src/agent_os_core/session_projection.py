@@ -605,6 +605,29 @@ def _required_str(payload: Mapping[str, Any], key: str) -> str:
     return value
 
 
+def has_unanswered_tool_calls(history: Sequence[ProviderMessage]) -> bool:
+    """Whether any ASSISTANT tool_call still lacks its TOOL reply.
+
+    This is the projector's own invariant for `SESSION_TURN_COMPLETED` ("cannot
+    complete a turn with unanswered tool calls"), exposed so a writer that
+    closes a turn outside the loop refuses to append a completion the projector
+    would then reject - a rejected projection makes the whole session
+    unreadable.
+    """
+
+    answered = {
+        message.tool_call_id
+        for message in history
+        if message.role is ProviderMessageRole.TOOL
+    }
+    return any(
+        call.tool_call_id not in answered
+        for message in history
+        if message.role is ProviderMessageRole.ASSISTANT
+        for call in message.tool_calls
+    )
+
+
 def _validate_event_scope(
     payload: Mapping[str, Any],
     ref: SessionRef,

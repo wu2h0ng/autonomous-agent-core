@@ -178,6 +178,7 @@ from .surface import (
     SURFACE_PROTOCOL_VERSION,
     PendingSurfaceApproval,
     PermissionMode,
+    RecoveredUnknownTurn,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
@@ -200,6 +201,8 @@ from .surface import (
     SurfaceStreamFrameKind,
     SurfaceStreamSubscription,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
 )
 from .responsibility import (
@@ -670,6 +673,7 @@ __all__ = [
     "PendingSurfaceApproval",
     "SURFACE_PROTOCOL_VERSION",
     "PermissionMode",
+    "RecoveredUnknownTurn",
     "SurfaceApprovalCommand",
     "SurfaceBeginTurnCommand",
     "SurfaceBeginTurnResponse",
@@ -692,6 +696,8 @@ __all__ = [
     "SurfaceStreamFrameKind",
     "SurfaceStreamSubscription",
     "SurfaceTurnCommand",
+    "SurfaceTurnRecoveryCommand",
+    "SurfaceTurnRecoveryResponse",
     "SurfaceTurnResponse",
 
 ]

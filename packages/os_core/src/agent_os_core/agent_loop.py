@@ -222,6 +222,7 @@ class AgentLoop:
         message_sink: Callable[[ChatSession, int, ProviderMessage, str | None], None],
         resumable_turn_ids: tuple[str, ...] = (),
         execution_fence: Callable[[str], None] | None = None,
+        runtime_generation: tuple[str, int] | None = None,
         effect_custody: EffectCustodyPort | None = None,
         independent_approval: bool = False,
         external_exact_approval: bool = False,
@@ -268,6 +269,7 @@ class AgentLoop:
         self._history = list(history)
         self._message_sink = message_sink
         self._resumable_turn_ids = set(resumable_turn_ids)
+        self._runtime_generation = runtime_generation
         self._execution_owner = f"surface-runtime:{uuid4()}"
         self._execution_fence = execution_fence
         self._effect_custody = effect_custody
@@ -314,14 +316,22 @@ class AgentLoop:
             ProviderMessage(role=ProviderMessageRole.USER, content=text),
             turn_id=turn_id.turn_id,
         )
+        started_payload: dict[str, object] = {
+            "turn_id": turn_id.turn_id,
+            "session_id": turn_id.session_id,
+            "user_text": text,
+        }
+        if self._runtime_generation is not None:
+            # The runtime generation that owns this turn, recorded so a dead
+            # turn's owner is durable evidence rather than a guess: a later
+            # generation can name exactly which runtime started it.
+            boot_id, pid = self._runtime_generation
+            started_payload["runtime_boot_id"] = boot_id
+            started_payload["runtime_pid"] = pid
         self._tasks.append_event(
             session.task_id,
             TaskEventType.SESSION_TURN_STARTED,
-            {
-                "turn_id": turn_id.turn_id,
-                "session_id": turn_id.session_id,
-                "user_text": text,
-            },
+            started_payload,
             correlation_id=session.run_id,
         )
         self._resumable_turn_ids.add(turn_id.turn_id)

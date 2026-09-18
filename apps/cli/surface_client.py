@@ -36,6 +36,8 @@ from agent_os_contracts import (
     SurfaceStreamFrame,
     SurfaceStreamSubscription,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
     TaskEvent,
     canonical_json,
@@ -374,6 +376,56 @@ class SurfaceClient:
         if turn.snapshot.session.session_id:
             self._track(turn.snapshot.session.session_id, turn.snapshot)
         return turn
+
+    def recover_turn(
+        self,
+        session_id: str,
+        turn_id: str,
+        reason: str,
+        *,
+        expected_event_sequence: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> SurfaceTurnRecoveryResponse:
+        """Declare the session's open durable turn dead and close it as unknown.
+
+        The turn's owning process is gone, so nothing will ever complete it; the
+        kernel records the closure as `unknown_requires_review` with a typed
+        recovery block (who declared it, on what evidence, why). It is never a
+        success record.
+        """
+        if not turn_id.strip():
+            raise ValueError("turn_id must be non-empty")
+        if not reason.strip():
+            raise ValueError("recovery reason must be non-empty")
+        command = SurfaceTurnRecoveryCommand(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            client=self._client_ref(),
+            session_id=session_id,
+            turn_id=turn_id,
+            reason=reason,
+            expected_event_sequence=(
+                self._sequence(session_id)
+                if expected_event_sequence is None
+                else expected_event_sequence
+            ),
+            idempotency_key=idempotency_key or f"cli-recover-turn:{uuid4().hex}",
+            requested_at=self._now(),
+        )
+        response = self._request(
+            "POST", f"/v1/surface/sessions/{session_id}/recover-turn", command
+        )
+        recovery_value = response.get("recovery")
+        if not isinstance(recovery_value, dict):
+            raise SurfaceProtocolMismatch(
+                "local runtime returned no turn-recovery response"
+            )
+        self._check_protocol(recovery_value)
+        snapshot_value = recovery_value.get("snapshot")
+        if isinstance(snapshot_value, dict):
+            self._check_protocol(snapshot_value)
+        recovery = SurfaceTurnRecoveryResponse.model_validate(recovery_value)
+        self._track(recovery.snapshot.session.session_id, recovery.snapshot)
+        return recovery
 
     def events(
         self,

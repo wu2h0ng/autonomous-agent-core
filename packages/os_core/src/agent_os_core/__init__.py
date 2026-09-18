@@ -143,7 +143,14 @@ from .surface_runtime import (
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
     SurfaceTurnInProgress,
+    SurfaceTurnOwnedByLiveRuntime,
     command_digest,
+)
+from .dead_turn import (
+    DEAD_TURN_REASON_CODE,
+    DEAD_TURN_RECOVERY_FIELD,
+    DEAD_TURN_STOP_REASON,
+    dead_turn_recovery_notice,
 )
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
@@ -635,6 +642,10 @@ __all__ = [
     "SurfaceSessionNotFound",
     "SurfaceStreamGone",
     "SurfaceTurnInProgress",
+    "SurfaceTurnOwnedByLiveRuntime",
+    "DEAD_TURN_REASON_CODE",
+    "DEAD_TURN_RECOVERY_FIELD",
+    "DEAD_TURN_STOP_REASON",
+    "dead_turn_recovery_notice",
     "command_digest",
-
 ]
