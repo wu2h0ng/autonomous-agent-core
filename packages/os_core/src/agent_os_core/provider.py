@@ -10,6 +10,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -140,6 +141,52 @@ def _optional_float_env(name: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+# A Retry-After instruction is honoured up to this many seconds. A provider (or
+# anything in front of it) can otherwise ask for an hour of silence and the turn
+# would sit there; the cap keeps the server's pacing advisory rather than a way
+# to stall the operator.
+_MAX_RETRY_AFTER_SECONDS = 30.0
+
+
+def _retry_after_cap_seconds() -> float:
+    configured = _optional_float_env("AGENT_OS_PROVIDER_MAX_RETRY_AFTER_SECONDS")
+    if configured is None or configured < 0:
+        return _MAX_RETRY_AFTER_SECONDS
+    return configured
+
+
+def _retry_after_seconds(headers: object) -> float | None:
+    """The server's Retry-After instruction in seconds, or None.
+
+    RFC 9110 allows two forms - delta-seconds and an HTTP-date - and real
+    providers use both. Anything missing, unparseable or negative returns None so
+    the caller falls back to its own backoff; the cap is applied by the caller.
+    """
+
+    get = getattr(headers, "get", None)
+    if not callable(get):
+        return None
+    raw = get("Retry-After")
+    if not isinstance(raw, str) or not raw.strip():
+        raw = get("retry-after")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
 def load_pricing_table() -> dict[str, dict[str, object]]:
@@ -483,6 +530,9 @@ class OpenAICompatibleProvider(ProviderPort):
             if env_retry_base is not None
             else 0.5
         )
+        # Set from a Retry-After header by the HTTPError path and consumed by the
+        # retry loop; None means "no instruction from the server".
+        self._retry_after_hint: float | None = None
         self._pricing = load_pricing_table()
         self._opener = opener or urllib.request.urlopen
         self._invocation_binding: ProviderInvocationBinding | None = None
@@ -608,7 +658,15 @@ class OpenAICompatibleProvider(ProviderPort):
                 return result
             if not result.retryable or emitted or attempt >= attempts - 1:
                 return result
-            time.sleep(self._retry_base_seconds * (2**attempt))
+            delay = self._retry_base_seconds * (2**attempt)
+            # The server's own instruction wins over our backoff, bounded by the
+            # cap so a hostile or mistaken header cannot stall the turn; the hint
+            # belongs to this attempt and is cleared once used.
+            hint, self._retry_after_hint = self._retry_after_hint, None
+            if hint is not None:
+                delay = min(max(delay, hint), _retry_after_cap_seconds())
+            if delay > 0:
+                time.sleep(delay)
         assert result is not None
         return result
 
@@ -827,6 +885,18 @@ class OpenAICompatibleProvider(ProviderPort):
                 code = ProviderErrorCode.MALFORMED
             else:
                 code = ProviderErrorCode.UNAVAILABLE
+            # Honour the server's own pacing instruction. The retry loop would
+            # otherwise sleep its own exponential backoff and can come straight
+            # back at a provider that just asked for quiet (Retry-After comes in
+            # both delta-seconds and HTTP-date form). Only the two retryable
+            # classes carry it, and it is bounded below.
+            if code in {
+                ProviderErrorCode.RATE_LIMITED,
+                ProviderErrorCode.UNAVAILABLE,
+            }:
+                self._retry_after_hint = _retry_after_seconds(
+                    getattr(exc, "headers", None)
+                )
             # The message becomes the turn's final text, i.e. the only thing the
             # operator reads. A bare "provider HTTP 401" names the symptom and
             # nothing else, so the most common real failure - a missing, wrong or
