@@ -10,9 +10,12 @@
  *   3  turn ended without stop_reason "completed" (max_steps, budget_exceeded,
  *      loop_detected, provider_failure:*, stalled, …) — tokens still counted
  *   4  the turn completed, but the kernel refused at least one attempted action
- *      (a rule/allowlist DENY, `POLICY_VERDICT_RECORDED`). The work did NOT
- *      happen: reporting 0 here was the defect — a model that says "done" was
- *      believed while the file was untouched.
+ *      in THAT turn (a rule/allowlist DENY, `POLICY_VERDICT_RECORDED` recorded
+ *      after this client attached to the session). The work did NOT happen:
+ *      reporting 0 here was the defect — a model that says "done" was believed
+ *      while the file was untouched. A refusal already in the session history
+ *      (`--resume` replays the whole log) is transcript material, not this
+ *      turn's outcome, and must not be charged to it.
  *
  * Output formats: text (assistant text on stdout, notices on stderr),
  * json (single result object on stdout) and stream-json (NDJSON: an init
@@ -145,7 +148,10 @@ export async function runHeadless(
   // A refusal is not a success. The kernel never executed the refused action
   // (no receipt, no file effect), yet the turn itself completes normally and the
   // model happily answers "done" — reporting 0 here made that claim
-  // indistinguishable from work that really happened.
+  // indistinguishable from work that really happened. Only refusals recorded
+  // after this client attached count (`controller.policyDenials`): a resumed
+  // session replays its history, and charging an earlier turn's refusal to this
+  // one would be the same lie in the other direction.
   const denial = controller.policyDenials[0];
   if (denial !== undefined) {
     const stopReason =

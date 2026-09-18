@@ -1449,6 +1449,74 @@ test("a DENY for an already-proposed action fails that card instead of adding on
   assert.equal(controller.policyDenials.length, 1);
 });
 
+test("a resumed session replays a historical DENY as a card without charging it to this turn", async () => {
+  // Review regression (PR #75): `POLICY_VERDICT_RECORDED` carries no `turn_id`,
+  // and attaching to a session drains from `durableCursor` 0, so the whole
+  // history is replayed here. The card must stay (the transcript is rebuilt
+  // from that replay) while the turn-scoped `policyDenials` — what headless
+  // turns into exit 4 — must not inherit a refusal this client never witnessed.
+  const client = new FakeClient();
+  client.snapshotSequence = 3; // the session already has history up to seq 3
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/resume s:1");
+  const apply = applyDurable(controller);
+
+  apply(3, [verdictEvent(1, ruleDenial())]);
+  const card = controller.messages.find((message) => message.tool !== undefined)?.tool;
+  assert.equal(card?.status, "failed", "the refusal is history: it keeps its card");
+  assert.match(card?.resultSummary ?? "", /denied by rule rule-1/);
+  assert.equal(controller.policyDenials.length, 0, "but it is not this turn's refusal");
+
+  // Exact boundary: the watermark's own sequence is history, not this turn.
+  apply(3, [
+    verdictEvent(3, ruleDenial({ action_id: "a:at-watermark", node_id: "node:a:at-watermark" })),
+  ]);
+  assert.equal(controller.policyDenials.length, 0);
+
+  // A refusal recorded after the attach IS this turn's.
+  apply(4, [
+    verdictEvent(4, ruleDenial({ action_id: "a:edit-now", node_id: "node:a:edit-now" })),
+  ]);
+  assert.equal(controller.policyDenials.length, 1);
+  assert.equal(controller.policyDenials[0]?.ruleId, "rule-1");
+});
+
+test("switching sessions re-seeds the watermark in the new session's sequence space", async () => {
+  // Each task has its own sequence space, so a watermark carried over from a
+  // far-advanced session would hide every refusal of a younger one (and
+  // vice versa). Re-seeding exactly on session change is what keeps the scoping
+  // honest in both directions.
+  const client = new FakeClient();
+  client.snapshotSequence = 50;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/resume s:1");
+  const apply = applyDurable(controller);
+  apply(51, [verdictEvent(51, ruleDenial())]);
+  assert.equal(controller.policyDenials.length, 1);
+
+  const snapshotFor = client.getSession.bind(client);
+  client.getSession = async () => {
+    const base = await snapshotFor();
+    return { ...base, event_sequence: 2, session: { ...base.session, session_id: "s:2" } };
+  };
+  await controller.submit("/resume s:2");
+  // The new session's own history is history again...
+  apply(2, [
+    verdictEvent(1, ruleDenial({ action_id: "a:hist-s2", node_id: "node:a:hist-s2" })),
+  ]);
+  assert.equal(controller.policyDenials.length, 1, "the new session's history stays history");
+  // ...and its young sequence space is counted on its own scale: under a
+  // carried-over max() watermark (50) this refusal at seq 3 would be dropped.
+  apply(3, [
+    verdictEvent(3, ruleDenial({ action_id: "a:edit-s2", node_id: "node:a:edit-s2" })),
+  ]);
+  assert.equal(
+    controller.policyDenials.length,
+    2,
+    "a refusal after the switch is the new session's, not silently dropped",
+  );
+});
+
 test("a rejected approval resolves the card instead of leaving it pending", async () => {
   // Rejecting is a resolution: the operator pressed n and the card kept showing
   // its pending state, on the surface they were looking at (round-3 audit).

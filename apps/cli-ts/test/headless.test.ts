@@ -33,6 +33,12 @@ function snapshot(overrides: Partial<SurfaceSessionSnapshot> = {}): SurfaceSessi
   };
 }
 
+type StubEvent = {
+  sequence: number;
+  event_type: string;
+  payload: Record<string, unknown>;
+};
+
 class StubClient {
   chunks: string[] = [];
   stopReason: string | null = null;
@@ -40,12 +46,26 @@ class StubClient {
   approvalPending = false;
   /** Durable refusal records this turn's drain returns (defect b). */
   denials: Record<string, unknown>[] = [];
+  /** Durable events already on the server when the CLI attaches — what a
+   * resumed session (`noem -p --resume <session-id>`) drains from
+   * `after_sequence = 0`. `surface_event_batch` returns EVERY event with
+   * `sequence > after_sequence`, so this is the session history the client
+   * replays into its transcript. */
+  history: StubEvent[] = [];
+
+  /** Highest durable sequence already written (the snapshot's
+   * `event_sequence` on a live daemon is the task aggregate's sequence). A
+   * fresh session has one record (the open), so this floor is 1. */
+  private baseSequence(): number {
+    return Math.max(1, this.history.reduce((max, event) => Math.max(max, event.sequence), 0));
+  }
 
   async openSession() {
-    return snapshot();
+    return snapshot({ event_sequence: this.baseSequence() });
   }
   async getSession() {
     return snapshot({
+      event_sequence: this.baseSequence(),
       status: this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE",
       ...(this.approvalPending
         ? {
@@ -89,15 +109,28 @@ class StubClient {
     };
   }
   async events(_taskId: string, after: number) {
-    const events = [];
+    // Server-side sequence allocation: this turn's records continue after the
+    // history that is already there, and the batch is "everything above the
+    // cursor" — exactly `surface_event_batch`.
+    let seq = this.baseSequence();
+    const all: { event_id: string; task_id: string; event_type: string; payload_json: string; occurred_at: string; sequence: number }[] =
+      this.history.map((event, index) => ({
+        event_id: `e:hist:${index}`,
+        task_id: "task:1",
+        event_type: event.event_type,
+        payload_json: JSON.stringify(event.payload),
+        occurred_at: new Date().toISOString(),
+        sequence: event.sequence,
+      }));
     if (this.approvalPending) {
-      events.push({
+      seq += 1;
+      all.push({
         event_id: "e:ap",
         task_id: "task:1",
         event_type: "SESSION_APPROVAL_PENDING",
         payload_json: JSON.stringify({ preview: "run rm -rf /" }),
         occurred_at: new Date().toISOString(),
-        sequence: after + 1,
+        sequence: seq,
       });
     } else if (this.tokens > 0) {
       const tokens = this.tokens;
@@ -106,16 +139,18 @@ class StubClient {
       // records the verdict while the proposal is being decided), so the deny
       // event and the completion arrive in the same batch, in sequence order.
       this.denials.forEach((denial, index) => {
-        events.push({
+        seq += 1;
+        all.push({
           event_id: `e:deny:${index}`,
           task_id: "task:1",
           event_type: "POLICY_VERDICT_RECORDED",
           payload_json: JSON.stringify(denial),
           occurred_at: new Date().toISOString(),
-          sequence: after + 1 + index,
+          sequence: seq,
         });
       });
-      events.push({
+      seq += 1;
+      all.push({
         event_id: "e:tc",
         task_id: "task:1",
         event_type: "SESSION_TURN_COMPLETED",
@@ -127,10 +162,16 @@ class StubClient {
             : {}),
         }),
         occurred_at: new Date().toISOString(),
-        sequence: after + 1 + events.length,
+        sequence: seq,
       });
     }
-    return { task_id: "task:1", after_sequence: after, next_sequence: after + events.length, events };
+    const events = all.filter((event) => event.sequence > after);
+    return {
+      task_id: "task:1",
+      after_sequence: after,
+      next_sequence: events.length > 0 ? events[events.length - 1]!.sequence : after,
+      events,
+    };
   }
   async setPermissionMode() {
     return snapshot();
@@ -332,4 +373,81 @@ test("a refused action is not reported as success on a later clean turn", async 
     HEADLESS_EXIT.OK,
   );
   assert.equal((JSON.parse(clean.out.join("")) as Record<string, unknown>)["subtype"], "success");
+});
+
+const RULE_DENIAL: Record<string, unknown> = {
+  verdict: "DENY",
+  basis: "rule",
+  mode_event_id: null,
+  rule_id: "rule-1",
+  rule_reason: "deploy freeze",
+  capability_id: "workspace.edit",
+  risk_tier: 2,
+  action_digest: "digest-1",
+  action_id: "a:edit",
+  node_id: "node:a:edit",
+  arguments_json: JSON.stringify({ path: "fixture.txt" }),
+  reason: "denied by an operator permission rule",
+};
+
+/** The history of a session that was refused in an EARLIER turn: the refusal
+ * (no `turn_id` — a refusal is not a turn-scoped transition) and the completed
+ * turn it belonged to. */
+function refusedHistory(): StubEvent[] {
+  return [
+    { sequence: 1, event_type: "POLICY_VERDICT_RECORDED", payload: RULE_DENIAL },
+    {
+      sequence: 2,
+      event_type: "SESSION_TURN_COMPLETED",
+      payload: { turn_id: "turn:0", total_tokens: 5, stop_reason: "completed" },
+    },
+  ];
+}
+
+test("attaching to a session does not charge its history's refusal to this turn", async () => {
+  // Review regression (PR #75): `noem -p --resume <session-id>` attaches to a
+  // session whose history may contain a refusal, and the resumed controller
+  // drains the whole history from `after_sequence = 0`. Charging that refusal to
+  // THIS turn told the operator "an action was refused and NOT executed" for a
+  // turn in which nothing was refused — the same lie in the other direction.
+  // Exit 0 here is the fix; before it this returned 4 / subtype "denied".
+  const client = new StubClient();
+  client.chunks = ["all done"];
+  client.history = refusedHistory();
+  const io = capture();
+  const code = await runHeadless(
+    client as never,
+    { prompt: "just say hello", sessionId: "s:1", outputFormat: "json" },
+    io,
+  );
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload["subtype"], "success");
+  assert.equal(payload["stop_reason"], "completed");
+  assert.equal(payload["is_error"], false);
+  assert.equal(io.err.join(""), "", "nothing was refused, so nothing is accused");
+  // The turn's own result is unchanged: text and tokens are still reported.
+  assert.equal(payload["text"], "all done");
+  assert.equal(payload["total_tokens"], 10);
+});
+
+test("a refusal IN the resumed turn is still exit 4 (history scoping is not a bypass)", async () => {
+  // The other half of the invariant: scoping the count to this turn must not
+  // make refusals uncountable. Same attachment, same history — the refusal now
+  // lands after the attach, so it is this turn's refusal.
+  const client = new StubClient();
+  client.chunks = ["fixed"];
+  client.history = refusedHistory();
+  client.denials = [{ ...RULE_DENIAL, action_id: "a:edit-now", node_id: "node:a:edit-now" }];
+  const io = capture();
+  const code = await runHeadless(
+    client as never,
+    { prompt: "fix fixture.txt", sessionId: "s:1", outputFormat: "json" },
+    io,
+  );
+  assert.equal(code, HEADLESS_EXIT.DENIED);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload["subtype"], "denied");
+  assert.equal(payload["stop_reason"], "denied_by_rule:rule-1");
+  assert.equal(payload["is_error"], true);
 });

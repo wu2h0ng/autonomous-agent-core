@@ -371,10 +371,25 @@ export class TuiController {
   private readonly nodeIndex = new Map<string, number>();
   /** Refusals recorded durably during the turn in flight (or the last one).
    * Turn-scoped: reset at the start of every turn, so a headless one-shot can
-   * answer "was anything refused this turn?" without reading the whole log. */
+   * answer "was anything refused this turn?" without reading the whole log.
+   * History is NOT charged to it — see `denialWatermark`. */
   private readonly turnDenials: PolicyDenial[] = [];
   /** Refused-action identities already counted this turn (replay guard). */
   private readonly deniedActionKeys = new Set<string>();
+  /** Highest durable sequence an ADOPTED snapshot already covered — i.e. the
+   * session history this client did not witness. `POLICY_VERDICT_RECORDED`
+   * carries no `turn_id` (a refusal is not a turn-scoped transition), and
+   * attaching to a session (`/resume`, `noem -p --resume <session-id>`) drains
+   * from `durableCursor` 0, so the whole server-side history is replayed into
+   * this client. The replay is intended — it rebuilds the transcript, and a
+   * historical refusal must stay visible — but a refusal recorded BEFORE this
+   * client attached is not an outcome of the turn it is about to report.
+   * Only verdicts with `sequence > denialWatermark` count as this turn's.
+   * Re-seeded exactly on session change (each task has its own sequence space,
+   * so a watermark from another session is meaningless) and never lowered
+   * within one session (a failed drain replays old events, and a replayed
+   * refusal must not be charged to a later turn either). */
+  private denialWatermark = 0;
   private readonly listeners = new Set<() => void>();
   private readonly clock: () => number;
   private readonly stallMs: number;
@@ -427,7 +442,11 @@ export class TuiController {
 
   /** Refusals recorded during the current (or last) turn, in order. Each one
    * already has a card in the transcript; headless reads this to refuse to
-   * report a clean success for work the kernel never let happen. */
+   * report a clean success for work the kernel never let happen.
+   *
+   * Only refusals recorded AFTER this client attached to the session are here
+   * (`denialWatermark`): a refusal that was already in the session history is
+   * transcript material, not an outcome of the turn being reported. */
   get policyDenials(): readonly PolicyDenial[] {
     return this.turnDenials;
   }
@@ -1045,6 +1064,14 @@ export class TuiController {
   }
 
   private adoptSnapshot(snapshot: SurfaceSessionSnapshot): void {
+    // Attaching to a session (resume/attach/open) makes its durable history
+    // visible to this client without it having witnessed any of it: the drain
+    // starts from cursor 0 and replays every event. Mark where history ends so
+    // a replayed refusal is transcript material only (see denialWatermark).
+    const switched = this.sessionId !== snapshot.session.session_id;
+    this.denialWatermark = switched
+      ? snapshot.event_sequence
+      : Math.max(this.denialWatermark, snapshot.event_sequence);
     this.snapshot = snapshot;
     this.sessionId = snapshot.session.session_id;
     this.taskId = snapshot.session.task_id;
@@ -1501,7 +1528,14 @@ export class TuiController {
    *
    * Idempotent under replay: the card is keyed by the refused action's identity
    * (`action_id`, else `node_id`, else the durable event sequence) and a second
-   * application of the same verdict only refreshes that card. */
+   * application of the same verdict only refreshes that card.
+   *
+   * The CARD is rendered for every refusal, historical ones included: they are
+   * part of the session history the transcript is rebuilt from. Only the
+   * turn-scoped `turnDenials` (what headless turns into exit 4) is restricted to
+   * verdicts recorded after this client attached (`denialWatermark`) — charging
+   * a previous turn's refusal to the turn being reported would be the same lie
+   * in the other direction. */
   private applyPolicyVerdict(payload: Record<string, unknown>, sequence: number): void {
     if (String(payload["verdict"] ?? "") !== "DENY") return;
     const capabilityId = String(payload["capability_id"] ?? "unknown");
@@ -1521,7 +1555,7 @@ export class TuiController {
       String(payload["action_id"] ?? payload["node_id"] ?? "") || `policy-deny:${sequence}`;
     const nodeId = String(payload["node_id"] ?? "");
 
-    if (!this.deniedActionKeys.has(actionId)) {
+    if (sequence > this.denialWatermark && !this.deniedActionKeys.has(actionId)) {
       this.deniedActionKeys.add(actionId);
       this.turnDenials.push({
         capabilityId,
