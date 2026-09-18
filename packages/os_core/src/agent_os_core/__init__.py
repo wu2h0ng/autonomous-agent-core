@@ -272,7 +272,12 @@ from .execution import (
     DeterministicOutcomeEvaluator,
     RunCoordinator,
 )
-from .errors import RunExecutionError, UnsupportedNodeError, WorkerInterrupted
+from .errors import (
+    ProviderCorrectionHalt,
+    RunExecutionError,
+    UnsupportedNodeError,
+    WorkerInterrupted,
+)
 from .execution_profile import ExecutionProfileError, ExecutionProfilePort
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService, ValidatedTestReport
@@ -597,6 +602,7 @@ __all__ = [
     "ExecutionProfileError",
     "ExecutionProfilePort",
     "RunCoordinator",
+    "ProviderCorrectionHalt",
     "RunExecutionError",
     "WorkerInterrupted",
     "UnsupportedNodeError",

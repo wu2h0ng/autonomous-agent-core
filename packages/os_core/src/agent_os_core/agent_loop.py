@@ -44,7 +44,12 @@ from .capability import (
     CapabilityResult,
     CollaborationPreflightPort,
 )
-from .errors import ConcurrentWriteError, InvalidTransitionError, RunExecutionError
+from .errors import (
+    ConcurrentWriteError,
+    InvalidTransitionError,
+    ProviderCorrectionHalt,
+    RunExecutionError,
+)
 from .governance import CorrectionReadPort, PolicyKernel
 from .permission_gate import (
     ACTION_RISK_TIERS,
@@ -877,7 +882,18 @@ class AgentLoop:
                         "a PAUSED or terminal Run must be resumed first"
                     )
                 self._assert_execution_fence("before_provider")
-                response = self._call_provider(session, turn_id, steps)
+                try:
+                    response = self._call_provider(session, turn_id, steps)
+                except ProviderCorrectionHalt:
+                    # A correction landed while the provider call was in flight.
+                    # The answer is discarded (no PROVIDER_RESPONDED, no dispatch)
+                    # and the turn ends here with the same frozen stop reason the
+                    # pre-invocation halt uses. Raising out of the turn instead
+                    # left SESSION_TURN_STARTED without its completion, and every
+                    # later begin-turn was then refused with SurfaceTurnInProgress
+                    # for the rest of the session's life.
+                    stop_reason = "correction_halted"
+                    break
                 if isinstance(response, ProviderFailure):
                     stop_reason = f"provider_failure:{response.code.value}"
                     final_text = response.safe_message
@@ -1311,14 +1327,14 @@ class AgentLoop:
                 pre_correction_epochs,
             ) as unchanged:
                 if not unchanged:
-                    raise RunExecutionError(
+                    raise ProviderCorrectionHalt(
                         "chat provider correction epoch changed during invocation"
                     )
                 post_correction_epochs = self._correction.snapshot(
                     session.task_id, session.run_id, "provider"
                 )
                 if post_correction_epochs != pre_correction_epochs:
-                    raise RunExecutionError(
+                    raise ProviderCorrectionHalt(
                         "chat provider correction epoch changed during invocation"
                     )
                 node_id = f"{turn_id.turn_id}-step-{step + 1}"
