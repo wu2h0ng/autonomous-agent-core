@@ -93,6 +93,11 @@ class TaskEventType(str, Enum):
     SESSION_PERMISSION_MODE_SET = "SESSION_PERMISSION_MODE_SET"
     POLICY_VERDICT_RECORDED = "POLICY_VERDICT_RECORDED"
     SESSION_CLOSED = "SESSION_CLOSED"
+    # Form B child agents (additive, 2026-09-19). CHILD_AGENT_SPAWNED carries
+    # ChildAgentSpawned; CHILD_AGENT_FINISHED carries ChildAgentFinished. Both
+    # are digest-only: never prompt or completion text.
+    CHILD_AGENT_SPAWNED = "CHILD_AGENT_SPAWNED"
+    CHILD_AGENT_FINISHED = "CHILD_AGENT_FINISHED"
 
 
 class WaitCondition(ContractModel):
