@@ -21,7 +21,7 @@
  * Exit: 0 all pass, 1 any failure.
  */
 
-import { SURFACE_PROTOCOL_VERSION } from "./contracts.js";
+import { SURFACE_PROTOCOL_READABLE_VERSIONS, SURFACE_PROTOCOL_VERSION } from "./contracts.js";
 import {
   findCheckoutRoot,
   resolveDaemonLaunch,
@@ -213,11 +213,19 @@ export async function runDoctor(
           : `unexpected HTTP ${status} for a nonexistent session`,
     });
   } else {
-    const compatible = serverVersion.split(".")[0] === SURFACE_PROTOCOL_VERSION.split(".")[0];
+    // Acceptance comes from the same declared readable set the client parses
+    // responses with, not a MAJOR-prefix heuristic: a version outside it is a
+    // real incompatibility, and the reason says which kind.
+    const readable = (SURFACE_PROTOCOL_READABLE_VERSIONS as readonly string[]).includes(
+      serverVersion,
+    );
+    const sameMajor =
+      serverVersion.split(".")[0] === SURFACE_PROTOCOL_VERSION.split(".")[0];
+    const reason = readable ? "" : sameMajor ? " — MINOR NOT NEGOTIABLE" : " — MAJOR MISMATCH";
     checks.push({
       name: "protocol",
-      ok: compatible,
-      detail: `client ${SURFACE_PROTOCOL_VERSION} ↔ server ${serverVersion}${compatible ? "" : " — MAJOR MISMATCH"}`,
+      ok: readable,
+      detail: `client ${SURFACE_PROTOCOL_VERSION} ↔ server ${serverVersion}${reason}`,
     });
   }
 

@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from agent_os_contracts import SURFACE_PROTOCOL_VERSION
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -73,7 +75,7 @@ def main() -> None:
         descriptor.write_text(
             json.dumps(
                 {
-                    "protocol_version": "1.1",
+                    "protocol_version": SURFACE_PROTOCOL_VERSION,
                     "pid": os.getpid(),
                     "boot_id": "boot:cli-ts-live",
                     "host": "127.0.0.1",

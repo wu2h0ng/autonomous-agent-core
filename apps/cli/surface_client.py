@@ -39,6 +39,7 @@ from agent_os_contracts import (
     SurfaceTurnResponse,
     TaskEvent,
     canonical_json,
+    surface_protocol_readable_versions,
 )
 
 from apps.runtime_daemon.descriptor import RuntimeDescriptor
@@ -148,9 +149,18 @@ class SurfaceClient:
         return value
 
     def _check_protocol(self, value: object) -> None:
-        if (
-            not isinstance(value, dict)
-            or value.get("protocol_version") != SURFACE_PROTOCOL_VERSION
+        """Accept only a version this client can actually read.
+
+        Ordered, not exact: a runtime one minor behind still speaks a shape this
+        client knows, because a MINOR step is additive. The accepted set is
+        bounded by ``surface_protocol_readable_versions`` — this build's declared
+        versions at or below the client's own — so a foreign MAJOR, an
+        undeclared version and a missing/garbage version all still raise.
+        """
+
+        declared = value.get("protocol_version") if isinstance(value, dict) else None
+        if not isinstance(declared, str) or declared not in (
+            surface_protocol_readable_versions(SURFACE_PROTOCOL_VERSION)
         ):
             raise SurfaceProtocolMismatch(
                 f"local runtime protocol is not {SURFACE_PROTOCOL_VERSION}"

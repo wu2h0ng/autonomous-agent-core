@@ -19,6 +19,7 @@ from pydantic import Field, ValidationError
 from agent_os_contracts import (
     ContractModel,
     NonEmptyStr,
+    SurfaceProtocolVersion,
     UtcDateTime,
     canonical_json,
 )
@@ -29,7 +30,7 @@ class RuntimeDescriptorError(ValueError):
 
 
 class RuntimeDescriptor(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     pid: int = Field(gt=0)
     boot_id: NonEmptyStr
     host: Literal["127.0.0.1"]

@@ -6,11 +6,8 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import test from "node:test";
-import {
-  SurfaceClient,
-  SurfaceClientAuthenticationError,
-  SurfaceStreamStaleError,
-} from "../src/client.js";
+import { SurfaceClient, SurfaceClientAuthenticationError, SurfaceStreamStaleError } from "../src/client.js";
+import { SURFACE_PROTOCOL_VERSION } from "../src/contracts.js";
 import type { RuntimeDescriptor } from "../src/descriptor.js";
 
 const TOKEN = "test-token";
@@ -91,7 +88,10 @@ test("openSession sends protocol version + bearer and tracks sequence", async ()
     (req) => {
       assert.equal(req.auth, `Bearer ${TOKEN}`);
       const command = JSON.parse(req.body ?? "{}");
-      assert.equal(command.protocol_version, "1.1");
+      // Compared against the declared constant, not a literal: pinning a
+      // version here is what made the 1.1 -> 1.2 bump a test edit instead of a
+      // contract change.
+      assert.equal(command.protocol_version, SURFACE_PROTOCOL_VERSION);
       assert.equal(command.client.client_type, "CLI");
       assert.ok(command.idempotency_key.length > 0);
       return { status: 200, json: { snapshot: snapshot("s:1", 3) } };

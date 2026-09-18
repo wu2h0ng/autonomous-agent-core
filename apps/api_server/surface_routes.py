@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from ._cors import _tauri_origin_cors
 
 from agent_os_contracts import (
+    SURFACE_PROTOCOL_MIN_SUPPORTED,
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
@@ -26,10 +27,13 @@ from agent_os_contracts import (
     SurfaceOpenSessionCommand,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
+    SurfaceProtocolVersionError,
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
     canonical_json,
+    downgrade_surface_payload,
+    negotiate_surface_protocol_version,
 )
 from agent_os_core import (
     InvalidTransitionError,
@@ -167,6 +171,7 @@ class SurfaceRoutes:
         parsed = urlparse(handler.path)
         method = handler.command
         try:
+            self._negotiate_protocol(handler)
             if method == "POST" and parsed.path == "/v1/surface/sessions":
                 self._post_open_session(handler)
                 return
@@ -242,9 +247,10 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._post_correction(handler, session_id)
                     return
-            handler._json(404, {"error": "surface_route_not_found"})
+            self._respond(handler, 404, {"error": "surface_route_not_found"})
         except Exception as exc:
-            handler._json(
+            self._respond(
+                handler,
                 _surface_error_status(exc),
                 {"error": type(exc).__name__, "message": str(exc)},
             )
@@ -253,13 +259,15 @@ class SurfaceRoutes:
         body = handler._body()
         command = SurfaceOpenSessionCommand.model_validate(body)
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {"snapshot": self._runtime.open_session(command).model_dump(mode="json")},
         )
 
     def _get_provider(self, handler: Any) -> None:
-        handler._json(
+        self._respond(
+            handler,
             200,
             {"provider": self._runtime.provider_status().model_dump(mode="json")},
         )
@@ -274,7 +282,8 @@ class SurfaceRoutes:
                 "provider command payload is invalid"
             ) from exc
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {
                 "provider": self._runtime.configure_provider(command).model_dump(
@@ -290,7 +299,8 @@ class SurfaceRoutes:
         except ValidationError as exc:
             raise SurfaceProtocolError("provider command payload is invalid") from exc
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {
                 "provider": self._runtime.clear_provider(command).model_dump(
@@ -300,7 +310,8 @@ class SurfaceRoutes:
         )
 
     def _get_session(self, handler: Any, session_id: str) -> None:
-        handler._json(
+        self._respond(
+            handler,
             200, self._runtime.get_session(session_id).model_dump(mode="json")
         )
 
@@ -315,7 +326,8 @@ class SurfaceRoutes:
             limit = 20
         cursor_values = query.get("cursor")
         cursor = cursor_values[0] if cursor_values else None
-        handler._json(
+        self._respond(
+            handler,
             200,
             self._runtime.list_sessions(limit, cursor).model_dump(mode="json"),
         )
@@ -323,14 +335,14 @@ class SurfaceRoutes:
     def _get_conflict(self, handler: Any, session_id: str) -> None:
         projection = self._runtime.conflict_projection(session_id)
         if projection is None:
-            handler._json(404, {"error": "surface_conflict_not_found"})
+            self._respond(handler, 404, {"error": "surface_conflict_not_found"})
             return
         payload = (
             projection.model_dump(mode="json")
             if hasattr(projection, "model_dump")
             else projection
         )
-        handler._json(200, {"conflict": payload})
+        self._respond(handler, 200, {"conflict": payload})
 
     def _post_turn(self, handler: Any, session_id: str) -> None:
         body = handler._body()
@@ -340,13 +352,15 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200, {"turn": self._runtime.run_turn(command).model_dump(mode="json")}
         )
 
     def _post_subscribe_stream(self, handler: Any, session_id: str) -> None:
         stream_id = self._runtime.subscribe_stream(session_id)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {
                 "subscription": {
@@ -365,7 +379,8 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {"begin_turn": self._runtime.begin_turn(command).model_dump(mode="json")},
         )
@@ -378,7 +393,8 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {
                 "snapshot": self._runtime.set_permission_mode(command).model_dump(
@@ -395,7 +411,8 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             {"turn": self._runtime.decide_approval(command).model_dump(mode="json")},
         )
@@ -408,7 +425,8 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200, {"snapshot": self._runtime.pause(command).model_dump(mode="json")}
         )
 
@@ -420,7 +438,8 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200, {"snapshot": self._runtime.resume(command).model_dump(mode="json")}
         )
 
@@ -432,18 +451,21 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200, {"snapshot": self._runtime.correct(command).model_dump(mode="json")}
         )
 
     def _get_overview(self, handler: Any, task_id: str) -> None:
-        handler._json(
+        self._respond(
+            handler,
             200,
             {"overview": self._runtime._application.surface_task_overview(task_id)},
         )
 
     def _get_files(self, handler: Any, task_id: str) -> None:
-        handler._json(
+        self._respond(
+            handler,
             200,
             {"files": self._runtime._application.surface_files_listing(task_id)},
         )
@@ -597,11 +619,57 @@ class SurfaceRoutes:
         handler.end_headers()
         handler.wfile.write(body)
 
-    def _require_protocol_header(self, handler: Any) -> None:
+    def _negotiate_protocol(self, handler: Any) -> str:
+        """Fix the version this request is served at, once per request.
+
+        Ordered, and explicit about the absent case: a request that carries no
+        ``X-Agent-OS-Protocol`` predates the header, so it is served the OLDEST
+        supported minor. That is deliberately conservative — such a client
+        cannot know any field a later minor added, so it must never be sent one.
+        A header that is present but not negotiable is an error, not a fallback.
+
+        The result is stored on the request handler (never on this router, which
+        is shared across threads) and is what ``_respond`` projects onto.
+        """
+
         supplied = handler.headers.get("X-Agent-OS-Protocol")
         if supplied is None:
+            negotiated = SURFACE_PROTOCOL_MIN_SUPPORTED
+        else:
+            try:
+                negotiated = negotiate_surface_protocol_version(supplied)
+            except SurfaceProtocolVersionError as exc:
+                # Reported in the protocol's own error vocabulary rather than the
+                # contract class name; the message already names what is negotiable.
+                raise SurfaceProtocolError(str(exc)) from exc
+        handler._surface_protocol = negotiated
+        return negotiated
+
+    def _negotiated_protocol(self, handler: Any) -> str:
+        return getattr(handler, "_surface_protocol", SURFACE_PROTOCOL_MIN_SUPPORTED)
+
+    def _respond(self, handler: Any, status: int, payload: Any) -> None:
+        """Serialize a response at the version this request negotiated.
+
+        Every Surface response leaves through here so the projection cannot be
+        forgotten on one route: a negotiated older reader gets a payload whose
+        added fields are removed and whose ``protocol_version`` matches what it
+        actually carries.
+        """
+
+        handler._json(
+            status, downgrade_surface_payload(payload, self._negotiated_protocol(handler))
+        )
+
+    def _require_protocol_header(self, handler: Any) -> str:
+        """Enforce that a state-changing request announces its version.
+
+        Presence is mandatory here even though the read-only routes tolerate its
+        absence: a state change must be attributable to a versioned command.
+        """
+
+        if handler.headers.get("X-Agent-OS-Protocol") is None:
             raise SurfaceProtocolError(
                 "X-Agent-OS-Protocol header is required for state changes"
             )
-        if supplied != SURFACE_PROTOCOL_VERSION:
-            raise SurfaceProtocolError(f"unsupported X-Agent-OS-Protocol {supplied}")
+        return self._negotiated_protocol(handler)

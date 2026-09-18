@@ -8,10 +8,14 @@ import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
+import { SurfaceProtocolVersionSchema } from "./contracts.js";
+
 export const DEFAULT_RUNTIME_DESCRIPTOR = join(homedir(), ".agent-os", "runtime.json");
 
 const RuntimeDescriptorSchema = z.object({
-  protocol_version: z.literal("1.1"),
+  // Ordered acceptance, not a pin: a descriptor written by a runtime one minor
+  // behind still names a version this client reads (see SURFACE_PROTOCOL_READABLE_VERSIONS).
+  protocol_version: SurfaceProtocolVersionSchema,
   pid: z.number().int().positive(),
   boot_id: z.string().min(1),
   host: z.literal("127.0.0.1"),
