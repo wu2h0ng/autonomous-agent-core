@@ -58,6 +58,11 @@ class FakeClient {
   getSessionCalls = 0;
   snapshotSequence = 1;
   beginTexts: string[] = [];
+  /** Durable events the fake stream reports (started/completed pairs, closure
+   * records) - the only place a controller may learn about a dead turn. */
+  durableScript: { event_type: string; payload: Record<string, unknown> }[] = [];
+  recoverCalls: { sessionId: string; turnId: string; reason: string }[] = [];
+  beginTurnError: Error | null = null;
 
   async openSession() {
     return snapshot();
@@ -115,6 +120,7 @@ class FakeClient {
     return { protocol_version: "1.1", runtime_boot_id: "boot:1", stream_id: "stream:1" };
   }
   async beginTurn(_sid: string, text: string) {
+    if (this.beginTurnError) throw this.beginTurnError;
     this.beginTexts.push(text);
     return { protocol_version: "1.1", turn_id: "turn:1", stream_id: "stream:1" };
   }
@@ -124,6 +130,16 @@ class FakeClient {
   async events(_taskId: string, after: number) {
     this.eventsCalls += 1;
     const events = [];
+    for (const [index, scripted] of this.durableScript.entries()) {
+      events.push({
+        event_id: `e:s${index + 1}`,
+        task_id: "task:1",
+        event_type: scripted.event_type,
+        payload_json: JSON.stringify(scripted.payload),
+        occurred_at: new Date().toISOString(),
+        sequence: index + 1,
+      });
+    }
     if (this.approvalPending) {
       events.push({
         event_id: "e:ap",
@@ -183,6 +199,29 @@ class FakeClient {
     _idempotencyKey?: string,
   ) {
     return snapshot({ status: "CORRECTION_HALTED" });
+  }
+  async recoverTurn(sessionId: string, turnId: string, reason: string) {
+    this.recoverCalls.push({ sessionId, turnId, reason });
+    return {
+      protocol_version: "1.1",
+      snapshot: snapshot({ event_sequence: 9 }),
+      recovery: {
+        turn_id: turnId,
+        session_id: sessionId,
+        reason_code: "TURN_OWNER_PROCESS_GONE" as const,
+        declared_by: "user:local",
+        declared_at: "2026-09-19T00:00:00Z",
+        reason,
+        owner_runtime_boot_id: "boot:dead",
+        owner_runtime_pid: 4242,
+        recovered_by_runtime_boot_id: "boot:new",
+        recovered_by_runtime_pid: 5252,
+        started_event_id: "e:1",
+        started_sequence: 1,
+        counters_recorded: false,
+      },
+      notice: `turn ${turnId} was abandoned as an unknown outcome`,
+    };
   }
   filesList = [
     { path: "fixture.txt", size: 12, mtime: "2026-09-11T00:00:00Z" },
@@ -1581,4 +1620,151 @@ test("the /keys card describes the keymap that exists", async () => {
     !/ctrl-p\/ctrl-n history/.test(card),
     "the card must not advertise a binding that is not wired",
   );
+});
+
+// ---------------------------------------------------------------------------
+// A dead uncommitted turn: the session reports ACTIVE, refuses every turn, and
+// only an explicit operator declaration closes it (measured on a real daemon
+// 2026-09-19: kill mid-turn, restart on the same database).
+// ---------------------------------------------------------------------------
+
+const DEAD_TURN = [
+  { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:dead", session_id: "s:1" } },
+];
+
+const CLOSURE_RECORD = {
+  event_type: "SESSION_TURN_COMPLETED",
+  payload: {
+    turn_id: "turn:dead",
+    session_id: "s:1",
+    stop_reason: "unknown_requires_review",
+    dead_turn_recovery: {
+      turn_id: "turn:dead",
+      session_id: "s:1",
+      reason_code: "TURN_OWNER_PROCESS_GONE",
+      declared_by: "user:local",
+      declared_at: "2026-09-19T00:00:00Z",
+      reason: "the runtime was killed mid-turn",
+      owner_runtime_boot_id: "boot:dead",
+      owner_runtime_pid: 4242,
+      recovered_by_runtime_boot_id: "boot:new",
+      recovered_by_runtime_pid: 5252,
+      started_event_id: "e:s1",
+      started_sequence: 1,
+      counters_recorded: false,
+    },
+  },
+};
+
+function transcript(controller: TuiController): string {
+  return controller.messages
+    .map((m) => (m.panel ? [m.panel.title, ...m.panel.lines].join("\n") : m.content))
+    .join("\n");
+}
+
+test("/recover names the durable turn, requires a reason, and reports the closure", async () => {
+  const client = new FakeClient();
+  client.durableScript = [...DEAD_TURN];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+
+  // No reason: the operator's declaration IS the reason, so nothing is sent.
+  await controller.submit("/recover");
+  assert.match(transcript(controller), /usage: \/recover <why the runtime died>/);
+  assert.equal(client.recoverCalls.length, 0);
+
+  await controller.submit("/recover the runtime was killed mid-turn");
+  assert.deepEqual(client.recoverCalls, [
+    { sessionId: "s:1", turnId: "turn:dead", reason: "the runtime was killed mid-turn" },
+  ]);
+  const text = transcript(controller);
+  assert.match(text, /turn:dead was closed as an unknown outcome/);
+  assert.match(text, /unknown_requires_review/);
+  assert.match(text, /boot:dead/);
+  assert.match(text, /the runtime was killed mid-turn/);
+});
+
+test("/recover says there is nothing to recover instead of inventing a turn", async () => {
+  const client = new FakeClient();
+  client.durableScript = [
+    { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:done", session_id: "s:1" } },
+    { event_type: "SESSION_TURN_COMPLETED", payload: { turn_id: "turn:done", stop_reason: "completed" } },
+  ];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("/recover looks dead to me");
+  assert.equal(client.recoverCalls.length, 0);
+  assert.match(transcript(controller), /no uncommitted turn in this session: nothing to recover/);
+});
+
+test("reattaching to a session reports the dead turn and the last closure from durable truth", async () => {
+  const client = new FakeClient();
+  client.durableScript = [
+    ...DEAD_TURN,
+    CLOSURE_RECORD,
+    // A later turn that is still open: the operator must be told about BOTH the
+    // turn that was closed and the one that blocks the session now.
+    { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:open", session_id: "s:1" } },
+  ];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("/resume s:1");
+  const text = transcript(controller);
+  // What happened to the previous turn (durable record, so it re-renders) ...
+  assert.match(text, /turn:dead was closed as an unknown outcome/);
+  // ... and the fact that a turn is STILL open, with the only route out.
+  assert.match(text, /uncommitted turn turn:open/);
+  assert.match(text, /\/recover/);
+});
+
+test("a turn refused for an uncommitted turn is named, not left as kernel jargon", async () => {
+  const client = new FakeClient();
+  client.durableScript = [...DEAD_TURN];
+  client.beginTurnError = new Error(
+    "a prior turn is still uncommitted for this session (turn turn:dead)",
+  );
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("carry on");
+
+  const text = transcript(controller);
+  assert.match(text, /uncommitted turn turn:dead/);
+  assert.match(text, /\/recover <why it died>/);
+  assert.equal(client.beginTexts.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// P1: a correction voids the session's sealed configuration. Every turn is then
+// refused with the kernel's bare string, and the session can even report ACTIVE
+// while refusing (a halt lifted out of band) - which is how `noem session
+// resume` could exit 0 for a session that cannot accept turns.
+// ---------------------------------------------------------------------------
+
+test("a turn refused by the stale configuration seal is named, not left as kernel jargon", async () => {
+  const client = new FakeClient();
+  client.beginTurnError = new Error("configuration correction epochs changed after seal");
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("carry on");
+
+  const text = transcript(controller);
+  assert.match(text, /sealed configuration predates a correction/);
+  assert.match(text, /start a new one/);
+  // The kernel's own refusal is still reported verbatim (never replaced).
+  assert.match(controller.lastError ?? "", /configuration correction epochs changed after seal/);
+});
+
+test("a halted session refuses the turn without reporting a successful empty turn", async () => {
+  const client = new FakeClient();
+  client.getSession = async () => snapshot({ status: "CORRECTION_HALTED" });
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  (controller as never as { snapshot: unknown }).snapshot = snapshot({
+    status: "CORRECTION_HALTED",
+  });
+  await controller.submit("carry on");
+  assert.deepEqual(client.beginTexts, [], "no turn may be sent to a halted session");
+  assert.match(transcript(controller), /CORRECTION_HALTED/);
+  // Nothing ran: a caller (headless) must be able to tell that from success.
+  assert.match(controller.lastError ?? "", /CORRECTION_HALTED; the turn was not sent/);
 });

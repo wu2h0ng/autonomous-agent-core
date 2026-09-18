@@ -6,13 +6,14 @@
  */
 import { SurfaceClient, SurfaceHttpError } from "./client.js";
 import { loadRuntimeDescriptor } from "./descriptor.js";
+import { openDurableTurnIds } from "./turns.js";
 
 export interface SessionCommandOptions {
   descriptorPath?: string | undefined;
   args: string[];
 }
 
-const SUBCOMMANDS = new Set(["show", "pause", "resume", "correct"]);
+const SUBCOMMANDS = new Set(["show", "pause", "resume", "correct", "recover"]);
 
 /** Bounded refresh-and-resend budget for a stale-cursor rejection. */
 const CONTROL_RETRY_LIMIT = 2;
@@ -98,6 +99,79 @@ function reasonFrom(args: readonly string[]): string {
   return kept.join(" ").trim();
 }
 
+/**
+ * `noem session recover <session-id> <why the runtime died>`.
+ *
+ * Declares the session's open durable turn dead — the runtime that started it
+ * is gone, so nothing will ever complete it and every later turn is refused.
+ * The turn id is read from durable truth (the operator does not have to know
+ * it), and the kernel records the closure as `unknown_requires_review` with the
+ * operator's reason.
+ *
+ * Exit codes follow the same rule as `resume`: 0 only when the session really
+ * is usable afterwards (no uncommitted turn left). Nothing to recover is not a
+ * failure, but it is never reported as a repair either — the message says so.
+ */
+async function runRecover(
+  client: SurfaceClient,
+  sessionId: string,
+  reason: string,
+): Promise<number> {
+  if (!reason.trim()) {
+    process.stderr.write(
+      "usage: noem session recover <session-id> <why the runtime died>\n" +
+        "the reason is durable evidence of the operator's declaration\n",
+    );
+    return 1;
+  }
+  const snapshot = await client.getSession(sessionId);
+  const before = await client.events(snapshot.session.task_id, 0);
+  const open = openDurableTurnIds(before.events);
+  if (open.length === 0) {
+    process.stdout.write(
+      `${JSON.stringify({ session_id: sessionId, status: snapshot.status, recovered: false }, null, 2)}\n`,
+    );
+    process.stderr.write(
+      "noem session recover: this session has no uncommitted turn — nothing to recover\n",
+    );
+    return 0;
+  }
+  if (open.length > 1) {
+    process.stderr.write(
+      `noem session recover: ${open.length} uncommitted turns (${open.join(", ")}) — one turn per session is the invariant; this needs a human, not a guess\n`,
+    );
+    return 1;
+  }
+  const recovery = await client.recoverTurn(sessionId, open[0] as string, reason.trim());
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        session_id: sessionId,
+        status: recovery.snapshot.status,
+        recovered: true,
+        turn_id: recovery.recovery.turn_id,
+        stop_reason: "unknown_requires_review",
+        reason_code: recovery.recovery.reason_code,
+        owner_runtime_boot_id: recovery.recovery.owner_runtime_boot_id,
+        declared_by: recovery.recovery.declared_by,
+        notice: recovery.notice,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // Never claim success for a session that is still not usable: re-read the
+  // durable turn state and answer on it, not on the response we were handed.
+  const after = await client.events(recovery.snapshot.session.task_id, 0);
+  if (openDurableTurnIds(after.events).length > 0) {
+    process.stderr.write(
+      "noem session recover: the kernel still reports an uncommitted turn — the session is not usable\n",
+    );
+    return 1;
+  }
+  return 0;
+}
+
 export async function runSessionCommand(
   options: SessionCommandOptions,
 ): Promise<number> {
@@ -106,7 +180,7 @@ export async function runSessionCommand(
   const reason = reasonFrom(options.args.slice(2));
   if (!SUBCOMMANDS.has(sub)) {
     process.stderr.write(
-      `noem: unknown session subcommand ${sub} (show | pause | resume | correct)\n`,
+      `noem: unknown session subcommand ${sub} (show | pause | resume | correct | recover)\n`,
     );
     return 1;
   }
@@ -116,9 +190,22 @@ export async function runSessionCommand(
     );
     return 1;
   }
+  // The operator's declaration is the point of `recover`, so it is required
+  // before anything is read or sent — a missing reason must not reach the
+  // daemon (or the default descriptor on disk).
+  if (sub === "recover" && !reason.trim()) {
+    process.stderr.write(
+      "usage: noem session recover <session-id> <why the runtime died>\n" +
+        "the reason is durable evidence of the operator's declaration\n",
+    );
+    return 1;
+  }
   try {
     const descriptor = await loadRuntimeDescriptor(options.descriptorPath);
     const client = new SurfaceClient(descriptor);
+    if (sub === "recover") {
+      return await runRecover(client, sessionId, reason);
+    }
     if (sub === "show") {
       const snapshot = await client.getSession(sessionId);
       process.stdout.write(

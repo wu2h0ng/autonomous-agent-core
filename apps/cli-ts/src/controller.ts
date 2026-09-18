@@ -18,10 +18,12 @@ import { SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
+import { latestDeadTurnClosure, openDurableTurnIds } from "./turns.js";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type {
   PermissionMode,
+  RecoveredUnknownTurn,
   SurfaceFileEntry,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
@@ -76,6 +78,34 @@ export const HALT_NOTICE =
   "(restart noem) and use /resume only to look at this one.";
 
 /**
+ * The kernel's seal refusal, named.
+ *
+ * A correction advances the correction epochs; the session's configuration was
+ * sealed against the ORIGINAL epochs, so the seal check
+ * (`task_configuration._require_original_correction_epochs`) refuses every turn
+ * from then on with the bare internal string
+ * "configuration correction epochs changed after seal". Lifting the halt out of
+ * band (`POST /v1/tasks/{id}/correction/resume`) flips the kernel's status back
+ * to ACTIVE while this check still refuses — measured 2026-09-19 on a real
+ * daemon: `noem session show` says ACTIVE, the turn fails with that string, and
+ * `noem session resume` exits 0 because the status is ACTIVE. Nothing in the
+ * terminal re-seals a corrected configuration (the seal exists to refuse
+ * exactly that), so the only continuation is a new session.
+ */
+export const SEALED_CONFIGURATION_NOTICE =
+  "this session's sealed configuration predates a correction, so the kernel " +
+  "refuses every turn in it (its own words: \"configuration correction epochs " +
+  "changed after seal\"). Re-sealing a corrected configuration is exactly what " +
+  "the seal forbids, so no command here restores this session: start a new one " +
+  "(restart noem) and use /resume to read this one.";
+
+/** Whether a rejection is the kernel's stale-configuration-seal refusal. */
+export function isSealedConfigurationRefusal(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.includes("configuration correction epochs changed after seal");
+}
+
+/**
  * What the operator can actually DO about a stall.
  *
  * It used to say "try /retry": while the controller is stalled,
@@ -90,6 +120,65 @@ export const HALT_NOTICE =
 export const STALL_ADVICE =
   "press Esc to leave the stalled state (a correction; the queued message runs " +
   "once the stall clears), or check /status — /retry only queues here";
+
+/** Durable truth about a turn this session cannot finish: `SESSION_TURN_STARTED`
+ * without its `SESSION_TURN_COMPLETED`.
+ *
+ * The runtime that started the turn is gone (killed, crashed, restarted), so
+ * its provider call died with it and nothing will ever complete the turn — and
+ * an uncommitted turn refuses every later turn in the session. Only the
+ * operator can close it: the kernel deliberately will not close a turn its own
+ * runtime still owns (that would kill a live turn), and closing it is a
+ * declaration about an outcome nobody observed, so it is an operator decision
+ * recorded durably, never an automatic one. */
+export function deadTurnNotice(turnId: string): string {
+  return (
+    `uncommitted turn ${turnId}: the runtime that started it never finished it ` +
+    `(its process is gone), so this session refuses every further turn and ` +
+    `reports no reason for it. If that runtime is really gone, say so — /recover ` +
+    `<why it died>. The turn is then closed as unknown_requires_review (not a ` +
+    `success: its outcome was never observed), with your reason recorded durably.`
+  );
+}
+
+/** What the durable record says about a turn that was closed by /recover.
+ *
+ * Rendered from the event payload, so reattaching to the session shows it
+ * again: the notice is the durable record, not a session-memory line. */
+export function deadTurnClosureNotice(block: {
+  turn_id: string;
+  reason: string;
+  declared_by: string;
+  declared_at: string;
+  owner_runtime_boot_id?: string | null | undefined;
+  owner_runtime_pid?: number | null | undefined;
+  recovered_by_runtime_boot_id: string;
+  recovered_by_runtime_pid: number;
+  counters_recorded?: boolean | undefined;
+}): string {
+  const owner = block.owner_runtime_boot_id
+    ? `${block.owner_runtime_boot_id}${block.owner_runtime_pid ? ` (pid ${block.owner_runtime_pid})` : ""}`
+    : "a runtime that recorded no generation";
+  const counters = block.counters_recorded
+    ? "its recorded counters survived"
+    : "its step and token counts were never recorded";
+  return (
+    `turn ${block.turn_id} was closed as an unknown outcome: it was started by ` +
+    `${owner} and closed by ${block.recovered_by_runtime_boot_id} ` +
+    `(pid ${block.recovered_by_runtime_pid}) after that runtime was gone. ` +
+    `Durable stop_reason is unknown_requires_review — not a successful ` +
+    `completion — and ${counters}. Declared dead by ${block.declared_by} at ` +
+    `${block.declared_at}: ${block.reason}`
+  );
+}
+
+/** Whether a rejection is the kernel refusing a turn because the session still
+ * has an uncommitted one (`surface_runtime.SurfaceTurnInProgress`, a 409: the
+ * request conflicts with durable session state; it is not a stale cursor). */
+export function isUncommittedTurnRefusal(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.includes("still uncommitted for this session");
+}
 
 export type ControllerStatus =
   | "idle"
@@ -547,6 +636,9 @@ export class TuiController {
       case "/retry":
         await this.retryCommand();
         return true;
+      case "/recover":
+        await this.recoverCommand(rest.join(" ").trim());
+        return true;
       case "/find":
         this.findCommand(rest.join(" ").trim());
         return true;
@@ -813,6 +905,104 @@ export class TuiController {
     await this.enqueueOrRun(this.lastUserText);
   }
 
+  /** `/recover <why the runtime died>` — declare this session's open durable
+   * turn dead, so the session can be used again.
+   *
+   * The operator makes the decision and states the reason; the client only
+   * names the exact turn (read from durable truth, never remembered) and
+   * carries the declaration. The kernel refuses a turn its own runtime still
+   * owns, so a live turn is never closed from under itself.
+   */
+  private async recoverCommand(reason: string): Promise<void> {
+    if (!this.sessionId || !this.taskId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    if (!reason) {
+      this.push({
+        role: "system",
+        content:
+          "usage: /recover <why the runtime died> — the reason is recorded durably " +
+          "as the operator's declaration; it closes the turn as " +
+          "unknown_requires_review (never as a success)",
+      });
+      return;
+    }
+    let openTurnIds: string[];
+    try {
+      openTurnIds = await this.openDurableTurnIds();
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `recover failed: durable turn state could not be read (${(cause as Error).message})`,
+      });
+      return;
+    }
+    if (openTurnIds.length === 0) {
+      this.push({
+        role: "system",
+        content: "no uncommitted turn in this session: nothing to recover",
+      });
+      return;
+    }
+    if (openTurnIds.length > 1) {
+      // More than one open turn means durable truth is not the shape this
+      // session is supposed to have; closing the wrong one would be a guess.
+      this.push({
+        role: "system",
+        content: `recover refused: ${openTurnIds.length} uncommitted turns (${openTurnIds.join(", ")}) — one turn per session is the invariant, so this needs a human, not a guess`,
+      });
+      return;
+    }
+    try {
+      const recovery = await this.controlWithRetry(this.sessionId, () =>
+        this.client.recoverTurn(this.sessionId as string, openTurnIds[0] as string, reason),
+      );
+      this.adoptSnapshot(recovery.snapshot);
+      this.push({ role: "system", content: deadTurnClosureNotice(recovery.recovery) });
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `recover failed: ${(cause as Error).message}`,
+      });
+    }
+    this.emit();
+  }
+
+  /** The session's open durable turns: `SESSION_TURN_STARTED` minus
+   * `SESSION_TURN_COMPLETED`, read from the durable event stream. */
+  private async openDurableTurnIds(): Promise<string[]> {
+    return openDurableTurnIds(await this.durableTasks());
+  }
+
+  private async durableTasks(): Promise<readonly TaskEvent[]> {
+    if (!this.taskId) return [];
+    const batch = await this.client.events(this.taskId, 0);
+    return batch.events;
+  }
+
+  /** Report, from durable truth alone, what a reattach must not hide: a turn
+   * that can never finish (naming the way out), and the newest dead turn the
+   * operator already closed (what happened to it). Both live in the event
+   * stream, so they survive a restart and re-render on every attach. */
+  private async reportUncommittedTurn(): Promise<void> {
+    if (!this.taskId) return;
+    let events: readonly TaskEvent[];
+    try {
+      events = await this.durableTasks();
+    } catch {
+      return; // an unreadable stream is reported by the caller's own path
+    }
+    const closed = latestDeadTurnClosure(events);
+    if (closed) {
+      this.push({ role: "system", content: deadTurnClosureNotice(closed) });
+    }
+    const open = openDurableTurnIds(events);
+    if (open.length > 0) {
+      this.push({ role: "system", content: deadTurnNotice(open[0] as string) });
+    }
+  }
+
   /** `/edit` — load the last operator message into the composer for editing. */
   private editCommand(): void {
     if (!this.lastUserText) {
@@ -968,6 +1158,11 @@ export class TuiController {
       role: "system",
       content: `resumed session ${snapshot.session.session_id} (status ${snapshot.status}, mode ${snapshot.permission_mode})`,
     });
+    // A reattach must not hide a turn that can never finish (the runtime that
+    // owned it is gone) — the status line says ACTIVE, which is exactly the
+    // state that used to leave the operator with no way out.
+    await this.reportUncommittedTurn();
+    this.emit();
   }
 
   /** Bounded workspace file list, fetched once per session and cached for
@@ -1211,6 +1406,10 @@ export class TuiController {
         const fresh = await this.client.getSession(sessionId);
         this.snapshot = fresh;
         if (fresh.status === "CORRECTION_HALTED") {
+          // The turn is never sent, so this is not a successful empty turn:
+          // name it as the refusal it is (headless must not exit 0 for a turn
+          // that did not happen).
+          this.lastError = "the session is CORRECTION_HALTED; the turn was not sent";
           this.push({ role: "system", content: HALT_NOTICE });
           this.emit();
           return;
@@ -1276,6 +1475,19 @@ export class TuiController {
           } catch {
             /* the turn error above stays the reported one */
           }
+        }
+        // A turn refused for an uncommitted turn is the one rejection the
+        // operator cannot act on from the kernel's message alone: name the
+        // exact turn and the only route that closes it. Read from durable
+        // truth, never from the error text.
+        if (isUncommittedTurnRefusal(cause)) {
+          await this.reportUncommittedTurn();
+        }
+        // Same for the stale configuration seal: the kernel's string names no
+        // cause and no route, and the session can look ACTIVE while it refuses
+        // every turn (a halt lifted out of band).
+        if (isSealedConfigurationRefusal(cause)) {
+          this.push({ role: "system", content: SEALED_CONFIGURATION_NOTICE });
         }
       }
       this.emit();

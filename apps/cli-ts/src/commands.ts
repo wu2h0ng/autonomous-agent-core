@@ -78,6 +78,12 @@ export const COMMANDS: readonly CommandSpec[] = [
     description: "re-submit the last message as a fresh turn",
   },
   {
+    name: "/recover",
+    argsHint: "<why the runtime died>",
+    description:
+      "close this session's dead uncommitted turn (its runtime is gone; recorded as unknown_requires_review, never a success)",
+  },
+  {
     name: "/edit",
     argsHint: "",
     description: "load the last message into the composer for editing",
