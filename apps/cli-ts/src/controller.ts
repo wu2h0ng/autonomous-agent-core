@@ -1488,10 +1488,39 @@ export class TuiController {
     this.push({ role: "system", content: `${disposition}: ${pending.capability_id}` });
     if (turn.text.trim()) this.push({ role: "assistant", content: turn.text });
     if (turn.total_tokens > 0) this.tokensTotal += turn.total_tokens;
+    if (disposition === "REJECT") {
+      // The model is told the operator refused, but the card kept rendering its
+      // pending state forever - on the surface the operator is looking at when
+      // they press n. Rejecting is a resolution, so the card has to show one.
+      this.resolveRejectedCard(pending.capability_id);
+    }
     this.status = "idle";
     this.pendingPreview = null;
     this.finalizeAll();
     this.maybeDrain();
+  }
+
+  /** The newest still-pending card for this capability, marked as rejected.
+   *
+   * Keyed by capability rather than by action id because the pending approval
+   * carries a digest, not the id the card was created with; the newest pending
+   * card for that capability is the one being decided. */
+  private resolveRejectedCard(capabilityId: string): void {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+      const tool = message?.tool;
+      if (message === undefined || tool === undefined) continue;
+      if (tool.capabilityId !== capabilityId) continue;
+      if (tool.status !== "pending") continue;
+      message.tool = {
+        ...tool,
+        status: "failed",
+        errorText: "rejected by the operator",
+        resultSummary: "rejected by the operator",
+      };
+      this.emit();
+      return;
+    }
   }
 
   /** Ctrl-C semantics: correction during activity, close when idle.

@@ -1305,3 +1305,63 @@ test("a tool call that sealed nothing converges to failed, not pending (round-3 
   ]);
   assert.equal(controller.messages[0]?.tool?.resultSummary, summary);
 });
+
+test("a rejected approval resolves the card instead of leaving it pending", async () => {
+  // Rejecting is a resolution: the operator pressed n and the card kept showing
+  // its pending state, on the surface they were looking at (round-3 audit).
+  const client = new FakeClient();
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"fixture.txt"}')]);
+  const internals = controller as never as {
+    status: string;
+    sessionId: string | null;
+  };
+  internals.status = "awaiting_approval";
+  internals.sessionId = "s:1";
+
+  await controller.reject();
+
+  const tool = controller.messages[0]?.tool;
+  assert.equal(tool?.status, "failed");
+  assert.equal(tool?.errorText, "rejected by the operator");
+  assert.ok(
+    controller.messages.some((message) =>
+      message.content.includes("REJECT: workspace.edit"),
+    ),
+    "the transcript must still name what was rejected",
+  );
+  const rendered = renderTranscript(controller.messages, {
+    sessionId: "s:1",
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(rendered, /rejected by the operator/);
+});
+
+test("approving does not mark the card rejected", async () => {
+  // The other direction: an approval leaves the card to the durable events
+  // (receipt + NODE_COMPLETED), which is where its outcome belongs.
+  const client = new FakeClient();
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"fixture.txt"}')]);
+  const internals = controller as never as {
+    status: string;
+    sessionId: string | null;
+  };
+  internals.status = "awaiting_approval";
+  internals.sessionId = "s:1";
+
+  await controller.approve();
+
+  assert.equal(controller.messages[0]?.tool?.status, "pending");
+  assert.ok(
+    controller.messages.some((message) =>
+      message.content.includes("APPROVE: workspace.edit"),
+    ),
+  );
+});
