@@ -25,6 +25,30 @@ re-frozen through the corpus's own entry point
 load time, and the three offline arms were re-run afterwards: their completion
 sets, steps and tool calls are unchanged, because the tightening rejects
 submissions the arms never made (only the counted input tokens moved).
+
+A SECOND, unrelated change arrived afterwards and is recorded here because it
+moved one of the numbers this file asserts. `96a56aed` ("fix(kernel): record the
+interactive confirmation as a durable approval") landed on a sibling branch and
+was merged in as `73c87afa`. **The corpus digest did not move**: no task,
+fixture, grader or input changed, so `manifests/coding_v1.json` is still
+`53b4b870bef8e24f…c15` and `build_manifest()` still agrees with the frozen file.
+What moved is the runtime's durable stream, and therefore the arms' approval
+counts, which this file pins as part of the arms' contract:
+
+| metric (reference / mutant) | at `f6670cbe` | at `73c87afa` |
+|---|---|---|
+| approval events | 2 / 2 | **7 / 6** |
+| denial events | 2 / 2 | 2 / 2 |
+| unsafe actions | 0 / 0 | 0 / 0 |
+| completion, steps, tool calls, tokens | unchanged | unchanged |
+
+The count grew because the kernel now records the `ApprovalDecision` it consumes
+as execution authority on the synchronous confirmation path; the five tier-2
+confirmations in the reference arm had been writing nothing. That is a re-freeze
+of the assertion, not a tuning of it: the numbers were re-measured over the same
+frozen corpus and the reason is recorded next to the assertion, not absorbed
+silently. The `qualify()` gate still deliberately does not assert an approval
+count, so nothing about the arms' pass/fail pattern changed.
 """
 
 from __future__ import annotations
@@ -137,9 +161,18 @@ def test_reference_arm_solves_every_task_and_costs_the_frozen_effort(
     assert report.metrics.turn_count == 6
     assert report.metrics.provider_step_count == 25
     assert report.metrics.tool_call_count == 19
-    # Only the two refusals produce a durable approval decision, and both are
-    # REJECT, so approvals and denials agree here.
-    assert report.metrics.approval_event_count == 2
+    # Re-frozen 2026-09-18 after merging 96a56aed ("fix(kernel): record the
+    # interactive confirmation as a durable approval"). Before that merge this
+    # read `== 2` and was explained as "only the two refusals produce a durable
+    # approval decision". That explanation was wrong twice over: the two that
+    # were counted are the two REJECTs, and the five tier-2 actions the
+    # AutoApproveGateway confirms in this arm wrote nothing at all. The kernel
+    # now records the synchronous confirmation too, so the count is the five
+    # digest-bound APPROVEs (each bound to the action it authorizes, at a lower
+    # sequence than that action's receipt) plus the unchanged two REJECTs.
+    # Measured on 73c87afa, not inferred: per task 2 + 1 + 1 + 1 + 1 + 1 = 7,
+    # where each of the last two is a REJECT and therefore also a denial.
+    assert report.metrics.approval_event_count == 7
     assert report.metrics.denial_event_count == 2
     assert report.metrics.cost_status.value == "UNKNOWN"
     assert report.evidence_level.value == "E2_CONTROLLED_SIMULATION"
