@@ -94,11 +94,16 @@ class FakeClient {
       key_source: "env",
     };
   }
+  /** Explicit durable status for `getSession`, when the test needs the session
+   * to be something other than ACTIVE/WAITING_APPROVAL (e.g. PAUSED after a
+   * stop). Null keeps the approval-derived default. */
+  sessionStatus: SurfaceSessionSnapshot["status"] | null = null;
   async getSession() {
     this.getSessionCalls += 1;
     return snapshot({
       event_sequence: this.snapshotSequence,
-      status: this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE",
+      status:
+        this.sessionStatus ?? (this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE"),
       ...(this.approvalPending
         ? {
             pending_approval: {
@@ -1750,4 +1755,183 @@ test("a stale-cursor stop is retried from a fresh read, with one idempotency key
     controller.messages.map((m) => m.content).join("\n"),
     /stop applied: session status PAUSED/,
   );
+});
+
+/** The other half of the stop: PR #77's stop leaves the Run PAUSED, and the
+ * kernel then refuses every new turn until it is resumed, so a TUI that could
+ * only attach (GET) left the operator in a state the terminal could not get out
+ * of. `/resume` must therefore drive the REAL resume endpoint — the same one
+ * `noem session resume <session-id>` sends — and report only what the kernel
+ * reads back. */
+
+test("/resume un-pauses a kernel-reported PAUSED session through the real endpoint", async () => {
+  const client = new FakeClient();
+  client.sessionStatus = "PAUSED";
+  // `correct()` answers with the kernel's post-resume snapshot.
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:1");
+
+  // 1. The real governed command, not a local flag: POST /v1/surface/sessions/
+  //    {id}/resume (client.correct maps action "resume" onto that route).
+  assert.equal(client.correctCalls.length, 1, "exactly one resume command");
+  assert.equal(client.correctCalls[0]?.action, "resume");
+  assert.equal(client.correctCalls[0]?.sessionId, "s:1");
+  assert.match(client.correctCalls[0]?.reason ?? "", /operator resume/);
+
+  const said = (): string => controller.messages.map((m) => m.content).join("\n");
+  // 2. It said what it was doing BEFORE doing it, naming the real endpoint.
+  assert.match(said(), /the kernel reports this Run PAUSED — resuming it/);
+  assert.match(said(), /POST \/v1\/surface\/sessions\/\{id\}\/resume/);
+  // 3. The status rendered is the kernel's own returned snapshot, verbatim.
+  assert.match(said(), /resume applied: session status CORRECTION_HALTED/);
+  assert.match(said(), /read back from the kernel/);
+  assert.doesNotMatch(said(), /resume FAILED/);
+});
+
+test("/resume sends no resume for a session the kernel does not report PAUSED", async () => {
+  // A blind resume would append a durable RUN_RESUMED to a session that was
+  // never paused — a durable claim about a transition that did not happen.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:1");
+
+  assert.equal(client.correctCalls.length, 0, "nothing to un-pause: nothing may be sent");
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /resumed session s:1 \(status ACTIVE, mode ASK\)/);
+  assert.doesNotMatch(said, /resuming it/);
+});
+
+test("a resume the kernel rejects is reported typed and never as a resume", async () => {
+  const rejections: Array<[SurfaceHttpError, RegExp]> = [
+    [
+      new SurfaceHttpError(409, "cannot move run from SUCCEEDED to RUNNING"),
+      /HTTP 409: cannot move run from SUCCEEDED to RUNNING — the resume was NOT applied; the run is SUCCEEDED \(a terminal run has nothing left to resume/,
+    ],
+    [
+      new SurfaceHttpError(
+        409,
+        "UNKNOWN_REQUIRES_REVIEW requires explicit reconciliation",
+      ),
+      /the resume was NOT applied \(this pause is a reconciliation hold, not an operator stop/,
+    ],
+    [
+      new SurfaceHttpError(403, "surface principal is outside this session scope"),
+      /HTTP 403.*the resume was NOT applied \(this client is outside the session's scope\)/,
+    ],
+    [
+      new SurfaceHttpError(
+        409,
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+      ),
+      /HTTP 409.*the resume was NOT applied \(a stale event cursor survived the bounded refresh-and-resend\)/,
+    ],
+    [
+      new SurfaceHttpError(503, "ConcurrentWriteError: optimistic append conflict"),
+      /HTTP 503: ConcurrentWriteError: optimistic append conflict — the resume was NOT applied/,
+    ],
+  ];
+
+  for (const [error, expected] of rejections) {
+    class RejectingClient extends FakeClient {
+      async correct(): Promise<never> {
+        throw error;
+      }
+    }
+    const client = new RejectingClient();
+    client.sessionStatus = "PAUSED";
+    const controller = new TuiController(client as never, {
+      pollMs: 1,
+      sequenceRetryDelayMs: 1,
+    });
+
+    await controller.submit("/resume s:1");
+
+    const said = controller.messages.map((m) => m.content).join("\n");
+    assert.match(said, /resume FAILED — /, `the rejection must be visible: ${said}`);
+    assert.match(said, expected);
+    assert.doesNotMatch(said, /resume applied/, "a rejected resume must never render as applied");
+  }
+});
+
+test("a resume the kernel answers while still PAUSED is not rendered as resumed", async () => {
+  // The endpoint can answer 200 with a snapshot whose status is PAUSED (the
+  // transition is idempotent under a reused key). Claiming success from the
+  // HTTP status alone would be exactly the optimistic guess this must not do.
+  class StillPausedClient extends FakeClient {
+    async correct() {
+      return snapshot({ status: "PAUSED" });
+    }
+  }
+  const client = new StillPausedClient();
+  client.sessionStatus = "PAUSED";
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:1");
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /the kernel still reports PAUSED — the session is STILL PAUSED/);
+  assert.doesNotMatch(said, /new turns are accepted again/);
+});
+
+test("an attach that fails is visible and sends no resume", async () => {
+  class UnreadableClient extends FakeClient {
+    async getSession(): Promise<never> {
+      throw new SurfaceHttpError(404, "unknown_session");
+    }
+  }
+  const client = new UnreadableClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:missing");
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /cannot attach to s:missing \(HTTP 404: unknown_session\)/);
+  assert.match(said, /nothing was attached and no resume was sent/);
+  assert.equal(client.correctCalls.length, 0, "no resume for a session that could not be read");
+});
+
+test("a turn refused because the Run is PAUSED names the way out", async () => {
+  // The dead end the operator actually hits: they type a message instead of a
+  // command. The kernel's refusal is honest but not actionable on its own.
+  class PausedTurnClient extends FakeClient {
+    async beginTurn(): Promise<never> {
+      throw new SurfaceHttpError(
+        409,
+        "run_turn requires a runnable Run; a PAUSED or terminal Run must be resumed first",
+      );
+    }
+  }
+  const client = new PausedTurnClient();
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+  await controller.submit("/resume s:1");
+
+  await controller.submit("carry on");
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /the turn was refused: run_turn requires a runnable Run/);
+  assert.match(said, /resume this session with `\/resume s:1`/);
+});
+
+test("the post-stop line tells the operator to resume from this terminal", async () => {
+  const client = new FakeClient();
+  client.correctStatus = "PAUSED";
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+
+  const turn = controller.submit("do the thing");
+  await settled();
+  assert.equal(await controller.stopTurn(), "stopped");
+  client.completedTokens = 7;
+  client.completedStopReason = "stopped_by_operator";
+  await turn;
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /the session is PAUSED/);
+  // The in-terminal command, in the exact form the operator can type next...
+  assert.match(said, /resume it here with `\/resume s:1`/);
+  // ...and the shell equivalent is still named, so a script or another
+  // terminal is not left guessing either.
+  assert.match(said, /`noem session resume s:1` from a shell/);
 });

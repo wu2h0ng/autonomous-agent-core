@@ -41,6 +41,7 @@
     "check:entry": "uv run python scripts/pty_entry_check.py",
     "check:search": "uv run python scripts/pty_search_check.py",
     "check:stop": "uv run python scripts/pty_stop_key_check.py",
+    "check:resume": "uv run python scripts/pty_resume_check.py",
     "check:deny": "uv run python scripts/pty_deny_frame_check.py",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
