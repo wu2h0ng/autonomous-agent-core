@@ -197,7 +197,7 @@
 | 有未解 UNKNOWN 时能回吗 | **不存在** | **不能**，且必须给出 typed 原因与"先和解"的指示（§5） |
 | 回退之后怎么继续 | **不存在** | 走既有路径（`RUN_RESUMED` + 新的审批/permit），**不复用**旧审批票据 |
 | 失败了怎么办 | **不存在** | restore 半途失败必须留下可审计的部分结果与 `manual_intervention_required` 标记（沿 F10 的形状），绝不静默 |
-| 成本 | 只有活动会话 token 累计（`docs/CURRENT_STATE.yaml:52`/既有 GC 记录）；资金成本恒 `UNKNOWN` | checkpoint 存储占用必须可量化（文件数 + 字节），金额允许继续 `UNKNOWN`，**不得伪零** |
+| 成本 | `/cost` 卡片只给**会话累计 token**（原文 "exact, cumulative session usage"），资金成本恒 `UNKNOWN (no pricing source)`，context window "not provided by the provider"（`apps/cli-ts/src/controller.ts:545-557`） | checkpoint 存储占用必须可量化（文件数 + 字节），金额允许继续 `UNKNOWN`，**不得伪零** |
 
 **判断**：A 形态第一版可以让"看见 checkpoint"可达（P0-a，零风险），但**"回到某个 checkpoint"在没有 §6 的 P0-b/P0-c 之前不可达**——因为打断与恢复的语义今天是破的。**P0 是本线的前置，不是收尾。**
 
@@ -206,7 +206,7 @@
 | # | 威胁 | 现有防线 | 缺口 / 需要的观测 |
 |---|---|---|---|
 | T1 | **restore 成为绕过 UNKNOWN 的旁路** | `RUN_PAUSED.unknown_action` + `update_run_status` 的硬拒绝（F12） | 没有"restore 也必须过同一道门"的判据；需要"先 restore 再 resume"被拒的对抗用例（G3） |
-| T2 | **restore 成为第二派发路径** | `CapabilityBroker.invoke` 唯一路径（F13 所依赖）；`workspace.compensate_patch` 已被 pipeline/execution 两处挡在模型之外（F9） | 需要计数探针 + 实现 diff 双证（G2）；历史上出现过派发路径分叉（见 §14） |
+| T2 | **restore 成为第二派发路径** | `CapabilityBroker.invoke` 是唯一派发路径（`capability.py:132-227`，§8 第 1 条）；`workspace.compensate_patch` 已被 pipeline/execution 两处挡在模型之外（F9） | 需要计数探针 + 实现 diff 双证（G2）；历史上出现过派发路径分叉（见 §14） |
 | T3 | **审计被写成"没发生过"** | append-only + 序列 CAS（F5）、零删除代码（F6）、受保护事件只允许 typed 写者（F4） | 需要"restore 前后既有事件集合逐字节相同"的断言（G5） |
 | T4 | **restore 覆盖了别人的写入** | 补偿前校验 `applied_sha256`/`before_sha256` 与当前内容（F9）；`apply_patch` 的 `overwrite_guard` 披露机制 | 需要"目标在 checkpoint 之后被第三方改动 → restore 必须拒绝而不是覆盖"的用例（G6）；跨主体（多会话/多进程）未测 |
 | T5 | **checkpoint 泄露工作区内容** | 会话列表投影刻意排除内容/token/凭证（F23） | checkpoint 清单若携带路径/内容摘要会引入新泄露面；需要"不出现绝对路径、不出现文件内容"的扫描断言（G10） |
@@ -287,11 +287,11 @@
 
 ## 14. 负面地图与先例（写 gates 时已吸收的教训）
 
-1. **`docs/CURRENT_STATE.yaml:52`（round-2 失败路径修复）**：UNKNOWN 回合曾**挂死 150 秒无完成**，修复后 0 秒并以真实 stop reason 结束；且修复明确保持"no seal / Run stays PAUSED / resume still refused / one dispatch only"。→ G1/G3 不接受"大概会结束"的断言，只接受可机读判据。
+1. **`docs/CURRENT_STATE.yaml:50`（round-2 失败路径修复）**：UNKNOWN 回合曾**挂死 150 秒无完成**（原文 "measured 150s-with-no-completion -> 0s with a truthful stop reason"）；且修复明确保持"no seal / Run stays PAUSED / resume still refused / one dispatch only"。→ G1/G3 不接受"大概会结束"的断言，只接受可机读判据。
 2. **`docs/CURRENT_STATE.yaml:51`（round-3）**：`noem session correct|pause|resume` **此前完全不能用**（fresh 进程把 `expected_event_sequence` 从 0 发出，9/9 全部 409）；TUI 的 correction 刷新与 POST **不原子**（6 次 Esc 有 3 次 409）。→ 任何新的操作者控制路径必须带"读-改-写"竞态与重试语义，且必须能区分"没送达"与"没生效"（G1/G4）。
 3. **`docs/CURRENT_STATE.yaml:49`（tool-failure 审计）**：曾把 `ReceiptStatus` 当成"目标是否达成"来用，被 11 个测试证伪并回退——收据见证的是 **dispatch 是否执行、效果是否已知**，目标判定另算。→ 本文件 §3 的 D-D 与 §4 第 2 条沿用同一条纪律，**不使用 receipt 表达"回去了"**。
-4. **`docs/CURRENT_STATE.yaml:51`（同一条）**：读码推断与实测被混淆过一次（`_truncate_json` 的"证据"被上游 `canonical_output` 排序打败）。→ 本文件把 F14/F15 明确标为读码推断并列 G1，不写成已复现缺陷。
-5. **派发路径分叉的历史**：`GC-REALTIME-COLLAB-NATIVE-SURFACE-2026-08-14` 中第二条 pre-write 权威入口被 ADR-0059 判定为不可接受。→ G2 不接受"路径不同但都能执行"的解释。
+4. **`docs/CURRENT_STATE.yaml:49`**：读码推断与实测被混淆过一次——`_truncate_json` 的"证据"被上游 `canonical_output` 的键排序打败，原因与计数被截断。→ 本文件把 F14/F15 明确标为读码推断并列 G1，不写成已复现缺陷。
+5. **派发路径分叉的历史**：旧 M1 的 `CollaborativeCapabilityBroker.invoke(...)` 与 ADR-0059 的唯一 spine 签名分叉，形成"第二个 pre-write 权威入口"，被明确判为 bypass 风险（`docs/product/GC-REALTIME-COLLAB-NATIVE-SURFACE-2026-08-14.md:38-41`；`docs/adr/ADR-0059-merged-capability-execution-authority.md:17` 原文 "two execution paths for one spine — a bypass risk"）。→ G2 不接受"路径不同但都能执行"的解释。
 6. **`workspace.compensate_patch` 的形状**：它是本仓已有的、"回退一个外部效果"的**正确答案**——被治理、coordinator-only、有独立记录、有 BLOCKED 终态、并且**明确拒绝回滚已 SUCCEEDED 的 Run**（F9/F10）。→ A 形态应复用它而不是新发明；B 形态必须解释它为何不够。
 7. **`responsibility_loop.write_checkpoint` 的形状**：CAS + fence + **显式拒绝序列回退**（F19）。→ §3 判断 3 与 G11/G12 直接沿用。
 8. **`SESSION_CONTEXT_COMPACTED` 的代价**：压缩后原始消息不再在历史里（F21），因此"回到更早的对话"在没有独立快照时不可能诚实承诺。→ §12 第 8 条。
@@ -327,7 +327,7 @@
 
 **本文件是 `specified only`**：§2 的事实全部来自**本 worktree `03ac66b5` 上的代码/契约/文档读取**（含行号），以及少量只读 git 查询（`git merge-base --is-ancestor`、`git log --all`）；**未**新增任何实现、**未**运行任何产品测试、**未**起任何 daemon、**未**触碰 `~/.agent-os/`、**未**做运行期复现。F14/F15/F21 的"卡死/不可回到更早对话"是**读码推断**，**未在本机实测**。§11 的 13 条 gates 的探针**一个都不存在**。不得据此声称"支持 checkpoint / rewind / 可中断可恢复"或任何 parity 主张。
 
-**评审边界**：`builder_id != reviewed_by` **未满足**，无独立 provider 批准（沿 `docs/CURRENT_STATE.yaml:52` 记录的同日晚间 founder 判定）。
+**评审边界**：`builder_id != reviewed_by` **未满足**，无独立 provider 批准（沿 `docs/CURRENT_STATE.yaml:52` 记录的 founder 2026-09-18 判定：评审条件已由同模型 subagent 的三轮评审满足，但该事实被显式接受而非隐藏）。
 
 ## 18. 复现命令清单（本文件事实的可核查来源）
 
