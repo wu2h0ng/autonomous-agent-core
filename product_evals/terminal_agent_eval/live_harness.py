@@ -29,6 +29,7 @@ from apps.api_server.app import AgentOSApplication
 
 from product_evals.terminal_agent_eval import EvalTask, freeze_manifest, run_eval
 from product_evals.terminal_agent_eval.models import EvalManifest, EvidenceLevel
+from product_evals.terminal_agent_eval.provider_isolation import isolated_provider_config
 
 FIXTURES: dict[str, tuple[str, str]] = {
     "e3-edit-fixture": ("fixture.txt", "stable\n"),
@@ -85,20 +86,22 @@ class _LiveExecutor:
         self._root = workspace_root
         probe_dir = workspace_root / "_probe"
         probe_dir.mkdir(parents=True, exist_ok=True)
-        probe = AgentOSApplication(
-            database=probe_dir / "agent-os.sqlite3",
-            workspace=probe_dir,
-        )
-        if not probe.provider_configured:
-            raise RuntimeError("live provider is not configured from the environment")
-        profile = probe.provider_profile
+        with isolated_provider_config(probe_dir):
+            probe = AgentOSApplication(
+                database=probe_dir / "agent-os.sqlite3",
+                workspace=probe_dir,
+            )
+            if not probe.provider_configured:
+                raise RuntimeError("live provider is not configured from the environment")
+            profile = probe.provider_profile
+            base_url = str(getattr(probe.provider, "base_url", ""))
         if profile.provider_id == "deterministic":
             raise RuntimeError("deterministic provider cannot back the E3 arm")
         self._provenance = {
             "provider_kind": "live",
             "provider_id": profile.provider_id,
             "model_id": profile.model_id,
-            "base_url": str(getattr(probe.provider, "base_url", "")),
+            "base_url": base_url,
             "profile": os.environ.get("AGENT_OS_PROVIDER_PROFILE", ""),
             "commit": os.environ.get("GIT_COMMIT", ""),
         }
@@ -113,21 +116,25 @@ class _LiveExecutor:
         if fixture is not None:
             (root / fixture[0]).write_text(fixture[1], encoding="utf-8")
 
-        app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
-        if not app.provider_configured or app.provider_profile.provider_id == "deterministic":
-            raise RuntimeError("live provider was not configured for the E3 task run")
-        session, loop = app.open_chat_session("TERMINAL-AGENT-EVAL-0 E3", AutoApproveGateway())
-        loop.run_turn(session, task.input)
+        with isolated_provider_config(root):
+            app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
+            if (
+                not app.provider_configured
+                or app.provider_profile.provider_id == "deterministic"
+            ):
+                raise RuntimeError("live provider was not configured for the E3 task run")
+            session, loop = app.open_chat_session("TERMINAL-AGENT-EVAL-0 E3", AutoApproveGateway())
+            loop.run_turn(session, task.input)
 
-        events: list[Mapping[str, Any]] = [
-            {
-                "event_type": str(getattr(event.event_type, "value", event.event_type)),
-                "sequence": event.sequence,
-                "occurred_at": str(event.occurred_at),
-                "payload": event.decoded_payload(),
-            }
-            for event in app.tasks._event_store.read(session.task_id)  # noqa: SLF001
-        ]
+            events: list[Mapping[str, Any]] = [
+                {
+                    "event_type": str(getattr(event.event_type, "value", event.event_type)),
+                    "sequence": event.sequence,
+                    "occurred_at": str(event.occurred_at),
+                    "payload": event.decoded_payload(),
+                }
+                for event in app.tasks._event_store.read(session.task_id)  # noqa: SLF001
+            ]
         verify = subprocess.run(
             list(task.verify_command), cwd=root, capture_output=True, check=False
         )
