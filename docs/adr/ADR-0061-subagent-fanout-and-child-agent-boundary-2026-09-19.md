@@ -19,7 +19,7 @@
 
 | # | 事实 | 位置 |
 |---|---|---|
-| F1 | 模型可见的能力是**硬编码 7 项**常量；其中无任何"创建会话/驱动回合"项 | `packages/os_core/src/agent_os_core/agent_loop.py:65-75` |
+| F1 | 模型可见的能力是**硬编码 7 项**常量；其中无任何"创建会话/驱动回合"项 | `packages/os_core/src/agent_os_core/agent_loop.py:65-75`（该常量就是实际下发的 `allowed_capability_ids`：`agent_loop.py:1282,1931`） |
 | F2 | 模型提议的动作以 `ActionContract` 构造，经 `ActionPipeline` 执行，使 `PolicyKernel.decide → permit → CapabilityBroker` 成为**唯一执行路径** | `agent_loop.py:193-200` |
 | F3 | developer domain pack 的 manifest 只注册 4 个能力，内核不含任何 workspace/会话语义 | `domain_packs/developer_agent/__init__.py:46-61` |
 | F4 | 每**会话**一个 in-flight turn；第二次 begin-turn 报 typed `SurfaceTurnInProgress`；无排队、无多路复用 | `packages/os_core/src/agent_os_core/surface_runtime.py:70-75,417-422` |
