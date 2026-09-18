@@ -1,8 +1,12 @@
-#!/usr/bin/env node
-/** noem entry: Ink TUI over the local runtime daemon, or headless
- * one-shot with -p/--print (frozen exit codes in headless.ts). */
-import React from "react";
-import { render } from "ink";
+#!/usr/bin/env bun
+/** noem entry: the full-screen @opentui TUI over the local runtime daemon, or
+ * headless one-shot with -p/--print (frozen exit codes in headless.ts).
+ *
+ * The view is imported LAZILY (see `mountView` below) so every view-agnostic
+ * path — --version, --help, doctor, daemon, provider, session, headless -p —
+ * runs without loading `@opentui/core`. That keeps them working on a runtime
+ * without native FFI, which is what lets the node-only test suite still drive
+ * `src/cli.tsx`. Only the interactive TUI needs a runtime that can do FFI. */
 import { SurfaceClient } from "./client.js";
 import { agentVersion } from "./version.js";
 import type { RuntimeDescriptor } from "./descriptor.js";
@@ -10,7 +14,7 @@ import { TuiController } from "./controller.js";
 import { runHeadless, type HeadlessOutputFormat } from "./headless.js";
 import { renderDoctorText, runDoctor } from "./doctor.js";
 import { loadState, saveState, stateFilePath } from "./state.js";
-import { App } from "./App.js";
+import { gitBranch } from "./git.js";
 
 // Writing to a closed pipe (e.g. `noem -p ... | head -3`) raises
 // EPIPE; mainstream CLI behavior is a quiet exit, not an unhandled throw.
@@ -27,6 +31,23 @@ function flagValue(args: string[], ...names: string[]): string | undefined {
     if (index >= 0) return args[index + 1];
   }
   return undefined;
+}
+
+/**
+ * A runtime without native FFI cannot mount the view. Say which runtime and
+ * what to do, instead of surfacing `OpenTUI native FFI is not available`.
+ * `bun:ffi` exists in every Bun; `node:ffi` only exists in Node >= 26 and still
+ * needs `--experimental-ffi`.
+ */
+function ffiUnavailableAdvice(cause: unknown): string | null {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (!message.includes("native FFI is not available")) return null;
+  return [
+    "noem: the interactive TUI needs a runtime with native FFI.",
+    `  running under: ${process.version}${process.versions.bun ? " (bun)" : " (node)"}`,
+    "  use Bun (recommended), or Node >= 26 with --experimental-ffi.",
+    "  everything else still works, e.g. `noem -p <prompt>` or `noem doctor`.",
+  ].join("\n");
 }
 
 async function main(): Promise<void> {
@@ -62,7 +83,11 @@ async function main(): Promise<void> {
   }
 
   if (args[0] === "doctor") {
-    const report = await runDoctor(descriptorPath);
+    // Probe the descriptor this client would actually attach to — including
+    // AGENT_OS_RUNTIME_DESCRIPTOR — so the report names the daemon, port and
+    // database in use instead of the default path.
+    const { defaultDaemonPaths } = await import("./daemon.js");
+    const report = await runDoctor(descriptorPath ?? defaultDaemonPaths().descriptorPath);
     process.stdout.write(renderDoctorText(report));
     process.exitCode = report.ok ? 0 : 1;
     return;
@@ -135,10 +160,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ---- interactive: the full-screen view -----------------------------------
   const statePath = stateFilePath();
   const state = loadState(statePath);
   const controller = new TuiController(client, {
-    doctor: async () => renderDoctorText(await runDoctor(descriptorPath)),
+    doctor: async () => renderDoctorText(await runDoctor(descriptorPath ?? paths.descriptorPath)),
   });
   controller.themeName = state.theme;
   controller.goal = state.goal;
@@ -173,8 +199,8 @@ async function main(): Promise<void> {
   });
   process.on("exit", persist); // last-resort synchronous flush
 
-  // Best-effort, bounded: the status bar shows provider/model when available and
-  // never blocks the TUI on a slow/half-dead daemon.
+  // Best-effort, bounded: the status bar / home panel show provider+model when
+  // available and never block the TUI on a slow or half-dead daemon.
   let providerLabel: string | null = null;
   let modelLabel: string | null = null;
   try {
@@ -188,19 +214,31 @@ async function main(): Promise<void> {
     // status bar falls back to "not configured"
   }
 
-  render(
-    React.createElement(App, {
+  try {
+    const { mountFullscreen } = await import("./opentui/mount.js");
+    await mountFullscreen({
       controller,
+      client,
       workspace: process.cwd(),
+      branch: gitBranch(process.cwd()),
       provider: providerLabel,
       model: modelLabel,
+      // Ink parity: the view seeds Ctrl-R / ↑ from the persisted list and
+      // reports every submit back through the debounced save. Without this the
+      // history was process-local and every `persist()` rewrote the seeded list.
       initialHistory: state.history,
       onHistoryChange: (entries: string[]) => {
         historyEntries = entries;
         scheduleSave();
       },
-    }),
-  );
+      args,
+    });
+  } catch (cause) {
+    const advice = ffiUnavailableAdvice(cause);
+    if (advice === null) throw cause;
+    console.error(advice);
+    process.exitCode = 1;
+  }
 }
 
 main().catch((cause: unknown) => {

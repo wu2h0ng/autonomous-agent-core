@@ -159,3 +159,21 @@ test("planEnter routes Enter without silent no-ops", () => {
   });
   assert.deepEqual(planEnter("transcript", [], 0, ""), { kind: "none" });
 });
+
+test("session rows mark a pending approval, and only when it is set", () => {
+  const tree = buildAgentTree({
+    mandates,
+    links,
+    sessions: [
+      { session_id: "s-1", task_id: "task-1", status: "IDLE", hasPendingApproval: true },
+      { session_id: "s-2", task_id: "task-1", status: "IDLE" },
+    ],
+  });
+  const blocked = tree.rows.find((r) => r.id === "s-1");
+  const clear = tree.rows.find((r) => r.id === "s-2");
+  assert.equal(blocked?.pendingApproval, true);
+  assert.match(agentRowLine(blocked!), /pending approval/);
+  // Bypass-detecting: an unset flag must never be rendered as pending.
+  assert.notEqual(clear?.pendingApproval, true);
+  assert.doesNotMatch(agentRowLine(clear!), /pending approval/);
+});

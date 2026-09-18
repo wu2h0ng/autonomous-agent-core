@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     CapabilityDenied,
     CapabilityEffect,
+    CapabilityEffectUnknown,
     CapabilityResult,
     DurableActionOutcomeRepository,
     ExecutionLease,
@@ -44,6 +46,118 @@ _EXECUTION_ISOLATION_VALUES = (
 _ALLOWLISTED_TEST_COMMANDS = frozenset(
     {"pytest", "python -m pytest", "python3 -m pytest"}
 )
+
+# What guarded the content that ``workspace.apply_patch``/``workspace.edit``
+# replaced. ``expected_sha256`` is optional in the tool schema, so every call
+# path that omits it -- including the interactive chat loop, which passes the
+# model's arguments through unchanged -- used to replace an existing file with
+# no check at all and report plain success. The guard is reported on every
+# result so an unchecked overwrite is visible in the tool result and in the
+# durable outcome instead of only in the diff.
+_OVERWRITE_GUARD_DIGEST_CHECKED = "digest_checked"
+_OVERWRITE_GUARD_UNCHECKED = "unchecked_existing_overwrite"
+_OVERWRITE_GUARD_CREATED = "created_new_file"
+_OVERWRITE_GUARD_REPLAYED = "replayed"
+
+_OVERWRITE_GUARD_UNCHECKED_DETAIL = (
+    "an existing file was replaced without checking its content against a "
+    "digest; read it with workspace.read and pass the returned sha256 as "
+    "expected_sha256 to have the prior content checked"
+)
+
+# Host absolute paths are a workspace-boundary leak: a filesystem syscall names
+# the real path it touched, the broker copies that text verbatim
+# (``detail=f"{type(exc).__name__}: {exc}"``), and it reaches the model and the
+# TUI. Redaction rewrites such a path relative to the workspace, or to a bare
+# filename when it leaves the workspace. The lookbehind keeps path *fragments*
+# alone: in ``sub/fixture.txt`` the slash follows a word character, so a
+# relative path the caller already uses is never rewritten. A leading ``~`` is
+# part of the match: a home path such as ``~/.agent-os/x`` was left verbatim,
+# because the lookbehind saw the ``~`` as a boundary the pattern may not start
+# after.
+_PATH_SEGMENT = r"[A-Za-z0-9._+@%=-]+"
+_ABSOLUTE_PATH_PATTERN = re.compile(
+    rf"(?<![\w./~-])(?:~[A-Za-z0-9._-]*|)/{_PATH_SEGMENT}(?:/{_PATH_SEGMENT})*"
+)
+# The workspace root is substituted literally before the pattern runs, because
+# the pattern stops at a space and a project directory can contain one
+# (``/Users/x/My Project/ws``). The sentinel's trailing character is a word
+# character, so the slash that follows it is not a boundary the pattern would
+# rewrite; the sentinel itself contains no slash and cannot match.
+_WORKSPACE_ROOT_SENTINEL = "__WORKSPACE_ROOT__"
+
+
+def _scope_workspace_root(message: str, root_text: str) -> str:
+    """Replace the workspace root only where it is a whole path prefix.
+
+    A bare textual replace rewrites a *sibling* directory that merely starts
+    with the root's name: for root ``/tmp/x/ws`` the host path
+    ``/tmp/x/ws-backup/secret.txt`` came back as ``.-backup/secret.txt``, which
+    reads as a workspace-relative path and hides the leak redaction exists to
+    remove. The match must start at a path boundary and end at one.
+    """
+
+    if not root_text:
+        return message
+    pattern = re.compile(r"(?<![\w./~-])" + re.escape(root_text) + r"(?![\w.+@%=-])")
+    return pattern.sub(_WORKSPACE_ROOT_SENTINEL, message)
+
+
+def _redact_host_paths(message: str, root: Path) -> str:
+    """Rewrite absolute host paths out of a message bound for model-visible text.
+
+    Pure string handling with no filesystem access, so redaction cannot itself
+    raise or resolve anything. A path inside the workspace becomes the
+    workspace-relative path the caller already uses; anything else -- a runtime
+    interpreter, a temporary sandbox root, a home directory -- collapses to its
+    final name.
+    """
+
+    scoped = _scope_workspace_root(message, str(root))
+
+    def replace(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        try:
+            return str(Path(raw).relative_to(root))
+        except ValueError:
+            return Path(raw).name
+
+    redacted = _ABSOLUTE_PATH_PATTERN.sub(replace, scoped)
+    return redacted.replace(f"{_WORKSPACE_ROOT_SENTINEL}/", "").replace(
+        _WORKSPACE_ROOT_SENTINEL, "."
+    )
+
+
+def _redacted_error(exc: BaseException, root: Path) -> BaseException:
+    """The same failure, with host paths replaced by workspace-relative text.
+
+    The exception class is preserved so callers discriminating on it
+    (``CapabilityDenied``, ``FileNotFoundError``, ...) keep working; only the
+    message changes, and the caller raises it ``from None`` so the original
+    traceback context cannot carry the unredacted text back in.
+    """
+
+    if isinstance(exc, CapabilityEffectUnknown):
+        # Already a broker-facing typed unknown; rebuilding it would drop its
+        # action/reason binding, and its text comes from adapter constants.
+        return exc
+    message = str(exc)
+    redacted = _redact_host_paths(message, root)
+    if redacted == message:
+        return exc
+    try:
+        return type(exc)(redacted)
+    except Exception:  # pragma: no cover - exotic constructor signature
+        return CapabilityDenied(redacted)
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
 
 # Read prefixes denied even though file-read* is otherwise broad, then
 # selectively re-allowed for the workspace and runtime interpreter.
@@ -228,7 +342,10 @@ class DeveloperWorkspaceAdapter:
     ) -> None:
         """Deterministic deny before any reservation (ADR-0059 P1)."""
 
-        self._preflight(capability_id, args, action_key)
+        try:
+            self._preflight(capability_id, args, action_key)
+        except Exception as exc:
+            raise _redacted_error(exc, self.root) from None
 
     def acquire_execution_lease(
         self, action: ActionContract, owner: str
@@ -255,19 +372,22 @@ class DeveloperWorkspaceAdapter:
     ) -> None:
         """Read current local evidence without altering or replaying history."""
 
-        args = json.loads(action.arguments_json)
-        if not isinstance(args, dict):
-            raise CapabilityDenied("capability arguments must be an object")
-        if (
-            result.receipt.status is ReceiptStatus.SUCCEEDED
-            and action.capability_id in {"workspace.apply_patch", "workspace.edit"}
-        ):
-            self._validate_cached_patch_effect(args, result.output)
-        elif (
-            result.receipt.status is ReceiptStatus.COMPENSATED
-            and action.capability_id == "workspace.compensate_patch"
-        ):
-            self._validate_cached_compensation_effect(args, result.output)
+        try:
+            args = json.loads(action.arguments_json)
+            if not isinstance(args, dict):
+                raise CapabilityDenied("capability arguments must be an object")
+            if (
+                result.receipt.status is ReceiptStatus.SUCCEEDED
+                and action.capability_id in {"workspace.apply_patch", "workspace.edit"}
+            ):
+                self._validate_cached_patch_effect(args, result.output)
+            elif (
+                result.receipt.status is ReceiptStatus.COMPENSATED
+                and action.capability_id == "workspace.compensate_patch"
+            ):
+                self._validate_cached_compensation_effect(args, result.output)
+        except Exception as exc:
+            raise _redacted_error(exc, self.root) from None
 
     def _preflight(
         self,
@@ -350,12 +470,59 @@ class DeveloperWorkspaceAdapter:
                     "APPLIED snapshot no longer matches the patch effect"
                 )
             return
-        expected = args.get("expected_sha256")
+        self._assert_fresh_patch_target(path, relative_path, args)
+
+    def _assert_fresh_patch_target(
+        self,
+        path: Path,
+        relative_path: str,
+        args: dict[str, object],
+    ) -> tuple[bool, bytes, str]:
+        """Deterministic checks for a patch that is not an idempotent replay.
+
+        Shared by the preflight and the effect path so the two cannot drift.
+        Returns ``(before_existed, before_bytes, overwrite_guard)``; the caller
+        takes its snapshot from the returned bytes, so the content the digest
+        was checked against is exactly the content the snapshot can restore.
+
+        Two cases used to pass silently. A read-only file was replaced anyway
+        -- ``os.replace`` needs the directory writable, not the file -- and the
+        replacement reset its mode to the temporary file's ``0600``. And an
+        omitted ``expected_sha256`` overwrote whatever was on disk with no
+        check, which the caller could not tell from a verified write. The first
+        is now a refusal, the second an explicit ``overwrite_guard``.
+        """
+
         before_existed = path.exists()
+        if before_existed and not os.access(path, os.W_OK):
+            mode = stat.S_IMODE(path.stat().st_mode)
+            raise CapabilityDenied(
+                f"{relative_path} is read-only (mode {mode:04o}); a workspace "
+                "write keeps a file's permission bits, so the patch is refused "
+                "-- make the file writable and apply the patch again"
+            )
+        expected = args.get("expected_sha256")
+        if expected is not None and not _is_sha256(expected):
+            raise CapabilityDenied(
+                "expected_sha256 must be the 64-character hex digest returned "
+                "by workspace.read"
+            )
         before_bytes = path.read_bytes() if before_existed else b""
-        actual = _sha256(before_bytes) if before_existed else None
-        if expected is not None and expected != actual:
-            raise CapabilityDenied("workspace changed since proposal")
+        if expected is not None and expected != _sha256(before_bytes):
+            raise CapabilityDenied(
+                f"{relative_path} changed after that digest was taken; re-read "
+                "it with workspace.read and patch the current content with the "
+                "current sha256"
+            )
+        if before_existed:
+            guard = (
+                _OVERWRITE_GUARD_DIGEST_CHECKED
+                if expected is not None
+                else _OVERWRITE_GUARD_UNCHECKED
+            )
+        else:
+            guard = _OVERWRITE_GUARD_CREATED
+        return before_existed, before_bytes, guard
 
     def _preflight_compensate_patch(self, args: dict[str, object]) -> None:
         relative_path = str(args.get("path", ""))
@@ -419,7 +586,31 @@ class DeveloperWorkspaceAdapter:
         }
         if args.get("expected_sha256") is not None:
             patch_args["expected_sha256"] = args["expected_sha256"]
+        else:
+            patch_args["expected_sha256"] = self._content_digest(content, path)
         return patch_args
+
+    @staticmethod
+    def _content_digest(content: str, path: Path) -> str | None:
+        """Digest the bytes ``content`` was decoded from, or ``None`` if unknown.
+
+        ``workspace.edit`` matches ``old_string`` against the decoded text and
+        then writes a whole new file, so without a digest the bytes it matched
+        against are not bound to the bytes it replaces -- a write by anyone else
+        in between is overwritten along with the edit. Re-reading the file and
+        digesting it pins that window shut. ``read_text`` translates newlines,
+        so on a file whose newlines were translated the re-read text differs
+        from ``content``; there is then no honest digest to hand over, and the
+        patch stays an unchecked overwrite rather than claiming a check that did
+        not happen.
+        """
+
+        try:
+            raw = path.read_bytes()
+            decoded = raw.decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        return _sha256(raw) if decoded == content else None
 
     _SEARCH_SKIP_DIRS = frozenset({".git", ".agent-os-artifacts", "node_modules", "__pycache__", ".venv"})
     _SEARCH_MAX_RESULTS = 200
@@ -587,13 +778,19 @@ class DeveloperWorkspaceAdapter:
         Any exception here propagates to the broker, which converts it to a
         typed UNKNOWN (never FAILED). No adapter-level idempotency: replay,
         reservation, and outcome authority belong to the broker's durable
-        outcome repository.
+        outcome repository. The broker copies this exception's text into the
+        model-visible tool result, so it leaves here with host paths redacted.
         """
 
-        args = json.loads(action.arguments_json)
-        if not isinstance(args, dict):
-            raise CapabilityDenied("capability arguments must be an object")
-        output = self._dispatch(action.capability_id, args, action.idempotency_key)
+        try:
+            args = json.loads(action.arguments_json)
+            if not isinstance(args, dict):
+                raise CapabilityDenied("capability arguments must be an object")
+            output = self._dispatch(
+                action.capability_id, args, action.idempotency_key
+            )
+        except Exception as exc:
+            raise _redacted_error(exc, self.root) from None
         return CapabilityEffect(status=ReceiptStatus.SUCCEEDED, output=output)
 
     def _dispatch(
@@ -728,13 +925,11 @@ class DeveloperWorkspaceAdapter:
                 "compensation_ref": compensation_ref,
                 "manifest_sha256": manifest_sha256,
                 "replayed": True,
+                "overwrite_guard": _OVERWRITE_GUARD_REPLAYED,
             }
-        expected = args.get("expected_sha256")
-        before_existed = path.exists()
-        before_bytes = path.read_bytes() if before_existed else b""
-        actual = _sha256(before_bytes) if before_existed else None
-        if expected is not None and expected != actual:
-            raise CapabilityDenied("workspace changed since proposal")
+        before_existed, before_bytes, overwrite_guard = (
+            self._assert_fresh_patch_target(path, relative_path, args)
+        )
         manifest: dict[str, object] = {
             "schema_version": "1.0",
             "compensation_ref": compensation_ref,
@@ -751,7 +946,7 @@ class DeveloperWorkspaceAdapter:
         )
         self._atomic_write(path, content_bytes)
         self._write_snapshot_state(snapshot_dir, "APPLIED")
-        return {
+        output: dict[str, object] = {
             "path": relative_path,
             "sha256": applied_sha256,
             "before_sha256": manifest["before_sha256"],
@@ -759,7 +954,11 @@ class DeveloperWorkspaceAdapter:
             "compensation_ref": compensation_ref,
             "manifest_sha256": manifest_sha256,
             "replayed": False,
+            "overwrite_guard": overwrite_guard,
         }
+        if overwrite_guard == _OVERWRITE_GUARD_UNCHECKED:
+            output["overwrite_guard_detail"] = _OVERWRITE_GUARD_UNCHECKED_DETAIL
+        return output
 
     def _validate_cached_patch_effect(
         self,
@@ -997,7 +1196,21 @@ class DeveloperWorkspaceAdapter:
 
     @staticmethod
     def _atomic_write(path: Path, value: bytes) -> None:
+        """Replace ``path`` with ``value`` without changing its permission bits.
+
+        ``mkstemp`` creates the staging file ``0600`` and ``os.replace`` then
+        makes it the destination, so every successful write used to strip the
+        target's mode -- a workspace file granted group or world read lost it,
+        and a ``0644`` file came back ``0600``. The staging file takes the
+        destination's mode before the rename instead. A missing destination
+        keeps ``mkstemp``'s conservative default.
+        """
+
         path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existing_mode: int | None = stat.S_IMODE(path.stat().st_mode)
+        except OSError:
+            existing_mode = None
         descriptor, raw_temp = tempfile.mkstemp(
             prefix=f".{path.name}-", dir=path.parent
         )
@@ -1007,37 +1220,22 @@ class DeveloperWorkspaceAdapter:
                 handle.write(value)
                 handle.flush()
                 os.fsync(handle.fileno())
+            if existing_mode is not None:
+                os.chmod(temp_path, existing_mode)
             os.replace(temp_path, path)
             _fsync_directory(path.parent)
         finally:
             temp_path.unlink(missing_ok=True)
 
     def _edit(self, args: dict[str, object], action_key: str) -> dict[str, object]:
-        relative_path = str(args.get("path", ""))
-        path = self._safe_path(relative_path)
-        if not path.is_file():
-            raise FileNotFoundError(relative_path)
-        old_string = str(args.get("old_string", ""))
-        new_string = str(args.get("new_string", ""))
-        if not old_string:
-            raise CapabilityDenied("workspace.edit requires a non-empty old_string")
-        if old_string == new_string:
-            raise CapabilityDenied(
-                "workspace.edit old_string and new_string are identical"
-            )
-        content = path.read_text(encoding="utf-8")
-        occurrences = content.count(old_string)
-        if occurrences != 1:
-            raise CapabilityDenied(
-                f"workspace.edit old_string must match exactly once (found {occurrences})"
-            )
-        patch_args: dict[str, object] = {
-            "path": relative_path,
-            "content": content.replace(old_string, new_string, 1),
-        }
-        if args.get("expected_sha256") is not None:
-            patch_args["expected_sha256"] = args["expected_sha256"]
-        return self._apply_patch(patch_args, action_key)
+        """Effect path for ``workspace.edit``.
+
+        Validation and patch-argument construction come from
+        ``_edit_patch_args``, the same helper the preflight uses, so the digest
+        the preflight checks and the digest the write checks cannot drift apart.
+        """
+
+        return self._apply_patch(self._edit_patch_args(args), action_key)
 
     _SEARCH_SKIP_DIRS = frozenset(
         {
@@ -1051,6 +1249,25 @@ class DeveloperWorkspaceAdapter:
     )
     _SEARCH_MAX_RESULTS = 200
     _SEARCH_MAX_OUTPUT_CHARS = 20000
+    _SEARCH_MAX_SCANNED_FILES = 1000
+    # ``truncated`` alone cannot distinguish three different caps, and an empty
+    # ``matches`` list under the scan cap reads exactly like "not found".
+    # ``truncated_reason`` names the cap that stopped the search, or ``None``
+    # when the search was complete: "scan_cap" (only the first
+    # ``_SEARCH_MAX_SCANNED_FILES`` candidate files were searched, so a missing
+    # match is not evidence of absence), "result_cap" (the match list is full)
+    # and "output_cap" (the returned text exceeded the character budget). The
+    # upstream cap wins: a scan that stopped early is reported as "scan_cap"
+    # even when the returned lines were trimmed afterwards.
+    _SEARCH_TRUNCATED_SCAN_CAP = "scan_cap"
+    _SEARCH_TRUNCATED_RESULT_CAP = "result_cap"
+    _SEARCH_TRUNCATED_OUTPUT_CAP = "output_cap"
+    # ``unexamined_files`` counts candidate *files* whose contents were not
+    # read, under the same predicate as the walk, so it is commensurable with
+    # ``scanned_files`` and their sum is the tree's scannable file total.
+    # Counting enumerated paths instead was misleading: with 1001 files and
+    # 3000 empty directories the scan cap leaves one file unread, but the
+    # 3001 remaining enumerated paths would be reported as unsearched.
 
     def _search(self, args: dict[str, object]) -> dict[str, object]:
         mode = str(args.get("mode", ""))
@@ -1067,28 +1284,56 @@ class DeveloperWorkspaceAdapter:
             truncated = len(entries) > self._SEARCH_MAX_RESULTS
             return {
                 "mode": "ls",
-                "entries": entries[: self._SEARCH_MAX_RESULTS],
                 "truncated": truncated,
+                "truncated_reason": (
+                    self._SEARCH_TRUNCATED_RESULT_CAP if truncated else None
+                ),
+                "entries": entries[: self._SEARCH_MAX_RESULTS],
             }
         if mode == "glob":
             pattern = str(args.get("pattern", ""))
             if not pattern:
                 raise CapabilityDenied("workspace.search glob requires a pattern")
             matches: list[str] = []
+            truncated = False
             for candidate in sorted(self.root.rglob("*")):
+                # ``os.path.relpath`` rather than ``Path.relative_to``: the walk
+                # below now has to see the whole tree before it can say whether
+                # a match was dropped, and relative_to's per-path component
+                # comparison was the loop's dominant cost (14.7us against
+                # 2.2us per path on a 5200-path tree).
+                relative = os.path.relpath(candidate, self.root)
+                # Cheapest test first: the name test rejects nearly every path
+                # in a large tree, so the symlink/containment check -- which
+                # resolves the path -- only runs for paths that can be
+                # reported.
+                if not (
+                    fnmatch.fnmatch(relative, pattern)
+                    or fnmatch.fnmatch(candidate.name, pattern)
+                ):
+                    continue
                 if any(
                     part in self._SEARCH_SKIP_DIRS for part in candidate.parts
                 ) or not self._is_safe_search_candidate(candidate):
                     continue
-                relative = str(candidate.relative_to(self.root))
-                if fnmatch.fnmatch(relative, pattern) or fnmatch.fnmatch(
-                    candidate.name, pattern
-                ):
-                    matches.append(relative + ("/" if candidate.is_dir() else ""))
+                # ``truncated`` means an entry was dropped, so it is set only
+                # once a match beyond the cap is seen -- the same "more than the
+                # cap" rule the ls branch applies by comparing the complete
+                # listing with the cap. A tree with exactly
+                # ``_SEARCH_MAX_RESULTS`` matches lost nothing and must not
+                # report a result cap.
                 if len(matches) >= self._SEARCH_MAX_RESULTS:
+                    truncated = True
                     break
-            truncated = len(matches) >= self._SEARCH_MAX_RESULTS
-            return {"mode": "glob", "matches": matches, "truncated": truncated}
+                matches.append(relative + ("/" if candidate.is_dir() else ""))
+            return {
+                "mode": "glob",
+                "truncated": truncated,
+                "truncated_reason": (
+                    self._SEARCH_TRUNCATED_RESULT_CAP if truncated else None
+                ),
+                "matches": matches,
+            }
         if mode == "grep":
             pattern = str(args.get("pattern", ""))
             if not pattern:
@@ -1098,19 +1343,21 @@ class DeveloperWorkspaceAdapter:
             except re.error as exc:
                 raise CapabilityDenied(f"invalid grep pattern: {exc}") from exc
             matches = []
-            scanned = 0
-            truncated = False
-            for candidate in sorted(base.rglob("*") if base.is_dir() else [base]):
-                if any(
-                    part in self._SEARCH_SKIP_DIRS for part in candidate.parts
-                ) or not self._is_safe_search_candidate(candidate):
+            candidates = sorted(base.rglob("*") if base.is_dir() else [base])
+            resolved_dirs: dict[Path, tuple[Path | None, bool]] = {}
+            scanned_files = 0
+            truncated_reason: str | None = None
+            unexamined_files = 0
+            for index, candidate in enumerate(candidates):
+                if not self._search_scannable_file(candidate, resolved_dirs):
                     continue
-                if not candidate.is_file() or candidate.stat().st_size > 1_000_000:
-                    continue
-                scanned += 1
-                if scanned > 1000:
-                    truncated = True
+                if scanned_files >= self._SEARCH_MAX_SCANNED_FILES:
+                    truncated_reason = self._SEARCH_TRUNCATED_SCAN_CAP
+                    unexamined_files = self._unexamined_search_files(
+                        candidates, index, resolved_dirs
+                    )
                     break
+                scanned_files += 1
                 try:
                     text = candidate.read_text(encoding="utf-8")
                 except (UnicodeDecodeError, OSError):
@@ -1121,9 +1368,12 @@ class DeveloperWorkspaceAdapter:
                             f"{candidate.relative_to(self.root)}:{lineno}:{line[:500]}"
                         )
                         if len(matches) >= self._SEARCH_MAX_RESULTS:
-                            truncated = True
+                            truncated_reason = self._SEARCH_TRUNCATED_RESULT_CAP
                             break
-                if truncated:
+                if truncated_reason is not None:
+                    unexamined_files = self._unexamined_search_files(
+                        candidates, index + 1, resolved_dirs
+                    )
                     break
             output = matches
             total = 0
@@ -1131,10 +1381,111 @@ class DeveloperWorkspaceAdapter:
                 total += len(line) + 1
                 if total > self._SEARCH_MAX_OUTPUT_CHARS:
                     output = matches[:index]
-                    truncated = True
+                    if truncated_reason is None:
+                        truncated_reason = self._SEARCH_TRUNCATED_OUTPUT_CAP
                     break
-            return {"mode": "grep", "matches": output, "truncated": truncated}
+            # The diagnostic keys precede the payload on purpose: the chat loop
+            # replaces any tool result longer than its 8000-char budget with a
+            # raw ``preview`` of the serialized JSON, so a reason placed behind
+            # ``matches`` would be cut off exactly when it is needed.
+            return {
+                "mode": "grep",
+                "truncated": truncated_reason is not None,
+                "truncated_reason": truncated_reason,
+                "scanned_files": scanned_files,
+                "unexamined_files": unexamined_files,
+                "matches": output,
+            }
         raise CapabilityDenied(f"unsupported workspace.search mode: {mode}")
+
+    def _search_scannable_file(
+        self,
+        candidate: Path,
+        resolved_dirs: dict[Path, tuple[Path | None, bool]],
+    ) -> bool:
+        """True when the grep walk reads ``candidate``'s contents.
+
+        One predicate shared by the walk and the ``unexamined_files`` recount,
+        so ``scanned_files + unexamined_files`` is the tree's scannable file
+        total whatever its shape -- directories, symlinks, skipped directories
+        and oversized files are excluded from both sides rather than only from
+        one. The tests run cheapest first, because the recount repeats them for
+        every path the cap left behind: the string, symlink and file tests
+        reject the directories and symlinks a tree is largely made of before
+        the containment test is reached. A path that cannot be stat'ed is
+        treated as not scannable, the same way the walk tolerates an ``OSError``
+        while reading.
+
+        ``resolved_dirs`` caches, per directory, the directory's resolved path
+        and whether that path is inside the searchable tree. A candidate that is
+        not a symlink resolves to ``resolve(parent) / name``, so its parent's
+        verdict is its own -- and resolving plus testing containment per
+        candidate costs 47us against 8us per path, which is the difference
+        between a truthful unsearched-file count that fits inside a tool call
+        and one that does not. The one candidate whose own name still matters is
+        the agent-state path itself, which a contained parent would not rule
+        out.
+        """
+
+        if any(part in self._SEARCH_SKIP_DIRS for part in candidate.parts):
+            return False
+        if candidate.is_symlink():
+            return False
+        try:
+            if not candidate.is_file():
+                return False
+            if candidate.stat().st_size > 1_000_000:
+                return False
+        except OSError:
+            return False
+        parent = candidate.parent
+        cached = resolved_dirs.get(parent)
+        if cached is None:
+            try:
+                resolved_parent: Path | None = parent.resolve()
+            except OSError:
+                resolved_parent = None
+            cached = (
+                resolved_parent,
+                resolved_parent is not None
+                and self._search_path_is_contained(resolved_parent),
+            )
+            resolved_dirs[parent] = cached
+        resolved_parent, contained = cached
+        if not contained:
+            return False
+        return not (
+            resolved_parent == self.artifacts.parent
+            and candidate.name == self.artifacts.name
+        )
+
+    def _unexamined_search_files(
+        self,
+        candidates: list[Path],
+        start: int,
+        resolved_dirs: dict[Path, tuple[Path | None, bool]],
+    ) -> int:
+        """Scannable files from ``start`` on whose contents were never read.
+
+        ``sorted(base.rglob("*"))`` materialises the walk before the first file
+        is read, so this recounts already-enumerated paths under the same
+        ``_search_scannable_file`` predicate as the walk instead of enumerating
+        anything again, sharing the walk's per-directory resolution cache. What
+        it costs is the file classification of the unswept remainder, which is
+        proportional to the walk the search already performed and never to the
+        bytes the scan cap bounds. ``start`` is the index of the first path
+        whose contents were not read: for the scan cap the path that hit the
+        cap, for the result cap the path after the match that filled the list.
+        Counting enumerated paths rather than files is what made the number
+        unreadable: a tree with 1001 files and 3000 empty directories leaves one
+        file unread and 3001 enumerated paths.
+        """
+
+        return sum(
+            1
+            for candidate in candidates[start:]
+            if self._search_scannable_file(candidate, resolved_dirs)
+        )
 
     def _is_safe_search_candidate(self, candidate: Path) -> bool:
         if candidate.is_symlink():
@@ -1143,6 +1494,15 @@ class DeveloperWorkspaceAdapter:
             resolved = candidate.resolve()
         except OSError:
             return False
+        return self._search_path_is_contained(resolved)
+
+    def _search_path_is_contained(self, resolved: Path) -> bool:
+        """Whether an already-resolved path stays inside the searchable tree.
+
+        Shared by the glob/ls candidate check and the grep scannable-file rule,
+        so containment has one definition.
+        """
+
         if resolved != self.root and self.root not in resolved.parents:
             return False
         return resolved != self.artifacts and self.artifacts not in resolved.parents

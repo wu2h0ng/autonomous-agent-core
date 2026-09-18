@@ -1,5 +1,9 @@
 # autonomous-agent-core CI — deterministic test suite + lint (object layer / research repo).
 # Pure stdlib, zero runtime deps. Mirrors docs/CURRENT_STATE.yaml `test_command` — keep in sync.
+# Two jobs, because the repo now has two runtimes: `test` is the Python side (the code under
+# test needs nothing beyond stdlib + the pinned test deps), and `cli-ts` is the TypeScript
+# terminal client, which is the single supported user entry and the only thing that runs on
+# Bun — so it is gated on its own rather than riding on the Python job.
 # This is Tier-3 machine enforcement: every PR by any agent (incl. Codex) must pass the
 # falsification-discipline unit tests (assert_gate2_unlocked hard-fail, AST static firewalls,
 # non-vacuous verifier, no-cheat-ref) before merge.
@@ -13,6 +17,15 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Wall-clock bound. Like `cli-ts` below, this job declared none, so GitHub's 360-minute
+    # default applied to it: one hung child (a pip install stalled on the network, or the
+    # product suite blocked on a socket) would burn six hours of runner time before anyone
+    # saw a red build -- and the slower a job is allowed to be, the less often that shows.
+    # Measured healthy cost on this tree (2026-09-18): the governed product suite is 2646
+    # items in ~3.5 min, the deterministic unittest step is well under a minute, and the
+    # dependency installs are the rest, so 30 minutes is a hang detector with a wide margin,
+    # not a performance gate.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,6 +53,323 @@ jobs:
           # standalone checkout (pydantic pin mirrors packages/contracts).
           pip install pytest pyyaml "pydantic>=2.13,<3"
           PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m unittest discover -s tests -p "test_*.py"
+      - name: Product suite (governed gate, pytest)
+        run: |
+          # Why this step exists: the deterministic step above is `unittest discover`,
+          # which cannot see the governed product suite at all -- tests/product has
+          # no __init__.py, so discovery never descends into it, and it holds ZERO
+          # unittest.TestCase classes anyway (it is pytest-style: bare test
+          # functions, fixtures, async cases). Measured on this tree:
+          # `unittest discover -s tests` collects 1237 cases with 0 from
+          # tests/product/, while pytest collects 2646 items there.
+          # Without this step the whole governed product gate -- surface contracts,
+          # situated, SRL working set and the SSE end-frame regression -- never ran
+          # in CI at all. This is the command recorded in
+          # docs/CURRENT_STATE.yaml test_commands.product, made self-contained
+          # (python -m pytest instead of uv) for this standalone checkout.
+          # Scope note: this step covers tests/product only. The apps/cli-ts suite
+          # is a different runtime (node:test driven by node, with the render tests
+          # spawning Bun) and is gated by the `cli-ts` job below, not by a step
+          # here. The earlier note called that suite "Bun/Vitest" and said it had no
+          # CI job; the runner is node:test and the job now exists.
+          # Deps are pinned to pyproject: [project.optional-dependencies].product-test
+          # (pydantic/pytest/pyyaml) plus sqlglot, which is a plain runtime
+          # dependency (pyproject dependencies, exact pin 30.13.0) and is NOT in the
+          # extra -- without it every test importing apps.api_server fails at
+          # collection, because apps/api_server/app.py -> domain_packs/data_agent/
+          # runtime.py -> sql_safety.py imports sqlglot (verified: 69 collection
+          # errors, all ModuleNotFoundError: sqlglot). ruff is pinned separately in
+          # the lint step.
+          # Deliberately NO plain `pip install -e .`: the workspace packages are
+          # supplied by the PYTHONPATH below, whereas resolving
+          # agent-os-contracts==0.1.0 from an index would fail (the workspace
+          # members are not published).
+          pip install "pytest>=9,<10" "pyyaml>=6,<7" "pydantic>=2.13,<3" "sqlglot==30.13.0"
+          # The project itself must then be installed too: tests/product/
+          # test_product_entrypoint.py reads the INSTALLED distribution
+          # (importlib.metadata entry points / file list) and runs the
+          # agent-os-runtime + agent-os-work console scripts that sit next to
+          # sys.executable. In a clean checkout 4 of those 5 tests fail without
+          # this line (verified: 4 failed / 1 passed before, 5 passed after;
+          # `python -m apps.cli --help` needs no install and passes either way).
+          # `--no-deps` keeps what pip resolves to exactly the pinned runtime set
+          # above -- the workspace deps are on PYTHONPATH and must not be resolved
+          # by index.
+          # Not `-e`: a real (non-editable) install is what produces the console
+          # scripts and dist-info metadata these tests assert on, and it also
+          # proves the wheel ships apps/api_server/*.html.
+          pip install --no-deps .
+          # SINGLE SOURCE OF TRUTH for what this gate measures and what it runs.
+          # The collect-only invocation and the real run below both read $PRODUCT_ARGS,
+          # so narrowing the gate narrows the same thing the floor measures. Hard-coding
+          # the target twice instead re-opens the hole the floor exists to close: with
+          # the collect line left at `tests/product` (measured: 2642 items on this tree)
+          # and only the run line narrowed to one file, the step printed "collected 2642
+          # items (floor 2500)", executed 4 of them and still exited 0.
+          # tests/product/test_ci_gate_wiring.py asserts the two invocations expand to
+          # the same command once `--collect-only` and the reporting-only flags (`-rs`,
+          # `--junitxml=`) are normalised away, so a -k/--ignore/--deselect added to
+          # one of them alone fails the wiring test as well.
+          PRODUCT_ARGS="tests/product"
+          # Collection floor, checked BEFORE the run. `pytest $PRODUCT_ARGS` exits 5
+          # only when the collection is COMPLETELY empty, so a step quietly narrowed
+          # to a subset -- an added `-k`/`--deselect`, a path that now points at one
+          # file, a module deleted from disk -- still exits 0 and looks green while
+          # most of the governed gate stopped running. Require the collection to be
+          # at least 2500 items: measured 2646 on this tree (2026-09-18; 2639 at the
+          # commit this branch started from, 2631 when the earlier note was
+          # written, and the count keeps moving up as this branch adds its own guard
+          # tests -- which is why the floor is a round 2500 rather than the exact total), and the largest
+          # single file in tests/product collects 148 items
+          # (test_srl_event_admission.py), i.e. no legitimate subset is anywhere near
+          # 2500. 2500 (not 2642) leaves room to delete real tests on purpose without a
+          # false alarm.
+          # `--collect-only` performs the same imports as the real run, so a module
+          # that cannot even be imported fails here as well; the explicit exit check
+          # below turns that into a readable error instead of a bare non-zero step.
+          # The count is taken from the per-item lines pytest prints (verified equal
+          # to pytest's own reported total: 2642) rather than from the summary line,
+          # whose wording is a pytest-version detail.
+          # What a full run of those items reports, for judging the floor (2026-09-18):
+          # 2640 passed / 1 skipped, plus 1 failure that appears ONLY in a copy which
+          # skipped the `pip install --no-deps .` above
+          # (test_installed_product_package_contains_api_surface_resources reads the
+          # INSTALLED distribution's file list). The same run in the worktree, whose
+          # suite held 2639 items before this branch added its own guard tests, was
+          # 2638 passed / 1 skipped. All three numbers count the same collection.
+          COLLECT_LOG="$(mktemp)"
+          if ! PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q --collect-only > "$COLLECT_LOG"; then
+            echo "::error::$PRODUCT_ARGS did not collect -- a module failed to import, or the suite is empty:"
+            tail -20 "$COLLECT_LOG"
+            exit 1
+          fi
+          COLLECTED="$(awk '/::/ { items++ } END { print items + 0 }' "$COLLECT_LOG")"
+          echo "$PRODUCT_ARGS collected $COLLECTED items (floor 2500)"
+          if [ "$COLLECTED" -lt 2500 ]; then
+            echo "::error::the governed product gate now collects only $COLLECTED items, below the floor of 2500. $PRODUCT_ARGS was narrowed -- a -k/--deselect filter, a moved path, or deleted modules -- so most of the gate would silently stop running while this step stayed green."
+            exit 1
+          fi
+          # --- file-set gate: the floor above is a MAGNITUDE gate, not a coverage one ------------
+          # A count cannot see a narrowing that keeps the count high, and three such narrowings
+          # stay green against the floor alone: the target replaced by a subset of files (the
+          # whole suite is 2646 items and the largest single module collects 148, so a dozen or
+          # so big modules clear 2500), an `--ignore` added to BOTH invocations (the floor
+          # measures the same narrowed command, so it agrees with the run), and modules deleted
+          # from disk in small numbers (below-the-floor only after roughly 146 items are gone).
+          # This gate compares SETS instead of magnitudes: every test module sitting on disk
+          # under the governed suite root must also appear in the collection, and the ones that
+          # are missing are printed before the step exits 1.
+          # "Must be collected" is judged by the file name `test_*.py`, which already excludes
+          # this directory's non-test modules: conftest.py, mandate_observation_support.py and
+          # the underscore-prefixed _situated_epoch.py / _steward_app.py.
+          # The root in the `find` below is the LITERAL tests/product, deliberately NOT
+          # $PRODUCT_ARGS. Reading the expectation from the same variable as the target would
+          # let a narrowed target shrink the disk list to match it and leave the diff empty --
+          # exactly the hole this gate closes. This does not weaken the single-source-of-truth
+          # rule above: that rule is about the collect line and the run line expanding to the
+          # same command, and both still read $PRODUCT_ARGS. It is the EXPECTATION that is
+          # pinned to the governed root. If the governed suite is ever really moved, this root
+          # moves with it, under review.
+          # `./` is stripped from both sides because pytest echoes node ids exactly as the target
+          # was spelled; without that, a `./tests/product` target would look like 156 missing
+          # files.
+          # Measured on this tree 2026-09-18: 156 modules on disk, 156 in the collection, both
+          # diffs empty.
+          EXPECTED_LIST="$(mktemp)"
+          COLLECTED_LIST="$(mktemp)"
+          FILTERED_LIST="$(mktemp)"
+          find tests/product -maxdepth 1 -type f -name 'test_*.py' | sed 's|^\./||' | sort -u > "$EXPECTED_LIST"
+          awk -F'::' '/::/ { print $1 }' "$COLLECT_LOG" | sed 's|^\./||' | sort -u > "$COLLECTED_LIST"
+          # Modules that legitimately live in tests/product and collect no items are listed here,
+          # one PATH at a time, spelled exactly as the disk listing above spells it
+          # (`tests/product/test_x.py`), each with its reason in the comment right above this line.
+          # The path form is not a style choice: both lists this gate compares hold paths, and the
+          # filter below is a whole-line match against that list, so an entry written as a bare
+          # `test_x.py` can never match and the exemption silently does nothing. That is exactly
+          # how the list failed before -- a real exemption could not take effect, and the only way
+          # left to pass was to weaken the comparison, which is the hole this gate closes. The
+          # loop below therefore also fails the step on an entry that matches nothing on disk, so
+          # a dead exemption is loud instead of inert.
+          # The list is LITERAL by construction: a value holding a glob character fails the step
+          # below, because a wildcard entry -- read by a human as "everything is exempt" -- is the
+          # hole being closed, not a way to pass it. (A path separator is NOT a wildcard and is
+          # required, see above.)
+          # The list is EMPTY today, and that is a measurement, not an assumption: every test_*.py
+          # on disk collected items.
+          ALLOWED_UNCOLLECTED=""
+          # This test reads the value as ONE WORD, and it has to. The obvious form -- a `case`
+          # on each entry inside the `for` loop below -- does NOT see the wildcard: `for x in
+          # $ALLOWED_UNCOLLECTED` expands an unquoted `*` into the working directory's file
+          # names before any per-entry test runs, so `ALLOWED_UNCOLLECTED="*"` was accepted and
+          # the loop walked over the repository's own file names instead. Verified by mutation
+          # on this tree (2026-09-18): with the test inside the loop, the wildcard silently
+          # passed and the step went on to run the whole suite. Quoting the tested word is what
+          # keeps the value whole -- `case` does not field-split or glob its word.
+          case "$ALLOWED_UNCOLLECTED" in
+            *[\*\?\[]*)
+              echo "::error::ALLOWED_UNCOLLECTED holds a glob character, so it is not a list of literal file paths: a wildcard entry would read as 'every module is exempt' from the file-set gate. List one path at a time, spelled as the disk listing spells it, each with its reason in the comment above."
+              exit 1
+              ;;
+          esac
+          for allowed in $ALLOWED_UNCOLLECTED; do
+            # A dead entry is the failure this list already had once: written in a form the
+            # expectation list never uses, it matched nothing, exempted nothing, and left the
+            # gate failing with no working way to record the exemption. Fail loudly instead.
+            if ! grep -q -x -F -- "$allowed" "$EXPECTED_LIST"; then
+              echo "::error::ALLOWED_UNCOLLECTED lists '$allowed', which is not a module on disk under tests/product. Exemptions are matched whole-line against the disk listing, so this entry does nothing -- write the path exactly as `find tests/product ...` prints it (e.g. tests/product/test_x.py), or delete the entry."
+              exit 1
+            fi
+            grep -v -x -F -- "$allowed" "$EXPECTED_LIST" > "$FILTERED_LIST"
+            cp "$FILTERED_LIST" "$EXPECTED_LIST"
+          done
+          MISSING_FILES="$(comm -23 "$EXPECTED_LIST" "$COLLECTED_LIST")"
+          if [ -n "$MISSING_FILES" ]; then
+            echo "::error::the governed product gate is not collecting every module on disk under tests/product. Missing from the collection (a module deleted out of the collected path, an added --ignore, or a target narrowed away from the governed root):"
+            echo "$MISSING_FILES"
+            exit 1
+          fi
+          # --- the run, with skip accounting ---------------------------------------------------
+          # `-rs` prints a SKIPPED line plus its REASON for every skipped test. Without it the
+          # skip count appears only inside pytest's summary line, and the reasons appear nowhere:
+          # the floor and the file-set gate above both count COLLECTED items, and a skipped test
+          # is still collected, so a suite that quietly grew skips stays green against both.
+          # Measured on this tree (2026-09-18): 1 skipped on macOS, 7 on the Linux runner, none of
+          # them attributable from the log because the run was `-q` alone.
+          # The count itself comes from JUnit XML rather than from the summary line, for the same
+          # reason the item count above is taken from the per-item lines: the summary's wording is
+          # a pytest-version detail. `--junitxml` is a core pytest option, no plugin needed.
+          TEST_XML="$(mktemp)"
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest $PRODUCT_ARGS -q -rs --junitxml="$TEST_XML"
+          TEST_STATUS=$?
+          # A missing or empty report would make the count below read 0 no matter what the suite
+          # did -- the skip bound would then be silently decorative. Check the report first.
+          if [ ! -s "$TEST_XML" ] || ! grep -q '<testsuite' "$TEST_XML"; then
+            echo "::error::the governed product run wrote no usable JUnit report to $TEST_XML, so the skip count cannot be read and would default to 0 (a dropped --junitxml= flag, or a report file pytest never wrote)."
+            exit 1
+          fi
+          SKIPPED="$(awk '/<skipped/ { skipped++ } END { print skipped + 0 }' "$TEST_XML")"
+          echo "$PRODUCT_ARGS: pytest exit $TEST_STATUS, $SKIPPED skipped test(s) (bound 12)"
+          if [ "$SKIPPED" -gt 12 ]; then
+            echo "::error::the governed product suite reports $SKIPPED skipped tests, above the bound of 12. The floor and the file-set gate above both count COLLECTED items and a skipped test is still collected, so unlimited skipping keeps this step green while less and less of the gate actually runs. Each skip's reason is in the SKIPPED lines -rs printed above: either the environment they need is genuinely absent (say so in the skip reason and raise this bound deliberately, in review) or the skip is hiding a test that should run."
+            exit 1
+          fi
+          if [ "$TEST_STATUS" -ne 0 ]; then
+            echo "::error::the governed product suite failed (pytest exit $TEST_STATUS). The floor and the file-set gates above passed, so the collection is whole and this is a real test failure, not a narrowed gate -- see the failures printed above."
+            exit "$TEST_STATUS"
+          fi
+
+  # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
+  # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it
+  # runs on a different runtime (Bun) with its own suite (node:test, 205 cases). It had NO CI
+  # coverage at all, so a PR could break the user entry while every Python job stayed green.
+  # A separate, parallel job rather than a step in `test`: it needs a node/bun toolchain the
+  # Python job has no use for, and its failure should be attributable on its own.
+  cli-ts:
+    runs-on: ubuntu-latest
+    # Wall-clock bound, because this job has none of its own and CI's default is 360 minutes.
+    # It is the only job that installs a full node + bun toolchain, builds the client, packs the
+    # tarball and starts a hermetic daemon, so it is the slowest and the one that can HANG: the
+    # render tests spawn Bun (which can block on a renderer that never exits) and the install
+    # smoke spawns a daemon (which can block on a socket that never answers). Measured here, a
+    # healthy run is far inside this bound (the node:test suite itself: 205 cases / 0 fail in
+    # ~1.6 s; the build/pack/start hops dominate), so 20 minutes is a hang detector, not a
+    # performance gate -- it turns "the turn never finishes" into a 20-minute attributable
+    # failure instead of six hours of runner time.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # Node is only the test DRIVER: scripts.test is `node --import tsx --test <files>`, and no
+      # test file imports OpenTUI at runtime (the two render tests spawn Bun instead; everything
+      # else touching @opentui is `import type`, erased at run time). Pinned because ubuntu-latest
+      # ships whatever node it ships; 22 = the LTS line this suite was verified on (v22.23.0,
+      # 205 pass / 0 fail).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Bun is not optional and cannot be replaced by node: it is the package's declared runtime
+      # (apps/cli-ts/package.json engines.bun >=1.4.0) and the only runtime that can load
+      # OpenTUI's native renderer (@opentui/core engines: bun >=1.3.0, or node >=26.4.0 with
+      # --experimental-ffi). Pinned to the version the suite was verified on; bun.lock locks
+      # dependencies, not the toolchain.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      # Install with bun, not npm ci. bun is the declared runtime, so bun.lock is the tree a
+      # `bun install` developer gets; the two lockfiles in this package do NOT resolve identically
+      # today (bun's tree has strip-ansi@7.2.0 under string-width, npm's has no 7.2.0 at all), so
+      # `npm ci` would gate a slightly different tree than the one the CLI is actually run from.
+      # `--frozen-lockfile` is the strict form: it refuses to resolve anything not already in
+      # bun.lock (verified: adding a dependency to package.json without regenerating bun.lock
+      # fails here with "lockfile had changes, but lockfile is frozen", exit 1), so a stale
+      # lockfile fails loudly instead of silently re-resolving to a different tree. It only
+      # checks dependencies -- a scripts-only package.json edit does not trip it (verified).
+      # `npm ci` also installs and passes (verified in a clean copy: 205 pass), so it remains the
+      # fallback if bun install is ever unavailable.
+      - name: Install (frozen lockfile)
+        working-directory: apps/cli-ts
+        run: bun install --frozen-lockfile
+      # `npm test` is node --import tsx --test over an EXPLICIT file list in scripts.test, not a
+      # glob, and the two render tests run only because they are registered there -- that is why
+      # test/test-list-guard.test.ts asserts the registered list against the files on disk in both
+      # directions. They need no TTY: they spawn `bun run <harness>` and assert on its exit status
+      # and its PASS marker, so the runner's piped stdout is fine (verified locally with
+      # stdout piped: 205 pass / 0 fail).
+      - name: Tests
+        working-directory: apps/cli-ts
+        # One bounded process per test file (scripts/test-ci.mjs) rather than one
+        # `node --test` for all of them: on the Linux runner the suite hung with no
+        # attribution - the last log line was whichever test had passed last, and
+        # the job sat until its 20-minute wall clock fired. Per-file deadlines make
+        # a hang report itself as "this file timed out".
+        # The step is bounded by a SUITE budget (720 s by default): every file gets
+        # `min(TEST_FILE_TIMEOUT_MS, budget still unspent)`, the run stops when the
+        # budget is gone, and files it never reached are reported as failures -- so the
+        # 20-minute job cannot be outlived however many files hang. Both knobs
+        # (TEST_FILE_TIMEOUT_MS, TEST_SUITE_BUDGET_MS) are rejected rather than clamped
+        # when they fall outside the script's enforced range. The file list comes from
+        # scripts.test and is cross-checked against a recursive scan of test/, so the
+        # files CI runs and the files `npm test` runs are the same set by construction.
+        run: npm run test:ci
+      # tsc -p tsconfig.json --noEmit over src/**, scripts/**/*.ts and test/** -- the view and the
+      # protocol client are typed contracts, so a type error is a gate failure, not a warning.
+      - name: Typecheck
+        working-directory: apps/cli-ts
+        run: npm run typecheck
+      # --- install smoke: "it installs, it starts, it answers" -------------------------------------
+      # Why this step exists: everything above runs the client FROM SOURCE (`npm test` drives
+      # src/cli.tsx through tsx) or only reads types (`npm run typecheck`). The job could therefore
+      # stay fully green while the artifact a USER runs is broken: tsc stops emitting, dist/cli.js
+      # loses its exec bit, the `files` list drops dist/ from the tarball, or the client can no longer
+      # complete a turn against the local runtime. `scripts/install_smoke.sh` walks that user path
+      # from source state and asserts every hop -- build -> dist/cli.js present+executable and every
+      # `bin` target resolving -> `--version` printing the package.json version -> `npm run pack:check`
+      # tarball carrying dist/ + README.md and no .map -> the hermetic daemon writing its OWN descriptor
+      # -> `bun dist/cli.js --descriptor ... --no-daemon -p ... --output-format json` exiting 0 with the
+      # daemon's own scripted turn text and is_error:false -> the daemon stopped with no orphan. It fails
+      # on the first broken hop and prints a PASS/FAIL list; no step here is softened.
+      # Deliberately NOT `npm i -g` / no publish: apps/cli-ts/package.json is `private: true`, so this
+      # package cannot be published or installed from a registry today. "Installed" is checked on the
+      # two things an install would ship or run -- the tarball `pack:check` builds (contents, plus the
+      # paths the `bin` entries name) and the real runtime path `bun dist/cli.js` (the BUILT artifact,
+      # never `npx tsx src/cli.tsx`, which would only exercise the source tree).
+      # Python is here solely for the hermetic daemon (scripts/dev_daemon.py: scripted provider, no
+      # network, no credentials). The deps mirror the daemon's imports and the `test` job's pinned
+      # runtime set: sqlglot==30.13.0 (pyproject runtime pin, required by apps/api_server ->
+      # domain_packs/data_agent/sql_safety.py), plus pydantic and pyyaml. No `pip install .` and no
+      # `-e .`: the workspace packages come from PYTHONPATH and are never resolved from an index
+      # (they are unpublished).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python runtime for the hermetic daemon
+        run: pip install "sqlglot==30.13.0" "pydantic>=2.13,<3" "pyyaml>=6,<7"
+      - name: Install smoke (build -> pack -> start -> answer)
+        working-directory: apps/cli-ts
+        env:
+          # Absolute, because working-directory is apps/cli-ts: the workspace packages live at the
+          # repo root. dev_daemon.py also puts them on sys.path itself, so this is belt-and-braces.
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}/packages/contracts/src:${{ github.workspace }}/packages/os_core/src
+        run: bash scripts/install_smoke.sh
 
   # --- ARM-AT-FREEZE (not active yet) -----------------------------------------------------------
   # prereg-verify: machine-enforce "no mechanism change after a preregistration freeze" (the

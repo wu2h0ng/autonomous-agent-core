@@ -12,7 +12,13 @@ export type AgentRowKind = "mandate" | "task" | "session" | "group";
 export interface AgentTreeInput {
   mandates: readonly { mandate_id: string; status: string }[];
   links: readonly { mandate_id: string; task_id: string }[];
-  sessions: readonly { session_id: string; task_id: string; status: string }[];
+  sessions: readonly {
+    session_id: string;
+    task_id: string;
+    status: string;
+    /** Read-only projection of the durable pending approval (never inferred). */
+    hasPendingApproval?: boolean;
+  }[];
 }
 
 export interface AgentRow {
@@ -20,6 +26,8 @@ export interface AgentRow {
   kind: AgentRowKind;
   id: string;
   status: string;
+  /** Only ever true for a session row whose projection reported a pending approval. */
+  pendingApproval?: boolean;
 }
 
 export interface AgentTree {
@@ -86,6 +94,7 @@ export function buildAgentTree(
         kind: "session",
         id: session.session_id,
         status: session.status,
+        pendingApproval: session.hasPendingApproval === true,
       });
     }
   };
@@ -120,8 +129,9 @@ export function agentRowLine(row: AgentRow): string {
         : row.kind === "session"
           ? "•"
           : "≡";
+  const flag = row.pendingApproval === true ? "  !pending approval" : "";
   const status = row.status === "" ? "" : `  ${row.status}`;
-  return `${indent}${marker} ${row.id}${status}`;
+  return `${indent}${marker} ${row.id}${status}${flag}`;
 }
 
 /** Clamp a row cursor to the current tree (rows change on every refresh). */

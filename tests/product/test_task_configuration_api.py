@@ -24,7 +24,11 @@ from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
 
 
-NOW = datetime(2026, 7, 15, 22, 0, tzinfo=timezone.utc)
+# Relative, not a frozen calendar date: the commitment below expires 30 days
+# after this value, and sealing checks `expires_at <= now` against the real
+# clock. A hard-coded past date made every seal deny with "Task commitment
+# expired before sealing" (HTTP 403) once wall-clock time passed it.
+NOW = datetime.now(timezone.utc)
 
 
 @contextmanager

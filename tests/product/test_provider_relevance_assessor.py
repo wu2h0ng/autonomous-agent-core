@@ -60,7 +60,11 @@ from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from tests.product._steward_app import admitted_application
 
 
-NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+# Relative, not a frozen calendar date: the credential below expires 30 days
+# after this value and the provider constructor compares `expires_at` against
+# the real clock. A hard-coded past date made construction raise "provider
+# credential must be unexpired" once wall-clock time passed it.
+NOW = datetime.now(timezone.utc)
 OBSERVATION_BYTES = b'{"kind":"external-report","change":"quality gate failed"}'
 PROJECTION_BYTES = b'{"state":"commitment at risk","confidence":0.72}'
 OBSERVATION_DIGEST = hashlib.sha256(OBSERVATION_BYTES).hexdigest()

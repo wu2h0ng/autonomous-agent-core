@@ -353,3 +353,133 @@ test("getReadOnly issues a GET with no body (read-only projections only)", async
   assert.equal(seen[0]?.body, undefined);
   assert.equal(seen[0]?.auth, `Bearer ${TOKEN}`);
 });
+
+const TASK_ID = "task:1";
+
+function durableEvent(sequence: number, taskId = TASK_ID) {
+  return {
+    event_id: `event:${sequence}`,
+    task_id: taskId,
+    event_type: "SESSION_MESSAGE_RECORDED",
+    payload_json: "{}",
+    occurred_at: "2026-08-12T00:00:00+00:00",
+    sequence,
+  };
+}
+
+function eventFrame(event: ReturnType<typeof durableEvent>): string {
+  return `id: ${event.sequence}\nevent: ${event.event_type}\ndata: ${JSON.stringify(event)}\n\n`;
+}
+
+function cursorFrame(nextSequence: number, terminate = true): string {
+  return `event: cursor\ndata: ${JSON.stringify({ next_sequence: nextSequence })}${terminate ? "\n\n" : ""}`;
+}
+
+/** The contract messages the Python model raises, mirrored verbatim in TS. */
+const NEXT_SEQUENCE_MESSAGE =
+  "surface next_sequence must equal the last event sequence or after_sequence";
+const INCREASING_MESSAGE =
+  "surface event sequences must strictly increase above after_sequence";
+const OWNERSHIP_MESSAGE = "surface events must belong to the requested task";
+
+function contractMessages(error: unknown): string {
+  const issues = (error as { issues?: Array<{ message: string }> } | null)?.issues ?? [];
+  return issues.map((issue) => issue.message).join(" | ");
+}
+
+test("durable events batch: a cursor that disagrees with its events is rejected", async () => {
+  // Corpus shape 11_cursor_then_event_midframe: the cursor claims 5 while the
+  // batch only carries event 2. Python raises ValidationError here; accepting it
+  // would let the caller resume from a window that never existed.
+  const sse = cursorFrame(5) + eventFrame(durableEvent(2));
+  await withServer(
+    (req) => {
+      assert.equal(req.url, `/v1/surface/tasks/${TASK_ID}/events?after=0&wait_ms=0`);
+      return { status: 200, sse };
+    },
+    async (client) => {
+      await assert.rejects(
+        () => client.events(TASK_ID, 0, 0),
+        (error: unknown) => {
+          assert.equal((error as Error).name, "ZodError");
+          assert.ok(contractMessages(error).includes(NEXT_SEQUENCE_MESSAGE));
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("durable events batch: a cursor-only frame cannot advance with no events", async () => {
+  // Corpus shape 04_cursor_half_frame: cursor 7, no events, after 0. Python
+  // raises ValidationError; a client that trusts the cursor re-requests an
+  // empty window forever at the wrong position.
+  await withServer(
+    () => ({ status: 200, sse: cursorFrame(7, false) }),
+    async (client) => {
+      await assert.rejects(
+        () => client.events(TASK_ID, 0, 0),
+        (error: unknown) => {
+          assert.ok(contractMessages(error).includes(NEXT_SEQUENCE_MESSAGE));
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("durable events batch: events at or below after_sequence are rejected", async () => {
+  await withServer(
+    () => ({ status: 200, sse: eventFrame(durableEvent(3)) + cursorFrame(3) }),
+    async (client) => {
+      await assert.rejects(
+        () => client.events(TASK_ID, 3, 0),
+        (error: unknown) => {
+          assert.ok(contractMessages(error).includes(INCREASING_MESSAGE));
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("durable events batch: an event owned by another task is rejected", async () => {
+  await withServer(
+    () => ({ status: 200, sse: eventFrame(durableEvent(1, "task:other")) + cursorFrame(1) }),
+    async (client) => {
+      await assert.rejects(
+        () => client.events(TASK_ID, 0, 0),
+        (error: unknown) => {
+          assert.ok(contractMessages(error).includes(OWNERSHIP_MESSAGE));
+          return true;
+        },
+      );
+    },
+  );
+});
+
+test("durable events batch: a consistent batch still decodes unchanged", async () => {
+  // Positive control for the new validation: the frozen wire shape (event 1 +
+  // cursor 1) and an empty batch at the read cursor must both keep working.
+  await withServer(
+    () => ({ status: 200, sse: eventFrame(durableEvent(1)) + cursorFrame(1) }),
+    async (client) => {
+      const batch = await client.events(TASK_ID, 0, 0);
+      assert.equal(batch.next_sequence, 1);
+      assert.deepEqual(
+        batch.events.map((event) => event.sequence),
+        [1],
+      );
+    },
+  );
+
+  await withServer(
+    () => ({ status: 200, sse: `${cursorFrame(4)}\n` }),
+    async (client) => {
+      const batch = await client.events(TASK_ID, 4, 0);
+      assert.equal(batch.after_sequence, 4);
+      assert.equal(batch.next_sequence, 4);
+      assert.deepEqual(batch.events, []);
+    },
+  );
+});

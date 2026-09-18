@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, assert_type
 
@@ -47,9 +47,9 @@ from agent_os_core import (
     situated_input_binding_digest,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
+from tests.product._situated_epoch import NOW
 
 
-NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 TRACE_ID = "trace-123"
 SECRET = "secret-value-that-must-not-leak"
 

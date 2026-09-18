@@ -4,7 +4,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -46,12 +46,12 @@ from tests.product.test_provider_relevance_assessor import (
     _draft as _provider_draft,
     _policy as _provider_policy,
 )
+from tests.product._situated_epoch import NOW
 from tests.product.mandate_observation_support import (
     authorize_workspace_observation,
     create_workspace_record,
 )
 
-NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 TRACE_ID = "trace-123"
 
 

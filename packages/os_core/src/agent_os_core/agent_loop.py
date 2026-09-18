@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -464,15 +465,24 @@ class AgentLoop:
         turn_id: TurnId,
         result: TurnResult,
     ) -> None:
-        if result.stop_reason in {
-            "approval_required",
-            "unknown_requires_review",
-        }:
+        if result.stop_reason == "approval_required":
             return
         projected = self._tasks.project_session(
             session.task_id,
             session.session_id,
         )
+        if result.stop_reason == "unknown_requires_review" and (
+            projected.pending_continuation is not None
+            or _has_unanswered_tool_calls(projected.history)
+        ):
+            # S2: an unknown effect ends the turn truthfully - it is never a
+            # success, the Run stays PAUSED, and the durable pause blocks every
+            # automatic resume until an external reconciliation. The turn is
+            # only left open when a parked approval owns an unanswered tool
+            # call: only a human APPROVE/REJECT may resolve that one, and the
+            # session projection forbids completing a turn with an unanswered
+            # tool call or an unresolved approval.
+            return
         if projected.resumable_turn_id is None:
             self._resumable_turn_ids.discard(turn_id.turn_id)
             return
@@ -738,6 +748,13 @@ class AgentLoop:
                 )
             except Exception as exc:
                 self._sandbox.release_execution_lease(execution_lease)
+                # Same durable signal as the unapproved path: an approved call
+                # that the capability layer still refuses (the file turned
+                # read-only, the digest changed between approval and dispatch)
+                # sealed nothing, so the card it created must not stay pending.
+                self._record_tool_failure(
+                    pending.action, pending.proposal.proposal_id, exc
+                )
                 tool_message = self._tool_message(
                     pending.proposal,
                     {"error": f"{type(exc).__name__}: {exc}"},
@@ -941,6 +958,45 @@ class AgentLoop:
                         seen_action_digests,
                     )
                 except CapabilityEffectUnknown as unknown:
+                    # S2 fail-closed, but honest and terminal: a post-dispatch
+                    # unknown is never a success and is never auto-retried, yet
+                    # the turn must still conclude visibly. Answer the
+                    # outstanding tool call with the reason, answer the
+                    # proposals of this message that will not run (a provider
+                    # rejects unanswered tool_calls), then stop on the durable
+                    # unknown pause.
+                    continuation_checkpoint = self._append_turn_progress(
+                        session,
+                        turn_id=turn_id.turn_id,
+                        message=self._unknown_tool_message(proposal, unknown),
+                        continuation=continuation_checkpoint,
+                        assistant_message_index=assistant_message_index,
+                        next_proposal_index=index + 1,
+                        steps=steps,
+                        total_tokens=total_tokens,
+                        seen_action_digests=seen_action_digests,
+                    )
+                    replied_proposal_ids.add(proposal.proposal_id)
+                    for remaining_index in range(index + 1, len(proposals)):
+                        remaining = proposals[remaining_index]
+                        continuation_checkpoint = self._append_turn_progress(
+                            session,
+                            turn_id=turn_id.turn_id,
+                            message=self._tool_message(
+                                remaining,
+                                {
+                                    "error": _NOT_EXECUTED_AFTER_UNKNOWN,
+                                    "not_executed": True,
+                                },
+                            ),
+                            continuation=continuation_checkpoint,
+                            assistant_message_index=assistant_message_index,
+                            next_proposal_index=remaining_index + 1,
+                            steps=steps,
+                            total_tokens=total_tokens,
+                            seen_action_digests=seen_action_digests,
+                        )
+                        replied_proposal_ids.add(remaining.proposal_id)
                     return self._pause_for_unknown(
                         session,
                         turn_id,
@@ -1021,6 +1077,36 @@ class AgentLoop:
             total_tokens=total_tokens,
         )
 
+    def _unknown_tool_message(
+        self,
+        proposal: Any,
+        unknown: CapabilityEffectUnknown,
+    ) -> ProviderMessage:
+        """The model-visible result of a dispatched action whose effect is
+        unknown: the reason, the review requirement, and the explicit statement
+        that the action was not retried.
+
+        Host absolute paths are dropped from the model-visible detail; the
+        operator-facing text keeps them.
+        """
+        return self._tool_message(
+            proposal,
+            {
+                "error": _unknown_review_text(
+                    unknown,
+                    _model_visible_unknown_detail(unknown),
+                ),
+                "effect_unknown": True,
+                "dispatched": True,
+                "auto_retry": False,
+                "requires_human_review": True,
+                "reason_code": unknown.reason_code,
+                "action_digest": unknown.action_digest,
+                "reservation_id": unknown.reservation_id,
+                "stop_reason": "unknown_requires_review",
+            },
+        )
+
     def _pause_for_unknown(
         self,
         session: ChatSession,
@@ -1042,7 +1128,7 @@ class AgentLoop:
         )
         return TurnResult(
             turn_id=turn_id,
-            text=str(unknown),
+            text=_unknown_review_text(unknown, unknown.detail),
             steps=steps,
             stop_reason="unknown_requires_review",
             total_tokens=total_tokens,
@@ -1263,6 +1349,47 @@ class AgentLoop:
             raise RunExecutionError("chat provider exhausted without a response")
         return last_failure
 
+    def _record_tool_failure(
+        self,
+        action: ActionContract,
+        provider_tool_call_id: str,
+        exc: BaseException,
+    ) -> None:
+        """Durable node-level failure for a tool call that sealed no result.
+
+        A refusal taken before dispatch produces no receipt (a receipt attests
+        that a dispatch executed, and none did) and no `NODE_COMPLETED`
+        (nothing completed), so the durable stream held nothing at all for it:
+        the model was told through the tool result, but every operator surface
+        that projects the stream - the TUI tool card, `/export` - showed a call
+        that stayed pending forever with no reason. The reason is recorded here
+        as a node-level failure instead. This is not a receipt and it does not
+        change receipt semantics: no reservation, no seal, no
+        `ACTION_RECEIPT_RECORDED`, and the Run is untouched.
+
+        Only failures the broker did not convert into a typed UNKNOWN reach
+        this path (ADR-0059 turns every post-dispatch failure into one), so the
+        event claims exactly what the loop knows: this proposal produced no
+        sealed result, and this is why.
+        """
+
+        self._tasks.append_event(
+            action.task_id,
+            TaskEventType.NODE_FAILED,
+            {
+                "node_id": action.node_id,
+                "action_id": action.action_id,
+                "provider_tool_call_id": provider_tool_call_id,
+                "agent_loop_dynamic_action": True,
+                "capability_id": action.capability_id,
+                "action_digest": action.action_digest(),
+                "error": f"{type(exc).__name__}: {exc}",
+                "exception": type(exc).__name__,
+                "error_code": f"error:{type(exc).__name__}",
+            },
+            correlation_id=action.run_id,
+        )
+
     def _record_tool_completion(
         self,
         action: ActionContract,
@@ -1443,6 +1570,7 @@ class AgentLoop:
         except ResponsibilityLoopStaleFence:
             raise
         except Exception as exc:
+            self._record_tool_failure(action, proposal.proposal_id, exc)
             return self._tool_message(
                 proposal,
                 {"error": f"{type(exc).__name__}: {exc}"},
@@ -1630,6 +1758,76 @@ class AgentLoop:
         return kept, payload
 
 
+_NOT_EXECUTED_AFTER_UNKNOWN = (
+    "not executed: an earlier action of this message was dispatched and its "
+    "effect is unknown; a human must reconcile it first"
+)
+
+_UNKNOWN_MODEL_DETAIL_CHARS = 400
+
+_ABSOLUTE_PATH_RE = re.compile(r"(?<![\w./~-])(?:/[A-Za-z0-9._+@%=-]+){2,}")
+
+
+def _unknown_review_text(
+    unknown: CapabilityEffectUnknown,
+    detail: str,
+) -> str:
+    """Operator/model-facing wording for a dispatched action of unknown effect.
+
+    The `UNKNOWN_REQUIRES_REVIEW [reason_code]` prefix is the frozen marker; the
+    sentence after it says what is true (not a success), what did not happen (no
+    retry), and what is required (a human review).
+    """
+
+    return (
+        f"UNKNOWN_REQUIRES_REVIEW [{unknown.reason_code}]: {detail} - the effect "
+        "may already have happened, so this action is not a success and was not "
+        "retried; a human must review and reconcile it before the Run can "
+        "continue"
+    )
+
+
+def _model_visible_unknown_detail(unknown: CapabilityEffectUnknown) -> str:
+    """The reason detail with host absolute paths removed.
+
+    The operator-facing text keeps the raw detail; the model-visible text must
+    not carry the host's absolute paths (they add nothing the model can act on
+    and the workspace-relative form already identifies the target).
+    """
+
+    redacted = _ABSOLUTE_PATH_RE.sub(
+        lambda match: "[host-path]/" + match.group(0).rsplit("/", 1)[-1],
+        unknown.detail,
+    )
+    if len(redacted) > _UNKNOWN_MODEL_DETAIL_CHARS:
+        redacted = redacted[: _UNKNOWN_MODEL_DETAIL_CHARS - 3] + "..."
+    return redacted
+
+
+def _has_unanswered_tool_calls(
+    history: Sequence[ProviderMessage],
+) -> bool:
+    """Whether any ASSISTANT tool_call still lacks its TOOL reply.
+
+    Mirrors the session projection's own invariant, so a turn is only ever
+    completed when the projection will accept its completion event. A dispatched
+    action whose effect is unknown still receives a TOOL reply (see
+    `_unknown_tool_message`), so it never counts as unanswered here.
+    """
+
+    answered = {
+        message.tool_call_id
+        for message in history
+        if message.role is ProviderMessageRole.TOOL
+    }
+    return any(
+        call.tool_call_id not in answered
+        for message in history
+        if message.role is ProviderMessageRole.ASSISTANT
+        for call in message.tool_calls
+    )
+
+
 def _history_digest(messages: "list[ProviderMessage]") -> str:
     """Deterministic digest of the retained history (roles, ids, tool calls, content)."""
 
@@ -1665,12 +1863,40 @@ def _action_preview(action: ActionContract, arguments: dict[str, Any]) -> str:
     return json.dumps(arguments, default=str)[:2000]
 
 
+_SUMMARY_VALUE_CHARS = 120
+
+
+def _scalar_summary(output: dict[str, Any]) -> dict[str, Any]:
+    """The small top-level scalars, which are the decision-relevant part.
+
+    Keys arrive key-sorted (canonical_output), so a payload whose bulk lives in
+    `matches` loses every field that sorts after it once the preview is cut -
+    `truncated_reason`, `scanned_files`, `unexamined_files`, `exit_code`, `mode`.
+    Those are exactly the fields that say WHY a result is incomplete, so they are
+    carried explicitly. Long strings are replaced by their length so the summary
+    itself stays bounded (a 5 MB read would otherwise re-inflate it).
+    """
+
+    summary: dict[str, Any] = {}
+    for key, value in output.items():
+        if value is None or isinstance(value, (bool, int, float)):
+            summary[key] = value
+        elif isinstance(value, str):
+            summary[key] = (
+                value
+                if len(value) <= _SUMMARY_VALUE_CHARS
+                else f"<omitted: {len(value)} chars>"
+            )
+    return summary
+
+
 def _truncate_json(output: dict[str, Any]) -> dict[str, Any]:
     rendered = json.dumps(output, default=str)
     if len(rendered) <= _MAX_TOOL_RESULT_CHARS:
         return output
     return {
         "truncated": True,
+        "summary": _scalar_summary(output),
         "preview": rendered[:_MAX_TOOL_RESULT_CHARS],
     }
 

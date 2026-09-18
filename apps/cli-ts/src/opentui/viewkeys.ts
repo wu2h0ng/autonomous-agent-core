@@ -9,6 +9,7 @@
  */
 export type ViewKeyOwner =
   | { layer: "selector" }
+  | { layer: "search"; action: "open" | "up" | "down" | "pick" | "cancel" | "ignore" }
   | { layer: "approval"; action: "approve" | "reject" | "ignore" }
   | { layer: "global" }
   | { layer: "palette"; action: "up" | "down" | "complete" | "submit" | "ignore" }
@@ -29,6 +30,11 @@ export interface ViewKeyContext {
    * layer and silently disabled Enter/movement.
    */
   selectorOpen: unknown;
+  /**
+   * The Ctrl-R reverse history search is open. Any truthy value means open
+   * (same convention as `selectorOpen`).
+   */
+  searchOpen: unknown;
   /** A human approval is pending. */
   awaitingApproval: boolean;
   /** The command palette is showing matches. */
@@ -54,8 +60,11 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   const { name, ctrl, sequence } = ctx;
 
   // 0a. Insert mode + Esc leaves vim editing for normal mode (unless a turn is
-  //     streaming, where Esc must stay the frozen global correction).
-  if (ctx.vimInsertMode && name === "escape" && !ctx.streaming) {
+  //     streaming, where Esc must stay the frozen global correction, or the
+  //     Ctrl-R overlay is open, where Esc is the overlay's own cancel — taking
+  //     it here left the search up and the NEXT key routed to normal mode, so
+  //     the overlay became unreachable).
+  if (ctx.vimInsertMode && name === "escape" && !ctx.streaming && !ctx.searchOpen) {
     return { layer: "vim", action: "normal" };
   }
 
@@ -73,6 +82,31 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   // 1. Selector owns every key while open (so Esc cancels the picker and never
   //    reaches the frozen global mapping).
   if (ctx.selectorOpen) return { layer: "selector" };
+
+  // 1b. Ctrl-R reverse search (#14). The QUERY lives in the composer, so only
+  //     the keys the overlay itself owns are intercepted and printable keys
+  //     fall through to the composer (the same rule the palette follows, and
+  //     the same rule that fixes the /exit trap: an overlay must never eat
+  //     characters). Tab/PgUp/PgDn are swallowed rather than switching panels
+  //     mid-search, which is what Ink does with every unhandled key here.
+  if (ctx.searchOpen) {
+    if (name === "up") return { layer: "search", action: "up" };
+    if (name === "down") return { layer: "search", action: "down" };
+    if (name === "return") return { layer: "search", action: "pick" };
+    if (name === "escape") return { layer: "search", action: "cancel" };
+    // Keys that would otherwise change mode mid-search: Tab/PgUp/PgDn move
+    // panels, Ctrl-R would re-enter (and reset) the search, Ctrl-G would hand
+    // the query to an external editor. Ink swallows every unlisted key here;
+    // these three would be side effects rather than "no-op".
+    if (name === "tab" || name === "pageup" || name === "pagedown") {
+      return { layer: "search", action: "ignore" };
+    }
+    if (sequence === "\u0012" || sequence === "\u0007") {
+      return { layer: "search", action: "ignore" };
+    }
+    // Everything else (printable text, backspace) edits the QUERY in the
+    // composer, so it must keep falling through rather than return early.
+  }
 
   // 2. A pending approval is answered explicitly; nothing else is routed.
   if (ctx.awaitingApproval) {
@@ -111,6 +145,15 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   //    sequence="g") reaches this resolver whenever the input is blurred (e.g.
   //    after Tab) and must stay composer text, never open an editor.
   if (sequence === "\u0007") return { layer: "editor" };
+
+  // 7c. Ctrl-R opens the reverse history search (#14). Measured with opentui's
+  //     own parser (spike/key-sequence-probe.ts): 0x12 -> name="r" ctrl=true
+  //     sequence="\u0012". Both forms are accepted so a plain "r" — which
+  //     reaches this resolver whenever the textarea is blurred — can never open
+  //     it, which is the property that actually matters.
+  if (sequence === "\u0012" || (ctrl && name === "r")) {
+    return { layer: "search", action: "open" };
+  }
 
   // 8. Panel chrome: Tab selects the next panel, PgUp/PgDn scroll it. This must
   //    come after the palette (Tab completes commands while it is open) and

@@ -11,28 +11,33 @@
 |---|---|---|---|---|---|
 | 1 | transcript（finalized/active/streaming） | ✓ | ✓ | DONE | P1 + `pty_fullscreen_p2/p3a` |
 | 2 | 审批卡 + `y`/`n`（前台可见） | ✓ | ✓ | DONE | P1/P2；`awaiting` 强制 transcript |
-| 3 | 顶栏 + footer（tokens/cost/events） | ✓ | ✓ | DONE | P1；cost 恒 UNKNOWN（诚实） |
+| 3 | 顶栏 + footer（tokens/cost/events） | ✓ | ✓ | **DONE（此前为假 DONE，见 §13）** | 两个 `<text>` 在 flex 列里高度算成 0：顶栏**从未渲染**（被 transcript 边框覆盖），footer 压在输入框下边框上。§13 加 `height:1` + 中间行 `flexShrink:1` 后两者各占一行；`pty_theme_check.py` 现在同时覆盖 header 与 footer（`THEME_KEYS_CHANGED: ['header','footer']`）。cost 恒 UNKNOWN（诚实）|
 | 4 | 窄终端降级 | ✓ | ✓ | DONE | `layoutFor`/`SIDEBAR_MIN_WIDTH` |
 | 5 | 独立滚动面板 | ✗（Ink 无） | ✓ | 全屏领先 | P2（files/diff） |
 | 6 | agents 树 + 会话切换 | ✗ | ✓ | 全屏领先 | P3a（+多会话 e2e） |
-| 7 | 命令面板（`/` 过滤 + Tab 补全 + Enter 执行） | ✓ | ✓ | **切片 A** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN` + 行为断言 `PALETTE_ENTER_RAN_STATUS`（Enter 真的执行 `/status`） |
-| 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED` |
+| 7 | 命令面板（`/` 过滤 + Tab 补全 + Enter 执行） | ✓ | ✓ | **切片 A（条目渲染于 §14 才修好）** | `filterCommands` + `sliceWindow`；pty `PALETTE_SHOWN` + 行为断言 `PALETTE_ENTER_RAN_STATUS`。**注意**：切片 A 时浮层条目其实糊在边框行上（§14.3），所以当时只能断言标题+行为；现在条目独立成行、可按内容断言 |
+| 8 | 选择器浮层（`/resume`/`/theme`/`/mode`） | ✓ | ✓ | **切片 A（条目渲染于 §14 才修好）** | `selector.ts` 复用；Esc 由 selector 独占（不会 approve/reject）；pty `SELECTOR_SHOWN/CANCELLED`；条目渲染同 §14.3 |
 | 9 | 斜杠帮助（`/help` 行） | ✓ | ✓ | DONE | 系统消息渲染 |
 | 10 | `@` mentions 列表 + 补全 | ✓ | ✓ | **切片 B/C2** | `mentions.ts` + `controller.workspaceFiles()`；pty `MENTION_COMPLETED_ON_SUBMIT`（经**提交后的新 transcript 行**观测；Tab 在有内容时被 textarea 自身消费） |
-| 11 | vim 模式（normal/insert + 运动/操作符） | ✓ | ✓ | **切片 D DONE** | 纯模块 `src/opentui/vim.ts` + `controller.vimMode`；pty `VIM_NORMAL_EDIT_SUBMITTED`；见 §9 |
-| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 DONE** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8 |
+| 11 | vim 模式（normal/insert + 运动/操作符） | ✓ | ✓ | **切片 D DONE（行为已独立复测；所引信号失效）** | 纯模块 `src/opentui/vim.ts` + `controller.vimMode`。**更正（2026-09-17）**：此前引用的 pty 信号 `VIM_NORMAL_EDIT_SUBMITTED` **在当前夹具下恒为 False**，已不能作为证据——夹具含 `return "hello " + name`，而断言是 `"ello" in submitted and "hello" not in submitted`，后半句永假，与行为无关（修复前实测复现：`False`，当时脚本不设闸门、仍 exit 0）。该夹具文本由 `e44ef044`（切片 E，06:51）加入，晚于切片 D 的 `c5085f14`（05:54）。**行为经独立复测通过**：用不会与夹具文本碰撞的标记 `qqwwzz`，以 `frame_reader` 行级重建屏幕断言——normal 态 `0`+`x` 后提交 `qwwzz`、`0xizz` 后提交 `zzqwwzz`，且 normal 态的未映射键 `q` 不插入文本。该脚本信号的修复归属 `scripts/pty_fullscreen_vim.py`（须改标记方式，并让信号可失败）；见 §9、§14.4 |
+| 12 | 多行 composer + 光标/词移动 + 外部编辑器 | ✓ | ✓ | **切片 C2 + 切片 H 收尾** | `<textarea>` 底座（多行/光标/词移动原生）+ Ctrl-G 外部编辑器；见 §8。§14.4 把 composer 从**固定 5 行**（只显示最后 3 行）改为随草稿有上限地增长，并实测确认 transcript 侧多行显示本来就正确（旧"缺口"记载有误）|
 | 13 | 输入历史（↑/↓） | ✓ | ✓ | **切片 B** | `InputHistory`；pty `HISTORY_PREVIOUS` |
-| 14 | 历史搜索（ctrl+r 模式） | ✓ | ✗ | **缺失** | Ink `searchMode` |
+| 14 | 历史搜索（ctrl+r 模式） | ✓ | ✓ | **DONE（切片 H）** | 复用 `InputHistory.search`；见 §14。pty `SEARCH_OVERLAY_SHOWN` / `MATCH_LISTED` / `NO_MATCH_HINT` / `CANCEL_RESTORES_DRAFT` / `PICK_LOADS_ENTRY` 全 True |
 | 15 | assistant 文本 Markdown 渲染 | ✓ | ✓ | **切片 B** | opentui `<markdown>` + `SyntaxStyle.create()`；pty `MARKDOWN_RENDER_PATH_OK`（smoke） |
-| 16 | 代码语法高亮（彩色） | ✓ | ✗ | **未生效（已实测）** | stub 现在返回 fenced python 块且**渲染正常**，但代码 token 的 fg 全为默认白 → 注册的 `SyntaxStyle` scope **未被 markdown 渲染器应用**；诚实复现器 `scripts/pty_highlight_check.py`（`CODE_COLOURED: False`，未修好前 exit 1）|
+| 16 | 代码语法高亮（彩色） | ✓ | ✓ | **DONE** | 见 §12：内置 tree-sitter 语法只有 {js,ts,markdown,zig}，```python 无 parser → 无高亮可着色；改由我们自己算区间经 `CodeRenderable.onHighlight` 注入。证据：`scripts/highlight_render_check.ts`（无头、含反向对照）+ `scripts/pty_highlight_check.py`（`CODE_DISTINCT_COLOURS: 4`、`HIGHLIGHT_OK: True`）|
 | 17 | 主题真正生效（颜色） | ✓ | ✓ | **DONE** | `theme-colors.ts` 把 `THEMES` 的 Ink 颜色名解析为 hex，并接到 transcript（按角色）、审批卡、顶栏、footer、composer 边框；pty `THEME_APPLIED` 断言 footer 的 SGR 随 `/theme mono` 变化 |
-| 18 | 首页/欢迎面板 | ✓ | ✗ | **缺失** | `HomeView` 仅 Ink |
+| 18 | 首页/欢迎面板 | ✓ | ✓ | **DONE** | 见 §13：内容模型抽到 `src/home.ts`（Ink 与全屏共用），面板 `src/opentui/home-panel.tsx`；首帧证据 `scripts/pty_home_frame_check.py`（`HOME_PANEL_CHECK: PASS`）|
 | 19 | `/status`、`/cost`、todo 面板 | ✓ | ✓ | DONE | 面板消息已渲染（`line()` 处理 `message.panel`） |
 
 ## 2. 结论
 
-- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭；**退役 Ink 仍缺 #14（ctrl+r 历史搜索）、#16（彩色高亮）、#17（主题配色）、#18（首页）与多行显示/滚动**（mentions、vim、多行/编辑器、历史、历史搜索、Markdown、高亮、主题配色、首页）。
+- 切片 A/B 关闭 #7/#8/#10/#13/#15，#11 vim、#12 多行由切片 D/C2 关闭（#12 的 composer 高度由切片 H 收尾），#17 由切片 E 关闭，#16 由切片 F 关闭，#18 由切片 G 关闭（并顺带把 #3 的假 DONE 修正为真 DONE），#14 由切片 H 关闭。
+- **结论：19 项对齐清单全部 DONE（#5/#6 为全屏领先 Ink），退役 Ink 的前提条件已满足。** 退役方式见下；剩余工作只剩可选加固（把浮层断言从标题改为内容、修 cell-diff 残留）与 `#12` 的"多行显示"记载更正。
 - 迁移不变量：`SurfaceClient`/`TuiController`/协议/审批/C7 **不动**（纯视图层）。
+- **退役前置工作已实测并落盘**：见 `TUI-INK-RETIREMENT-PREP-2026-09-17.md`。关键约束：全屏客户端**在 node 下起不来**
+  （`OpenTUI native FFI is not available`，实测），只在 bun 下运行 → 退役 Ink 等于把 CLI 运行时从 node 换成 bun，
+  必须**先做运行时/打包决策**再动入口。该文件含按依赖实测的删除清单、**必须保留**的模块（`src/highlight.ts`、
+  `src/home.ts`），以及本轮已完成的"把 Ink 输出冻结成快照"这一可分离准备工作。
 - 退役方式（对齐后）：按 Stage 2f 的做法删 Ink 视图与依赖，保留回归清单与本文件的 DONE 证据。
 
 ## 3. 下一步（建议顺序）
@@ -93,7 +98,7 @@
 
 - **纯模块 `src/opentui/vim.ts`**：`resolveVimKey(name, pendingOp)`（映射对齐 Ink：`h/j/k/l`、`0/$`、`w/b/e`、`x`、`i/a/A/I`、`d/c` + `dd/dw/d$`、Enter 提交、Esc 清 pending）+ `applyVimAction(state, action)`（复用 `composer.ts` 原语；`c` 操作符后回到 insert）+ `offsetFromCursor`（逻辑光标 → offset，越界 clamp）。单测 `test/opentui-vim.test.ts`（bypass-detecting）。
 - **视图/路由**：新增 `vim` 键层（在 resolver 中**优先级最高**，仅当 `controller.vimMode && !vimInsert`）。normal 模式下 **textarea 失焦**（字母因此不会被插入，全部由该层处理）；插入态按 **Esc** → 进入 normal（除非正在 streaming，此时 Esc 仍归冻结全局层做纠正）；`i/a/A/I` → 回到 insert 并重新聚焦。
-- **证据**：`scripts/pty_fullscreen_vim.py`（`/vim` → insert 打 "hello" → Esc → `0` → `x` → normal 下 Enter）连续 2 次 `VIM_NORMAL_EDIT_SUBMITTED: True`（提交窗口内为 `ello`，且不含 `hello`；断言只看**提交窗口**，因为更早的帧本来就含 insert 期的 "hello" 回显）。
+- **证据**：`scripts/pty_fullscreen_vim.py`（`/vim` → insert 打 "hello" → Esc → `0` → `x` → normal 下 Enter）。**该信号已失效并撤回（2026-09-17 实测复现）**：脚本现打印 `VIM_NORMAL_EDIT_SUBMITTED: False`，且**与行为无关**——夹具现在含 `return "hello " + name`，断言后半句 `"hello" not in submitted` 因此永假，信号在脚本修复前**不可能**为 True。该夹具文本由切片 E 的 `e44ef044`（06:51）加入，晚于切片 D 的 `c5085f14`（05:54），所以切片 D 当时记录的 True **不据此判为造假**，但**已不能再作为 #11 的证据**。行为本身经独立复测通过（不与夹具碰撞的标记 `qqwwzz` + `frame_reader` 行级重建），见清单 #11 与 §14.4；脚本信号修复归属 `scripts/pty_fullscreen_vim.py`（须改标记并让信号可失败，原先恒 exit 0）。
 - **回归网（同批全绿）**：composer 不变式（含 `COMMAND_RAN_EXACTLY_ONCE`）、`parity_a`、`parity_b`（`SLICE_B_ALL`）、`parity_c`、`p3a`、多会话；单测 **162 + 19**。
 - **教训（第 3 次同类陷阱）**：`vimNormal` 一度写成 `selector === undefined`，而 `pendingSelector` 关闭时是 **null** → vim 层永不激活（"0"/"x" 被当普通文本插入）。同一个 null/undefined 陷阱在本会话已出现三次（selector 层、`overlayOwnsEnterRef`、`vimNormal`）——**新增涉及 `pendingSelector` 的判断必须用 `=== null`/真值**。
 - **仍未做**：`ctrl+r` 历史搜索、彩色语法高亮、主题配色、首页面板、多行**显示**（`<text>` 折叠换行）、多行滚动/高度自适应。
@@ -104,6 +109,8 @@
 
 实测结论：① 提交两行草稿后 transcript 的 `line1`/`line2` 分属不同行 → 多行显示正常；② opentui 自带默认调色（placeholder `fg=(102,102,102)`），`THEMES` 需显式覆盖才生效。
 
+**2026-09-17 修正（见 §12.5）**：该工具原先不认 256 色 `38;5;N`（并把其中的 `N` 误当独立 ANSI 码，报出**完全错误**的颜色），且跳过空格写入（残留上一帧字形 → `find_row` 假阴性）。两者都会伪造证据，已修 + 加自检用例。
+
 ## 11. 切片 E（2026-09-17）：主题真正生效（#17 DONE）
 
 - **纯模块** `src/opentui/theme-colors.ts`：`INK_HEX` 映射 + `hexFor()` + `viewTheme(name)`（把 `src/theme.ts` 的 Ink 颜色名解析为具体 hex；opentui 对 hex 解析可靠）。单测 `test/opentui-theme-colors.test.ts`（断言每个 token 都是 hex，且 `default`/`mono`/`ansi` 之间确实可区分——否则 `/theme` 只改名字）。
@@ -111,12 +118,309 @@
 - **证据**：`scripts/pty_theme_check.py`（基于 `frame_reader`）——同一 token 的 SGR 在 `/theme mono` 前后不同：连续 2 次 `THEME_APPLIED: True`（footer `ASK`：default 灰 → mono 白）。整网回归同批全绿（不变式/parity_a/b/vim/p3a/多会话）。
 - **诚实边界**：① header token（`noem`）在该抓帧中未被工具定位到（`None`），故断言只覆盖 footer；② #16 的作用域颜色**已注册但未验证**（需要含代码块的回复）。
 
-### 11.1 #16 实测结论（2026-09-17，未生效）
+### 11.1 #16 实测结论（2026-09-17，**已被 §12 推翻并修正**）
 
 - 为验证给 hermetic stub 的回复加了 fenced python 代码块（`dev_daemon.py`，仅测试夹具）。
-- 用 `frame_reader` 断言：代码块**确实渲染**（`FENCED_CODE_RENDERED: True`，26 个代码 token 可见），
+- 用 `frame_reader` 断言：代码块**确实渲染**（`FENCED_CODE_RENDERED: True`），
   但 **`CODE_COLOURED: False`** —— 所有 token 的 fg 都是默认 `(255,255,255)`。
-- 结论：`SyntaxStyle.registerStyle("keyword"/"string"/"comment"/"function")` **没有被 markdown 渲染器应用**。
-  下一步需查 opentui 高亮器期望的 **scope 词表/样式形状**（core 里出现过 `comment`/`function`/`string`/`string.special.url`
-  等名字，但显然还需正确的注册形状或 `SyntaxStyle.fromStyles(...)` 用法）。
-- 保留 `scripts/pty_highlight_check.py` 作为**诚实复现器**：修好前它 exit 1，修好后应打印 `CODE_COLOURED: True`。
+- **当时的归因（错）**：`SyntaxStyle.registerStyle(...)` 没有被 markdown 渲染器应用，下一步去查 scope 词表/注册形状。
+- 保留 `scripts/pty_highlight_check.py` 作为复现器。**保留本节是为了记录错误归因**：真正的原因是"没有高亮可着色"（语法缺失），不是"作用域没生效"；见 §12。
+
+## 12. 切片 F（2026-09-17）：代码语法高亮（#16 DONE）
+
+### 12.1 修正后的根因（实测，推翻 §11.1 的归因）
+
+- `MarkdownRenderable` 创建代码块时**已经**传了 `treeSitterClient`；`CodeRenderable` 更是在构造里就
+  `options.treeSitterClient ?? getTreeSitterClient()` **兜底**，而该 client 工作正常（`isInitialized(): true`）。
+  所以"没有 client / client 从未被调用"不成立。
+- 真正的缺口是**语法覆盖**：`@opentui/core` 内置的默认 parser 只有
+  `{javascript, typescript, markdown, markdown_inline, zig}`（wasm + `highlights.scm` 随包，离线可用）。
+  ` ```python ` 因此解析到一个**没有 parser 的 filetype**，client 直接回
+  `"No parser available for filetype python"` → `highlights = []` → 没有任何区间可着色 → 全白。
+  **作用域注册从来不是问题**：`treeSitterToTextChunks` 的解析是 `getStyle(group)` → 失败再退到
+  `getStyle(group.split(".")[0])`，注册 `keyword`/`string`/… 形状是对的，只是没东西可套。
+- 判别实验（`spike/tree-sitter-coverage.ts`，可复跑）：`PARSERS PRESENT: typescript, javascript,
+  javascriptreact, typescriptreact, markdown, markdown_inline, zig` / `PARSERS ABSENT: python, rust, go,
+  bash, json, sql, yaml, ruby, c, cpp, java, html, css`；`highlightOnce(fixture,"python")` → `highlights=null`
+  + warning，`highlightOnce(fixture,"typescript")` → **47 条**（同一 client）。
+
+### 12.2 选型：不逐个 vendor 语法，复用 Ink 路径已经在用的高亮器
+
+- 方案 A（给 python 补一个 tree-sitter wasm + query）只能一个语言一个语言地补（agent 会吐 rust/go/sql/yaml/bash…），
+  且要往仓库里放二进制资源。
+- 采用方案 B：`src/highlight.ts`（Ink 路径）背后的 **highlight.js 本机已有 191 种语言**。
+  自己算出 `[start, end, scope]` 区间，经 opentui **受支持的** `CodeRenderable.onHighlight` 钩子注入：
+  - `onHighlight` 在 `highlights.length >= 0` 时**总会被调用**（即使 tree-sitter 结果为空）；
+  - 返回非空区间即走 `treeSitterToTextChunks`，由 `SyntaxStyle` 把 scope 名解析成颜色；
+  - 有 tree-sitter 结果时（js/ts/markdown/zig）保留原生结果，无语法时用我们的。
+- 兼容性同一性：与 Ink 路径**同一个高亮引擎**，这正是 parity 的目标语义。
+
+### 12.3 实现
+
+- `src/opentui/code-highlight.ts`（纯模块）：`fenceLanguage()`（把 `py`/`ts`/`sh`/`yml` 归一到规范名）、
+  `codeHighlightRanges()`（走 highlight.js token 树取区间，未知语言/解析失败一律 `[]`，fail-soft）、
+  `highlightStyleTable()`（highlight.js token 类 + tree-sitter capture 名两套词表 → 主题 token，含 `default`）、
+  `codeBlockRenderNode()`（`<markdown renderNode>` 钩子；**必须**把它调过的 `context.defaultRender()` 原样返回，
+  否则 markdown 渲染器会销毁这个默认 renderable、代码块整个消失）。
+- `src/opentui/app.tsx`：`SyntaxStyle` 改为注册整张作用域表；`<markdown>` 接 `renderNode`（模块级常量，身份稳定）。
+- `highlight.js` 提升为显式依赖（此前仅经 `cli-highlight` 传递）。
+- 未映射的 scope（如 `emphasis`）刻意留空 → 落到 `default`（`theme.assistant`），不硬凑颜色。
+
+### 12.4 证据
+
+- **无头**（`scripts/highlight_render_check.ts`，`bun run`，因 OpenTUI 原生渲染器无 node FFI）：用 opentui 自带
+  `createTestRenderer` 直接读**渲染器单元格缓冲**，断言精确的 scope→颜色映射：
+  `def`/`return` → `#11a8cd`(accent)、`"hello "` → `#0dbc79`(toolDone)、`greet(...)` → `#e5e510`(toolPending)、
+  注释 → `#808080`(notice)、未映射的 `+ name` → 默认色；并逐行断言代码块文本**未被着色破坏**。
+  带**反向对照**：同一文档**不接** `renderNode` 时 python 块必须**无颜色** —— 否则该检查无法证伪。
+- **PTY 端到端**（`scripts/pty_highlight_check.py`）：`CODE_TOKEN_COUNT: 14`、`CODE_DISTINCT_COLOURS: 4`
+  `[(0,175,135),(0,175,215),(128,128,128),(215,215,0)]`、`FENCED_CODE_RENDERED: True`、`HIGHLIGHT_OK: True`（exit 0）。
+- 单测 `test/opentui-code-highlight.test.ts`（5 条）：别名归一、作用域表（含 `default`、`comment` 为 dim、
+  `keyword` 与 `title` 不同色）、三种主题下颜色确实变化、python 区间命中 `def`/`return`/`"hello "`/注释/`greet`、
+  未知语言与空语言 fail-soft。全量 **171 + 19 = 190 pass**。
+- 颜色编码说明：终端报 256 色，所以线上到的是**托盘索引**（keyword→38、string→36、title→184、comment→8），
+  不是主题 hex；断言因此用托盘 RGB。
+
+### 12.5 顺带修好的证据工具缺陷（`frame_reader.py`）
+
+排查中发现两个会**伪造证据**的缺陷，已修 + 加自检：
+
+1. **只认真彩 `38;2;r;g;b`，不认 256 色 `38;5;N`** —— 更糟的是它会把 `ESC[38;5;36m` 里的 `36` 当**独立 ANSI 码**，
+   于是托盘 36（青绿）被报成 ANSI 36（`(17,168,205)` 青色）。本轮就一度据此误判 `"hello "` 被染成了 keyword 色。
+   现按真实 xterm 托盘查表，并加自检：`38;5;36` 必须得到 `PALETTE_256[36]`，且**不得**等于 `(17,168,205)`。
+2. **空格字符被跳过**（`byte > b" "`）—— 空格不清除上一帧残留字形，于是文本行里留着上一帧的边框字符。
+   后果是 `find_row("def ")` 在侧栏有内容（重绘更多）时**假阴性**（`FENCED_CODE_RENDERED: False`），
+   同一检查的结果会随无关的仓库脏度变化。现空格按真实终端语义写入单元格，并加自检。
+
+## 13. 切片 G（2026-09-17）：首页/欢迎面板（#18 DONE）+ 顶栏/页脚版式缺陷（#3）
+
+### 13.1 缺口（实测）
+
+首帧取证（无输入，40×120）显示 transcript **整片空白**：`ensureSession` 只在 `runTurn` 里被调用
+（lazy），所以首帧 `messages` 为空 —— 与 Ink 的 `showHome = finalized.length === 0 && active.length === 0`
+等价，即首页面板**可达且会一直留到第一轮**，不是一闪而过。Ink 有 `HomeView` 而全屏什么都没有。
+
+### 13.2 顺带发现的真实缺陷：顶栏从未渲染、页脚压在输入框边框上
+
+同一个首帧里，行 00 直接是 transcript 边框：**顶栏（`◆ noem v…`）根本没出现**，
+而 footer 与 message 框的下边框**画在同一行**。用 46 行的更高终端复测，顶栏依旧缺失 →
+不是被裁掉。根因：**flex 列里同级 `<text>` 的高度被算成 0**（同列 `flexGrow:1` 的兄弟节点因此多拿到 2 行）。
+证据链：给顶栏加 `style={{height:1}}` 后它立刻出现在行 00、其余整体下移一行；footer 同样如此。
+
+修法（3 处）：顶栏 `<text style={{height:1}}>`、footer `<text style={{height:1}}>`、
+中间行 `<box flexGrow:1 flexShrink:1>`（yoga 默认 `flexShrink:0`，不给中间行收缩权就会溢出 1 行）。
+修完后 40 行与 42 行终端都各就各位。
+
+**这使 #3「顶栏 + footer」此前的 DONE 是假的**；现已修正为真 DONE，并且
+`pty_theme_check.py` 的 header 定位从 `None` 变成了实测值
+（`default: (0,175,215)` → `mono: (255,255,255)`，`THEME_KEYS_CHANGED: ['header','footer']`）——
+切片 E 记的"诚实边界①：header 未被工具定位到"因此**自动关闭**。
+
+### 13.3 实现
+
+- `src/home.ts`（新建，**不依赖 ink 也不依赖 opentui**）：`shortenPath` 从 `HomeView.tsx` 迁入并共用
+  （Ink 侧改为 re-export，`test/homeview.test.tsx` 零改动仍绿）；`homeFacts`/`homeFieldRows`/`homeTipRows`/
+  `homePanel(facts, narrow)`/`shouldShowHome(finalizedCount, activeCount)`。内容模型与渲染器解耦，
+  这样退役 Ink 不会把内容一起带走。
+- `src/opentui/home-panel.tsx`（新建）：把行渲染成带主题色的 `<span>`（`dim`/`bold` 走 `createTextAttributes`），
+  每行显式 `height:1`；宽版用 `borderStyle="rounded"` 对齐 Ink 的 `borderStyle="round"`，
+  窄版（<60 列）与 Ink 一致为**无边框三行**。
+- `src/opentui/app.tsx`：`showHome` 接入 transcript；`provider` 传 `null` 与 Ink 完全一致
+  （Ink 的 `App` 也从未收到 `provider`，两边都走 `openai-compatible · <model>` 回退，属两边同源的既有缺口，非回退）。
+
+### 13.4 证据
+
+- **单测** `test/opentui-home.test.tsx`（7 条）：判定语义；provider 三种取值；五个字段等宽对齐与取值；
+  无分支回退 + 超长路径仍被限宽；窄版就是 Ink 那三行（无卡片、无 `Quick start`）；
+  **防漂移**——把 opentui 面板每一行与 Ink `HomeView` 实际渲染帧（剥掉边框后）逐行精确比对；
+  **deviation 断言**——Ink 的提示写着 `shift+tab switches mode`，而全仓 `shift+tab` **只出现在这句提示里**
+  （Ink 的 `useInput`、`keys.ts`、`viewkeys.ts` 都没有），模式其实由 `/mode` 设置；面板改为
+  `/mode switches permission mode`，并断言它**不含** `shift+tab`、**含** `/mode`。
+  全量 **171 + 26 = 197 pass**。
+- **PTY** `scripts/pty_home_frame_check.py`：首帧 `HOME_PANEL_FIRST_FRAME: True`、五个字段全在、
+  `Quick start` 在、`HEADER_RENDERED: True`、`FOOTER_NOT_OVER_BORDER: True`；
+  一轮后 `HOME_PANEL_GONE_AFTER_TURN: True`；`HOME_PANEL_CHECK: PASS`。
+- **整网回归**（布局改动影响面大，全跑）：composer 不变式、parity_a/b、p2、vim、p3a、多会话、smoke、
+  theme、highlight 全部与上一批一致；`pty_highlight_check.py` 现在报 5 种不同颜色（多出的是滚动条灰）。
+
+### 13.5 诚实边界
+
+- 面板在**很矮**的终端上会被 `stickyScroll`/`stickyStart="bottom"` 顶掉上半部分（Ink 同样会溢出），
+  未做重排。
+- 宽版卡片的内边距用 `paddingLeft:1`（Ink 是 `paddingX:2`），因为外面还有 transcript 的 1 列内边距，
+  合计与 Ink 一致；左右差异未逐列比对。
+- `provider` 字段两边都恒为 `null` → 永远显示 `openai-compatible`；修它需要给两个视图都传真实
+  `provider_id`（`SurfaceProviderStatus` 里有该字段），属**既有产品缺口**，本轮未动。
+- Ink 侧那句假提示**未改**（Ink 即将退役），仅在新面板上不再复制，并在单测里钉住。
+
+## 14. 切片 H（2026-09-17）：Ctrl-R 反向搜索（#14 DONE）+ 多行收尾 + 浮层渲染缺陷
+
+### 14.1 #14 实现（对齐 Ink 的 `searchMode`）
+
+- 复用已有纯函数 `InputHistory.search`（反向时序、大小写不敏感、去重），未新写搜索逻辑。
+- 键路由 `viewkeys.ts` 新增 `search` 层，优先级**紧跟 selector 之下**、在 approval/global 之上：
+  开着的搜索独占 `up`/`down`/`return`/`escape`，并**吞掉** `tab`/`pgup`/`pgdn`/`Ctrl-R`/`Ctrl-G`
+  （否则会在搜索中途切面板 / 重入并清空搜索 / 把查询丢给外部编辑器）；**可打印字符继续下落到 composer**
+  —— 因为查询本身就是 composer 内容，这与 palette 同一条规则（正是修 `/exit` 陷阱的那条）。
+- 开关键实测：用 opentui 自己的 `parseKeypress`（`spike/key-sequence-probe.ts`）确认
+  `0x12 → name="r" ctrl=true sequence="\u0012"`。绑定同时接受控制字节与 `ctrl && name==="r"`，
+  关键性质是**普通 `r` 永远不会开搜索**（输入框失焦时普通字母会到达 resolver —— 与 Ctrl-G 同源的陷阱）。
+- `app.tsx`：草稿存 `searchDraftRef`、开态存 `searchOpenRef`（同步 ref，路由必须当下就看到新值）
+  + `overlayOwnsEnterRef` 纳入搜索（否则 Enter 会同时被 textarea 提交）；
+  搜索期间 palette 置空（与 Ink 一致）。浮层内容：`reverse search (Ctrl-R): <query>` +
+  窗口化的匹配列表（用 `sliceWindow`，与全屏自己的 palette/selector 一致；Ink 是固定前 5 条）+
+  无匹配时 `no matching history`。
+
+### 14.2 多行：**实测推翻旧记载**，只改 composer
+
+- 旧文档多处把"多行**显示**（`<text>` 折叠换行）"列为缺口，但 §10 早已推翻该说法、后续章节没有同步。
+  本轮再次实测：提交 `l1\nl2\nl3` 后 transcript **确实占 3 行**（`MULTILINE_TRANSCRIPT_ROWS: 3`）。
+  结论：**transcript 多行显示从来不是缺口**，欠的是**文档更正**。
+- 真正的问题是 composer：固定 `height: 5` 只显示 3 个内容行，8 行草稿只能看到最后 3 行（实测）。
+  Ink 的 composer **无固定高度**、随草稿增长。新增纯函数 `composerRows(draft, terminalRows)`
+  （`src/layout.ts`）：空/单行保持 5 行，否则 `行数 + 2`，上限为 **12 行**且不超过终端高度的 1/3 ——
+  无界增长会把 transcript 挤成 0 行，所以"自适应"必须带闸。
+  实测 8 行草稿 8 行全可见（`COMPOSER_VISIBLE_LINES: 8 of 8`）。
+
+### 14.3 顺带发现并修好的浮层渲染缺陷（影响 #7/#8/#10 的可见性）
+
+调试 #14 浮层时发现：**浮层里的多行内容全部糊在同一行、并压在下边框/邻居上**
+（原始抓帧形如 `┐─›el1tatusearch─(Ctrl-R):─…`，把搜索头、`/status`、`l1` 与边框字符混在一行）。
+根因与切片 G 的顶栏/页脚同一个：**flex 列里兄弟 `<text>` 高度算成 0**，而且**带边框的 box 自身
+没有显式高度时也量成 0**，于是整个浮层被画到邻居身上。
+
+两处修法：
+1. `OverlayRow` 组件：每个浮层行显式 `height: 1`；
+2. `overlayRows(contentRows)`（`src/opentui/overlays.ts`）：给浮层 box 显式高度 = 内容行 + 2 边框，
+   上限 12。中间行已有 `flexShrink: 1`，所以 transcript 会正确让位（44 行终端下：
+   头 1 + transcript 32 + 浮层 5 + composer 5 + 页脚 1 = 44，正好装下）。
+
+这解释了为什么切片 A 时 palette/selector 只能断言**标题 + 行为**：条目文本当时根本不可读。
+现在 palette 条目独立成行（实测 `/stat` 过滤后第 36 行是 `▌ /status  session id, status, permission mode, event sequence`）。
+**未做**：没有回头收紧 parity_a 的断言（仍是标题+行为），属可选加固。
+
+### 14.4 证据
+
+- 单测：`test/opentui-viewkeys.test.ts` +4 条（Ctrl-R 开、普通 r 不开；开着的搜索独占 pick/cancel/move
+  并吞掉模式切换键；可打印字符仍落到 composer 且 Ctrl-C/L 仍走 global；selector 仍高于搜索）、
+  `test/opentui-overlays.test.ts` +1 条（`overlayRows` 边界与上限）、`test/layout.test.ts` +1 条
+  （`composerRows` 两端边界与短终端）。全量 **177 + 26 = 203 pass**。
+- PTY `scripts/pty_search_check.py`（两个**全新实例**分别跑，避免审批卡污染）：
+  `MULTILINE_TRANSCRIPT_ROWS: 3`、`SEARCH_OVERLAY_SHOWN/MATCH_LISTED/NO_MATCH_HINT/QUERY_ECHOED/
+  CLOSED_ON_ESC/CANCEL_RESTORES_DRAFT/PICK_LOADS_ENTRY` 全 True、`COMPOSER_VISIBLE_LINES: 8 of 8`
+  → `SEARCH_CHECK: PASS`。
+- 整网回归（12 个脚本）全绿且与上一批逐信号一致（含两个 pre-existing `False`：`VIM_NORMAL_EDIT_SUBMITTED`、
+  `HAS_AGENTS_TITLE`）。
+
+### 14.5 诚实边界
+
+- **cell-diff 残留**：浮层消失、composer 变矮、页脚文本变短时，帧里会留下前一帧的字形
+  （实测 `┘`/`┌·f`/`│ M apps/...` 之类残字）。这是仓库已记录的"cell-diff 渲染器对单行改动可能不重发"
+  现象（§6），**不是本次引入**（改动前的抓帧里也有，只是残字不同），本轮**未修**。
+  影响：视觉上可能短暂残留旧字符；不影响任何行为断言。
+- 搜索浮层用带边框的 box，Ink 画的是同样几行**不带边框**（内容一致，边框是本仓库浮层的既有视觉语言）。
+- 匹配列表用 `sliceWindow` 窗口化，Ink 是固定前 5 条且选中项可能移出列表（本实现是改进，非回退）。
+- 文档里"多行显示是缺口"的旧记载本轮一并更正；`§9`/`§12` 的"仍未做"清单若仍含该项，以本节为准。
+
+## 15. 切片 J（2026-09-17）：运行时切到 Bun —— 统一入口 + 四项回退 + 单文件编译
+
+### 15.1 运行时事实更正（推翻本文件早先的写法）
+
+本文件与 `TUI-INK-RETIREMENT-PREP-2026-09-17.md` 初版都写过「全屏客户端只能在 bun 下运行」。
+**只对 Node 22 成立。** `@opentui/core` 自带两套后端（`createBunBackend(bun:ffi)` /
+`createNodeBackend(node:ffi)`）与两个入口（`index.bun.js` / `index.node.js`，`exports` 有显式 `node` 条件）；
+node 路径失败只是因为它 `require("node:ffi")`，而该模块 **Node 26.1.0 才加入**（`--experimental-ffi`）。
+实测 Node 26.9.0 下四个 pty 脚本全部通过、信号与 bun 一致。
+
+**founder 决策：默认 Bun**（Node ≥26 是 Current 非 LTS，且要实验开关、官方写明 API 随时可能变；
+Bun 无需开关且能出单文件）。Node 路线记为**已验证的备用路径**。
+
+### 15.2 统一入口
+
+`src/cli.tsx` 现在同时承担子命令与交互：`--version`/`--help`/`doctor`/`daemon`/`provider`/`session`/
+无头 `-p` **不加载** `@opentui/core`（视图动态 import），因此在无原生 FFI 的运行时上仍可用——
+这是 node-only 单测还能驱动真实入口的前提，并由 `test/cli-entry.test.ts` 的
+「不得出现 native FFI 报错」断言**防止**有人把它改回静态 import。
+新增 `src/opentui/mount.tsx`；`src/opentui/main.tsx` 改为薄封装且**行为不变**（12 个 pty 脚本仍驱动它）。
+
+### 15.3 四项回退（全屏视图相对 Ink 的真实缺口，实测）
+
+| # | 缺口 | 修法 |
+|---|---|---|
+| 1 | `provider` 硬编码 `null`（**切片 G 的错误结论**，见 §15.5） | 入口查 `providerStatus()` 并传入真实 `provider_id` |
+| 2 | 历史不载入、不持久化（Ctrl-R 跨重启失效） | `FullscreenAppProps` 增 `initialHistory`/`onHistoryChange`，接 `loadState`/`saveState` |
+| 3 | `controller.themeName`/`.goal`/`.vimMode` 从未从 state 设置 | 入口按 Ink 同一口径设置 |
+| 4 | `--resume <id>` 未处理 | 入口处理 |
+
+另：无原生 FFI 时启动交互模式现在给**可操作提示**（用 Bun，或 Node ≥26 + 实验开关；其余命令仍可用），
+不再抛裸栈。
+
+### 15.4 单文件编译（已实测）
+
+`bun build --compile` 产出 ~76 MB 单文件，**在非仓库目录下完整渲染全屏界面**，无原生库报错 →
+`.dylib` 已打包，用户两个运行时都不用装。**顺带修掉真缺陷**：编译产物 `--version` 原为 `0.0.0`
+（`agentVersion()` 相对模块读 `package.json`，单文件旁没有它）；现由 `--define __NOEM_VERSION__`
+编译期注入，源码与产物均为 `0.1.0`。
+
+### 15.5 证据
+
+- 新增 `scripts/pty_entry_check.py`（`npm run check:entry`）——断言 node 下子命令可用、node 下交互给提示、
+  bun 下渲染首页面板与 provider 行；PASS。
+- **重写** `scripts/pty_smoke.py`——原脚本用 `tsx`(node) 驱动 `src/cli.tsx` 并断言 Ink 字符串，切换后
+  必然失败。现改为 Bun 驱动真实入口，断言基于 `frame_reader` 重建的**屏幕**（全屏增量重绘使 ANSI 剥离流里
+  "hello pty" 是碎的），并新增 **Ctrl-C 退出码必须为 0**；全部字符串已重新实测。PASS。
+- 单测 **177 + 32 = 209 pass**；**13 个 pty 脚本全绿**。
+- 未执行：删除 Ink 与依赖、重建 `dist/`。
+
+### 15.6 诚实边界
+
+- 本机夹具的 `provider_id` 恰等于回退字面量 `openai-compatible`，所以 **PTY 证据区分不出 provider 修复**；
+  该修复的证明来自内容模型断言 + Ink 基线录制 + 入口代码路径。
+- 中文断言需 `cjk_join` 归一化（宽字符占两格，`frame_reader` 多存一个占位空格，屏幕显示 `终 端 流 式`）。
+  **未改共享的 `frame_reader`**（会牵动其余 12 个脚本基线），在本脚本内显式处理。
+- `node:ffi` 仍是实验 API，形状变化会打断 node 备用路径（不影响默认 Bun 路径）。
+
+## 16. 切片 K（2026-09-17）：Ink 已删除，dist 已重建 —— 退役完成
+
+退役的执行记录全文在 `TUI-INK-RETIREMENT-PREP-2026-09-17.md` §7，这里只记结论与关键更正。
+
+### 16.1 删除清单的两处更正（照旧清单会出事）
+
+1. **`src/cli.tsx` 不能删。** 旧清单把它列为 Ink 专属（因为它 `import { render } from "ink"`），
+   但切片 J 之后它不再引用 Ink，且**现在是统一入口**——照旧清单执行会删掉整个 CLI。
+2. **`test/render.test.ts` 不整文件删。** 它有 7 条用例，只有 **1 条**碰 Ink 的 `renderMarkdown`
+   （动态 import），其余 6 条只 import `src/controller.js`。只删那 1 条。
+
+**教训**：删除清单必须在**执行时**按依赖重新实测一遍，不能照抄先前的记录——入口重构会让清单过期。
+
+### 16.2 执行内容
+
+- 删除：`src/App.tsx`、`src/HomeView.tsx`、`src/ComposerView.tsx`、`src/markdown.ts`、
+  `test/app.test.tsx`、`test/homeview.test.tsx`、`test/ink-home-baseline.test.tsx`；
+  依赖 `ink`、`marked`、`marked-terminal`、`@types/marked-terminal`、`ink-testing-library`。
+- 保留：`src/highlight.ts`（全屏高亮依赖其 `EXTENSION_LANGUAGE`，已加注防误删）、`src/home.ts`、
+  `test/fixtures/ink-home-baseline.ts`（冻结快照，§9 的分离设计在此兑现）。
+- 先搬后删：`shortenPath` 用例逐字迁入 `test/opentui-home.test.tsx`；被删的 markdown 断言在文件头
+  注明其意图由 `opentui-code-highlight.test.ts` + `highlight_render_check.ts` 承担。
+
+### 16.3 覆盖代价（不是"覆盖率不变"）
+
+`test/app.test.tsx` 的 16 条集成测试中，多数行为在全屏视图仍有覆盖（Ctrl-R / vim / palette / selector /
+审批 y / 首页首帧 / ctrl-p），但**三条无等价断言**：`backspace`（macOS `0x7f` 删前一个字符）、
+`ctrl-d` 前向删除、多行粘贴 CR/CRLF 归一。这三者现由 opentui `<textarea>` 原生处理，pty 脚本只是
+**用它**清空输入框而未断言。若要补齐，应在全屏视图上重新断言，而非恢复 Ink 测试。
+
+### 16.4 顺带发现（既有问题，非本次引入）
+
+`npm install` 原本就报 `ERESOLVE`：根项目 `react-devtools-core@^8.0.0` 与
+`@opentui/react@0.5.11` 的 peer `^7.0.1` 冲突。已对齐到 `^7.0.1`，`npm install` 现可完成。
+**独立佐证**：`@opentui/core@0.5.11` 自带 `engines: { bun: ">=1.3.0", node: ">=26.4.0" }`，
+与 §15.1 实测结论一致。
+
+### 16.5 证据
+
+- `dist` 重建后无 Ink 产物、`dist/cli.js` shebang 为 `#!/usr/bin/env bun`、可执行、`--version` → `0.1.0`；
+  node 下子命令仍可用。
+- **发布产物 pty 验证**：直接跑 `bun dist/cli.js`，首帧首页面板完整、header 与 provider 行都在。
+- 单测 **187 pass / 0 fail**；**13 个 pty 脚本全绿**；lockfile 均已更新。
+- `dist` 未被 git 跟踪，重建不产生提交内容，属发布前步骤。

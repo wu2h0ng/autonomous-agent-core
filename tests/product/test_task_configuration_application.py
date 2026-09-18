@@ -26,7 +26,11 @@ from agent_os_core import (
 from apps.api_server.app import AgentOSApplication
 
 
-NOW = datetime(2026, 7, 15, 21, 0, tzinfo=timezone.utc)
+# Relative, not a frozen calendar date: the commitment below expires 30 days
+# after this value and sealing compares `expires_at` against the real clock.
+# A hard-coded past date made every seal deny with "Task commitment expired
+# before sealing" once wall-clock time passed it.
+NOW = datetime.now(timezone.utc)
 
 
 def _commit(app: AgentOSApplication, suffix: str = "1") -> str:

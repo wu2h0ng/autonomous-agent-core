@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -139,6 +141,87 @@ def _optional_float_env(name: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+# A Retry-After instruction is honoured up to this many seconds. A provider (or
+# anything in front of it) can otherwise ask for an hour of silence and the turn
+# would sit there; the cap keeps the server's pacing advisory rather than a way
+# to stall the operator.
+_MAX_RETRY_AFTER_SECONDS = 30.0
+
+
+def _retry_after_cap_seconds() -> float:
+    configured = _optional_float_env("AGENT_OS_PROVIDER_MAX_RETRY_AFTER_SECONDS")
+    if configured is None or configured < 0:
+        return _MAX_RETRY_AFTER_SECONDS
+    return configured
+
+
+def _retry_after_seconds(headers: object) -> float | None:
+    """The server's Retry-After instruction in seconds, or None.
+
+    RFC 9110 allows two forms - delta-seconds and an HTTP-date - and real
+    providers use both. Anything missing, unparseable or negative returns None so
+    the caller falls back to its own backoff; the cap is applied by the caller.
+    """
+
+    get = getattr(headers, "get", None)
+    if not callable(get):
+        return None
+    raw = get("Retry-After")
+    if not isinstance(raw, str) or not raw.strip():
+        raw = get("retry-after")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+
+
+def _operator_log_path() -> str | None:
+    """Where the operator's provider-attempt log goes, or None when disabled.
+
+    Opt-in by design: `AGENT_OS_PROVIDER_LOG` names a file, and nothing is
+    written (or created) without it. The log grows by one line per model call
+    attempt and is not rotated - a long-lived session appends to it.
+    """
+
+    raw = os.environ.get("AGENT_OS_PROVIDER_LOG")
+    return raw.strip() if raw and raw.strip() else None
+
+
+def _append_operator_log(record: dict[str, object]) -> None:
+    """Append one JSON line, and never let logging break a turn.
+
+    An unwritable path (a read-only directory, a path whose parent is a file, a
+    full disk) must not turn a successful model call into a failed one, so every
+    error here is swallowed - the same rule `saveState` follows for the CLI's own
+    state file.
+    """
+
+    path = _operator_log_path()
+    if path is None:
+        return
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, default=str) + "\n"
+        with open(target, "a", encoding="utf-8") as handle:
+            handle.write(line)
+        os.chmod(target, 0o600)
+    except Exception:
+        return
 
 
 def load_pricing_table() -> dict[str, dict[str, object]]:
@@ -344,13 +427,83 @@ class DeterministicProvider(ProviderPort):
         )
 
 
+_REDACTED_CREDENTIAL = "[redacted-credential]"
+
+# Provider-supplied refusal text becomes the turn's final, durable text: the
+# operator reads it in a terminal and it is stored in the failure record. It is
+# untrusted on two boundaries at once, so it is normalized once here instead of
+# at each adapter's call site:
+#
+# - terminal control: an ANSI/CSI/OSC sequence can repaint the line the operator
+#   reads, and an invisible bidi override can reorder it;
+# - host absolute paths: they add nothing the operator can act on, and the
+#   model-visible convention for them elsewhere in this package
+#   (``agent_loop._model_visible_unknown_detail``) is ``[host-path]/<name>``;
+# - credential-shaped tokens: a provider echoing a key back must not write it
+#   into a durable record;
+# - characters that cannot be serialized: a lone surrogate (a provider JSON
+#   ``\udXXX`` escape for half of a pair) made ``ProviderFailure``'s own
+#   ``string_unicode`` validation raise, so the refusal came back as a MALFORMED
+#   failure whose text named a ValidationError instead of the refusal.
+#
+# Newlines and runs of whitespace are flattened to single spaces, so the detail
+# stays one line, and the result is sliced to _REFUSAL_DETAIL_LIMIT characters
+# (a plain slice is safe for multi-byte text).
+_ANSI_SEQUENCE_PATTERN = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[@-Z\\-_])"
+)
+_INVISIBLE_FORMAT_PATTERN = re.compile(
+    r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]"
+)
+_UNSERIALIZABLE_PATTERN = re.compile(r"[\ud800-\udfff]")
+_CONTROL_CHARACTER_PATTERN = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Same shape as agent_loop's path pattern: two or more slash-separated segments,
+# not preceded by a word, path or tilde character, so the relative paths callers
+# already use (``sub/fixture.txt``) are left alone.
+_ABSOLUTE_PATH_PATTERN = re.compile(r"(?<![\w./~-])(?:/[A-Za-z0-9._+@%=-]+){2,}")
+# A key starts its own word: ``risk-owned`` is not one.
+_SECRET_TOKEN_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_.-]{3,}", re.IGNORECASE
+)
+_REFUSAL_DETAIL_LIMIT = 300
+
+
+def _sanitized_refusal_detail(detail: str) -> str:
+    """One line of provider-supplied refusal text, safe to store and to render.
+
+    Pure string handling with no filesystem or model access, so it cannot itself
+    raise or resolve anything.
+    """
+
+    text = _ANSI_SEQUENCE_PATTERN.sub("", detail)
+    text = _INVISIBLE_FORMAT_PATTERN.sub("", text)
+    text = _UNSERIALIZABLE_PATTERN.sub("", text)
+    text = _ABSOLUTE_PATH_PATTERN.sub(
+        lambda match: "[host-path]/" + match.group(0).rsplit("/", 1)[-1], text
+    )
+    text = _SECRET_TOKEN_PATTERN.sub(_REDACTED_CREDENTIAL, text)
+    text = _CONTROL_CHARACTER_PATTERN.sub(" ", text)
+    return " ".join(text.split())[:_REFUSAL_DETAIL_LIMIT].rstrip()
+
+
 class OpenAICompatibleProvider(ProviderPort):
     """OpenAI-compatible chat/completions transport.
 
-    The three transport hooks (``_request_body``, ``_transport_headers``,
-    ``_parse_completion``) plus ``DEFAULT_ENDPOINT_PATH`` are the seam that
-    native-protocol subclasses override; the invocation-binding, credential and
-    failure machinery is shared and unchanged.
+    The transport hooks (``_request_body``, ``_transport_headers``,
+    ``_parse_completion``, ``_refusal_text``) plus ``DEFAULT_ENDPOINT_PATH`` are
+    the seam that native-protocol subclasses override; the invocation-binding,
+    credential and failure machinery is shared and unchanged.
+
+    ``_refusal_text`` is a transport hook, not an optional extra: ``_invoke``
+    calls it on every non-streaming payload *before* ``_parse_completion``, and a
+    native protocol that leaves it alone inherits the OpenAI-compatible refusal
+    shape (``message.refusal`` / ``finish_reason=content_filter``). A native
+    refusal the base shape does not recognise then falls through to the
+    completion mapper, where the native payload surfaces as a MALFORMED failure
+    instead of a REFUSED one - the turn shows an error that does not name the
+    refusal. Every subclass overrides it; both shipped natives do, and the hook
+    contract is pinned by
+    ``tests/product/test_provider_failure_visibility.py``.
     """
 
     DEFAULT_ENDPOINT_PATH = "/chat/completions"
@@ -412,6 +565,9 @@ class OpenAICompatibleProvider(ProviderPort):
             if env_retry_base is not None
             else 0.5
         )
+        # Set from a Retry-After header by the HTTPError path and consumed by the
+        # retry loop; None means "no instruction from the server".
+        self._retry_after_hint: float | None = None
         self._pricing = load_pricing_table()
         self._opener = opener or urllib.request.urlopen
         self._invocation_binding: ProviderInvocationBinding | None = None
@@ -526,6 +682,7 @@ class OpenAICompatibleProvider(ProviderPort):
 
         result: ProviderResponse | ProviderFailure | None = None
         for attempt in range(attempts):
+            started = time.monotonic()
             result = self._invoke(
                 request,
                 allowed_capability_ids=allowed_capability_ids,
@@ -533,13 +690,76 @@ class OpenAICompatibleProvider(ProviderPort):
                 on_text_delta=_text_delta if stream else on_text_delta,
                 on_reasoning_delta=_reasoning_delta if stream else on_reasoning_delta,
             )
+            # The operator log is the only machine-readable record of what a
+            # session did at the model boundary (the durable audit is a different,
+            # kernel-side artifact). Opt-in, and never in the way of a turn.
+            _append_operator_log(
+                self._operator_log_record(
+                    request,
+                    attempt,
+                    stream,
+                    result,
+                    time.monotonic() - started,
+                )
+            )
             if isinstance(result, ProviderResponse):
                 return result
             if not result.retryable or emitted or attempt >= attempts - 1:
                 return result
-            time.sleep(self._retry_base_seconds * (2**attempt))
+            delay = self._retry_base_seconds * (2**attempt)
+            # The server's own instruction wins over our backoff, bounded by the
+            # cap so a hostile or mistaken header cannot stall the turn; the hint
+            # belongs to this attempt and is cleared once used.
+            hint, self._retry_after_hint = self._retry_after_hint, None
+            if hint is not None:
+                delay = min(max(delay, hint), _retry_after_cap_seconds())
+            if delay > 0:
+                time.sleep(delay)
         assert result is not None
         return result
+
+    def _operator_log_record(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        attempt: int,
+        stream: bool,
+        result: ProviderResponse | ProviderFailure,
+        elapsed_seconds: float,
+    ) -> dict[str, object]:
+        """One record per model call attempt, for an operator's own log.
+
+        Deliberately excludes everything a user typed or the model said: the log
+        answers "how long, how many tokens, which failure, after how many
+        retries", and writing prompt or completion text into a file the operator
+        did not ask for would be a privacy leak dressed up as observability.
+        """
+
+        record: dict[str, object] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": "provider_attempt",
+            "request_id": request.request_id,
+            "provider_id": self._credential.provider_id,
+            "model_id": self._model,
+            "attempt": attempt,
+            "stream": stream,
+            "latency_ms": round(elapsed_seconds * 1000, 1),
+            "outcome": "response"
+            if isinstance(result, ProviderResponse)
+            else "failure",
+        }
+        if isinstance(result, ProviderResponse):
+            record["input_tokens"] = result.usage.input_tokens
+            record["output_tokens"] = result.usage.output_tokens
+            record["total_tokens"] = result.usage.total_tokens
+            record["text_chars"] = len(result.text)
+            record["tool_proposals"] = len(result.tool_proposals)
+            record["finish_reason"] = result.finish_reason
+        else:
+            record["code"] = result.code.value
+            record["retryable"] = result.retryable
+            if self._retry_after_hint is not None:
+                record["retry_after_seconds"] = self._retry_after_hint
+        return record
 
     def _request_body(
         self,
@@ -739,6 +959,9 @@ class OpenAICompatibleProvider(ProviderPort):
                         on_reasoning_delta=on_reasoning_delta,
                     )
                 payload = json.loads(response.read().decode("utf-8"))
+            refusal = self._refusal_text(payload)
+            if refusal is not None:
+                return self._refusal(request, refusal)
             return self._parse_completion(payload, request)
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
@@ -753,10 +976,39 @@ class OpenAICompatibleProvider(ProviderPort):
                 code = ProviderErrorCode.MALFORMED
             else:
                 code = ProviderErrorCode.UNAVAILABLE
+            # Honour the server's own pacing instruction. The retry loop would
+            # otherwise sleep its own exponential backoff and can come straight
+            # back at a provider that just asked for quiet (Retry-After comes in
+            # both delta-seconds and HTTP-date form). Only the two retryable
+            # classes carry it, and it is bounded below.
+            if code in {
+                ProviderErrorCode.RATE_LIMITED,
+                ProviderErrorCode.UNAVAILABLE,
+            }:
+                self._retry_after_hint = _retry_after_seconds(
+                    getattr(exc, "headers", None)
+                )
+            # The message becomes the turn's final text, i.e. the only thing the
+            # operator reads. A bare "provider HTTP 401" names the symptom and
+            # nothing else, so the most common real failure - a missing, wrong or
+            # expired key - looked like an unexplained failure. Name the cause and
+            # the next step; never the credential value itself (safe_message is
+            # durable and must stay secret-free).
+            if code is ProviderErrorCode.AUTHENTICATION_FAILED:
+                message = (
+                    f"provider rejected the credential (HTTP {exc.code}) - "
+                    "check the configured provider key or re-run /provider"
+                )
+            elif code is ProviderErrorCode.RATE_LIMITED:
+                message = f"provider rate limited (HTTP {exc.code}) - retrying"
+            elif code is ProviderErrorCode.UNAVAILABLE:
+                message = f"provider unavailable (HTTP {exc.code}) - retrying"
+            else:
+                message = f"provider rejected the request (HTTP {exc.code})"
             return self._failure(
                 request,
                 code,
-                f"provider HTTP {exc.code}",
+                message,
                 code in {ProviderErrorCode.RATE_LIMITED, ProviderErrorCode.UNAVAILABLE},
             )
         except TimeoutError:
@@ -794,6 +1046,7 @@ class OpenAICompatibleProvider(ProviderPort):
         on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ProviderResponse | ProviderFailure:
         text_parts: list[str] = []
+        refusal_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
         usage_payload: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
@@ -842,6 +1095,11 @@ class OpenAICompatibleProvider(ProviderPort):
                 text_parts.append(str(content))
                 if on_text_delta is not None:
                     on_text_delta(str(content))
+            # A refusal can also arrive as its own delta field; collect it so the
+            # stream ends as a REFUSED failure rather than an empty reply.
+            refusal_delta = delta.get("refusal")
+            if refusal_delta:
+                refusal_parts.append(str(refusal_delta))
             # Transient reasoning (DeepSeek `reasoning_content`): display-only,
             # never appended to text_parts / the durable response.
             reasoning = delta.get("reasoning_content")
@@ -870,6 +1128,11 @@ class OpenAICompatibleProvider(ProviderPort):
             if item["name"]
         )
         text_out = "".join(text_parts)
+        if refusal_parts or finish_reason == "content_filter":
+            refusal_text = "".join(refusal_parts).strip() or (
+                "provider reported a content filter"
+            )
+            return self._refusal(request, refusal_text)
         input_tokens = int(usage_payload.get("prompt_tokens") or 0)
         output_tokens = int(usage_payload.get("completion_tokens") or 0)
         total_tokens = int(usage_payload.get("total_tokens") or 0)
@@ -886,6 +1149,48 @@ class OpenAICompatibleProvider(ProviderPort):
                 if self._invocation_binding is not None
                 else None
             ),
+        )
+
+    def _refusal_text(self, payload: dict[str, Any]) -> str | None:
+        """The refusal detail for a non-streaming payload, or ``None``.
+
+        A refusal is a failure, not an empty answer: the contract has REFUSED
+        for exactly this, and rendering it as "" left the operator with a turn
+        that said nothing and never said why. OpenAI-compatible transports put
+        the text in ``message.refusal`` (content stays null) and moderation
+        blocks set ``finish_reason=content_filter``. Native-protocol subclasses
+        override this with their own refusal shape and may return the provider's
+        own words: the text is untrusted, so ``_refusal`` normalizes, redacts and
+        bounds it before it reaches the durable failure record.
+        """
+
+        choices = payload.get("choices") or []
+        if not choices:
+            return None
+        if str(choices[0].get("finish_reason") or "") == "content_filter":
+            return "provider reported a content filter"
+        raw_refusal = (choices[0].get("message") or {}).get("refusal")
+        if isinstance(raw_refusal, str) and raw_refusal.strip():
+            return raw_refusal.strip()
+        return None
+
+    def _refusal(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        detail: str,
+    ) -> ProviderFailure:
+        """The single REFUSED shape: non-retryable, bounded, credential-free.
+
+        ``detail`` is provider/model-supplied text and ends up in the durable
+        failure record, so it is normalized here rather than at each call site.
+        """
+
+        sanitized = _sanitized_refusal_detail(detail) or "unspecified reason"
+        return self._failure(
+            request,
+            ProviderErrorCode.REFUSED,
+            f"provider refused: {sanitized}",
+            False,
         )
 
     @staticmethod
@@ -945,6 +1250,113 @@ def _serialize_message(message: ProviderMessage) -> dict[str, object]:
     return {"role": message.role.value.lower(), "content": message.content}
 
 
+# Factual per-tool descriptions carried to the model on every transport
+# (OpenAI tools, Anthropic tools, Gemini functionDeclarations). Each entry
+# states what the capability does, where its arguments live and which result
+# fields it returns -- including the truncation diagnostics of
+# ``workspace.search``, which are worthless to the model if the tool list does
+# not say they exist. The effect class and risk tier restate the domain pack's
+# ``CapabilitySpec`` and the frozen ``ACTION_RISK_TIERS`` allowlist; no policy is
+# added here. A capability with no entry keeps the generic fallback sentence.
+_TOOL_DESCRIPTIONS: dict[str, str] = {
+    "workspace.read": (
+        "Read one UTF-8 text file from the workspace. Argument: `path` "
+        "(required, workspace-relative; absolute paths, symlink paths and the "
+        "agent state directory are denied). Result: `path`, `content` (the "
+        "complete file text) and `sha256` (digest of `content`). "
+        "workspace.edit and workspace.apply_patch check their optional "
+        "`expected_sha256` against the target file before writing and deny on "
+        "mismatch. READ_ONLY, risk tier 1, no confirmation. A result "
+        "whose serialized JSON exceeds 8000 characters arrives as "
+        "`{truncated: true, preview: ...}`."
+    ),
+    "workspace.search": (
+        "Search the workspace in one of three modes, selected by the required "
+        "`mode` argument, under `path` (default \".\"). Mode \"ls\" lists one "
+        "directory and returns `entries`. Mode \"glob\" matches the glob "
+        "`pattern` and returns `matches`. Mode \"grep\" matches the regular "
+        "expression `pattern` (a file `path` searches that file) and returns "
+        "`matches` as \"relpath:lineno:line\", lines cut at 500 characters. "
+        ".git, node_modules, __pycache__, .venv, .agent-os-artifacts and "
+        ".agent_os are never searched. Results carry `truncated` (bool) and "
+        "`truncated_reason`: null when the search was complete, otherwise "
+        "\"scan_cap\" (only the first 1000 candidate files were read), "
+        "\"result_cap\" (the 200-entry result list is full) or \"output_cap\" (the "
+        "20000-character output budget was reached). grep also reports "
+        "`scanned_files` and `unexamined_files` (candidate files whose "
+        "contents were not read, e.g. those left behind by the scan cap). "
+        "`matches: []` with `truncated_reason: \"scan_cap\"` means the tree "
+        "was not searched exhaustively, so it does not establish that no match "
+        "exists. READ_ONLY, risk tier 1, no confirmation."
+    ),
+    "workspace.edit": (
+        "Replace one exact string in an existing workspace file. Arguments: "
+        "`path` (required), `old_string` (required; must occur exactly once in "
+        "the current file, otherwise the call is denied), `new_string` "
+        "(required) and optional `expected_sha256` (denied on mismatch instead "
+        "of overwriting a file that changed). Result: `path`, `sha256` and "
+        "`applied_sha256` (digest after the write), `before_sha256`, "
+        "`compensation_ref` and `manifest_sha256` (the durable snapshot that "
+        "backs compensation) and `replayed` (true when an identical prior "
+        "patch was already applied). SANDBOX_COMPENSATABLE, risk tier 2: "
+        "auto-allowed only when the session permission mode is "
+        "ACCEPT_IN_WORKSPACE, otherwise a human approval decision is required."
+    ),
+    "workspace.apply_patch": (
+        "Write a whole file in the workspace -- full-content replacement, or "
+        "creation of a new file. Arguments: `path` (required), `content` "
+        "(required, the complete new file text) and optional `expected_sha256` "
+        "(denied on mismatch). Result: `path`, `sha256` and `applied_sha256`, "
+        "`before_sha256`, `compensation_ref`, `manifest_sha256` and "
+        "`replayed`, the same durable snapshot binding workspace.edit returns. "
+        "SANDBOX_COMPENSATABLE, risk tier 2: auto-allowed only when the "
+        "session permission mode is ACCEPT_IN_WORKSPACE, otherwise a human "
+        "approval decision is required."
+    ),
+    "workspace.run_tests": (
+        "Run the project test suite inside the workspace. Arguments: `command` "
+        "(required; one of \"pytest\", \"python -m pytest\", "
+        "\"python3 -m pytest\") and optional `timeout_seconds` (1-120). "
+        "Result: `exit_code`, `digest` and `artifact_ids`; stdout and stderr "
+        "are not inline -- the full \"test-report.v1\" report (command, "
+        "exit_code, stdout, stderr) is stored content-addressed and named by "
+        "`artifact_ids`. Commands outside the allowlist are denied. "
+        "SANDBOX_IDEMPOTENT, risk tier 1, no confirmation."
+    ),
+    "workspace.shell": (
+        "Run an allowlisted shell command inside the workspace. Arguments: "
+        "`command` (required, allowlisted) and optional `timeout_seconds` "
+        "(1-300). Result: `exit_code`, `stdout` and `stderr`, each the last "
+        "4000 characters of its stream, plus `digest` and `artifact_ids` for "
+        "the full \"shell-report.v1\" report. Commands outside the allowlist "
+        "are denied. SANDBOX_IDEMPOTENT, risk tier 3: a human approval "
+        "decision is required and it is never auto-approved."
+    ),
+    "artifact.write": (
+        "Store string content as a content-addressed artifact. Argument: "
+        "`content` (this capability is declared with additionalProperties: "
+        "true, so no argument schema is published). Result: `artifact_ids` "
+        "(e.g. \"artifact:<sha256>\") and `digest` (sha256 of the content); "
+        "rewriting identical content is idempotent and writes nothing. "
+        "SANDBOX_IDEMPOTENT with CapabilitySpec risk tier 1, but "
+        "artifact.write is not in the permission gate's E2 allowlist "
+        "(ACTION_RISK_TIERS), which denies a capability outside that allowlist "
+        "in every permission mode without executing it."
+    ),
+    "session.todo_write": (
+        "Replace the session task list. Argument: `todos` (required array of "
+        "at most 100 items, each `{id, content, status}` with status one of "
+        "pending, in_progress, done) -- full-replace semantics, the submitted "
+        "list is the entire new list. Result: `ok`, `todos` (the normalized "
+        "stored list) and `count`. Session scratchpad only: no file, process "
+        "or network effect. TRANSACTIONAL_INTERNAL, risk tier 1, no "
+        "confirmation."
+    ),
+}
+
+_GENERIC_TOOL_DESCRIPTION = "Propose typed capability {capability_id}"
+
+
 def _tool_definition(capability_id: str) -> dict[str, object]:
     parameters = _WORKSPACE_TOOL_PARAMETERS.get(
         capability_id,
@@ -957,7 +1369,10 @@ def _tool_definition(capability_id: str) -> dict[str, object]:
         "type": "function",
         "function": {
             "name": capability_id.replace(".", "__"),
-            "description": f"Propose typed capability {capability_id}",
+            "description": _TOOL_DESCRIPTIONS.get(
+                capability_id,
+                _GENERIC_TOOL_DESCRIPTION.format(capability_id=capability_id),
+            ),
             "parameters": parameters,
         },
     }
@@ -1063,6 +1478,14 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
             ),
         )
 
+    def _refusal_text(self, payload: dict[str, Any]) -> str | None:
+        # The Messages API ends a policy refusal with stop_reason="refusal"; the
+        # structured stop_details carries the policy category and, when the
+        # provider supplies one, a human-readable explanation.
+        if str(payload.get("stop_reason") or "") != "refusal":
+            return None
+        return _anthropic_refusal_detail(payload.get("stop_details"))
+
     def _parse_sse_stream(
         self,
         response: object,
@@ -1075,7 +1498,8 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
 
         Handles message_start / content_block_start / content_block_delta
         (text_delta + input_json_delta) / message_delta. Text deltas are streamed
-        to ``on_text_delta``; tool inputs are accumulated and normalized.
+        to ``on_text_delta``; tool inputs are accumulated and normalized. A
+        message_delta carrying stop_reason="refusal" ends as a REFUSED failure.
         """
 
         text_parts: list[str] = []
@@ -1083,6 +1507,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         usage: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
+        stop_details: dict[str, Any] | None = None
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1147,9 +1572,13 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                 delta = payload.get("delta") or {}
                 if delta.get("stop_reason"):
                     finish_reason = str(delta["stop_reason"])
+                if isinstance(delta.get("stop_details"), dict):
+                    stop_details = delta["stop_details"]
                 delta_usage = payload.get("usage")
                 if isinstance(delta_usage, dict):
                     usage.update(delta_usage)
+        if finish_reason == "refusal":
+            return self._refusal(request, _anthropic_refusal_detail(stop_details))
         proposals = tuple(
             ProviderToolProposal(
                 proposal_id=item["id"] or f"proposal-{uuid4()}",
@@ -1216,6 +1645,25 @@ def _anthropic_tool(capability_id: str) -> dict[str, object]:
         "description": function.get("description", ""),  # type: ignore[union-attr]
         "input_schema": function["parameters"],  # type: ignore[index]
     }
+
+
+def _anthropic_refusal_detail(stop_details: object) -> str:
+    """What to report for an Anthropic refusal.
+
+    ``stop_details.explanation`` is the human-readable text but is explicitly
+    not guaranteed stable and is null when the provider has none for the
+    category; the policy category itself is always one of the documented
+    values. Fall back to naming the refusal when neither is present.
+    """
+
+    details = stop_details if isinstance(stop_details, dict) else {}
+    explanation = details.get("explanation")
+    if isinstance(explanation, str) and explanation.strip():
+        return explanation.strip()
+    category = details.get("category")
+    if isinstance(category, str) and category.strip():
+        return f"policy category {category.strip()}"
+    return "provider reported a refusal"
 
 
 def _safe_json_object(raw: str) -> dict[str, object]:
@@ -1309,6 +1757,22 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             ]
         return body
 
+    def _refusal_text(self, payload: dict[str, Any]) -> str | None:
+        # generateContent reports a content block either response-wide in
+        # promptFeedback (sent only when the prompt produced no candidate at all)
+        # or per candidate through finishReason.
+        feedback = payload.get("promptFeedback")
+        if isinstance(feedback, dict):
+            detail = _gemini_feedback_detail(feedback)
+            if detail is not None:
+                return detail
+        candidates = payload.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            candidate = candidates[0]
+            if isinstance(candidate, dict):
+                return _gemini_finish_reason_detail(candidate.get("finishReason"))
+        return None
+
     def _parse_completion(
         self,
         payload: dict[str, Any],
@@ -1378,7 +1842,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
 
         With ``alt=sse`` each ``data:`` line is a GenerateContentResponse chunk;
         text parts are streamed, functionCalls are mapped, usageMetadata is
-        accumulated and the model's finishReason is taken from the last chunk.
+        accumulated and the model's finishReason is taken from the last chunk. A
+        chunk carrying promptFeedback or a blocking finishReason ends as a
+        REFUSED failure.
         """
 
         text_parts: list[str] = []
@@ -1386,6 +1852,7 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         usage: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
+        prompt_feedback: dict[str, Any] | None = None
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1414,6 +1881,11 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             chunk_usage = payload.get("usageMetadata")
             if isinstance(chunk_usage, dict):
                 usage.update(chunk_usage)
+            # The prompt feedback is a first-chunk, response-wide block; it
+            # arrives in a chunk that carries no candidates at all.
+            chunk_feedback = payload.get("promptFeedback")
+            if isinstance(chunk_feedback, dict) and prompt_feedback is None:
+                prompt_feedback = chunk_feedback
             candidates = payload.get("candidates")
             if not isinstance(candidates, list) or not candidates:
                 continue
@@ -1449,6 +1921,13 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
                             arguments_json=json.dumps(call.get("args", {})),
                         )
                     )
+        refusal_detail = (
+            _gemini_feedback_detail(prompt_feedback)
+            if prompt_feedback is not None
+            else None
+        ) or _gemini_finish_reason_detail(finish_reason)
+        if refusal_detail is not None:
+            return self._refusal(request, refusal_detail)
         input_tokens = int(usage.get("promptTokenCount") or 0)
         output_tokens = int(usage.get("candidatesTokenCount") or 0)
         return ProviderResponse(
@@ -1544,3 +2023,64 @@ def _gemini_tool(capability_id: str) -> dict[str, object]:
         "description": function.get("description", ""),  # type: ignore[union-attr]
         "parameters": _gemini_schema(function["parameters"]),  # type: ignore[index]
     }
+
+
+# GenerateContent finishReason values that mean the provider blocked the content
+# instead of finishing. Text generation blocks with SAFETY, RECITATION,
+# PROHIBITED_CONTENT, SPII and BLOCKLIST; image generation reports its own
+# blocks, and leaving those out sent a blocked image turn to the completion
+# mapper, which reported the text-less candidate as MALFORMED (ValueError when it
+# carried no content at all, ValidationError when it carried only the blocked
+# image) instead of as a REFUSED turn. IMAGE_SAFETY ("generated images have
+# safety violations") and IMAGE_PROHIBITED_CONTENT ("the generated images have
+# prohibited content") are in the FinishReason enum of the vendored
+# ``@google/genai`` 1.30.0; IMAGE_RECITATION belongs to the same family but is
+# not in that copy of the enum, and is kept because a stale entry here costs a
+# finer name in one message whereas a missing one misreports a refusal as an
+# internal error.
+#
+# This is a known-blocks set, not a classification of the whole enum: the other
+# documented values are a normal completion (STOP, MAX_TOKENS,
+# FINISH_REASON_UNSPECIFIED), a malformed or unexpected tool call
+# (MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, TOO_MANY_TOOL_CALLS), an
+# unsupported input or other stop (LANGUAGE, OTHER) or an image that was never
+# produced (NO_IMAGE), none of which is a content block. An unlisted value is
+# left to the completion mapper. Blocked prompt reasons (``promptFeedback``)
+# need no list at all - every reason except BLOCKED_REASON_UNSPECIFIED is a
+# block.
+_GEMINI_BLOCKING_FINISH_REASONS = frozenset(
+    {
+        "SAFETY",
+        "RECITATION",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "BLOCKLIST",
+        "IMAGE_SAFETY",
+        "IMAGE_PROHIBITED_CONTENT",
+        "IMAGE_RECITATION",
+    }
+)
+
+
+def _gemini_finish_reason_detail(raw: object) -> str | None:
+    value = str(raw or "").upper()
+    if value in _GEMINI_BLOCKING_FINISH_REASONS:
+        return f"finish reason {value}"
+    return None
+
+
+def _gemini_feedback_detail(feedback: dict[str, Any]) -> str | None:
+    """What to report for a blocked prompt.
+
+    ``promptFeedback`` is sent instead of a candidate when the prompt itself was
+    blocked; ``blockReasonMessage`` is the provider's human-readable text when it
+    supplies one, otherwise the blockReason enum names the cause.
+    """
+
+    message = feedback.get("blockReasonMessage")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    reason = str(feedback.get("blockReason") or "").upper()
+    if reason and reason != "BLOCKED_REASON_UNSPECIFIED":
+        return f"prompt blocked ({reason})"
+    return None

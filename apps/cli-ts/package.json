@@ -2,10 +2,10 @@
   "name": "@agent-os/cli-ts",
   "version": "0.1.0",
   "private": true,
-  "description": "Agent OS terminal client (TypeScript + Ink) over the surface protocol v1.1. Python governance kernel untouched; protocol client only.",
+  "description": "Agent OS terminal client (TypeScript + OpenTUI full-screen view) over the surface protocol v1.1. Python governance kernel untouched; protocol client only.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "bun": ">=1.4.0"
   },
   "files": [
     "dist",
@@ -20,19 +20,26 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",
+    "compile": "bun run scripts/compile.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build",
     "pack:check": "npm pack --dry-run",
     "version": "node -e \"console.log(require('./package.json').version)\"",
-    "dev": "tsx src/cli.tsx",
+    "dev": "bun run src/cli.tsx",
     "dev:daemon": "uv run python scripts/dev_daemon.py",
-    "doctor": "tsx src/cli.tsx doctor",
-    "smoke": "tsx scripts/smoke.ts",
+    "doctor": "bun run src/cli.tsx doctor",
+    "smoke": "bun run scripts/smoke.ts",
     "smoke:pty": "uv run python scripts/pty_smoke.py",
     "e2e": "bash scripts/e2e.sh",
     "live": "uv run python scripts/live_evidence.py --out /tmp/cli-ts-live.json",
     "live:pty": "uv run python scripts/live_multiturn_pty.py --out /tmp/cli-ts-live-pty.json",
-    "test": "node --import tsx --test test/client.test.ts test/controller.test.ts test/render.test.ts test/headless.test.ts test/provider-command.test.ts test/daemon.test.ts test/cli-entry.test.ts test/session-command.test.ts test/doctor.test.ts test/keys.test.ts test/opentui-panels.test.ts test/opentui-agents.test.ts test/opentui-overlays.test.ts test/opentui-viewkeys.test.ts test/opentui-vim.test.ts test/opentui-theme-colors.test.ts test/diff.test.ts test/commands.test.ts test/history.test.ts test/composer.test.ts test/editor.test.ts test/mentions.test.ts test/diffview.test.ts test/themes.test.ts test/layout.test.ts test/selector.test.ts test/state.test.ts test/attention.test.ts test/highlight.test.ts && node --import tsx --test --test-concurrency=1 test/app.test.tsx test/homeview.test.tsx",
+    "test": "node --import tsx --test test/client.test.ts test/controller.test.ts test/render.test.ts test/headless.test.ts test/provider-command.test.ts test/daemon.test.ts test/cli-entry.test.ts test/session-command.test.ts test/doctor.test.ts test/keys.test.ts test/opentui-panels.test.ts test/opentui-agents.test.ts test/opentui-overlays.test.ts test/opentui-viewkeys.test.ts test/opentui-vim.test.ts test/opentui-theme-colors.test.ts test/opentui-code-highlight.test.ts test/diff.test.ts test/commands.test.ts test/history.test.ts test/composer.test.ts test/editor.test.ts test/mentions.test.ts test/diffview.test.ts test/themes.test.ts test/layout.test.ts test/selector.test.ts test/state.test.ts test/attention.test.ts test/highlight.test.ts test/opentui-home.test.tsx test/opentui-approval-action.test.tsx test/opentui-code-highlight-glue.test.ts test/test-list-guard.test.ts",
+    "test:ci": "node scripts/test-ci.mjs",
+    "check:highlight": "bun run scripts/highlight_render_check.ts",
+    "check:highlight:pty": "uv run python scripts/pty_highlight_check.py",
+    "check:home": "uv run python scripts/pty_home_frame_check.py",
+    "check:entry": "uv run python scripts/pty_entry_check.py",
+    "check:search": "uv run python scripts/pty_search_check.py",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
   },
@@ -40,19 +47,15 @@
     "@opentui/core": "0.5.11",
     "@opentui/react": "0.5.11",
     "cli-highlight": "^2.1.11",
-    "ink": "^6.0.0",
-    "marked": "^15.0.12",
-    "marked-terminal": "^7.3.0",
+    "highlight.js": "^10.7.3",
     "react": "^19.0.0",
-    "react-devtools-core": "^8.0.0",
+    "react-devtools-core": "^7.0.1",
     "ws": "^8.21.3",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
-    "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

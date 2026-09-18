@@ -5,7 +5,8 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TuiController, STALL_DEFAULT_MS } from "../src/controller.js";
+import { TuiController, STALL_DEFAULT_MS, renderTranscript, toolState } from "../src/controller.js";
+import type { ChatMessage } from "../src/controller.js";
 import type {
   PermissionMode,
   SurfaceSessionSnapshot,
@@ -175,7 +176,12 @@ class FakeClient {
       total_tokens: 12,
     };
   }
-  async correct() {
+  async correct(
+    _sessionId?: string,
+    _reason?: string,
+    _action?: string,
+    _idempotencyKey?: string,
+  ) {
     return snapshot({ status: "CORRECTION_HALTED" });
   }
   filesList = [
@@ -397,6 +403,49 @@ test("stall: quiet stream past threshold renders the typed transient state", () 
   assert.equal(controller.status, "stalled");
 });
 
+test("stall: a failing durable drain says why instead of swallowing it", async () => {
+  // The drain used to `.catch(() => undefined)`: a permanently failing batch
+  // reached the user as the same bare "stalled" as a quiet daemon, with no way
+  // to tell "the server is slow" from "we cannot read its answer".
+  class RejectingClient extends FakeClient {
+    async events(): Promise<never> {
+      this.eventsCalls += 1;
+      throw new Error("next_sequence must equal the last event sequence");
+    }
+  }
+  const client = new RejectingClient();
+  const controller = new TuiController(client as never, {
+    stallMs: 30,
+    pollMs: 1,
+  });
+  const internals = controller as never as {
+    status: string;
+    taskId: string | null;
+    turnId: string | null;
+    awaitDurableResolution(sessionId: string): Promise<void>;
+  };
+  internals.status = "streaming";
+  internals.taskId = "task:1";
+  internals.turnId = "turn:1";
+  await internals.awaitDurableResolution("session:1");
+  assert.equal(controller.status, "stalled");
+  const system = controller.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content);
+  assert.ok(
+    system.some(
+      (line) =>
+        line.includes("durable event drain failed") &&
+        line.includes("next_sequence must equal the last event sequence"),
+    ),
+    `the stall must name the drain failure, got: ${JSON.stringify(system)}`,
+  );
+  assert.ok(
+    client.eventsCalls > 1,
+    "the drain must keep retrying rather than give up after one failure",
+  );
+});
+
 test("mode command refreshes then sets (operator-only path)", async () => {
   const client = new FakeClient();
   client.streamScript = [frame(1, "turn:1", "STREAM_END")];
@@ -418,6 +467,211 @@ test("ctrl-c during streaming issues a correction, not a silent kill", async () 
   assert.equal(result, "corrected");
   assert.equal(controller.status, "idle");
   assert.ok(controller.messages.some((m) => m.content.includes("correction issued")));
+});
+
+test("a stale-cursor correction is retried from a fresh read and lands", async () => {
+  // The kernel rejects a correction carrying a stale event cursor (409
+  // SurfaceSequenceConflict). The refresh GET and the command POST are two
+  // round trips and a running turn keeps appending durable events, so a commit
+  // landing between them rejects a correction that was correct when read
+  // (measured on a real daemon: 9 of 20 Esc presses mid-turn). The resend must
+  // re-read the cursor, and must carry the same idempotency key so it can never
+  // apply the operator's single correction twice.
+  class StaleOnceClient extends FakeClient {
+    calls: string[] = [];
+    keys: (string | undefined)[] = [];
+    async getSession() {
+      this.calls.push("getSession");
+      return super.getSession();
+    }
+    async correct(
+      _sid: string,
+      _reason: string,
+      _action: string,
+      key?: string,
+    ) {
+      this.calls.push("correct");
+      this.keys.push(key);
+      if (this.calls.filter((call) => call === "correct").length === 1) {
+        throw new Error(
+          "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+        );
+      }
+      return snapshot({ status: "CORRECTION_HALTED" });
+    }
+  }
+  const client = new StaleOnceClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  assert.equal(await controller.interrupt("escape"), "corrected");
+
+  assert.deepEqual(
+    client.calls,
+    ["getSession", "correct", "getSession", "correct"],
+    "the resend must re-read durable truth first, not reuse the stale cursor",
+  );
+  assert.equal(client.keys.length, 2);
+  assert.equal(
+    client.keys[0],
+    client.keys[1],
+    "one operator intent keeps one idempotency key, so a resend cannot double-apply",
+  );
+  const messages = controller.messages.map((m) => m.content);
+  assert.ok(
+    messages.some((text) => text.includes("correction issued")),
+    `the absorbed retry must report success, got ${JSON.stringify(messages)}`,
+  );
+  assert.ok(
+    !messages.some((text) => text.includes("correction FAILED")),
+    "a correction that landed on the retry is not a failure",
+  );
+});
+
+test("a correction the kernel keeps rejecting is bounded and reported once", async () => {
+  class AlwaysStaleClient extends FakeClient {
+    posts = 0;
+    async correct(): Promise<never> {
+      this.posts += 1;
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 12",
+      );
+    }
+  }
+  const client = new AlwaysStaleClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  await assert.rejects(() => controller.interrupt("escape"));
+
+  assert.equal(client.posts, 3, "one attempt plus a bounded two resends, then stop");
+  const failed = controller.messages.filter((m) => m.content.includes("correction FAILED"));
+  assert.equal(failed.length, 1, "the same failure is reported exactly once");
+  assert.match(failed[0]?.content ?? "", /was NOT corrected/);
+  assert.ok(
+    !controller.messages.some((m) => m.content.includes("correction issued")),
+    "a failed correction must not also claim success",
+  );
+});
+
+test("a successful correction is never resent", async () => {
+  const client = new FakeClient();
+  let posts = 0;
+  const raw = client.correct.bind(client);
+  client.correct = (async (...args: Parameters<FakeClient["correct"]>) => {
+    posts += 1;
+    return raw(...args);
+  }) as FakeClient["correct"];
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  assert.equal(await controller.interrupt("escape"), "corrected");
+  assert.equal(posts, 1);
+});
+
+test("a repeated Esc joins the correction already in flight", async () => {
+  // A held or repeated key used to send one POST and one transcript line per
+  // key event: three identical "correction FAILED" lines for one operator
+  // decision, and three chances to act on the same intent.
+  class SlowStaleClient extends FakeClient {
+    posts = 0;
+    async correct(): Promise<never> {
+      this.posts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new SlowStaleClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  const results = await Promise.allSettled([
+    controller.interrupt("escape"),
+    controller.interrupt("escape"),
+    controller.interrupt("escape"),
+  ]);
+
+  assert.deepEqual(
+    results.map((r) => r.status),
+    ["rejected", "rejected", "rejected"],
+  );
+  assert.equal(client.posts, 3, "three presses are one intended correction, retried bounded");
+  const failed = controller.messages.filter((m) => m.content.includes("correction FAILED"));
+  assert.equal(failed.length, 1, "the same failure is noticed once, not three times");
+});
+
+test("/mode failure is caught and reported instead of escaping the submit path", async () => {
+  // The view fires `void controller.submit(...)`, so a rejection here was an
+  // unhandled rejection with nothing in the transcript: the operator kept
+  // working under a mode the kernel never set.
+  class StaleModeClient extends FakeClient {
+    async setPermissionMode(): Promise<never> {
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 3 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new StaleModeClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  await controller.submit("open session");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  await assert.doesNotReject(() => controller.submit("/mode ACCEPT_IN_WORKSPACE"));
+
+  const messages = controller.messages.map((m) => m.content);
+  assert.ok(
+    messages.some(
+      (text) =>
+        text.includes("permission mode change to ACCEPT_IN_WORKSPACE FAILED") &&
+        text.includes("still ASK"),
+    ),
+    `expected an honest failure notice, got ${JSON.stringify(messages)}`,
+  );
+  assert.equal(controller.mode, "ASK");
+});
+
+test("a turn-level failure re-reads durable truth before the next command", async () => {
+  // A failed turn is often a stale client cursor (the kernel rejected some
+  // command for a sequence the client had not observed). Leaving the old
+  // snapshot in place made every following command fail the same way.
+  class FailingTurnClient extends FakeClient {
+    async beginTurn(): Promise<never> {
+      throw new Error(
+        "SurfaceSequenceConflict: expected event sequence 1 does not match current sequence 9",
+      );
+    }
+  }
+  const client = new FailingTurnClient();
+  client.snapshotSequence = 9;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("go");
+
+  assert.equal(controller.status, "idle");
+  assert.match(controller.lastError ?? "", /does not match current sequence 9/);
+  assert.equal(client.getSessionCalls, 1, "the snapshot must be re-read after the failure");
+  assert.equal(controller.currentSnapshot?.event_sequence, 9);
 });
 
 test("/doctor: wired probe text is surfaced; unavailable probe is honest", async () => {
@@ -789,4 +1043,325 @@ test("/provider set reads the key from env and never echoes it into the transcri
   // The key was present and used, yet must not appear in the transcript.
   assert.equal(client.configureCalls, 1);
   assert.ok(!JSON.stringify(controller.messages).includes(sentinel));
+});
+
+/** Durable event helpers for the tool-card projection tests below. Shaped
+ * after the real records measured from a live daemon run (S1 audit
+ * 2026-09-18, /tmp/p2/s1): the receipt proves the dispatch happened and says
+ * nothing about the exit code; the NODE_COMPLETED output is where the tool's
+ * own result lives. */
+function proposedEvent(seq: number, actionId: string, capabilityId: string, args: string) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_PROPOSED",
+    payload_json: JSON.stringify({
+      action: { action_id: actionId, node_id: `node:${actionId}`, capability_id: capabilityId, arguments_json: args },
+    }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function receiptEvent(seq: number, actionId: string, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "ACTION_RECEIPT_RECORDED",
+    payload_json: JSON.stringify({ decision: { action_id: actionId }, ...body }),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function completedEvent(seq: number, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "NODE_COMPLETED",
+    payload_json: JSON.stringify(body),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function failedEvent(seq: number, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "NODE_FAILED",
+    payload_json: JSON.stringify(body),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function applyDurable(
+  controller: TuiController,
+): (next: number, events: unknown[]) => void {
+  const internal = controller as never as {
+    applyDurable: (next: number, events: unknown[]) => void;
+  };
+  return internal.applyDurable.bind(controller);
+}
+
+test("a non-zero tool exit code is not rendered as a plain success (S1 defect)", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:run", "workspace.run_tests", '{"command":"python -m pytest"}')]);
+  apply(2, [
+    receiptEvent(2, "a:run", {
+      receipt: {
+        action_id: "a:run",
+        status: "SUCCEEDED",
+        error_code: "error:none",
+        output_artifact_ids: ["artifact:deadbeef"],
+      },
+    }),
+  ]);
+
+  // Receipt only: the dispatch is confirmed and nothing says the tests failed.
+  assert.equal(controller.messages[0]?.tool?.status, "done");
+  assert.equal(toolState(controller.messages[0]!.tool!), "done");
+
+  // The tool's own result (measured shape: {"exit_code":1,"artifact_ids":[…]}).
+  apply(3, [
+    completedEvent(3, {
+      action_id: "a:run",
+      node_id: "node:a:run",
+      agent_loop_dynamic_action: true,
+      output: { exit_code: 1, digest: "deadbeef", artifact_ids: ["artifact:deadbeef"] },
+    }),
+  ]);
+  const tool = controller.messages[0]?.tool;
+  // The receipt's dispatch status is NOT rewritten...
+  assert.equal(tool?.status, "done");
+  // ...but the card is no longer indistinguishable from a passing run.
+  assert.equal(tool?.exitCode, 1);
+  assert.equal(toolState(tool!), "error");
+  assert.match(tool?.resultSummary ?? "", /exit 1/);
+  assert.match(tool?.resultSummary ?? "", /artifacts 1/);
+
+  // /export must report the failure too, with a state that is not "done".
+  const exported = renderTranscript(controller.messages, {
+    sessionId: "s:1",
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(exported, /- tool \[error\] workspace\.run_tests \(python -m pytest\) — exit 1/);
+  assert.ok(!exported.includes("tool [done] workspace.run_tests"), "the failing run must not export as [done]");
+});
+
+test("a passing tool exit code keeps the card and /export unchanged", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:ok", "workspace.run_tests", '{"command":"python -m pytest"}')]);
+  apply(2, [
+    receiptEvent(2, "a:ok", {
+      receipt: { action_id: "a:ok", status: "SUCCEEDED", error_code: "error:none", output_artifact_ids: ["artifact:1"] },
+    }),
+  ]);
+  apply(3, [
+    completedEvent(3, {
+      action_id: "a:ok",
+      output: { exit_code: 0, artifact_ids: ["artifact:1"] },
+    }),
+  ]);
+  const tool = controller.messages[0]?.tool;
+  assert.equal(toolState(tool!), "done");
+  assert.equal(tool?.exitCode, 0);
+  assert.equal(tool?.resultSummary, "artifacts 1", "exit 0 adds no failure text");
+});
+
+test("a tool-reported error string is surfaced, and a failed dispatch stays failed", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+
+  apply(1, [proposedEvent(1, "a:err", "workspace.run_tests", "{}")]);
+  apply(2, [
+    receiptEvent(2, "a:err", { receipt: { action_id: "a:err", status: "SUCCEEDED" } }),
+  ]);
+  apply(3, [completedEvent(3, { action_id: "a:err", output: { error: "CapabilityDenied: nope" } })]);
+  assert.equal(toolState(controller.messages[0]!.tool!), "error");
+  assert.match(controller.messages[0]?.tool?.resultSummary ?? "", /error CapabilityDenied: nope/);
+
+  // A receipt FAILED is still the dispatch failure it always was — the exit
+  // code path must not relabel or overwrite it.
+  apply(4, [proposedEvent(4, "a:bad", "workspace.shell", "{}")]);
+  apply(5, [receiptEvent(5, "a:bad", { receipt: { action_id: "a:bad", status: "FAILED", error_code: "error:timeout" } })]);
+  apply(6, [completedEvent(6, { action_id: "a:bad", output: { error: "late output" } })]);
+  const failed = controller.messages[1]!.tool!;
+  assert.equal(failed.status, "failed");
+  assert.equal(toolState(failed), "failed");
+  assert.match(failed.resultSummary ?? "", /error error:timeout/);
+});
+
+test("tool result binding: ignores foreign actions, tolerates node-only completions and junk", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:1", "workspace.run_tests", "{}")]);
+  apply(2, [receiptEvent(2, "a:1", { receipt: { action_id: "a:1", status: "SUCCEEDED" } })]);
+
+  // An action id this card does not own must not mutate it.
+  apply(3, [completedEvent(3, { action_id: "a:other", output: { exit_code: 7 } })]);
+  assert.equal(controller.messages[0]?.tool?.exitCode, undefined);
+  // Junk shapes: no output, non-object output, non-integer exit code, bool.
+  apply(4, [completedEvent(4, { action_id: "a:1" })]);
+  apply(5, [completedEvent(5, { action_id: "a:1", output: "boom" })]);
+  apply(6, [completedEvent(6, { action_id: "a:1", output: { exit_code: "1" } })]);
+  apply(7, [completedEvent(7, { action_id: "a:1", output: { exit_code: true } })]);
+  assert.equal(controller.messages[0]?.tool?.exitCode, undefined);
+  assert.equal(toolState(controller.messages[0]!.tool!), "done");
+
+  // Older/other emitters may carry only node_id — the node key still binds.
+  apply(8, [completedEvent(8, { node_id: "node:a:1", output: { exit_code: 2 } })]);
+  assert.equal(controller.messages[0]?.tool?.exitCode, 2);
+  assert.match(controller.messages[0]?.tool?.resultSummary ?? "", /exit 2/);
+});
+
+test("toolState: pending/unknown receipts never render as a success", () => {
+  const base = {
+    actionId: "a:1",
+    capabilityId: "workspace.run_tests",
+    argsSummary: "",
+    argsJson: "{}",
+  };
+  assert.equal(toolState({ ...base, status: "pending" }), "pending");
+  assert.equal(toolState({ ...base, status: "done" }), "done");
+  assert.equal(toolState({ ...base, status: "done", exitCode: 0 }), "done");
+  assert.equal(toolState({ ...base, status: "done", exitCode: 3 }), "error");
+  assert.equal(toolState({ ...base, status: "done", errorText: "x" }), "error");
+  assert.equal(toolState({ ...base, status: "failed" }), "failed");
+});
+
+test("/keys no longer advertises an unwired Ctrl-O panel (S1 audit)", async () => {
+  const controller = new TuiController(new FakeClient() as never);
+  await controller.submit("/keys");
+  const lines = controller.messages.at(-1)?.panel?.lines ?? [];
+  const text = lines.join("\n");
+  assert.match(text, /ctrl-r reverse search/, "the wired bindings stay advertised");
+  assert.ok(!/ctrl-o/.test(text), "Ctrl-O has no handler anywhere in src/");
+  assert.ok(!/ctrl-t/.test(text), "Ctrl-T has no handler anywhere in src/");
+  // The panel it pointed at is unreachable, so the reason must not be the
+  // now-removed help line either: the tool card carries the result instead.
+  const card: ChatMessage = {
+    role: "system",
+    content: "",
+    tool: {
+      actionId: "a:1",
+      capabilityId: "workspace.run_tests",
+      argsSummary: "python -m pytest",
+      argsJson: "{}",
+      status: "done",
+      exitCode: 1,
+      resultSummary: "exit 1",
+    },
+  };
+  assert.match(renderTranscript([card], { sessionId: null, mode: "ASK", tokens: 0, goal: null }), /exit 1/);
+});
+
+test("a tool call that sealed nothing converges to failed, not pending (round-3 defect)", () => {
+  // A preflight refusal never dispatches, so no receipt and no NODE_COMPLETED
+  // exist; before this mapping the card sat at ⏵ pending forever and /export
+  // said `tool [pending]`, which is the operator-side half of S3's read-only
+  // refusal.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  const reason =
+    "CapabilityDenied: locked.txt is read-only (mode 0444); a workspace write keeps " +
+    "a file's permission bits, so the patch is refused -- make the file writable and apply the patch again";
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"locked.txt"}')]);
+  assert.equal(controller.messages[0]?.tool?.status, "pending");
+
+  apply(2, [
+    failedEvent(2, {
+      action_id: "a:edit",
+      node_id: "node:a:edit",
+      capability_id: "workspace.edit",
+      error: reason,
+      exception: "CapabilityDenied",
+    }),
+  ]);
+
+  const tool = controller.messages[0]?.tool;
+  assert.equal(tool?.status, "failed");
+  assert.equal(tool?.errorText, reason);
+  assert.match(tool?.resultSummary ?? "", /^error CapabilityDenied: locked\.txt is read-only/);
+  const rendered = renderTranscript(controller.messages, {
+    sessionId: null,
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(rendered, /failed/);
+  assert.match(rendered, /read-only \(mode 0444\)/);
+
+  // Replay: the durable event is applied again on a later drain and must not
+  // double the summary.
+  const summary = tool?.resultSummary;
+  apply(3, [
+    failedEvent(3, { action_id: "a:edit", node_id: "node:a:edit", error: reason }),
+  ]);
+  assert.equal(controller.messages[0]?.tool?.resultSummary, summary);
+});
+
+test("a rejected approval resolves the card instead of leaving it pending", async () => {
+  // Rejecting is a resolution: the operator pressed n and the card kept showing
+  // its pending state, on the surface they were looking at (round-3 audit).
+  const client = new FakeClient();
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"fixture.txt"}')]);
+  const internals = controller as never as {
+    status: string;
+    sessionId: string | null;
+  };
+  internals.status = "awaiting_approval";
+  internals.sessionId = "s:1";
+
+  await controller.reject();
+
+  const tool = controller.messages[0]?.tool;
+  assert.equal(tool?.status, "failed");
+  assert.equal(tool?.errorText, "rejected by the operator");
+  assert.ok(
+    controller.messages.some((message) =>
+      message.content.includes("REJECT: workspace.edit"),
+    ),
+    "the transcript must still name what was rejected",
+  );
+  const rendered = renderTranscript(controller.messages, {
+    sessionId: "s:1",
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(rendered, /rejected by the operator/);
+});
+
+test("approving does not mark the card rejected", async () => {
+  // The other direction: an approval leaves the card to the durable events
+  // (receipt + NODE_COMPLETED), which is where its outcome belongs.
+  const client = new FakeClient();
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"fixture.txt"}')]);
+  const internals = controller as never as {
+    status: string;
+    sessionId: string | null;
+  };
+  internals.status = "awaiting_approval";
+  internals.sessionId = "s:1";
+
+  await controller.approve();
+
+  assert.equal(controller.messages[0]?.tool?.status, "pending");
+  assert.ok(
+    controller.messages.some((message) =>
+      message.content.includes("APPROVE: workspace.edit"),
+    ),
+  );
 });

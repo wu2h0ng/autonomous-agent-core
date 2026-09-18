@@ -22,6 +22,13 @@ test("--version prints and exits without a daemon", () => {
     assert.equal(code, 0);
     assert.match(out.trim(), /^\d+\.\d+\.\d+$/);
     assert.ok(!existsSync(join(home, ".agent-os", "runtime.json")));
+    // Bypass-detecting: this suite runs under plain node, which has no native
+    // FFI, so these view-free paths only keep working while the full-screen view
+    // stays a LAZY import in cli.tsx. Make it a static import and this fails.
+    assert.ok(
+      !out.includes("native FFI"),
+      "cli.tsx must not load the view for view-free paths",
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

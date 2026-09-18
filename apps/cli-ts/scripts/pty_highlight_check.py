@@ -1,9 +1,20 @@
 '''Syntax-highlighting check (#16): are fenced code tokens COLOURED?
 
-The hermetic stub now replies with a fenced python block, so this asserts the
-rendered SGR of code tokens via the frame reader. It currently FAILS (exit 1):
-the block renders but every token is default white, i.e. the registered
-SyntaxStyle scopes are not applied - kept as an honest reproducer.
+The hermetic stub replies with a fenced python block, so this asserts the
+rendered SGR of code tokens via the frame reader.
+
+Passes since the #16 fix. Before it, every code token was default white: the
+bundled tree-sitter grammars are only {javascript, typescript, markdown,
+markdown_inline, zig}, so a ```python fence had no parser and produced no
+highlights for the SyntaxStyle scopes to style (measured; see
+docs/product/TUI-PARITY-CHECKLIST-2026-09-16.md). The block is now highlighted
+by highlight.js through CodeRenderable's `onHighlight`, and this asserts that
+the tokens land on >= 3 distinct non-default colours (keyword / string / title /
+comment families) rather than merely "something is not white".
+
+Note: the terminal advertises 256 colours, so the palette index - not the theme
+hex - is what arrives on the wire. frame_reader maps 38;5;N through the real
+palette; asserting exact hexes here would be wrong.
 
     uv run python scripts/pty_highlight_check.py
 '''
@@ -90,18 +101,32 @@ for index, text in enumerate(screen.text_rows()):
                 print(f"{index:02d} {span_text.strip()[:32]!r} fg={fg}")
 
 coloured = [s for s in code_styles if s[1] not in (None, (255, 255, 255))]
+distinct = sorted({s[1] for s in coloured})
 print("CODE_TOKEN_COUNT:", len(code_styles))
+print("CODE_DISTINCT_COLOURS:", len(distinct), distinct)
 print("CODE_COLOURED:", len(coloured) > 0)
 print("FENCED_CODE_RENDERED:", screen.find_row("def ") != -1)
-# Honest reproducer: fails until the SyntaxStyle scopes actually apply.
-if not coloured:
-    print(
-        "NOT COLOURED: the reply's fenced code block renders (def/return visible) but every\n"
-        "code token is painted with the default white - the registered SyntaxStyle scopes\n"
-        "(keyword/string/comment/function) are NOT applied by the markdown renderable.\n"
-        "Next: inspect opentui's highlighter for the scope vocabulary/shape it expects."
+
+# A single coloured token would only prove "one scope happened to apply". The
+# fix must land the keyword / string / title / comment families on separate
+# theme colours, and keep the block itself intact.
+problems: list[str] = []
+if len(coloured) == 0:
+    problems.append(
+        "no code token is coloured: every token is painted with the default\n"
+        "foreground, i.e. the registered SyntaxStyle scopes are not applied."
     )
+if len(distinct) < 3:
+    problems.append(f"expected >= 3 distinct code colours, saw {len(distinct)}: {distinct}")
+if screen.find_row("def ") == -1:
+    problems.append("the fenced block itself is missing from the frame ('def ' not found)")
+
+if problems:
+    print("NOT COLOURED:")
+    for problem in problems:
+        print(f" - {problem}")
     raise SystemExit(1)
+print("HIGHLIGHT_OK: True")
 
 try:
     os.kill(pid, signal.SIGKILL)

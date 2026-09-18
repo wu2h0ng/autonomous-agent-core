@@ -183,6 +183,7 @@ class SurfaceSessionSummary(ContractModel):
     permission_mode: PermissionMode = "ASK"
     message_count: int = Field(ge=0)
     updated_at: UtcDateTime
+    awaiting_approval: bool = False
 
 
 class SurfaceSessionListResponse(ContractModel):

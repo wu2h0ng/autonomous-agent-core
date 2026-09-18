@@ -79,6 +79,34 @@ export interface EventBatch {
   events: SurfaceEvent[];
 }
 
+/**
+ * Mirror of SurfaceEventBatch._validate_event_ownership_and_sequence
+ * (packages/contracts/src/agent_os_contracts/surface.py): the resume cursor in
+ * a durable event batch must agree with the events that batch carries. Callers
+ * (agent_thread) resume from `next_sequence`, so accepting a self-contradictory
+ * batch silently skips events or re-requests an already-applied window.
+ */
+function checkEventSequence(
+  afterSequence: number,
+  nextSequence: number,
+  events: readonly SurfaceEvent[],
+): void {
+  let previousSequence = afterSequence;
+  for (const event of events) {
+    if (event.sequence <= previousSequence) {
+      throw new SurfaceProtocolMismatch(
+        "surface event sequences must strictly increase above after_sequence",
+      );
+    }
+    previousSequence = event.sequence;
+  }
+  if (nextSequence !== previousSequence) {
+    throw new SurfaceProtocolMismatch(
+      "surface next_sequence must equal the last event sequence or after_sequence",
+    );
+  }
+}
+
 export interface ConflictProjection {
   protocol_version: string;
   action_id: string;
@@ -482,6 +510,27 @@ export function parseSse(
   const dataLines: string[] = [];
   let inCursor = false;
   let nextSequence = afterSequence;
+  const flush = (): void => {
+    if (inCursor) {
+      const cursor = JSON.parse(dataLines.join("\n")) as {
+        next_sequence: number;
+      };
+      nextSequence = cursor.next_sequence;
+      inCursor = false;
+    } else if (currentId !== null && dataLines.length > 0) {
+      const payload = JSON.parse(dataLines.join("\n")) as {
+        event_type: string;
+        payload_json: string;
+      };
+      events.push({
+        sequence: currentId,
+        event_type: payload.event_type,
+        payload_json: payload.payload_json,
+      });
+    }
+    currentId = null;
+    dataLines.length = 0;
+  };
   for (const line of body.split(/\r?\n/)) {
     if (line.startsWith("id: ")) {
       currentId = Number.parseInt(line.slice(4), 10);
@@ -491,27 +540,16 @@ export function parseSse(
     } else if (line.startsWith("data: ")) {
       dataLines.push(line.slice(6));
     } else if (line === "") {
-      if (inCursor) {
-        const cursor = JSON.parse(dataLines.join("\n")) as {
-          next_sequence: number;
-        };
-        nextSequence = cursor.next_sequence;
-        inCursor = false;
-      } else if (currentId !== null && dataLines.length > 0) {
-        const payload = JSON.parse(dataLines.join("\n")) as {
-          event_type: string;
-          payload_json: string;
-        };
-        events.push({
-          sequence: currentId,
-          event_type: payload.event_type,
-          payload_json: payload.payload_json,
-        });
-      }
-      currentId = null;
-      dataLines.length = 0;
+      flush();
     }
   }
+  // EOF flush, mirroring apps/cli/surface_client.py `_decode_sse` and
+  // apps/cli-ts/src/sse.ts: a frame is normally terminated by a blank line, but
+  // a body that ends mid-frame must be decoded all the same. Dropping the final
+  // cursor left next_sequence at after_sequence; a truncated payload still
+  // fails closed because JSON.parse rejects it.
+  flush();
+  checkEventSequence(afterSequence, nextSequence, events);
   return {
     protocol_version: SURFACE_PROTOCOL_VERSION,
     task_id: taskId,

@@ -19,6 +19,7 @@ import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type {
   PermissionMode,
   SurfaceFileEntry,
@@ -28,6 +29,31 @@ import type {
 } from "./contracts.js";
 
 export const STALL_DEFAULT_MS = 30_000;
+
+/** Bounded refresh-and-resend budget for a command the kernel rejected with a
+ * stale event cursor, and the pause between attempts. */
+export const SEQUENCE_RETRY_LIMIT = 2;
+export const SEQUENCE_RETRY_DELAY_MS = 40;
+
+/**
+ * True when the kernel rejected a command because the client's tracked
+ * `expected_event_sequence` no longer matches durable truth
+ * (`SurfaceSequenceConflict`, HTTP 409) — the one rejection a fresh read can
+ * fix.
+ *
+ * Only this rejection is retryable. HTTP 409 is overloaded on the surface
+ * (`surface_routes._surface_error_status` maps `SurfaceIdempotencyConflict` and
+ * `InvalidTransitionError` to 409 too), and the transport keeps only the
+ * message, so the match is on the kernel's frozen wording
+ * (`surface_runtime._require_sequence`). Everything else surfaces unchanged.
+ */
+export function isSequenceConflict(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return (
+    message.includes("SurfaceSequenceConflict") ||
+    message.includes("does not match current sequence")
+  );
+}
 
 /** Kernel sentinel for "no error" (`agent_os_contracts.authority.NO_ERROR_CODE`).
  * Every receipt carries it; it must never render as an error. */
@@ -48,9 +74,32 @@ export interface ToolCall {
    * never from the truncated summary. */
   argsJson: string;
   status: "pending" | "done" | "failed";
-  /** Optional durable receipt outcome (effect summary / error code / artifact
-   * count), shown in the Ctrl-O tool detail panel. */
+  /** Durable outcome summary (effect / error code / artifact count, plus the
+   * tool-reported exit code and error), rendered on the tool card, in
+   * `formatToolDetail` and in `/export`. */
   resultSummary?: string;
+  /** Exit code the tool itself reported (durable `NODE_COMPLETED.output.
+   * exit_code`, e.g. `workspace.run_tests`/`workspace.shell`). This is the
+   * TOOL's result, not the dispatch's: a receipt `SUCCEEDED` with `exit_code 1`
+   * means "the command ran and exited non-zero", and the card must not render
+   * it as an unqualified success. */
+  exitCode?: number;
+  /** Error text the tool itself reported (`NODE_COMPLETED.output.error`). */
+  errorText?: string;
+}
+
+/** Operator-facing state of a tool card: the receipt's dispatch status refined
+ * by the tool's own result. The receipt keeps its own semantics — `failed` is
+ * still exactly "the dispatch did not succeed" (`ReceiptStatus` FAILED /
+ * CANCELLED / COMPENSATED); `error` is the extra case the receipt cannot
+ * express, "confirmed dispatch, non-zero exit or tool-reported error". */
+export function toolState(
+  tool: ToolCall,
+): "pending" | "done" | "failed" | "error" {
+  if (tool.status === "failed") return "failed";
+  if (tool.status !== "done") return "pending";
+  if (tool.errorText !== undefined) return "error";
+  return tool.exitCode !== undefined && tool.exitCode !== 0 ? "error" : "done";
 }
 
 export interface TodoItem {
@@ -175,8 +224,12 @@ function toolDiff(argsJson: string): string[] | null {
   });
 }
 
-/** Multi-line detail block for the expanded tool view (Ctrl-O). Never
- * throws on malformed arguments — the raw JSON is shown verbatim instead. */
+/** Multi-line detail block for one tool call: action, status, durable result,
+ * pretty-printed arguments and an inline diff for edit-style calls. Never
+ * throws on malformed arguments — the raw JSON is shown verbatim instead.
+ *
+ * NOTE (S1 audit 2026-09-18): no view calls this yet — the Ctrl-O panel was
+ * never wired, and the `/keys` card no longer advertises a binding for it. */
 export function formatToolDetail(tool: ToolCall): string[] {
   let pretty = tool.argsJson;
   try {
@@ -184,7 +237,11 @@ export function formatToolDetail(tool: ToolCall): string[] {
   } catch {
     // keep raw
   }
-  const lines = [`action   ${tool.actionId}`, `status   ${tool.status}`];
+  const lines = [
+    `action   ${tool.actionId}`,
+    `status   ${tool.status}`,
+    `state    ${toolState(tool)}`,
+  ];
   if (tool.resultSummary) lines.push(`result   ${tool.resultSummary}`);
   lines.push(...pretty.split("\n").map((line) => `  ${line}`));
   const diff = toolDiff(tool.argsJson);
@@ -222,7 +279,7 @@ export function renderTranscript(
     }
     if (message.tool) {
       const result = message.tool.resultSummary ? ` — ${message.tool.resultSummary}` : "";
-      lines.push(`- tool [${message.tool.status}] ${message.tool.capabilityId} (${message.tool.argsSummary})${result}`, "");
+      lines.push(`- tool [${toolState(message.tool)}] ${message.tool.capabilityId} (${message.tool.argsSummary})${result}`, "");
       continue;
     }
     lines.push(`**${message.role}**: ${message.content}`, "");
@@ -234,6 +291,8 @@ export interface ControllerDeps {
   clock?: () => number;
   stallMs?: number;
   pollMs?: number;
+  /** Pause between refresh-and-resend attempts after a stale-cursor rejection. */
+  sequenceRetryDelayMs?: number;
   /** Observer for streamed assistant deltas (headless stream-json). Pure
    * notification — never feeds back into controller state. */
   onDelta?: (delta: string) => void;
@@ -288,14 +347,23 @@ export class TuiController {
   private stream: SurfaceStreamBinding | null = null;
   private turnId: string | null = null;
   private durableCursor = 0;
+  /** Why the last durable drain failed, cleared by the next good batch. */
+  private lastDurableError: string | null = null;
   private lastActivity: number | null = null;
   private readonly toolIndex = new Map<string, number>();
+  /** Message index by proposed action node id — the fallback key for
+   * NODE_COMPLETED payloads that carry no action_id. */
+  private readonly nodeIndex = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
   private readonly clock: () => number;
   private readonly stallMs: number;
   private readonly pollMs: number;
   private readonly onDelta: ((delta: string) => void) | undefined;
   private readonly doctor: (() => Promise<string>) | undefined;
+  private readonly sequenceRetryDelayMs: number;
+  /** The correction currently being sent, if any. Esc is a physical key: a
+   * held or repeated press must not fan out into one POST per key event. */
+  private interruptInFlight: Promise<"corrected" | "closed"> | null = null;
   private busy = false;
 
   constructor(
@@ -307,6 +375,7 @@ export class TuiController {
     this.pollMs = deps.pollMs ?? 100;
     this.onDelta = deps.onDelta;
     this.doctor = deps.doctor;
+    this.sequenceRetryDelayMs = deps.sequenceRetryDelayMs ?? SEQUENCE_RETRY_DELAY_MS;
   }
 
   subscribe(listener: () => void): () => void {
@@ -592,14 +661,30 @@ export class TuiController {
       return;
     }
     const mode = arg.toUpperCase() as PermissionMode;
-    // Refresh the tracked event sequence first: durable progress learned via
-    // events() does not advance the client's per-session command cursor.
-    const fresh = await this.client.getSession(this.sessionId);
-    this.mode = fresh.permission_mode;
-    const updated = await this.client.setPermissionMode(this.sessionId, mode as PermissionMode);
-    this.mode = updated.permission_mode;
-    this.snapshot = updated;
-    this.push({ role: "system", content: `permission mode → ${this.mode}` });
+    const sessionId = this.sessionId;
+    // Same two round trips as a correction (refresh, then command), so the same
+    // stale-cursor rejection is possible here and is handled the same way. The
+    // failure is caught here rather than left to the caller: the submit path in
+    // the view is fire-and-forget, so a rejection used to escape as an
+    // unhandled rejection with no trace in the transcript, and an operator who
+    // does not know the mode did not change will act on the wrong one.
+    try {
+      const updated = await this.controlWithRetry(sessionId, () =>
+        this.client.setPermissionMode(sessionId, mode, `cli-ts-mode:${randomUUID()}`),
+      );
+      this.mode = updated.permission_mode;
+      this.snapshot = updated;
+      this.push({ role: "system", content: `permission mode → ${this.mode}` });
+    } catch (cause) {
+      const current = this.snapshot?.permission_mode ?? this.mode;
+      this.mode = current;
+      this.push({
+        role: "system",
+        content:
+          `permission mode change to ${mode} FAILED (${(cause as Error).message}) — ` +
+          `still ${current}; the kernel did not change it`,
+      });
+    }
   }
 
   /** `/export [path]` — write the in-session transcript (0600, explicit path). */
@@ -640,7 +725,7 @@ export class TuiController {
         "enter submit · ctrl-j newline · ctrl-g $EDITOR",
         "backspace/delete delete backward · ctrl-d delete forward",
         "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
-        "ctrl-a/ctrl-e line start/end · ctrl-o tool transcript · ctrl-t thinking",
+        "ctrl-a/ctrl-e line start/end",
         "esc correction · ctrl-c exit · ctrl-l clear view",
         "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
       ],
@@ -922,6 +1007,7 @@ export class TuiController {
     }
     this.messages.length = 0;
     this.toolIndex.clear();
+    this.nodeIndex.clear();
     this.finalizedIndex = 0;
     this.pendingPreview = null;
     this.push({
@@ -952,6 +1038,44 @@ export class TuiController {
     const opened = await this.client.openSession("cli-ts session");
     this.adoptSnapshot(opened);
     this.push({ role: "system", content: `session ${this.sessionId} opened` });
+  }
+
+  /**
+   * Send a control command (correction, permission mode) with a bounded
+   * refresh-and-resend loop.
+   *
+   * `expected_event_sequence` is read from the client's last observed snapshot,
+   * and a running turn keeps appending durable events. The refresh GET and the
+   * command POST are two round trips, so a commit landing between them rejects
+   * the command with 409 `SurfaceSequenceConflict` even though the refresh was
+   * correct when it was read (measured on a real daemon: 9 stale-cursor
+   * rejections across 20 Esc presses mid-turn). Resending from a *fresh* read is
+   * the only sound fix — the cursor is derived from durable truth, never
+   * guessed or fudged forward.
+   *
+   * Each attempt re-reads; only a stale-cursor rejection is retried, and the
+   * caller's idempotency key is reused across attempts so a resend can never
+   * re-apply a command that already landed (the kernel refuses a digest
+   * mismatch under a claimed key instead of executing twice).
+   */
+  private async controlWithRetry<T>(
+    sessionId: string,
+    send: () => Promise<T>,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= SEQUENCE_RETRY_LIMIT; attempt += 1) {
+      this.snapshot = await this.client.getSession(sessionId);
+      try {
+        return await send();
+      } catch (cause) {
+        lastError = cause;
+        if (!isSequenceConflict(cause)) throw cause;
+        if (attempt < SEQUENCE_RETRY_LIMIT) {
+          await new Promise((resolve) => setTimeout(resolve, this.sequenceRetryDelayMs));
+        }
+      }
+    }
+    throw lastError;
   }
 
   /** Single predicate for "a new turn may start now" — used by both the
@@ -1050,6 +1174,18 @@ export class TuiController {
       } else {
         this.lastError = (cause as Error).message;
         this.status = "idle";
+        // A turn-level failure is often itself a stale cursor (the kernel
+        // rejected begin-turn/some command for an event sequence the client had
+        // not seen). Re-read durable truth before the next command, otherwise
+        // every following command fails the same way. The refresh must not
+        // replace the real error, so a failing read is ignored here.
+        if (this.sessionId) {
+          try {
+            this.adoptSnapshot(await this.client.getSession(this.sessionId));
+          } catch {
+            /* the turn error above stays the reported one */
+          }
+        }
       }
       this.emit();
     } finally {
@@ -1064,6 +1200,9 @@ export class TuiController {
    * completion). */
   private async awaitDurableResolution(sessionId: string): Promise<void> {
     const deadline = this.clock() + this.stallMs;
+    // A stall has two very different causes - the daemon is quiet, or the drain
+    // itself keeps failing - and the swallowed rejection made them look alike.
+    this.lastDurableError = null;
     for (;;) {
       this.drainDurable();
       if (this.status === "idle" || this.status === "awaiting_approval") {
@@ -1078,6 +1217,13 @@ export class TuiController {
       }
       if (this.clock() > deadline) {
         this.status = "stalled"; // transient; only durable state may overrule
+        this.push({
+          role: "system",
+          content:
+            this.lastDurableError === null
+              ? `no durable resolution within ${this.stallMs}ms — the daemon has not reported this turn's outcome yet, so the result is unknown (try /retry or /status)`
+              : `durable event drain failed: ${this.lastDurableError} — the cursor stays at ${this.durableCursor} so nothing is skipped, but this turn's outcome is unknown (try /retry or /status)`,
+        });
         this.finalizeAll();
         return;
       }
@@ -1105,8 +1251,18 @@ export class TuiController {
     // the async fetch is fire-and-forget; results apply on the next tick.
     void this.client
       .events(this.taskId, this.durableCursor)
-      .then((batch) => this.applyDurable(batch.next_sequence, batch.events))
-      .catch(() => undefined);
+      .then((batch) => {
+        this.lastDurableError = null;
+        this.applyDurable(batch.next_sequence, batch.events);
+      })
+      .catch((cause: unknown) => {
+        // Fail-closed: a batch we could not read must not advance the cursor.
+        // The rejection used to be discarded, which made "the drain is broken"
+        // indistinguishable from "the daemon is quiet" - keep the reason so the
+        // stall can say which one it is.
+        this.lastDurableError =
+          cause instanceof Error ? cause.message : String(cause);
+      });
   }
 
   private applyDurable(nextSequence: number, events: readonly TaskEvent[]): void {
@@ -1149,12 +1305,17 @@ export class TuiController {
         this.applyToolProposed(payload);
       } else if (event.event_type === "ACTION_RECEIPT_RECORDED") {
         this.applyToolReceipt(payload);
+      } else if (event.event_type === "NODE_COMPLETED") {
+        this.applyToolCompletion(payload);
+      } else if (event.event_type === "NODE_FAILED") {
+        this.applyToolFailure(payload);
       }
     }
   }
 
   /** Tool card projection from the durable event stream (read-only view of
-   * ACTION_PROPOSED / ACTION_RECEIPT_RECORDED; no governance state here). */
+   * ACTION_PROPOSED / ACTION_RECEIPT_RECORDED / NODE_COMPLETED; no governance
+   * state here). */
   private applyToolProposed(payload: Record<string, unknown>): void {
     const action = payload["action"] as Record<string, unknown> | undefined;
     if (!action) return;
@@ -1169,6 +1330,8 @@ export class TuiController {
       status: "pending",
     };
     this.toolIndex.set(actionId, this.messages.length);
+    const nodeId = String(action["node_id"] ?? "");
+    if (nodeId) this.nodeIndex.set(nodeId, this.messages.length);
     this.push({ role: "system", content: "", tool });
   }
 
@@ -1212,6 +1375,86 @@ export class TuiController {
     this.emit();
   }
 
+  /** Tool-reported result, from the durable `NODE_COMPLETED` output.
+   *
+   * The receipt proves the dispatch ran and its effect is known; the OUTPUT is
+   * where the tool's own result lives (`workspace.run_tests` answers
+   * `{exit_code, artifact_ids, digest}`, `workspace.shell` adds stdout/stderr).
+   * A non-zero exit is a failure the operator must see — the card used to show
+   * the same `✓` for a passing and a failing test run (S1 audit). The receipt
+   * is not reinterpreted: `status` stays `done`, and the exit code is carried as
+   * its own fact. */
+  private applyToolCompletion(payload: Record<string, unknown>): void {
+    const actionId = String(payload["action_id"] ?? "");
+    const nodeId = String(payload["node_id"] ?? "");
+    const index =
+      (actionId ? this.toolIndex.get(actionId) : undefined) ??
+      (nodeId ? this.nodeIndex.get(nodeId) : undefined);
+    if (index === undefined) return;
+    const message = this.messages[index];
+    const tool = message?.tool;
+    if (!tool) return;
+    const output = payload["output"];
+    if (typeof output !== "object" || output === null) return;
+    const record = output as Record<string, unknown>;
+    const rawExit = record["exit_code"];
+    // A bool is an int in JS: reject it, the kernel's exit code is a number.
+    const exitCode =
+      typeof rawExit === "boolean" || typeof rawExit !== "number" || !Number.isInteger(rawExit)
+        ? undefined
+        : rawExit;
+    const rawError = record["error"];
+    const errorText = typeof rawError === "string" && rawError ? rawError : undefined;
+    if (exitCode === undefined && errorText === undefined) return;
+    const parts: string[] = [];
+    // exit 0 is a pass, already implied by the confirmed status; only the
+    // non-zero exit is news. The error text (if any) is always news.
+    if (exitCode !== undefined && exitCode !== 0) parts.push(`exit ${exitCode}`);
+    if (errorText !== undefined) {
+      parts.push(`error ${errorText.length > 120 ? `${errorText.slice(0, 120)}…` : errorText}`);
+    }
+    message.tool = {
+      ...tool,
+      ...(exitCode === undefined ? {} : { exitCode }),
+      ...(errorText === undefined ? {} : { errorText }),
+      ...(parts.length === 0
+        ? {}
+        : { resultSummary: [...parts, tool.resultSummary].filter(Boolean).join(" · ") }),
+    };
+    this.emit();
+  }
+
+  /** A tool call that sealed nothing: refused before dispatch (so no receipt
+   * exists, because nothing was dispatched) or otherwise produced no result.
+   * The durable failure event carries the reason, so the card converges to
+   * `failed` instead of waiting for a result that will never come — the card
+   * used to sit at `⏵ pending` forever and `/export` said `tool [pending]`
+   * (round-3 audit). Assigned rather than appended, because the durable event
+   * can be replayed into the projection more than once. */
+  private applyToolFailure(payload: Record<string, unknown>): void {
+    const actionId = String(payload["action_id"] ?? "");
+    const nodeId = String(payload["node_id"] ?? "");
+    const index =
+      (actionId ? this.toolIndex.get(actionId) : undefined) ??
+      (nodeId ? this.nodeIndex.get(nodeId) : undefined);
+    if (index === undefined) return;
+    const message = this.messages[index];
+    const tool = message?.tool;
+    if (!tool) return;
+    const rawError = payload["error"];
+    const errorText = typeof rawError === "string" && rawError ? rawError : undefined;
+    if (errorText === undefined) return;
+    const bounded =
+      errorText.length > 120 ? `${errorText.slice(0, 120)}…` : errorText;
+    message.tool = {
+      ...tool,
+      status: "failed",
+      errorText,
+      resultSummary: `error ${bounded}`,
+    };
+    this.emit();
+  }
+
   /** Stall detection while streaming: quiet stream beyond the threshold. */
   tick(): void {
     if (this.status !== "streaming" || this.lastActivity === null) return;
@@ -1245,16 +1488,89 @@ export class TuiController {
     this.push({ role: "system", content: `${disposition}: ${pending.capability_id}` });
     if (turn.text.trim()) this.push({ role: "assistant", content: turn.text });
     if (turn.total_tokens > 0) this.tokensTotal += turn.total_tokens;
+    if (disposition === "REJECT") {
+      // The model is told the operator refused, but the card kept rendering its
+      // pending state forever - on the surface the operator is looking at when
+      // they press n. Rejecting is a resolution, so the card has to show one.
+      this.resolveRejectedCard(pending.capability_id);
+    }
     this.status = "idle";
     this.pendingPreview = null;
     this.finalizeAll();
     this.maybeDrain();
   }
 
-  /** Ctrl-C semantics: correction during activity, close when idle. */
-  async interrupt(): Promise<"corrected" | "closed"> {
+  /** The newest still-pending card for this capability, marked as rejected.
+   *
+   * Keyed by capability rather than by action id because the pending approval
+   * carries a digest, not the id the card was created with; the newest pending
+   * card for that capability is the one being decided. */
+  private resolveRejectedCard(capabilityId: string): void {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+      const tool = message?.tool;
+      if (message === undefined || tool === undefined) continue;
+      if (tool.capabilityId !== capabilityId) continue;
+      if (tool.status !== "pending") continue;
+      message.tool = {
+        ...tool,
+        status: "failed",
+        errorText: "rejected by the operator",
+        resultSummary: "rejected by the operator",
+      };
+      this.emit();
+      return;
+    }
+  }
+
+  /** Ctrl-C semantics: correction during activity, close when idle.
+   *
+   * One intent, one correction: while a correction is in flight, further Esc /
+   * Ctrl-C presses join it instead of starting another. A held or repeated key
+   * used to send one POST and one transcript line per key event — three
+   * identical "correction FAILED" lines and three requests for one operator
+   * decision. */
+  async interrupt(source: "ctrl-c" | "escape" = "ctrl-c"): Promise<"corrected" | "closed"> {
+    if (this.interruptInFlight) return this.interruptInFlight;
+    const attempt = this.runInterrupt(source);
+    this.interruptInFlight = attempt;
+    try {
+      return await attempt;
+    } finally {
+      this.interruptInFlight = null;
+    }
+  }
+
+  private async runInterrupt(source: "ctrl-c" | "escape"): Promise<"corrected" | "closed"> {
     if (this.sessionId && (this.status === "streaming" || this.status === "stalled")) {
-      await this.client.correct(this.sessionId, "operator interrupt (ctrl-c)");
+      const sessionId = this.sessionId;
+      // One idempotency key for the operator's single intent, reused across the
+      // bounded resends below: if a correction did land and its response we
+      // never saw, the kernel answers from its idempotency record (or refuses a
+      // digest mismatch) instead of applying it a second time.
+      const idempotencyKey = `cli-ts-correction:${randomUUID()}`;
+      try {
+        await this.controlWithRetry(sessionId, () =>
+          this.client.correct(
+            sessionId,
+            `operator interrupt (${source})`,
+            "correction",
+            idempotencyKey,
+          ),
+        );
+      } catch (cause) {
+        // Say so, loudly, on the surface the operator is looking at. Esc must not
+        // be a silent no-op: a correction that did not land is worse than none,
+        // because the operator stops watching a run they think they redirected.
+        this.push({
+          role: "system",
+          content:
+            `correction FAILED (${cause instanceof Error ? cause.message : String(cause)}) — ` +
+            "the run was NOT corrected; retry, or check /status and /task",
+        });
+        this.emit();
+        throw cause;
+      }
       this.push({ role: "system", content: "correction issued (operator interrupt)" });
       this.status = "idle";
       this.finalizeAll();

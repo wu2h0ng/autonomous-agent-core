@@ -16,6 +16,9 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Literal
+
+KEY_SOURCE = Literal["keychain", "env", "none"]
 
 DEFAULT_CONFIG_PATH = Path.home() / ".agent-os" / "provider.json"
 KEYCHAIN_SERVICE = "agent-os:provider"
@@ -272,7 +275,7 @@ def resolve_provider_key(
     *,
     account: str = DEFAULT_CREDENTIAL_ENV,
     keychain: KeychainCredentialStore | KeyringCredentialStore | None = None,
-) -> tuple[str | None, str]:
+) -> tuple[str | None, KEY_SOURCE]:
     """Resolve the API key from the keychain first, then the environment.
 
     Returns (key, source) where source is one of "keychain", "env", "none".

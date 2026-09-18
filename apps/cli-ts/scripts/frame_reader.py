@@ -88,7 +88,11 @@ class Screen:
                 self._put(chunk.decode("utf-8", errors="replace"))
                 i += length
                 continue
-            elif byte > b" ":
+            elif byte >= b" ":
+                # A space is a real cell write: it clears whatever glyph a
+                # previous frame left there. Skipping spaces left stale border
+                # glyphs inside text rows, which made `find_row`/`in` checks
+                # report false negatives on a busy screen.
                 self._put(byte.decode("utf-8", errors="replace"))
             i += 1
 
@@ -154,6 +158,19 @@ class Screen:
                 self.style.fg = _ansi16(code)
             elif 40 <= code <= 47 or 100 <= code <= 107:
                 self.style.bg = _ansi16(code, background=True)
+            elif code in (38, 48) and idx + 2 < len(args) and args[idx + 1] == 5:
+                # 256-colour palette form. opentui emits THIS form (not
+                # truecolor) whenever the terminal advertises 256 colours, so
+                # the `N` is a palette index - reading it as a bare ANSI code
+                # reports a completely wrong colour (38;5;36 is palette 36, a
+                # teal, not ANSI 36).
+                index = args[idx + 2]
+                colour = PALETTE_256[index] if index < len(PALETTE_256) else None
+                if code == 38:
+                    self.style.fg = colour
+                else:
+                    self.style.bg = colour
+                idx += 2
             elif code in (38, 48) and idx + 4 < len(args) and args[idx + 1] == 2:
                 colour = (args[idx + 2], args[idx + 3], args[idx + 4])
                 if code == 38:
@@ -192,6 +209,40 @@ class Screen:
                 if token in text:
                     return (fg, bg, bold)
         return None
+
+
+def _palette256() -> list[tuple[int, int, int]]:
+    """The xterm 256-colour palette: 16 system colours, a 6x6x6 cube, 24 greys."""
+    table = [
+        (0, 0, 0),
+        (128, 0, 0),
+        (0, 128, 0),
+        (128, 128, 0),
+        (0, 0, 128),
+        (128, 0, 128),
+        (0, 128, 128),
+        (192, 192, 192),
+        (128, 128, 128),
+        (255, 0, 0),
+        (0, 255, 0),
+        (255, 255, 0),
+        (0, 0, 255),
+        (255, 0, 255),
+        (0, 255, 255),
+        (255, 255, 255),
+    ]
+    levels = (0, 95, 135, 175, 215, 255)
+    for red in levels:
+        for green in levels:
+            for blue in levels:
+                table.append((red, green, blue))
+    for step in range(24):
+        value = 8 + step * 10
+        table.append((value, value, value))
+    return table
+
+
+PALETTE_256 = _palette256()
 
 
 def _ansi16(code: int, background: bool = False) -> tuple[int, int, int]:
@@ -233,6 +284,27 @@ def self_test() -> int:
     span = screen.spans(0)
     if span[0][:2] != ("red", (10, 20, 30)) or span[1][0].strip() != "plain":
         print("FAIL sgr:", span)
+        failures += 1
+
+    # 256-colour SGR: `N` in `38;5;N` is a PALETTE index. Reading it as a bare
+    # ANSI code (the pre-fix behaviour) reported ANSI cyan for 38;5;36, which is
+    # a teal - exactly the wrong-colour evidence this reader exists to prevent.
+    screen = Screen(rows=2, cols=20)
+    screen.feed(b"\x1b[38;5;36mdef\x1b[0m plain")
+    span = screen.spans(0)
+    if span[0][:2] != ("def", PALETTE_256[36]) or span[1][0].strip() != "plain":
+        print("FAIL sgr-256:", span)
+        failures += 1
+    if span[0][1] == (17, 168, 205):
+        print("FAIL sgr-256 read as ANSI cyan:", span)
+        failures += 1
+
+    # A space must clear the cell a previous frame wrote: a shorter/differently
+    # spaced row otherwise keeps stale glyphs (pre-fix this read "x-y-z").
+    screen = Screen(rows=2, cols=20)
+    screen.feed(b"\x1b[1;1Ha-b-c\r\x1b[1;1Hx y z")
+    if screen.row_text(0) != "x y z":
+        print("FAIL space-clear:", repr(screen.row_text(0)))
         failures += 1
 
     # Overwriting and erase-to-end-of-line must clear stale cells.

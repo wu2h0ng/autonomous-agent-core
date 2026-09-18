@@ -1,25 +1,41 @@
 #!/usr/bin/env python3
-"""pty smoke for the cli-ts Ink client — drives the REAL TUI in a real pty.
+"""pty smoke for the cli-ts TUI — drives the SHIPPED entry in a real pty.
 
 Why this exists (iteration-16): unit tests and the headless path cannot catch
-terminal-handling regressions (raw mode, per-key input parsing, Ink redraw).
-This script boots the hermetic dev_daemon, runs the real CLI under a pty,
-types keystrokes ONE BYTE AT A TIME (like a human), and asserts:
+terminal-handling regressions (raw mode, per-key input parsing, incremental
+redraw). This script boots the hermetic dev_daemon, runs the real CLI
+(`src/cli.tsx`) under Bun — the shipped runtime — types keystrokes ONE BYTE AT A
+TIME (like a human), and asserts:
 
-  phase 1 (24x80): initial render shows the status line, typed input echoes,
-                   Enter submits and the deterministic reply streams in,
-                   Ctrl-C exits the process.
-  phase 2 (12x40): same flow under a tiny terminal (wrapping/scroll stress,
-                   CJK intact), then a mid-session resize to 30x100 must
-                   relayout and keep the TUI responsive (iteration-17).
+  phase 1 (24x80): the home panel owns the first frame, typed input echoes, Enter
+                   submits and the deterministic reply streams in, Ctrl-C exits.
+  phase 2 (12x40): the same flow under a tiny terminal (narrow home variant,
+                   wrapping stress, CJK intact), then a mid-session resize to
+                   30x100 must relayout and keep the TUI responsive.
+  phase 3 (24x80): turn 2 of the scripted daemon proposes workspace.edit -> the
+                   approval card renders, and `y` is the human-only approve path
+                   that applies the edit.
+
+WHY THE ASSERTIONS READ THE SCREEN, NOT THE BYTE STREAM: the full-screen view
+redraws incrementally, so an ANSI-stripped byte stream carries "hello pty" split
+across frames (measured) and a substring assertion on it would be unreliable.
+Content is therefore read from the reconstructed terminal screen
+(`scripts/frame_reader.py`) — i.e. assert what a human sees.
+
+PROVENANCE OF THE STRINGS: this script used to drive the Ink client through the
+same entry (`node_modules/.bin/tsx` + Ink's status line) and asserted Ink's
+wording. The entry's TUI is now the full-screen view, so every string below was
+re-measured against it; the ones that differ from Ink are marked.
 
 Lessons encoded:
   - Never write multi-byte input in a single pty write — the kernel coalesces
-    it into one read, Ink's input-parser emits it as one event, and a trailing
-    \\r is then parsed as paste text, not Return (false alarm in iteration-16).
-    Per-key writes are required for a faithful probe.
-  - Each phase needs its OWN daemon: dev_daemon's scripted provider advances
-    one turn per submit (turn 1 = streaming text, turn 2 = edit proposal), so
+    it into one read and a trailing \\r is then parsed as paste text, not
+    Return (false alarm in iteration-16). Per-key writes are required.
+  - A first-frame hit is not a settled screen: one streaming turn paints its
+    head ("deterministic") ~4s before its CJK tail, so phase 1 waits for the
+    tail itself (wait_until) rather than asserting it right after the head.
+  - Each phase needs its OWN daemon: dev_daemon's scripted provider advances one
+    turn per submit (turn 1 = streaming text, turn 2 = edit proposal), so
     reusing a daemon across phases silently changes the expected reply.
 
 Usage: uv run python apps/cli-ts/scripts/pty_smoke.py
@@ -43,46 +59,99 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+HERE = Path("/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/os-sandbox/apps/cli-ts/scripts")
+sys.path.insert(0, str(HERE))
+from frame_reader import Screen  # noqa: E402
+
+REPO_ROOT = HERE.parents[2]
 CLI_DIR = REPO_ROOT / "apps" / "cli-ts"
 CLI_ENTRY = CLI_DIR / "src" / "cli.tsx"
-TSX = CLI_DIR / "node_modules" / ".bin" / "tsx"
+# The shipped runtime. Under Bun the entry mounts the full-screen view; under
+# node it deliberately refuses with actionable advice (it has no native FFI).
+BUN = os.path.expanduser("~/.bun/bin/bun")
 
 # Generous, env-overridable timeouts: under a loaded `e2e` chain (multiple uv
-# daemons + tsx startup) a fixed 2s readiness sleep and 10s/20s drains raced.
+# daemons + a cold Bun start) a fixed readiness sleep and 10s/20s drains raced.
 BOOT_TIMEOUT = float(os.environ.get("CLI_TS_PTY_BOOT_TIMEOUT", "30"))
 TURN_TIMEOUT = float(os.environ.get("CLI_TS_PTY_TURN_TIMEOUT", "60"))
 
-ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z]")
+# A wide (CJK) glyph occupies two terminal cells; frame_reader stores the glyph
+# plus a spacer cell, so `text_rows()` renders 终端流式 as "终 端 流 式". Collapse
+# ONLY the gap between two CJK glyphs, so unrelated words are never joined.
+CJK_GAP_RE = re.compile(r"(?<=[\u3400-\u9fff\u3000-\u303f\uff00-\uffef])[ ]+(?=[\u3400-\u9fff])")
 
 
-def drain(master: int, seconds: float, until: str | None = None) -> bytes:
-    """Read pty output for up to `seconds`, early-exit once `until` appears."""
-    end = time.time() + seconds
-    buf = b""
-    while time.time() < end:
-        r, _, _ = select.select([master], [], [], 0.2)
-        if master in r:
-            try:
-                buf += os.read(master, 65536)
-            except OSError:
+def cjk_join(text: str) -> str:
+    """Undo the wide-char spacer cells so CJK substrings can be asserted."""
+    return CJK_GAP_RE.sub("", text)
+
+
+class Tui:
+    """A pty running the CLI, plus the reconstructed screen for assertions."""
+
+    def __init__(self, master: int, rows: int, cols: int) -> None:
+        self.master = master
+        self.screen = Screen(rows, cols)
+
+    def text(self) -> str:
+        return "\n".join(self.screen.text_rows())
+
+    def pump(self, seconds: float, until: str | None = None) -> str:
+        """Read for up to `seconds`, early-exit once `until` is on screen."""
+        end = time.time() + seconds
+        while time.time() < end:
+            ready, _, _ = select.select([self.master], [], [], 0.2)
+            if self.master in ready:
+                try:
+                    self.screen.feed(os.read(self.master, 65536))
+                except OSError:
+                    break
+            if until is not None and until in self.text():
                 break
-            if until and until in ANSI_RE.sub("", buf.decode(errors="replace")):
-                break
-    return buf
+        return self.text()
 
+    def wait_for(self, needle: str, seconds: float) -> str:
+        text = self.pump(seconds, until=needle)
+        assert needle in text, f"{needle!r} did not reach the screen within {seconds:.0f}s"
+        return text
 
-def type_keys(master: int, text: str) -> bytes:
-    """Type like a human: one key per write with a small gap."""
-    buf = b""
-    for ch in text:
-        os.write(master, ch.encode())
-        buf += drain(master, 0.15)
-    return buf
+    def wait_until(self, predicate, seconds: float, what: str) -> str:
+        """Poll the screen until `predicate(text)` holds, else fail.
 
+        `wait_for` returns on the FIRST frame containing its needle, which is not
+        the same as the content having SETTLED: one streaming turn paints its
+        head several seconds before its tail (measured), so waiting on the head
+        and then asserting the tail is a race, not a check.
+        """
+        deadline = time.time() + seconds
+        text = self.text()
+        while True:
+            if predicate(text):
+                return text
+            if time.time() >= deadline:
+                raise AssertionError(f"{what} did not reach the screen within {seconds:.0f}s")
+            self.pump(0.2)
+            text = self.text()
 
-def strip(data: bytes) -> str:
-    return ANSI_RE.sub("", data.decode(errors="replace"))
+    def type(self, text: str) -> None:
+        """Type like a human: one key per write with a small gap."""
+        for ch in text:
+            os.write(self.master, ch.encode())
+            self.pump(0.15)
+
+    def press(self, data: bytes) -> None:
+        os.write(self.master, data)
+
+    def resize(self, rows: int, cols: int) -> None:
+        """Resize the pty; the renderer repaints, so the screen is rebuilt.
+
+        `frame_reader.Screen` has no resize, and a fresh screen is the honest
+        model here: on SIGWINCH the view repaints at the new size rather than
+        editing the old cells in place.
+        """
+        fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        self.screen = Screen(rows, cols)
+        self.pump(2.0)
 
 
 class Daemon:
@@ -90,6 +159,11 @@ class Daemon:
 
     def __init__(self, tmp: Path, name: str) -> None:
         self.desc = tmp / f"{name}-runtime.json"
+        # Delete a stale descriptor from an earlier run FIRST: `exists()` below
+        # would otherwise be true immediately and `_wait_ready` would poll the
+        # dead port of the previous daemon (re-running a probe in a fixed
+        # directory otherwise fails with "did not become reachable", measured).
+        self.desc.unlink(missing_ok=True)
         # Capture daemon output: DEVNULL made a crash/timeout undiagnosable.
         self.log_path = tmp / f"{name}.daemon.log"
         self._log = open(self.log_path, "wb")  # noqa: SIM115 - closed in stop()
@@ -147,34 +221,43 @@ class Daemon:
 
 
 def run_tui(desc: Path, rows: int, cols: int, body) -> None:
-    """Spawn the real CLI in a pty of the given size; `body(master)` drives it."""
+    """Spawn the real CLI in a pty of the given size; `body(tui)` drives it."""
     master, slave = pty.openpty()
-    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-    proc = subprocess.Popen(
-        [str(TSX), str(CLI_ENTRY), "--descriptor", str(desc)],
-        stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    env = {
+        **os.environ,
+        "PATH": os.path.dirname(BUN) + ":" + os.environ.get("PATH", ""),
+        "TERM": os.environ.get("TERM", "xterm-256color"),
         # Keep the run hermetic: never read/write the developer's real
         # ~/.agent-os/cli-ts-state.json (history/theme/goal persistence).
-        env={**os.environ, "AGENT_OS_CLI_STATE": str(Path(desc).parent / "cli-ts-state.json")},
+        "AGENT_OS_CLI_STATE": str(Path(desc).parent / "cli-ts-state.json"),
+    }
+    proc = subprocess.Popen(
+        [BUN, "run", str(CLI_ENTRY), "--descriptor", str(desc)],
+        stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+        cwd=str(CLI_DIR), env=env,
     )
     os.close(slave)
+    tui = Tui(master, rows, cols)
     try:
         try:
-            body(master)
+            body(tui)
         except AssertionError:
             # Surface what the TUI actually rendered so a flake is diagnosable.
             try:
-                tail = strip(drain(master, 0.5))
-                sys.stderr.write("\n[pty-smoke] TUI output at failure (tail):\n" + tail[-2000:] + "\n")
+                sys.stderr.write(
+                    "\n[pty-smoke] TUI screen at failure:\n" + tui.pump(0.5) + "\n"
+                )
             except Exception:
                 pass
             raise
-        os.write(master, b"\x03")  # Ctrl-C
-        drain(master, 3)
+        tui.press(b"\x03")  # Ctrl-C
+        tui.pump(3)
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             raise AssertionError("Ctrl-C did not exit the TUI within 10s")
+        assert proc.returncode == 0, f"Ctrl-C exit code was {proc.returncode}, expected 0"
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -187,72 +270,92 @@ def run_tui(desc: Path, rows: int, cols: int, body) -> None:
                 proc.wait(timeout=5)
 
 
-def phase1(master: int) -> None:
-    out = drain(master, BOOT_TIMEOUT, until="/help")
-    assert "/help" in strip(out), "initial render missing status line"
+def phase1(tui: Tui) -> None:
+    boot = tui.wait_for("Quick start", BOOT_TIMEOUT)
+    # #18: the home panel must own the first frame (the session opens lazily).
+    assert "governed terminal agent" in boot, "home panel missing on the first frame"
+    assert "◆ noem v" in boot, "top status line missing on the first frame"
 
-    out = type_keys(master, "hello pty")
-    assert "hello pty" in strip(out), "typed input did not echo"
+    tui.type("hello pty")
+    assert "hello pty" in tui.text(), "typed input did not echo in the composer"
 
-    os.write(master, b"\r")
-    out = drain(master, TURN_TIMEOUT, until="deterministic")
-    assert "deterministic" in strip(out), (
-        f"Enter did not submit / no streamed reply within {TURN_TIMEOUT:.0f}s"
+    tui.press(b"\r")
+    # Wait for the reply to SETTLE, not for its first frame: this one streaming
+    # turn paints "deterministic" in its head and the CJK tail ~4s later
+    # (measured), so waiting on the head and immediately asserting the tail
+    # failed 4/4 on this machine while the tail was on screen moments later.
+    reply = tui.wait_until(
+        lambda text: "终端流式验证通过" in cjk_join(text),
+        TURN_TIMEOUT,
+        "the streamed reply's CJK tail",
     )
+    assert "deterministic" in reply, "streamed reply missing its head"
 
 
-def phase2(master: int) -> None:
-    out = drain(master, BOOT_TIMEOUT, until="/help")
-    assert "/help" in strip(out), "narrow boot: missing status line"
+def phase2(tui: Tui) -> None:
+    # 40 columns < 60, so the panel must use Ink's NARROW variant (no card).
+    boot = tui.wait_for("workspace cli-ts", BOOT_TIMEOUT)
+    assert "◆ noem v" in boot, "narrow boot: top status line missing"
 
-    type_keys(master, "hi")
-    os.write(master, b"\r")
-    out = drain(master, TURN_TIMEOUT, until="流式")
-    text = strip(out)
-    assert "deterministic" in text, "narrow terminal: no streamed reply"
-    assert "流式" in text, "narrow terminal: CJK reply corrupted"
+    tui.type("hi")
+    tui.press(b"\r")
+    # At 12 rows the transcript is only ~3 lines tall and sticky-scrolls to the
+    # bottom, so no single frame holds the whole reply (pumping until it appears
+    # would simply time out). Scroll up through the transcript and assert on the
+    # union of the frames — which also proves scrolling works under a tiny
+    # terminal, the point of this phase.
+    tui.pump(12)
+    frames = []
+    for _ in range(14):
+        frames.append(tui.text())
+        tui.press(b"\x1b[5~")  # xterm page-up
+        tui.pump(0.4)
+    frames.append(tui.text())
+    text = "\n".join(frames)
+    assert "deterministic" in text, "narrow terminal: the reply never streamed"
+    assert "流式" in cjk_join(text), "narrow terminal: CJK reply corrupted"
 
-    # resize 12x40 -> 30x100: TUI must relayout and stay responsive
-    fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
-    drain(master, 1)
-    type_keys(master, "/help")
-    os.write(master, b"\r")
-    out = drain(master, 15)
-    assert "files" in strip(out), "post-resize: /help did not render"
+    # resize 12x40 -> 30x100: the TUI must relayout and stay responsive. The
+    # palette during `/` typing is the cheapest proof of responsiveness that
+    # does not depend on a scrolled transcript row surviving the resize.
+    tui.resize(30, 100)
+    tui.type("/help")
+    text = tui.wait_for("commands", 15)
+    assert "/help" in text, "post-resize: the palette did not offer /help"
 
 
-def phase3(master: int) -> None:
+def phase3(tui: Tui) -> None:
     """Approval flow in a real pty (iteration-18): turn 2 of the scripted
     daemon proposes workspace.edit -> WAITING_APPROVAL in ASK mode; pressing
     'y' is the human-only approve path and the continuation text streams."""
-    out = drain(master, BOOT_TIMEOUT, until="/help")
-    assert "/help" in strip(out), "approval phase: missing status line"
+    tui.wait_for("Quick start", BOOT_TIMEOUT)
 
-    type_keys(master, "hi")
-    os.write(master, b"\r")
-    out = drain(master, TURN_TIMEOUT, until="deterministic")
-    assert "deterministic" in strip(out), "approval phase: turn 1 did not stream"
+    tui.type("hi")
+    tui.press(b"\r")
+    tui.wait_for("deterministic", TURN_TIMEOUT)
 
     # Regression guard (iteration-18): turn 2 must not be rejected with a
     # stale expected_event_sequence after a durable-resolved turn 1.
-    type_keys(master, "edit please")
-    os.write(master, b"\r")
-    out = drain(master, TURN_TIMEOUT, until="[y] approve")
-    out += drain(master, 3)  # settle frames
-    text = strip(out)
-    assert "does not match current sequence" not in text, (
+    tui.type("edit please")
+    tui.press(b"\r")
+    tui.wait_for("approval required", TURN_TIMEOUT)
+    # The card renders progressively, so the frame that first shows "approval
+    # required" can still be missing the digest row (measured). Assert on the
+    # settled frame, not on the frame that satisfied the wait.
+    card = tui.pump(2.5)
+    assert "does not match current sequence" not in card, (
         "turn 2 rejected with stale expected_event_sequence"
     )
-    assert "approval required" in text, "approval card did not render"
-    assert "unknown capability" not in text, (
+    assert "workspace.edit" in card, "approval card missing capability id"
+    assert "digest " in card, "approval card missing digest line"
+    assert "unknown capability" not in card, (
         "approval card flashed an empty snapshot frame"
     )
-    assert "workspace.edit" in text, "approval card missing capability id"
-    assert "digest " in text, "approval card missing digest line"
+    assert "[y] approve" in card, "approval card missing the approve affordance"
 
-    os.write(master, b"y")
-    out = drain(master, TURN_TIMEOUT, until="edit applied")
-    assert "edit applied" in strip(out), "approve (y) did not apply the edit"
+    tui.press(b"y")
+    applied = tui.wait_for("edit applied", TURN_TIMEOUT)
+    assert "fixture.txt" in applied, "approve (y) did not report the edited file"
 
 
 def run_phase(tmp: Path, name: str, rows: int, cols: int, body, attempts: int = 2) -> None:
@@ -286,8 +389,9 @@ def main() -> int:
         run_phase(tmp, "p2", 12, 40, phase2)
         run_phase(tmp, "p3", 24, 80, phase3)
 
-    print("[pty-smoke] PASS: render / typing echo / Enter submit+stream / "
-          "Ctrl-C exit / narrow+resize relayout / approval card y-approve")
+    print("[pty-smoke] PASS: home panel first frame / typing echo / Enter "
+          "submit+stream / Ctrl-C exit (rc 0) / narrow+resize relayout / "
+          "approval card y-approve")
     return 0
 
 

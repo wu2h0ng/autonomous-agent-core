@@ -18,18 +18,22 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { ChatMessage, TuiController } from "../controller.js";
+import { toolState } from "../controller.js";
 import type { ComposerState } from "../composer.js";
 import { handleGlobalKey } from "../keys.js";
-import { layoutFor } from "../layout.js";
+import { layoutFor, composerRows } from "../layout.js";
 import { filterCommands } from "../commands.js";
 import {
   filterSelectorItems,
   moveSelector,
   numberedChoice,
 } from "../selector.js";
-import { sliceWindow } from "./overlays.js";
+import { overlayRows, sliceWindow } from "./overlays.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { viewTheme } from "./theme-colors.js";
+import { codeBlockRenderNode, highlightStyleTable } from "./code-highlight.js";
+import { HomePanel } from "./home-panel.js";
+import { shouldShowHome } from "../home.js";
 import type { ThemeColors } from "../theme.js";
 import { applyVimAction, offsetFromCursor, resolveVimKey } from "./vim.js";
 import { activeMention, applyMention, filterMentions } from "../mentions.js";
@@ -58,8 +62,13 @@ export interface FullscreenAppProps {
   workspace: string;
   branch: string | null;
   version: string;
+  /** Real provider id, or null when unconfigured (matches Ink's status line). */
+  provider?: string | null;
   model: string | null;
   client: SurfaceClient;
+  /** Persisted input history, so Ctrl-R survives a restart (Ink parity). */
+  initialHistory?: readonly string[] | undefined;
+  onHistoryChange?: ((entries: string[]) => void) | undefined;
   withPanels?: boolean;
   withAgents?: boolean;
 }
@@ -70,30 +79,69 @@ const TREE_INTERVAL_MS = 5000;
 const PANEL_SCROLL_LINES = 5;
 const SAMPLE_INTERVAL_MS = 3000;
 
+/**
+ * #16: fenced-code highlighting hook for every `<markdown>` in the transcript.
+ * The bundled tree-sitter grammars cover only js/ts/markdown/zig, so a
+ * ```python fence rendered with no highlights at all; `codeBlockRenderNode`
+ * attaches our own ranges through CodeRenderable's supported `onHighlight`.
+ * Module-scope stable, so a re-render never rebuilds the blocks.
+ */
+const CODE_BLOCK_RENDER_NODE = codeBlockRenderNode();
+
+/**
+ * One row of an overlay list (commands / selector / files / reverse search).
+ *
+ * `height: 1` is load-bearing: a sibling `<text>` inside a flex COLUMN measures
+ * zero height in opentui, so without it every row of an overlay collapsed onto a
+ * single line — and onto the border row — which is why overlay contents could
+ * only ever be asserted by behaviour rather than by reading the frame.
+ */
+function OverlayRow({ text, fg }: { text: string; fg?: string | undefined }) {
+  // `fg` is spread conditionally: with exactOptionalPropertyTypes an explicit
+  // `fg={undefined}` is not assignable to the renderable's `fg`.
+  return (
+    <text style={{ height: 1 }} {...(fg === undefined ? {} : { fg })}>
+      {text}
+    </text>
+  );
+}
+
 function line(message: ChatMessage): string {
   if (message.panel) {
     return [message.panel.title, ...message.panel.lines].join("  ");
   }
   if (message.tool) {
-    const icon =
-      message.tool.status === "done"
-        ? "☑"
-        : message.tool.status === "failed"
-          ? "✗"
-          : "⏵";
-    return `${icon} ${message.tool.capabilityId} · ${message.tool.argsSummary}`;
+    const result = message.tool.resultSummary ? ` · ${message.tool.resultSummary}` : "";
+    return `${TOOL_MARKER[toolState(message.tool)]} ${message.tool.capabilityId} · ${message.tool.argsSummary}${result}`;
   }
   const prefix =
     message.role === "user" ? "› " : message.role === "system" ? "⏵ " : "";
   return prefix + message.content;
 }
 
+/**
+ * Tool-card marker. `☑` is a confirmed success; `⚠` is a confirmed dispatch
+ * whose OWN result reported failure (non-zero exit code / tool-reported error)
+ * — rendering a failing `workspace.run_tests` with the same `☑` as a passing
+ * one was the S1 audit defect; `✗` is a dispatch that did not succeed; `⏵` is
+ * not yet confirmed.
+ */
+const TOOL_MARKER: Record<ReturnType<typeof toolState>, string> = {
+  pending: "⏵",
+  done: "☑",
+  error: "⚠",
+  failed: "✗",
+};
+
 function roleColour(theme: ThemeColors, message: ChatMessage): string {
   if (message.role === "user") return theme.user;
   if (message.role === "system") return theme.system;
-  if (message.tool?.status === "failed") return theme.toolFailed;
-  if (message.tool?.status === "done") return theme.toolDone;
-  if (message.tool) return theme.toolPending;
+  if (message.tool) {
+    const state = toolState(message.tool);
+    if (state === "failed" || state === "error") return theme.toolFailed;
+    if (state === "done") return theme.toolDone;
+    return theme.toolPending;
+  }
   if (message.panel) return theme.notice;
   return theme.assistant;
 }
@@ -102,13 +150,21 @@ function terminalWidth(): number {
   return process.stdout.columns ?? 80;
 }
 
+/** Terminal height for the composer's growth cap (#12 multiline). */
+function terminalRows(): number {
+  return process.stdout.rows ?? 24;
+}
+
 export function App({
   controller,
   workspace,
   branch,
   version,
+  provider = null,
   model,
   client,
+  initialHistory = [],
+  onHistoryChange,
   withPanels = true,
   withAgents = true,
 }: FullscreenAppProps) {
@@ -136,6 +192,13 @@ export function App({
   // must not also submit - otherwise one Enter runs the action twice.
   const agentsPanelRef = useRef(false);
   const overlayOwnsEnterRef = useRef(false);
+  /**
+   * #14: synchronous mirrors of the search state. The router must see the new
+   * value for the VERY NEXT key (the same trap the vim insert flag documents),
+   * so the flag is written in the handler, not only via React state.
+   */
+  const searchOpenRef = useRef(false);
+  const searchDraftRef = useRef("");
   const [selected, setSelected] = useState<PanelId>("transcript");
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
@@ -144,6 +207,8 @@ export function App({
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [paletteIndex, setPaletteIndex] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchIndex, setSearchIndex] = useState(0);
   const [vimInsert, setVimInsert] = useState(true);
   // Synchronous mirror of vimInsert: the router must see the new mode for the
   // VERY NEXT key, which a React state update cannot guarantee.
@@ -153,19 +218,15 @@ export function App({
   const theme = viewTheme(controller.themeName);
   const syntaxStyle = useMemo(() => {
     const style = SyntaxStyle.create();
-    // #16: colour the code/markdown scopes from the active theme.
-    for (const [scope, colour] of [
-      ["keyword", theme.accent],
-      ["string", theme.toolDone],
-      ["comment", theme.notice],
-      ["function", theme.user],
-    ] as const) {
-      style.registerStyle(scope, { fg: colour });
+    // #16: register the scope vocabulary the code highlighter actually emits
+    // (highlight.js token classes + tree-sitter capture names + `default`).
+    for (const [scope, definition] of Object.entries(highlightStyleTable(theme))) {
+      style.registerStyle(scope, definition);
     }
     return style;
   }, [controller.themeName]);
   const historyRef = useRef<InputHistory | null>(null);
-  if (historyRef.current === null) historyRef.current = new InputHistory();
+  if (historyRef.current === null) historyRef.current = new InputHistory(initialHistory);
   const cursorKeyRef = useRef<string | null>(null);
   const transcriptRef = useRef<ScrollBoxRenderable | null>(null);
   const agentsRef = useRef<ScrollBoxRenderable | null>(null);
@@ -225,13 +286,20 @@ export function App({
     ? filterSelectorItems(selector.items, selectorQuery)
     : [];
   const selectorState = { items: selectorItems, index: selectorIndex };
-  const palette = input.startsWith("/") && !input.includes(" ")
+  // #14: while the reverse search is open the composer holds the QUERY, so the
+  // slash palette must stay out of the way (Ink gates its palette the same way).
+  const palette = !searchOpen && input.startsWith("/") && !input.includes(" ")
     ? filterCommands(input)
     : [];
+  const searchMatches = searchOpen ? (historyRef.current?.search(input) ?? []) : [];
 
   useEffect(() => {
     setPaletteIndex(0);
   }, [input]);
+
+  useEffect(() => {
+    setSearchIndex(0);
+  }, [input, searchOpen]);
 
   useEffect(() => {
     if (mention === null) return;
@@ -255,12 +323,17 @@ export function App({
   const pending = snapshot?.pending_approval;
   const awaiting = controller.status === "awaiting_approval";
 
+  // `!searchOpen` (Ink gates vim on `!searchMode` too) is not cosmetic: without
+  // it, Esc on the Ctrl-R overlay switched the composer to vim normal mode
+  // instead of cancelling the search, and normal mode then swallowed every
+  // following key — the overlay stayed up with no key left that could close it.
   const vimNormal =
     controller.vimMode &&
     !vimInsert &&
     !awaiting &&
     selector === null &&
-    palette.length === 0;
+    palette.length === 0 &&
+    !searchOpen;
 
   /** Current draft + caret as a composer state (for the vim edits). */
   const composerState = (): ComposerState => {
@@ -278,7 +351,8 @@ export function App({
   agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
   // `selector` is `null` (not `undefined`) when closed (controller.pendingSelector);
   // test `!== null`, otherwise this is always true and the composer can never submit.
-  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0;
+  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0 || searchOpen;
+  searchOpenRef.current = searchOpen;
   const activePanel: PanelId = awaiting
     ? "transcript"
     : panels.includes(selected)
@@ -327,6 +401,7 @@ export function App({
     const sequence = key.sequence ?? "";
     const owner = resolveViewKey({
       selectorOpen: selector,
+      searchOpen: searchOpenRef.current,
       awaitingApproval: awaiting,
       paletteOpen: palette.length > 0,
       mentionOpen: mentionMatches.length > 0,
@@ -382,6 +457,42 @@ export function App({
         else if (owner.action === "reject") void controller.reject();
         return;
       }
+      case "search": {
+        if (owner.action === "open") {
+          // Save the live draft, then turn the composer into the query box.
+          // Update the ref FIRST so the very next key already routes as search.
+          searchDraftRef.current = input;
+          searchOpenRef.current = true;
+          setSearchOpen(true);
+          setSearchIndex(0);
+          setComposerText("");
+          return;
+        }
+        if (owner.action === "cancel") {
+          searchOpenRef.current = false;
+          setSearchOpen(false);
+          setComposerText(searchDraftRef.current);
+          return;
+        }
+        if (owner.action === "pick") {
+          const pick = searchMatches[Math.min(searchIndex, Math.max(0, searchMatches.length - 1))];
+          searchOpenRef.current = false;
+          setSearchOpen(false);
+          // No match: fall back to the saved draft (Ink does the same).
+          setComposerText(pick ?? searchDraftRef.current);
+          return;
+        }
+        if (owner.action === "up" || owner.action === "down") {
+          if (searchMatches.length === 0) return;
+          const step = owner.action === "down" ? 1 : -1;
+          setSearchIndex((current) => {
+            const next = current + step;
+            return next < 0 ? 0 : next >= searchMatches.length ? searchMatches.length - 1 : next;
+          });
+          return;
+        }
+        return;
+      }
       case "global": {
         handleGlobalKey(controller, name, { ctrl, escape: name === "escape" });
         return;
@@ -421,7 +532,12 @@ export function App({
         return;
       }
       case "editor": {
-        const result = openExternalEditor(input);
+        // Read the TEXTAREA, not the React mirror: bracketed paste never goes
+        // through `useKeyboard`, so the mirror was stale (measured: 200 pasted
+        // characters reached the editor as 0 bytes) and the write-back then
+        // replaced the paste with the editor's output.
+        const draft = composerRef.current?.plainText ?? input;
+        const result = openExternalEditor(draft);
         if (result !== null && result.changed) setComposerText(result.text);
         return;
       }
@@ -517,6 +633,7 @@ export function App({
     const text = completeMention(value).trim();
     if (!text) return;
     historyRef.current?.add(text);
+    onHistoryChange?.(historyRef.current?.all() ?? []);
     // Single clearing point: every submit path (textarea onSubmit, palette
     // command, agents-panel fall-through) must empty the textarea buffer too,
     // otherwise the stale draft is mirrored back on the next keystroke.
@@ -528,6 +645,11 @@ export function App({
   const finalized = controller.messages.slice(0, controller.finalizedIndex);
   const active = controller.messages.slice(controller.finalizedIndex);
   const layout = layoutFor(width);
+  // #18: same rule as Ink's App (`finalized.length === 0 && active.length === 0`)
+  // — the welcome panel owns an otherwise-empty transcript. The controller opens
+  // its session lazily (ensureSession is only called by runTurn), so the panel
+  // stays up until the first turn.
+  const showHome = shouldShowHome(finalized.length, active.length);
 
   const transcript = (
     <scrollbox
@@ -538,12 +660,27 @@ export function App({
       stickyStart="bottom"
     >
       <box style={{ flexDirection: "column", paddingLeft: 1 }}>
+        {showHome ? (
+          <HomePanel
+            input={{
+              workspace,
+              branch,
+              version,
+              provider,
+              model,
+              columns: width,
+            }}
+            theme={theme}
+            narrow={layout.narrow}
+          />
+        ) : null}
         {finalized.map((message, index) =>
           message.role === "assistant" && !message.panel && !message.tool ? (
             <markdown
               key={`f${index}`}
               content={message.content}
               syntaxStyle={syntaxStyle}
+              renderNode={CODE_BLOCK_RENDER_NODE}
               fg={theme.assistant}
             />
           ) : (
@@ -639,45 +776,113 @@ export function App({
 
   return (
     <box style={{ flexDirection: "column", width: "100%", height: "100%" }}>
-      <text fg={theme.accent}>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
-      <box style={{ flexDirection: "row", flexGrow: 1 }}>
+      <text style={{ height: 1 }} fg={theme.accent}>{`◆ noem v${version}   ${name}${branch ? ` · ${branch}` : ""} · ${controller.mode} · ${activePanel}`}</text>
+      <box style={{ flexDirection: "row", flexGrow: 1, flexShrink: 1 }}>
         {transcript}
         {panels.length > 1 ? sidebar : null}
       </box>
-      {mentionMatches.length > 0 ? (
-        <box border title="files" style={{ flexDirection: "column", paddingLeft: 1 }}>
+      {searchOpen ? (
+        (() => {
+          // Windowed (not Ink's fixed first 5) because the full-screen's own
+          // palette/selector overlays window the same way, so the highlighted
+          // row can never scroll out of the list.
+          const window = sliceWindow(searchMatches, searchIndex, 5);
+          const content = 1 + Math.max(window.items.length, 1);
+          return (
+            <box
+              border
+              style={{
+                flexDirection: "column",
+                paddingLeft: 1,
+                height: overlayRows(content),
+              }}
+            >
+              <OverlayRow
+                text={`reverse search (Ctrl-R): ${input || "…"}`}
+                fg={theme.accent}
+              />
+              {window.items.map((match, index) => (
+                <OverlayRow
+                  key={`r${index}`}
+                  text={`${index === window.index ? "› " : "  "}${match}`}
+                  fg={index === window.index ? theme.paletteSelected : theme.notice}
+                />
+              ))}
+              {searchMatches.length === 0 ? <OverlayRow text="no matching history" /> : null}
+            </box>
+          );
+        })()
+      ) : null}
+      {!searchOpen && mentionMatches.length > 0 ? (
+        <box
+          border
+          title="files"
+          style={{
+            flexDirection: "column",
+            paddingLeft: 1,
+            height: overlayRows(Math.min(mentionMatches.length, 8) + 1),
+          }}
+        >
           {mentionMatches.slice(0, 8).map((path, index) => (
-            <text key={`m${index}`}>{`${index === 0 ? "▌ " : "  "}@${path}`}</text>
+            <OverlayRow key={`m${index}`} text={`${index === 0 ? "▌ " : "  "}@${path}`} />
           ))}
-          <text>{"[tab] complete"}</text>
+          <OverlayRow text="[tab] complete" />
         </box>
       ) : null}
       {selector ? (
-        <box border title={selector.title} style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {(() => {
-            const window = sliceWindow(selectorItems, selectorIndex, 8);
-            return window.items.map((item, index) => (
-              <text key={`s${index}`}>
-                {`${index === window.index ? "▌ " : "  "}${item}`}
-              </text>
-            ));
-          })()}
-          <text>{`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}</text>
-        </box>
+        (() => {
+          const window = sliceWindow(selectorItems, selectorIndex, 8);
+          return (
+            <box
+              border
+              title={selector.title}
+              style={{
+                flexDirection: "column",
+                paddingLeft: 1,
+                height: overlayRows(window.items.length + 1),
+              }}
+            >
+              {window.items.map((item, index) => (
+                <OverlayRow
+                  key={`s${index}`}
+                  text={`${index === window.index ? "▌ " : "  "}${item}`}
+                />
+              ))}
+              <OverlayRow
+                text={`${selectorQuery ? `filter: ${selectorQuery}` : "↑/↓ move · 1-9 pick · enter select · esc cancel"}`}
+              />
+            </box>
+          );
+        })()
       ) : null}
       {palette.length > 0 ? (
-        <box border title="commands" style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {(() => {
-            const window = sliceWindow(palette, paletteIndex, 6);
-            return window.items.map((command, index) => (
-              <text key={`c${index}`}>
-                {`${index === window.index ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
-              </text>
-            ));
-          })()}
-        </box>
+        (() => {
+          const window = sliceWindow(palette, paletteIndex, 6);
+          return (
+            <box
+              border
+              title="commands"
+              style={{
+                flexDirection: "column",
+                paddingLeft: 1,
+                height: overlayRows(window.items.length),
+              }}
+            >
+              {window.items.map((command, index) => (
+                <OverlayRow
+                  key={`c${index}`}
+                  text={`${index === window.index ? "▌ " : "  "}${command.name}${layout.showDescriptions && command.description ? `  ${command.description}` : ""}`}
+                />
+              ))}
+            </box>
+          );
+        })()
       ) : null}
-      <box border title="message" style={{ height: 5, paddingLeft: 1 }}>
+      <box
+        border
+        title="message"
+        style={{ height: composerRows(input, terminalRows()), paddingLeft: 1 }}
+      >
         <textarea
           ref={composerRef}
           placeholder="Tell Noem what to do… (Enter to send · ctrl+j newline)"
@@ -693,7 +898,7 @@ export function App({
           }}
         />
       </box>
-      <text>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
+      <text style={{ height: 1 }}>{`❯ ${controller.mode}${model ? ` · ${model}` : ""}${
         snapshot && layout.footerFields
           ? ` · ${controller.tokensTotal} tok · cost UNKNOWN · ev ${snapshot.event_sequence}`
           : ""
