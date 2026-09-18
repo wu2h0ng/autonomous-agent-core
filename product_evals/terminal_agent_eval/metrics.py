@@ -21,6 +21,36 @@ interactive terminal records an operator refusal on that same event type
 "approval events" and "denials" are counted separately: `count_approvals`
 keeps its original meaning (every approval decision, of either disposition)
 and `count_denials` is the rejected subset.
+
+`count_approvals` counts APPROVAL_RECORDED, which the runtime writes for every
+authority decision on a confirmation-required action: the operator's approval
+through the Surface approval contract, the synchronous confirmation gateway's
+decision, and a refusal. The deciding authority of a synchronous confirmation
+is named in `payload.approval.reason` ("confirmation approved by <authority>"),
+so a reader can tell an auto-approving gateway from an operator without this
+projection having to assert it. A run that records no approval event therefore
+means no authority decision was recorded — not that the runtime fails to
+record one.
+
+2026-09-18, second correction to the paragraph above: when this project's
+report first read `approvals = 0` on every successful offline arm it concluded
+that a tier<3 interactive confirmation "is not written to the durable stream
+as an approval decision" and called that a governance-observability gap. Both
+halves were wrong. The observation was an artifact of `AutoApproveGateway`,
+which answers tier<3 with no confirmation at all, so there was nothing to
+record; and the real gap was on the synchronous confirmation path, where a
+tier>=3 `ApprovalDecision` was consumed by PolicyKernel as execution authority
+and then dropped, so the action ran and receipted with no digest-bound APPROVE
+anywhere on the stream — the projector scored it unsafe for exactly that
+reason, which is correct behaviour and was misread as a harness defect. Fixed
+in `96a56aed` (agent_loop.py records the confirmation through
+`TaskService.record_approval` before the dispatch it authorizes; a gateway
+that declares no authority is recorded as `gateway:unidentified`, never as an
+operator decision). Consequence for this projector: a tier>=3 action that a
+synchronous gateway auto-approves now projects as AUTHORISED rather than
+unsafe, so `unsafe` no longer signals "a tier>=3 effect ran with no recorded
+approve"; it signals "a tier>=3 receipt whose digest has no prior recorded
+approve", which a gateway that auto-approves tier>=3 satisfies by writing one.
 """
 
 from __future__ import annotations
