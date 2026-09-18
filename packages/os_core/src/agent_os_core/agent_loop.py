@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -283,6 +284,41 @@ class AgentLoop:
         if self._execution_fence is not None:
             self._execution_fence(phase)
 
+    def _operator_stopped(self, session: ChatSession) -> bool:
+        """Whether the operator durably stopped this session's Run.
+
+        The stop is the durable Run transition (`RUN_PAUSED` -> PAUSED), not an
+        in-memory flag, so a pause issued by any client or process stops the
+        in-flight turn at its next safe point. A Run that is already PAUSED
+        before the turn starts never reaches the loop: `run_turn` refuses it.
+        """
+        run = self._tasks.get_task(session.task_id).run
+        return (
+            run is not None
+            and run.run_id == session.run_id
+            and run.status is RunStatus.PAUSED
+        )
+
+    def _durable_write(self, write: Callable[[], _WriteT]) -> _WriteT:
+        """Run one durable write of this turn, absorbing a bounded append race.
+
+        The operator's stop appends `RUN_PAUSED` to the same optimistic event
+        stream the in-flight turn writes to, so a turn record can lose the
+        sequence race against the very command that is stopping it (measured:
+        the TOOL reply append lost and the turn ended uncommitted). A losing
+        attempt wrote nothing, and each attempt re-reads durable truth, so a
+        retry cannot duplicate an effect. Every other rejection propagates.
+        """
+        attempts = 5
+        for attempt in range(attempts):
+            try:
+                return write()
+            except ConcurrentWriteError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.02)
+        raise AssertionError("unreachable")  # pragma: no cover - loop returns or raises
+
     def run_turn(self, session: ChatSession, user_input: str) -> TurnResult:
         self._require_session_binding(session)
         if self._resumable_turn_ids:
@@ -309,15 +345,17 @@ class AgentLoop:
             ProviderMessage(role=ProviderMessageRole.USER, content=text),
             turn_id=turn_id.turn_id,
         )
-        self._tasks.append_event(
-            session.task_id,
-            TaskEventType.SESSION_TURN_STARTED,
-            {
-                "turn_id": turn_id.turn_id,
-                "session_id": turn_id.session_id,
-                "user_text": text,
-            },
-            correlation_id=session.run_id,
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                session.task_id,
+                TaskEventType.SESSION_TURN_STARTED,
+                {
+                    "turn_id": turn_id.turn_id,
+                    "session_id": turn_id.session_id,
+                    "user_text": text,
+                },
+                correlation_id=session.run_id,
+            )
         )
         self._resumable_turn_ids.add(turn_id.turn_id)
         return self.resume_turn(session, turn_id)
@@ -370,6 +408,21 @@ class AgentLoop:
             )
         resolved = projected.resolved_continuation
         if resolved is None:
+            run = self._tasks.get_task(session.task_id).run
+            if (
+                run is None
+                or run.run_id != session.run_id
+                or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
+            ):
+                # Fail closed before any provider call, and before the durable
+                # turn can be consumed by a resume: a Run that is already PAUSED
+                # (or terminal) must be resumed explicitly first. The mid-turn
+                # stop is the other direction - the pause arrives *after* this
+                # check, and `_drive` winds the turn down at its next safe point.
+                raise InvalidTransitionError(
+                    "resume requires a runnable Run; "
+                    "a PAUSED or terminal Run must be resumed first"
+                )
             result = self._drive(session, turn_id)
         else:
             run = self._tasks.get_task(session.task_id).run
@@ -487,17 +540,19 @@ class AgentLoop:
             self._resumable_turn_ids.discard(turn_id.turn_id)
             return
         self._assert_execution_fence("before_turn_commit")
-        self._tasks.append_event(
-            session.task_id,
-            TaskEventType.SESSION_TURN_COMPLETED,
-            {
-                "turn_id": turn_id.turn_id,
-                "session_id": turn_id.session_id,
-                "stop_reason": result.stop_reason,
-                "steps": result.steps,
-                "total_tokens": result.total_tokens,
-            },
-            correlation_id=session.run_id,
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                session.task_id,
+                TaskEventType.SESSION_TURN_COMPLETED,
+                {
+                    "turn_id": turn_id.turn_id,
+                    "session_id": turn_id.session_id,
+                    "stop_reason": result.stop_reason,
+                    "steps": result.steps,
+                    "total_tokens": result.total_tokens,
+                },
+                correlation_id=session.run_id,
+            )
         )
         self._resumable_turn_ids.remove(turn_id.turn_id)
 
@@ -636,11 +691,13 @@ class AgentLoop:
                         "APPROVE execution claim is still in progress"
                     ) from conflict
         try:
-            authority = self._tasks.record_or_reuse_session_approval(
-                session.task_id,
-                session.session_id,
-                pending.action,
-                approval,
+            authority = self._durable_write(
+                lambda: self._tasks.record_or_reuse_session_approval(
+                    session.task_id,
+                    session.session_id,
+                    pending.action,
+                    approval,
+                )
             )
         except Exception:
             if execution_lease is not None:
@@ -765,12 +822,14 @@ class AgentLoop:
                     pending.proposal,
                     _truncate_json(result.output),
                 )
-        self._tasks.resolve_session_approval(
-            session.task_id,
-            session.session_id,
-            pending=pending,
-            approval=bound_approval,
-            tool_message=tool_message,
+        self._durable_write(
+            lambda: self._tasks.resolve_session_approval(
+                session.task_id,
+                session.session_id,
+                pending=pending,
+                approval=bound_approval,
+                tool_message=tool_message,
+            )
         )
         self._history.append(tool_message)
         turn_id = TurnId(
@@ -867,14 +926,21 @@ class AgentLoop:
                     stop_reason = "correction_halted"
                     break
                 run = self._tasks.get_task(session.task_id).run
-                if (
-                    run is None
-                    or run.run_id != session.run_id
-                    or run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}
-                ):
+                if run is None or run.run_id != session.run_id:
+                    raise InvalidTransitionError(
+                        "provider invocation requires the session's exact Run"
+                    )
+                if run.status is RunStatus.PAUSED:
+                    # The operator durably stopped this session mid-turn. Wind
+                    # the turn down truthfully instead of raising: the provider
+                    # is not called again and the turn ends as stopped_by_operator.
+                    stop_reason = "stopped_by_operator"
+                    final_text = _STOPPED_BY_OPERATOR_TEXT
+                    break
+                if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
                     raise InvalidTransitionError(
                         "provider invocation requires a runnable Run; "
-                        "a PAUSED or terminal Run must be resumed first"
+                        "a terminal Run cannot continue a turn"
                     )
                 self._assert_execution_fence("before_provider")
                 response = self._call_provider(session, turn_id, steps)
@@ -905,14 +971,16 @@ class AgentLoop:
                 if not response.tool_proposals:
                     stop_reason = "completed"
                     final_text = response.text
-                    self._tasks.record_session_final_message_and_complete(
-                        session.task_id,
-                        session.session_id,
-                        turn_id=turn_id.turn_id,
-                        message=assistant_message,
-                        stop_reason=stop_reason,
-                        steps=steps,
-                        total_tokens=total_tokens,
+                    self._durable_write(
+                        lambda: self._tasks.record_session_final_message_and_complete(
+                            session.task_id,
+                            session.session_id,
+                            turn_id=turn_id.turn_id,
+                            message=assistant_message,
+                            stop_reason=stop_reason,
+                            steps=steps,
+                            total_tokens=total_tokens,
+                        )
                     )
                     self._history.append(assistant_message)
                     break
@@ -936,6 +1004,14 @@ class AgentLoop:
                 proposal.proposal_id for proposal in proposals[:start_index]
             }
             for index in range(start_index, len(proposals)):
+                if self._operator_stopped(session):
+                    # A durable operator pause arrived while this message's
+                    # proposals were being executed: dispatch nothing further.
+                    # The replies below answer every unanswered tool call, so
+                    # the transcript stays valid for the next turn.
+                    stop_reason = "stopped_by_operator"
+                    final_text = _STOPPED_BY_OPERATOR_TEXT
+                    break
                 proposal = proposals[index]
                 capability_id = proposal.capability_id
                 if capability_id not in CHAT_CAPABILITY_IDS:
@@ -1006,18 +1082,22 @@ class AgentLoop:
                         total_tokens=total_tokens,
                     )
                 except ApprovalRequired as required:
-                    self._tasks.record_session_approval_pending(
-                        session.task_id,
-                        session.session_id,
-                        turn_id=turn_id.turn_id,
-                        action=required.action,
-                        proposal=proposal,
-                        preview=required.preview,
-                        assistant_message_index=assistant_message_index,
-                        proposal_index=index,
-                        steps=steps,
-                        total_tokens=total_tokens,
-                        seen_action_digests=seen_action_digests,
+                    approval_action = required.action
+                    approval_preview = required.preview
+                    self._durable_write(
+                        lambda: self._tasks.record_session_approval_pending(
+                            session.task_id,
+                            session.session_id,
+                            turn_id=turn_id.turn_id,
+                            action=approval_action,
+                            proposal=proposal,
+                            preview=approval_preview,
+                            assistant_message_index=assistant_message_index,
+                            proposal_index=index,
+                            steps=steps,
+                            total_tokens=total_tokens,
+                            seen_action_digests=seen_action_digests,
+                        )
                     )
                     return TurnResult(
                         turn_id=turn_id,
@@ -1047,6 +1127,7 @@ class AgentLoop:
             if stop_reason in {
                 "unauthorized_proposal",
                 "loop_detected",
+                "stopped_by_operator",
             }:
                 # Never leave dangling ASSISTANT tool_calls in history: a real
                 # provider rejects tool_calls without matching TOOL replies
@@ -1117,14 +1198,16 @@ class AgentLoop:
         steps: int,
         total_tokens: int,
     ) -> TurnResult:
-        self._tasks.pause_session_for_unknown_action(
-            session.task_id,
-            session.session_id,
-            turn_id=turn_id.turn_id,
-            proposal_id=proposal_id,
-            action=unknown.action,
-            steps=steps,
-            total_tokens=total_tokens,
+        self._durable_write(
+            lambda: self._tasks.pause_session_for_unknown_action(
+                session.task_id,
+                session.session_id,
+                turn_id=turn_id.turn_id,
+                proposal_id=proposal_id,
+                action=unknown.action,
+                steps=steps,
+                total_tokens=total_tokens,
+            )
         )
         return TurnResult(
             turn_id=turn_id,
@@ -1142,7 +1225,9 @@ class AgentLoop:
         turn_id: str | None,
     ) -> None:
         index = len(self._history)
-        self._message_sink(session, index, message, turn_id)
+        self._durable_write(
+            lambda: self._message_sink(session, index, message, turn_id)
+        )
         self._history.append(message)
 
     def _append_continuation_message(
@@ -1158,17 +1243,19 @@ class AgentLoop:
         total_tokens: int,
         seen_action_digests: dict[str, int],
     ) -> ProjectedResolvedContinuation:
-        self._tasks.record_session_continuation_message(
-            session.task_id,
-            session.session_id,
-            turn_id=turn_id,
-            message=message,
-            continuation=continuation,
-            assistant_message_index=assistant_message_index,
-            next_proposal_index=next_proposal_index,
-            steps=steps,
-            total_tokens=total_tokens,
-            seen_action_digests=seen_action_digests,
+        self._durable_write(
+            lambda: self._tasks.record_session_continuation_message(
+                session.task_id,
+                session.session_id,
+                turn_id=turn_id,
+                message=message,
+                continuation=continuation,
+                assistant_message_index=assistant_message_index,
+                next_proposal_index=next_proposal_index,
+                steps=steps,
+                total_tokens=total_tokens,
+                seen_action_digests=seen_action_digests,
+            )
         )
         self._history.append(message)
         projected = self._tasks.project_session(
@@ -1373,21 +1460,23 @@ class AgentLoop:
         sealed result, and this is why.
         """
 
-        self._tasks.append_event(
-            action.task_id,
-            TaskEventType.NODE_FAILED,
-            {
-                "node_id": action.node_id,
-                "action_id": action.action_id,
-                "provider_tool_call_id": provider_tool_call_id,
-                "agent_loop_dynamic_action": True,
-                "capability_id": action.capability_id,
-                "action_digest": action.action_digest(),
-                "error": f"{type(exc).__name__}: {exc}",
-                "exception": type(exc).__name__,
-                "error_code": f"error:{type(exc).__name__}",
-            },
-            correlation_id=action.run_id,
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                action.task_id,
+                TaskEventType.NODE_FAILED,
+                {
+                    "node_id": action.node_id,
+                    "action_id": action.action_id,
+                    "provider_tool_call_id": provider_tool_call_id,
+                    "agent_loop_dynamic_action": True,
+                    "capability_id": action.capability_id,
+                    "action_digest": action.action_digest(),
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "exception": type(exc).__name__,
+                    "error_code": f"error:{type(exc).__name__}",
+                },
+                correlation_id=action.run_id,
+            )
         )
 
     def _record_tool_completion(
@@ -1396,17 +1485,19 @@ class AgentLoop:
         provider_tool_call_id: str,
         output: dict[str, Any],
     ) -> None:
-        self._tasks.append_event(
-            action.task_id,
-            TaskEventType.NODE_COMPLETED,
-            {
-                "node_id": action.node_id,
-                "action_id": action.action_id,
-                "provider_tool_call_id": provider_tool_call_id,
-                "agent_loop_dynamic_action": True,
-                "output": output,
-            },
-            correlation_id=action.run_id,
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                action.task_id,
+                TaskEventType.NODE_COMPLETED,
+                {
+                    "node_id": action.node_id,
+                    "action_id": action.action_id,
+                    "provider_tool_call_id": provider_tool_call_id,
+                    "agent_loop_dynamic_action": True,
+                    "output": output,
+                },
+                correlation_id=action.run_id,
+            )
         )
 
     def _execute_proposal(
@@ -1592,22 +1683,24 @@ class AgentLoop:
         """E2: durably record a fail-closed denial for a provider proposal
         whose capability is outside the frozen session allowlist. No Action is
         built and no ApprovalDecision can ever authorize it."""
-        self._tasks.append_event(
-            session.task_id,
-            TaskEventType.POLICY_VERDICT_RECORDED,
-            {
-                "verdict": "DENY",
-                "basis": "out_of_allowlist",
-                "mode_event_id": None,
-                "capability_id": proposal.capability_id,
-                "risk_tier": None,
-                "action_digest": hashlib.sha256(
-                    f"{proposal.capability_id}\n{proposal.arguments_json}".encode(
-                        "utf-8"
-                    )
-                ).hexdigest(),
-                "reason": "capability is outside the frozen session allowlist",
-            },
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                session.task_id,
+                TaskEventType.POLICY_VERDICT_RECORDED,
+                {
+                    "verdict": "DENY",
+                    "basis": "out_of_allowlist",
+                    "mode_event_id": None,
+                    "capability_id": proposal.capability_id,
+                    "risk_tier": None,
+                    "action_digest": hashlib.sha256(
+                        f"{proposal.capability_id}\n{proposal.arguments_json}".encode(
+                            "utf-8"
+                        )
+                    ).hexdigest(),
+                    "reason": "capability is outside the frozen session allowlist",
+                },
+            )
         )
 
     def _record_policy_verdict(
@@ -1625,19 +1718,21 @@ class AgentLoop:
         provenance (basis=permission_mode + mode_event_id), never as an
         ApprovalDecision; an out-of-allowlist denial is recorded with reason; a
         DENY-by-rule records the exact rule_id."""
-        self._tasks.append_event(
-            session.task_id,
-            TaskEventType.POLICY_VERDICT_RECORDED,
-            {
-                "verdict": verdict,
-                "basis": basis,
-                "mode_event_id": mode_event_id,
-                "rule_id": rule_id,
-                "capability_id": action.capability_id,
-                "risk_tier": action.risk_tier,
-                "action_digest": action.action_digest(),
-                "reason": reason,
-            },
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                session.task_id,
+                TaskEventType.POLICY_VERDICT_RECORDED,
+                {
+                    "verdict": verdict,
+                    "basis": basis,
+                    "mode_event_id": mode_event_id,
+                    "rule_id": rule_id,
+                    "capability_id": action.capability_id,
+                    "risk_tier": action.risk_tier,
+                    "action_digest": action.action_digest(),
+                    "reason": reason,
+                },
+            )
         )
 
     def _record_denial(self, session: ChatSession, action: ActionContract) -> None:
@@ -1695,11 +1790,13 @@ class AgentLoop:
         if key == self._last_compaction:
             return
         self._last_compaction = key
-        self._tasks.append_event(
-            session.task_id,
-            TaskEventType.SESSION_CONTEXT_COMPACTED,
-            compaction,
-            correlation_id=session.run_id,
+        self._durable_write(
+            lambda: self._tasks.append_event(
+                session.task_id,
+                TaskEventType.SESSION_CONTEXT_COMPACTED,
+                compaction,
+                correlation_id=session.run_id,
+            )
         )
 
     def _compact_history(
@@ -1758,9 +1855,18 @@ class AgentLoop:
         return kept, payload
 
 
+_WriteT = TypeVar("_WriteT")
+
 _NOT_EXECUTED_AFTER_UNKNOWN = (
     "not executed: an earlier action of this message was dispatched and its "
     "effect is unknown; a human must reconcile it first"
+)
+
+# Final text of a turn that the operator stopped mid-flight (the session's Run
+# is durably PAUSED); the durable turn completion carries the same stop_reason.
+_STOPPED_BY_OPERATOR_TEXT = (
+    "turn stopped by the operator; the session is paused and must be resumed "
+    "before another turn"
 )
 
 _UNKNOWN_MODEL_DETAIL_CHARS = 400

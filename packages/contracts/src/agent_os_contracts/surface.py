@@ -193,6 +193,14 @@ class SurfaceSessionListResponse(ContractModel):
 
 
 class SurfaceTurnResponse(ContractModel):
+    """One completed turn. `stop_reason` is the durable stop reason verbatim.
+
+    Defined non-success values include `stopped_by_operator`: the operator
+    durably paused the session (`POST /v1/surface/sessions/{id}/pause`) while
+    the turn was in flight, so the turn ended before its next provider call or
+    capability dispatch and the Run stays PAUSED until an explicit resume.
+    """
+
     protocol_version: Literal["1.1"]
     snapshot: SurfaceSessionSnapshot
     turn_id: NonEmptyStr | None = None

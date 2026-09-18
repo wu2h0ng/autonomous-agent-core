@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -1618,13 +1619,27 @@ class TaskService:
                     "replayed action receipt conflicts with durable Task truth"
                 )
             return aggregate
-        return self._append_event(
-            task_id,
-            TaskEventType.ACTION_RECEIPT_RECORDED,
-            receipt_payload,
-            correlation_id=run.run_id,
-            writer_token=writer_token,
-        )
+        # The receipt is the record of an effect that has already been applied,
+        # not a control transition: it can lose the optimistic sequence race
+        # against an operator command issued while the tool ran (measured: the
+        # receipt append lost to RUN_PAUSED). Losing that race must not convert
+        # a known effect into UNKNOWN, so the append is retried against fresh
+        # truth; a losing attempt wrote nothing, so no effect can be duplicated.
+        attempts = 5
+        for attempt in range(attempts):
+            try:
+                return self._append_event(
+                    task_id,
+                    TaskEventType.ACTION_RECEIPT_RECORDED,
+                    receipt_payload,
+                    correlation_id=run.run_id,
+                    writer_token=writer_token,
+                )
+            except ConcurrentWriteError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.02)
+        raise AssertionError("unreachable")  # pragma: no cover - loop returns or raises
 
     def _find_reusable_proposed_action(
         self,
@@ -2394,7 +2409,10 @@ class TaskService:
                 break
         allowed: dict[RunStatus, set[RunStatus]] = {
             RunStatus.CREATED: {RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLED},
-            RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            # QUEUED -> PAUSED: a surface (chat) Run is durable at QUEUED and the
+            # surface turn path never promotes it to RUNNING, so a session-level
+            # stop issued before the first turn must be expressible from QUEUED.
+            RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.CANCELLED},
             RunStatus.RUNNING: {RunStatus.RUNNING, RunStatus.WAITING_APPROVAL, RunStatus.WAITING_EVENT, RunStatus.PAUSED, RunStatus.VERIFYING, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED},
             RunStatus.WAITING_APPROVAL: {RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.CANCELLED, RunStatus.FAILED},
             RunStatus.WAITING_EVENT: {RunStatus.PAUSED, RunStatus.CANCELLED, RunStatus.FAILED},

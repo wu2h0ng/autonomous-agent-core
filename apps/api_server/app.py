@@ -120,6 +120,7 @@ from agent_os_core import (
     CandidateEvaluationScopeMismatch,
     CandidatePromotionScopeMismatch,
     Clock,
+    ConcurrentWriteError,
     CorrectionAuthority,
     DeferredApprovalGateway,
     DeterministicProvider,
@@ -2488,8 +2489,28 @@ class AgentOSApplication:
         self, command: SurfaceCorrectionCommand
     ) -> SurfaceSessionSnapshot:
         task_id = self.surface_task_for_session(command.session_id)
-        self.pause_task(task_id)
+        self._pause_task_with_conflict_retry(task_id)
         return self.surface_session_snapshot(command.session_id)
+
+    def _pause_task_with_conflict_retry(self, task_id: str) -> None:
+        """Pause the Run, absorbing a bounded optimistic-append conflict.
+
+        The in-flight turn this command is stopping appends to the same
+        optimistic event stream, so the pause can lose a sequence race against
+        the very turn it must stop. Each attempt re-reads durable truth, so a
+        retry only re-applies the same idempotent target state; every other
+        rejection (already PAUSED, terminal Run, authority) propagates
+        unchanged.
+        """
+        attempts = 5
+        for attempt in range(attempts):
+            try:
+                self.pause_task(task_id)
+                return
+            except ConcurrentWriteError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.02)
 
     def surface_resume_session(
         self, command: SurfaceCorrectionCommand
