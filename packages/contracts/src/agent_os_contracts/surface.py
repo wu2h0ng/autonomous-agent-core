@@ -206,7 +206,7 @@ class ChildAgentOrphanProjection(ContractModel):
     description: NonEmptyStr
     agent_type: ChildAgentType
     spawn_runtime_boot_id: NonEmptyStr | None = None
-    owned_by_live_runtime: bool = False
+    spawned_by_current_generation: bool = False
 
 
 class SurfaceChildAgentReconcileCommand(ContractModel):

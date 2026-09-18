@@ -702,7 +702,7 @@ def test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome(
         )
         assert len(children["orphaned"]) == 1
         orphan = children["orphaned"][0]
-        assert orphan["owned_by_live_runtime"] is False
+        assert orphan["spawned_by_current_generation"] is False
         assert orphan["spawn_runtime_boot_id"] == first_boot
 
         buried = post_json(

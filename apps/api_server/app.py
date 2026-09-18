@@ -5,7 +5,7 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -108,6 +108,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     CHILD_AGENT_RECONCILE_OUTCOME,
     CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE,
+    CHILD_AGENT_RECONCILE_REASON_SPAWN_ABANDONED,
     CHILD_AGENT_STOP_REASON_AWAITING_APPROVAL,
     CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
     CHILD_AGENT_STOP_REASON_UNKNOWN,
@@ -3473,11 +3474,8 @@ class AgentOSApplication:
         index = self.child_agent_index()
         with self._live_child_lock:
             live = tuple(self._live_child_spawns)
-        orphans = orphaned_children(
-            index,
-            task_id,
-            runtime_boot_id=self._runtime_boot_id,
-            in_memory_spawn_ids=live,
+        orphans = self._buriable_children(
+            index, task_id, in_memory_spawn_ids=live
         )
         if not orphans and index.in_flight_children(task_id):
             raise ChildAgentBurialRefused(
@@ -3504,7 +3502,11 @@ class AgentOSApplication:
                 spawn_id=child.spawn_id,
                 child_session_id=child.child_session_id,
                 child_task_id=child.child_task_id,
-                reason_code=CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE,
+                reason_code=(
+                    CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE
+                    if orphan.spawn_runtime_boot_id != self._runtime_boot_id
+                    else CHILD_AGENT_RECONCILE_REASON_SPAWN_ABANDONED
+                ),
                 outcome=CHILD_AGENT_RECONCILE_OUTCOME,
                 declared_by=actor.principal_id,
                 declared_at=now,
@@ -3518,6 +3520,35 @@ class AgentOSApplication:
             )
             buried.append(burial)
         return self._child_agents_response(command.session_id, task_id, buried=tuple(buried))
+
+    def _buriable_children(
+        self,
+        index: ChildAgentIndex,
+        task_id: str,
+        *,
+        in_memory_spawn_ids: Sequence[str],
+    ) -> tuple[Any, ...]:
+        """In-flight children that no live worker owns and no human is deciding.
+
+        A child parked on its own permission prompt is **not** buriable: its
+        session carries a pending approval and only the operator's
+        APPROVE/REJECT may resolve that. Every other ownerless in-flight child
+        is - a crashed generation's child, or one whose spawn call died without
+        writing a finish record inside this generation.
+        """
+
+        orphans = orphaned_children(
+            index, task_id, in_memory_spawn_ids=in_memory_spawn_ids
+        )
+        buriable: list[Any] = []
+        for orphan in orphans:
+            projected = self.tasks.project_session(
+                orphan.child.child_task_id, orphan.child.child_session_id
+            )
+            if projected.pending_approval is not None:
+                continue
+            buriable.append(orphan)
+        return tuple(buriable)
 
     def stop_child_agent(
         self,
@@ -3653,11 +3684,8 @@ class AgentOSApplication:
         )
         with self._live_child_lock:
             live = tuple(sorted(self._live_child_spawns))
-        orphans = orphaned_children(
-            index,
-            task_id,
-            runtime_boot_id=self._runtime_boot_id,
-            in_memory_spawn_ids=live,
+        orphans = self._buriable_children(
+            index, task_id, in_memory_spawn_ids=live
         )
         return SurfaceChildAgentsResponse(
             protocol_version=SURFACE_PROTOCOL_VERSION,
@@ -3672,7 +3700,9 @@ class AgentOSApplication:
                     description=orphan.child.spawned.description,
                     agent_type=orphan.child.spawned.agent_type,
                     spawn_runtime_boot_id=orphan.spawn_runtime_boot_id,
-                    owned_by_live_runtime=orphan.child.spawn_id in set(live),
+                    spawned_by_current_generation=(
+                        orphan.spawn_runtime_boot_id == self._runtime_boot_id
+                    ),
                 )
                 for orphan in orphans
             ),

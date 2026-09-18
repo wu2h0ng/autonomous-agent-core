@@ -92,6 +92,7 @@ CHILD_AGENT_STOP_REASON_WALL_CLOCK = "child_wall_clock_exceeded"
 CHILD_AGENT_STOP_REASON_PARENT_CLOSED = "parent_session_closed"
 CHILD_AGENT_STOP_REASON_UNKNOWN = "unknown_requires_review"
 CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE = "CHILD_RUNTIME_GENERATION_GONE"
+CHILD_AGENT_RECONCILE_REASON_SPAWN_ABANDONED = "CHILD_SPAWN_ABANDONED"
 CHILD_AGENT_RECONCILE_OUTCOME = "UNKNOWN"
 SESSION_OPENED_CHILD_AGENT_FIELD = "child_agent"
 """Key of the child-agent block inside a child session's ``SESSION_OPENED`` payload."""
@@ -640,31 +641,28 @@ class ChildAgentBurial:
 
 @dataclass(frozen=True)
 class ChildAgentOrphan:
-    """An in-flight child whose spawning runtime generation is gone."""
+    """An in-flight child that no live runtime owns any more."""
 
     child: ChildAgentChild
     spawn_runtime_boot_id: str | None
-
-    @property
-    def owned_by_generation(self) -> str | None:
-        return self.spawn_runtime_boot_id
 
 
 def orphaned_children(
     index: ChildAgentIndex,
     parent_task_id: str,
     *,
-    runtime_boot_id: str,
     in_memory_spawn_ids: Sequence[str] = (),
 ) -> tuple[ChildAgentOrphan, ...]:
-    """In-flight children of ``parent_task_id`` whose runtime generation is gone.
+    """In-flight children of ``parent_task_id`` that no live runtime owns.
 
-    Ownership is decided from durable evidence, never from a guess: a child
-    counts as ownerless when the runtime generation recorded in its durable
-    link is not the current one and it is not in this process's live spawn
-    registry. A child spawned by the current generation and still running is
-    never reported as ownerless, so a live child is never buried out from under
-    its own spawn call.
+    Ownership is decided from durable evidence, never from a guess. A child is
+    an orphan when it is in flight and **no live worker in this process holds
+    its spawn call** - the spawn call either belonged to a runtime generation
+    that is gone (a crash) or died without writing a finish record inside this
+    generation (an abandoned spawn). A child whose spawn call is still running
+    is never reported as ownerless, so a live child is never buried out from
+    under its own spawn. The recorded generation is carried on the orphan so the
+    reconciliation can name which case it is.
     """
 
     live = set(in_memory_spawn_ids)
@@ -674,11 +672,11 @@ def orphaned_children(
             continue
         link = index.child_link(child.child_task_id)
         owner = link.get("spawn_runtime_boot_id") if link else None
-        owner_id = owner if isinstance(owner, str) else None
-        if owner_id == runtime_boot_id:
-            continue
         orphans.append(
-            ChildAgentOrphan(child=child, spawn_runtime_boot_id=owner_id)
+            ChildAgentOrphan(
+                child=child,
+                spawn_runtime_boot_id=owner if isinstance(owner, str) else None,
+            )
         )
     return tuple(orphans)
 

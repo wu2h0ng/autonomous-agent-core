@@ -640,8 +640,9 @@ def test_burial_closes_an_ownerless_child_as_an_unknown_outcome(
     assert len(response.orphaned) == 1
     orphan = response.orphaned[0]
     assert orphan.child_session_id == child_session.session_id
-    assert orphan.owned_by_live_runtime is False
     assert orphan.spawn_runtime_boot_id == "boot:dead-generation"
+    assert orphan.spawned_by_current_generation is False
+    assert orphan.spawned_by_current_generation is False
 
     buried = app.surface_reconcile_child_agents(
         reconcile_command(session.session_id, "the runtime died mid-child")
@@ -669,13 +670,42 @@ def test_burial_closes_an_ownerless_child_as_an_unknown_outcome(
     assert row.status.value == "failed"
 
 
-def test_burial_refuses_a_child_owned_by_this_live_generation(tmp_path: Path) -> None:
+def test_burial_covers_an_abandoned_spawn_of_this_generation(tmp_path: Path) -> None:
+    """A spawn call that died inside this generation is still reconcilable.
+
+    Its child has no finish record, no live worker and no parked approval - an
+    in-generation orphan. Refusing to bury it would leave the session showing an
+    in-flight child that nothing can ever close.
+    """
+
     app, session, _child_session = leave_crash_residue(tmp_path)
 
+    response = app.surface_child_agents(session.session_id)
+    assert len(response.orphaned) == 1
+    assert response.orphaned[0].spawned_by_current_generation is True
+
+    buried = app.surface_reconcile_child_agents(
+        reconcile_command(session.session_id, "the spawn call died mid-child")
+    )
+    assert len(buried.buried) == 1
+    assert buried.buried[0].reason_code == "CHILD_SPAWN_ABANDONED"
+    assert buried.buried[0].outcome == "UNKNOWN"
+    finishes = payloads(app, session.task_id, TaskEventType.CHILD_AGENT_FINISHED)
+    assert finishes[-1]["status"] == "failed"
+    assert finishes[-1]["status"] != "completed"
+    assert app.surface_child_agents(session.session_id).orphaned == ()
+
+
+def test_burial_refuses_a_child_parked_on_a_human_decision(tmp_path: Path) -> None:
+    app, session, child = parked_child_run(tmp_path)
+
+    # The child is in flight and ownerless, but it is parked on its own
+    # permission prompt: nothing but an operator decision may close it.
     with pytest.raises(Exception, match="live runtime generation"):
         app.surface_reconcile_child_agents(
-            reconcile_command(session.session_id, "try to bury a live child")
+            reconcile_command(session.session_id, "try to bury a parked child")
         )
+    assert app.surface_session_snapshot(child.child_session_id).pending_approval
 
 
 # ---------------------------------------------------------------------------
