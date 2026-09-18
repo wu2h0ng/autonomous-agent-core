@@ -457,6 +457,11 @@ class TaskAggregate:
             TaskEventType.SESSION_PERMISSION_MODE_SET,
             TaskEventType.POLICY_VERDICT_RECORDED,
             TaskEventType.SESSION_CLOSED,
+            # Form B child-agent audit markers: durable records about a child
+            # (digest-only), never a state transition of the parent aggregate.
+            TaskEventType.CHILD_AGENT_SPAWNED,
+            TaskEventType.CHILD_AGENT_FINISHED,
+            TaskEventType.CHILD_AGENT_RECONCILED,
         }:
             # Chat-turn audit markers carry no aggregate state transition.
             return replace(

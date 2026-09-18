@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from .agent_spawn import ChildAgentTurnAttribution, ChildAgentType
 from .authority import ApprovalDisposition
 from .common import ContractModel, NonEmptyStr, UtcDateTime
 from .provider import ProviderMessage, SessionRef
@@ -190,6 +191,65 @@ class SurfaceSessionListResponse(ContractModel):
     protocol_version: Literal["1.1"]
     sessions: tuple[SurfaceSessionSummary, ...] = ()
     next_cursor: NonEmptyStr | None = None
+
+
+class ChildAgentOrphanProjection(ContractModel):
+    """An in-flight child whose spawning runtime generation is gone.
+
+    Read-only projection: it names what the operator would be reconciling. It
+    carries no prompt or completion text.
+    """
+
+    spawn_id: NonEmptyStr
+    child_session_id: NonEmptyStr
+    child_task_id: NonEmptyStr
+    description: NonEmptyStr
+    agent_type: ChildAgentType
+    spawn_runtime_boot_id: NonEmptyStr | None = None
+    spawned_by_current_generation: bool = False
+
+
+class SurfaceChildAgentReconcileCommand(ContractModel):
+    """Operator-declared reconciliation of a session's ownerless children."""
+
+    protocol_version: Literal["1.1"]
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    reason: NonEmptyStr
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceChildAgentsResponse(ContractModel):
+    """Attribution roll-up plus the burial picture for one session.
+
+    ``turns`` reuses the frozen per-turn attribution (each turn's totals include
+    its children and say so); ``orphaned`` lists in-flight children with no live
+    runtime owner; ``buried`` lists what this call reconciled, if any.
+    """
+
+    protocol_version: Literal["1.1"]
+    session_id: NonEmptyStr
+    children_included_in_totals: Literal[True] = True
+    turns: tuple[ChildAgentTurnAttribution, ...] = ()
+    orphaned: tuple[ChildAgentOrphanProjection, ...] = ()
+    buried: tuple[ChildAgentBurialRecord, ...] = ()
+
+
+class ChildAgentBurialRecord(ContractModel):
+    """One durable operator-declared burial, echoed to the operator."""
+
+    spawn_id: NonEmptyStr
+    child_session_id: NonEmptyStr
+    child_task_id: NonEmptyStr
+    reason_code: NonEmptyStr
+    outcome: NonEmptyStr
+    declared_by: NonEmptyStr
+    declared_at: UtcDateTime
+    runtime_boot_id: NonEmptyStr
+    runtime_pid: int = Field(ge=1)
+    reason: NonEmptyStr
+    child_open_turn_id: NonEmptyStr | None = None
 
 
 class SurfaceTurnResponse(ContractModel):

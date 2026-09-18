@@ -93,6 +93,16 @@ class TaskEventType(str, Enum):
     SESSION_PERMISSION_MODE_SET = "SESSION_PERMISSION_MODE_SET"
     POLICY_VERDICT_RECORDED = "POLICY_VERDICT_RECORDED"
     SESSION_CLOSED = "SESSION_CLOSED"
+    # Form B child agents (additive, 2026-09-19). CHILD_AGENT_SPAWNED carries
+    # ChildAgentSpawned; CHILD_AGENT_FINISHED carries ChildAgentFinished. Both
+    # are digest-only: never prompt or completion text.
+    CHILD_AGENT_SPAWNED = "CHILD_AGENT_SPAWNED"
+    CHILD_AGENT_FINISHED = "CHILD_AGENT_FINISHED"
+    # Additive (2026-09-19, kernel slice): the operator-declared reconciliation
+    # of a child whose runtime generation is gone. It carries the typed burial
+    # block (reason_code/declared_by/outcome) plus the exact durable fields the
+    # declaration binds; it never carries prompt or completion text.
+    CHILD_AGENT_RECONCILED = "CHILD_AGENT_RECONCILED"
 
 
 class WaitCondition(ContractModel):

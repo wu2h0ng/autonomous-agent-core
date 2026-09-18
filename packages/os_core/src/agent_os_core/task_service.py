@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -16,6 +16,8 @@ from agent_os_contracts import (
     AgentRun,
     ApprovalDecision,
     ApprovalDisposition,
+    ChildAgentFinished,
+    ChildAgentSpawned,
     Commitment,
     CorrectionEpochVector,
     ExpectedOutcome,
@@ -85,6 +87,12 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
         TaskEventType.SESSION_APPROVAL_RESOLVED,
         TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
+        # Form B child-agent records: written only by the typed writers below,
+        # so no caller can append a malformed child-agent record (and none can
+        # carry prompt or completion text).
+        TaskEventType.CHILD_AGENT_SPAWNED,
+        TaskEventType.CHILD_AGENT_FINISHED,
+        TaskEventType.CHILD_AGENT_RECONCILED,
     }
 )
 
@@ -615,6 +623,7 @@ class TaskService:
         expected_outcome_id: str,
         *,
         loop_config: SessionLoopConfig,
+        child_agent: Mapping[str, object] | None = None,
     ) -> TaskAggregate:
         if not envelope_id.strip() or not expected_outcome_id.strip():
             raise ValueError("session envelope and expected outcome must be non-empty")
@@ -627,22 +636,84 @@ class TaskService:
                 raise
         else:
             raise InvalidTransitionError("session is already open")
+        payload: dict[str, object] = {
+            "session_id": ref.session_id,
+            "task_id": ref.task_id,
+            "run_id": ref.run_id,
+            "tenant_id": ref.tenant_id,
+            "workspace_id": ref.workspace_id,
+            "session": ref.model_dump(mode="json"),
+            "envelope_id": envelope_id,
+            "expected_outcome_id": expected_outcome_id,
+            "agent_loop_config": loop_config.payload(),
+            "agent_loop_config_digest": loop_config.digest(),
+        }
+        if child_agent is not None:
+            # Form B: the child's durable link (frozen parent_session_id /
+            # parent_turn_id / spawn_id triple) plus the durable parent
+            # task/run the halt cascade walks and the derived grant block the
+            # restore path rebuilds. Never prompt text.
+            payload["child_agent"] = dict(child_agent)
         return self._append_event(
             ref.task_id,
             TaskEventType.SESSION_OPENED,
-            {
-                "session_id": ref.session_id,
-                "task_id": ref.task_id,
-                "run_id": ref.run_id,
-                "tenant_id": ref.tenant_id,
-                "workspace_id": ref.workspace_id,
-                "session": ref.model_dump(mode="json"),
-                "envelope_id": envelope_id,
-                "expected_outcome_id": expected_outcome_id,
-                "agent_loop_config": loop_config.payload(),
-                "agent_loop_config_digest": loop_config.digest(),
-            },
+            payload,
             correlation_id=ref.session_id,
+        )
+
+    def record_child_agent_spawned(
+        self,
+        parent_task_id: str,
+        spawned: ChildAgentSpawned,
+        *,
+        parent_run_id: str,
+    ) -> TaskAggregate:
+        """Durable digest-only spawn record on the **parent's** stream."""
+
+        return self._append_event(
+            parent_task_id,
+            TaskEventType.CHILD_AGENT_SPAWNED,
+            spawned.model_dump(mode="json"),
+            correlation_id=parent_run_id,
+            writer_token=self._runtime_writer_token,
+        )
+
+    def record_child_agent_finished(
+        self,
+        parent_task_id: str,
+        finished: ChildAgentFinished,
+        *,
+        parent_run_id: str,
+    ) -> TaskAggregate:
+        """Durable digest-only finish record on the **parent's** stream.
+
+        Append-only: a child that parks awaiting approval and is later resumed
+        by the operator writes a second record, and readers take the latest.
+        """
+
+        return self._append_event(
+            parent_task_id,
+            TaskEventType.CHILD_AGENT_FINISHED,
+            finished.model_dump(mode="json"),
+            correlation_id=parent_run_id,
+            writer_token=self._runtime_writer_token,
+        )
+
+    def record_child_agent_reconciled(
+        self,
+        parent_task_id: str,
+        payload: Mapping[str, object],
+        *,
+        parent_run_id: str,
+    ) -> TaskAggregate:
+        """Durable typed burial of a child whose runtime generation is gone."""
+
+        return self._append_event(
+            parent_task_id,
+            TaskEventType.CHILD_AGENT_RECONCILED,
+            dict(payload),
+            correlation_id=parent_run_id,
+            writer_token=self._runtime_writer_token,
         )
 
     def record_session_message(

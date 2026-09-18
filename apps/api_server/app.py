@@ -5,7 +5,7 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -19,11 +19,25 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from agent_os_contracts import (
+    AGENT_SPAWN_CAPABILITY_ID,
+    EXPLORE_ALLOWED_CAPABILITY_IDS,
+    STOP_REASON_STOPPED_BY_OPERATOR,
     ActionContract,
     ApprovalDecision,
     ApprovalDisposition,
     CapabilityGrant,
     CapabilityGrantStatus,
+    ChildAgentContractError,
+    ChildAgentFinished,
+    ChildAgentSpawnCommand,
+    ChildAgentSpawned,
+    ChildAgentBurialRecord,
+    ChildAgentOrphanProjection,
+    ChildAgentStatus,
+    ChildAgentType,
+    ChildAgentSpawnResult,
+    PermissionMode,
+    derive_child_grants,
     CandidateEvaluationDraft,
     CandidateEvaluationReceipt,
     CandidatePromotionCommand,
@@ -69,6 +83,8 @@ from agent_os_contracts import (
     SessionRef,
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
+    SurfaceChildAgentReconcileCommand,
+    SurfaceChildAgentsResponse,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
     SurfaceCorrectionCommand,
@@ -86,7 +102,37 @@ from agent_os_contracts import (
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
+    TurnId,
     content_digest,
+)
+from agent_os_core import (
+    CHILD_AGENT_RECONCILE_OUTCOME,
+    CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE,
+    CHILD_AGENT_RECONCILE_REASON_SPAWN_ABANDONED,
+    CHILD_AGENT_STOP_REASON_AWAITING_APPROVAL,
+    CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
+    CHILD_AGENT_STOP_REASON_UNKNOWN,
+    CHILD_AGENT_STOP_REASON_WALL_CLOCK,
+    ChildAgentBurial,
+    ChildAgentBurialRefused,
+    ChildAgentChild,
+    ChildAgentDisabled,
+    ChildAgentHaltCascade,
+    ChildAgentIndex,
+    ChildAgentLinkError,
+    ChildAgentNotSpawnable,
+    ChildAgentSpawnRequest,
+    CapabilityEffectUnknown,
+    child_agent_spawn_result,
+    child_agent_status_for_stop_reason,
+    child_agent_timeout_seconds,
+    child_agents_enabled,
+    chat_capability_ids,
+    grants_digest,
+    orphaned_children,
+    spawn_prompt_digest,
+    summary_digest,
+    TurnResult,
 )
 from agent_os_core import (
     C7ReceiptIssuer,
@@ -109,7 +155,6 @@ from agent_os_core import (
     apply_trusted_shell_profile,
     discover_agents_markdown_layers,
     layered_agents_markdown_system_section,
-    CHAT_CAPABILITY_IDS,
     CHAT_GRANT_MAX_RISK_TIERS,
     CandidateScopeMismatch,
     CapabilityBroker,
@@ -160,7 +205,6 @@ from agent_os_core import (
     TASK_CONFIGURATION_CAPABILITY,
     TASK_CONFIGURATION_CAPABILITY_VERSION,
     TaskConfigurationNotBound,
-    TurnResult,
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
@@ -213,6 +257,65 @@ def _utc_now() -> datetime:
 
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _static_grant_ceiling(
+    grants: Mapping[str, CapabilityGrant],
+) -> ResourceBudget:
+    """The parent's **static** grant ceiling (never a running remaining budget).
+
+    This repository has no consumption ledger, so there is no measured "parent
+    remaining budget" to subtract from. What ``derive_child_grants`` receives
+    here is the widest static ceiling the parent holds, which is enough to prove
+    the non-widening property (the child's own per-capability ceiling is checked
+    separately against its parent grant) and is explicitly *not* a claim that
+    the parent has that much budget left.
+    """
+
+    if not grants:
+        raise ChildAgentNotSpawnable(
+            "child agent derivation requires the parent's grants"
+        )
+    limits = [grant.budget_limit for grant in grants.values()]
+    return ResourceBudget(
+        max_cost_usd=max(limit.max_cost_usd for limit in limits),
+        max_duration_seconds=max(limit.max_duration_seconds for limit in limits),
+        max_provider_tokens=max(limit.max_provider_tokens for limit in limits),
+        max_tool_calls=max(limit.max_tool_calls for limit in limits),
+    )
+
+
+def _child_agent_block(
+    request: ChildAgentSpawnRequest,
+    session: ChatSession,
+    grants: Mapping[str, CapabilityGrant],
+) -> dict[str, object]:
+    """The durable child link written into the child session's ``SESSION_OPENED``.
+
+    It carries the frozen link triple (``parent_session_id``/``parent_turn_id``/
+    ``spawn_id``), the durable parent task/run the halt cascade walks, the
+    narrowed grant block the restore path rebuilds (so a restart cannot widen a
+    child), the owning runtime generation (so a crash is detectable), and the
+    prompt **digest** - never the prompt.
+    """
+
+    dumped = {cid: grant.model_dump(mode="json") for cid, grant in grants.items()}
+    return {
+        "spawn_id": request.spawn_id,
+        "parent_session_id": request.parent_session_id,
+        "parent_task_id": request.parent_task_id,
+        "parent_run_id": request.parent_run_id,
+        "parent_turn_id": request.parent_turn_id,
+        "child_session_id": session.session_id,
+        "child_task_id": session.task_id,
+        "agent_type": request.agent_type.value,
+        "description": request.description,
+        "prompt_digest": spawn_prompt_digest(request.prompt),
+        "spawn_runtime_boot_id": request.runtime_boot_id,
+        "spawn_runtime_pid": request.runtime_pid,
+        "grants": dumped,
+        "grant_plan_digest": grants_digest(dumped),
+    }
 
 
 def _loop_config_with_agents(config: AgentLoopConfig, workspace: Path) -> AgentLoopConfig:
@@ -341,6 +444,8 @@ class AgentOSApplication:
         observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
         trusted_shell_profile: bool | None = None,
         execution_isolation: str | None = None,
+        child_agents: bool | None = None,
+        nested_child_agents: bool | None = None,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -436,10 +541,31 @@ class AgentOSApplication:
             else os.environ.get("AGENT_OS_EXECUTION_ISOLATION")
             or EXECUTION_ISOLATION_TRUSTED_WORKSPACE
         )
+        # Form B (ADR-0061): child agents are OFF unless this composition root
+        # is explicitly told to enable them (constructor flag or
+        # AGENT_OS_CHILD_AGENTS=on). Off means agent.spawn is not registered in
+        # the connector's trusted registry and not granted, so the capability is
+        # refused with a typed reason in every mode - not silently ignored.
+        self.child_agents_enabled = (
+            child_agents
+            if child_agents is not None
+            else child_agents_enabled(os.environ)
+        )
+        # Nested spawn stays OFF by default and is independent of the above.
+        self.nested_child_agents_enabled = (
+            nested_child_agents
+            if nested_child_agents is not None
+            else _env_truthy("AGENT_OS_NESTED_CHILD_AGENTS")
+        )
+        self._live_child_spawns: set[str] = set()
+        self._live_child_lock = RLock()
         self.sandbox = DeveloperWorkspaceAdapter(
             workspace,
             idempotency_store=self.store,
             execution_isolation=self.execution_isolation,
+        )
+        self.sandbox.bind_child_agent_spawner(
+            self, enabled=self.child_agents_enabled
         )
         # M2 (opt-in, mainstream-aligned): the trusted shell profile broadens
         # the shell allowlist, so it is OFF unless explicitly requested (ctor
@@ -1909,6 +2035,42 @@ class AgentOSApplication:
         loop_config: AgentLoopConfig | None = None,
     ) -> tuple[ChatSession, AgentLoop]:
         """Open a governed terminal chat session (task + run) and its loop."""
+        config = loop_config or _loop_config_with_agents(
+            AgentLoopConfig(), self.workspace_root
+        )
+        return self._open_session_and_loop(
+            statement=statement,
+            gateway=gateway,
+            loop_config=config,
+            grants=self._chat_grants(),
+            correction=self.correction,
+            capability_ids=self.chat_capability_ids,
+            permission_mode=None,
+        )
+
+    def _open_session_and_loop(
+        self,
+        *,
+        statement: str,
+        gateway: ConfirmationGateway,
+        loop_config: AgentLoopConfig,
+        grants: dict[str, CapabilityGrant],
+        correction: Any,
+        capability_ids: tuple[str, ...],
+        permission_mode: PermissionMode | None,
+        child_agent_builder: Callable[[ChatSession], Mapping[str, object]]
+        | None = None,
+    ) -> tuple[ChatSession, AgentLoop]:
+        """The single session-creation path (parent and child sessions).
+
+        A child session differs only in the four things the caller passes: the
+        statement, the already-derived (narrowed) grants, the correction port
+        (the halt cascade), and the advertised capability set. Everything else -
+        task/run/commitment/expected-outcome construction, the durable
+        SESSION_OPENED record, the single leading frozen system prompt - is
+        identical, so a child cannot acquire session-level state the parent
+        path does not have.
+        """
         if not self.provider_configured:
             raise ConnectionError(
                 "configure and verify a provider before opening a chat session"
@@ -2000,7 +2162,7 @@ class AgentOSApplication:
             envelope_id=f"envelope-{uuid4()}",
             expected=aggregate.expected_outcome,
         )
-        config = loop_config or _loop_config_with_agents(AgentLoopConfig(), self.workspace_root)
+        config = loop_config
         self.tasks.open_session(
             session.ref,
             session.envelope_id,
@@ -2012,6 +2174,11 @@ class AgentOSApplication:
                 max_context_chars=config.max_context_chars,
                 loop_detection_threshold=config.loop_detection_threshold,
                 system_prompt=config.system_prompt,
+            ),
+            child_agent=(
+                child_agent_builder(session)
+                if child_agent_builder is not None
+                else None
             ),
         )
         system_message = ProviderMessage(
@@ -2025,27 +2192,14 @@ class AgentOSApplication:
             system_message,
             turn_id=None,
         )
-        grants = dict(self.grants)
-        for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
-            grant = grants.get(capability_id)
-            if grant is None:
-                raise RuntimeError(f"chat capability is not granted: {capability_id}")
-            if grant.max_risk_tier < max_tier:
-                raise RuntimeError(
-                    f"chat capability risk tier is not granted: {capability_id}"
-                )
-        chat_grants = {
-            capability_id: grants[capability_id]
-            for capability_id in CHAT_CAPABILITY_IDS
-        }
         loop = AgentLoop(
             tasks=self.tasks,
             provider=self.provider,
             provider_profile=self.provider_profile,
             policy=self.policy,
-            correction=self.correction,
+            correction=correction,
             connector=self.sandbox,
-            grants=chat_grants,
+            grants=grants,
             principal=self.principal,
             gateway=gateway,
             session=session,
@@ -2057,6 +2211,8 @@ class AgentOSApplication:
                 tenant_id=self.principal.tenant_id,
                 workspace_id=self.principal.workspace_id,
             ),
+            capability_ids=capability_ids,
+            permission_mode=permission_mode or "ASK",
         )
         self.tasks.append_event(
             task.task_id,
@@ -2066,7 +2222,7 @@ class AgentOSApplication:
                     "envelope_id": session.envelope_id,
                     "generator_id": "terminal-chat-loop",
                     "generator_version": "1",
-                    "allowed_capability_ids": sorted(CHAT_CAPABILITY_IDS),
+                    "allowed_capability_ids": sorted(capability_ids),
                 }
             },
             correlation_id=session.run_id,
@@ -2163,9 +2319,9 @@ class AgentOSApplication:
             provider=self.provider,
             provider_profile=self.provider_profile,
             policy=self.policy,
-            correction=self.correction,
+            correction=self.session_correction(projected.ref.task_id),
             connector=self.sandbox,
-            grants=self._chat_grants(),
+            grants=self.session_grants(projected.ref.task_id),
             principal=self.principal,
             gateway=gateway,
             session=session,
@@ -2176,11 +2332,16 @@ class AgentOSApplication:
             collaboration_preflight=self.collaboration_preflight,
             text_delta_sink=text_delta_sink,
             reasoning_delta_sink=reasoning_delta_sink,
-            permission_mode=projected.permission_mode,
+            permission_mode=self.session_permission_mode(
+                projected.ref.task_id, projected.permission_mode
+            ),
             permission_mode_event_id=projected.permission_mode_event_id,
             deny_rules=self.permission_rule_store.list_active(
                 tenant_id=self.principal.tenant_id,
                 workspace_id=self.principal.workspace_id,
+            ),
+            capability_ids=self._session_capability_ids(
+                projected.ref.task_id, self._child_agent_link(projected.ref.task_id)
             ),
         )
         return session, loop
@@ -2227,11 +2388,13 @@ class AgentOSApplication:
                 raise InvalidTransitionError(
                     "approval retry does not match the exact durable decision"
                 )
-            return loop.resume_resolved_continuation(
+            result = loop.resume_resolved_continuation(
                 session,
                 action_digest=action_digest,
                 disposition=disposition,
             )
+            self._record_child_agent_continuation(session, result)
+            return result
         if action_digest != pending.action.action_digest():
             raise InvalidTransitionError(
                 "approval digest does not match the pending action"
@@ -2249,7 +2412,9 @@ class AgentOSApplication:
             decided_at=now,
             expires_at=now + timedelta(minutes=5),
         )
-        return loop.resume_pending_approval(session, approval)
+        result = loop.resume_pending_approval(session, approval)
+        self._record_child_agent_continuation(session, result)
+        return result
 
     def surface_open_session(
         self, command: SurfaceOpenSessionCommand
@@ -2898,9 +3063,23 @@ class AgentOSApplication:
             scope, key, record, datetime.now(timezone.utc).isoformat()
         )
 
+    @property
+    def chat_capability_ids(self) -> tuple[str, ...]:
+        """The capability ids this composition root advertises to chat loops.
+
+        With child agents off, ``agent.spawn`` is not advertised and not
+        granted: a model proposal for it is refused as an out-of-allowlist
+        denial with a durable POLICY_VERDICT_RECORDED, never executed.
+        """
+
+        return chat_capability_ids(child_agents_enabled=self.child_agents_enabled)
+
     def _chat_grants(self) -> dict[str, CapabilityGrant]:
         grants = dict(self.grants)
+        capability_ids = self.chat_capability_ids
         for capability_id, max_tier in CHAT_GRANT_MAX_RISK_TIERS.items():
+            if capability_id not in capability_ids:
+                continue
             grant = grants.get(capability_id)
             if grant is None:
                 raise RuntimeError(f"chat capability is not granted: {capability_id}")
@@ -2912,8 +3091,647 @@ class AgentOSApplication:
                 )
         return {
             capability_id: grants[capability_id]
-            for capability_id in CHAT_CAPABILITY_IDS
+            for capability_id in capability_ids
         }
+
+    def child_agent_index(self) -> ChildAgentIndex:
+        return ChildAgentIndex(self.store)
+
+    def _child_agent_link(self, task_id: str) -> Mapping[str, object] | None:
+        return self.child_agent_index().child_link(task_id)
+
+    def session_grants(self, task_id: str) -> dict[str, CapabilityGrant]:
+        """The grants a session's loop must run with, durable record first.
+
+        A child session rebuilds its grants from the durable block written at
+        spawn time (the derivation output), so the narrowing survives a
+        restart. A child session whose block is missing or malformed fails
+        closed - it never falls back to the composition root's full chat
+        grant set.
+        """
+
+        link = self._child_agent_link(task_id)
+        if link is None:
+            return self._chat_grants()
+        raw_grants = link.get("grants")
+        if not isinstance(raw_grants, dict) or not raw_grants:
+            raise ChildAgentLinkError(
+                f"child session task {task_id} has no durable grant block"
+            )
+        digest = link.get("grant_plan_digest")
+        grants: dict[str, CapabilityGrant] = {}
+        for capability_id, payload in raw_grants.items():
+            if not isinstance(payload, dict):
+                raise ChildAgentLinkError(
+                    f"child session task {task_id} has a malformed grant block"
+                )
+            grant = CapabilityGrant.model_validate(payload)
+            if (
+                grant.principal_id != self.principal.principal_id
+                or grant.tenant_id != self.principal.tenant_id
+                or grant.workspace_id != self.principal.workspace_id
+            ):
+                raise ChildAgentLinkError(
+                    "durable child grant scope does not match the runtime principal"
+                )
+            grants[str(capability_id)] = grant
+        if digest != grants_digest(
+            {cid: grant.model_dump(mode="json") for cid, grant in grants.items()}
+        ):
+            raise ChildAgentLinkError(
+                f"child session task {task_id} grant block digest mismatch"
+            )
+        return grants
+
+    def _session_capability_ids(
+        self, task_id: str, link: Mapping[str, object] | None
+    ) -> tuple[str, ...]:
+        ids = self.chat_capability_ids
+        if link is None:
+            return ids
+        grants = self.session_grants(task_id)
+        return tuple(cid for cid in ids if cid in grants)
+
+    def session_correction(self, task_id: str) -> Any:
+        """The correction read port a session's loop must use.
+
+        A child session gets the halt cascade: an operator's correction on the
+        parent (or any ancestor) halts the child at the next check, durably and
+        across restarts, without the child writing anything.
+        """
+
+        if self._child_agent_link(task_id) is None:
+            return self.correction
+        return ChildAgentHaltCascade(self.correction, self.child_agent_index())
+
+    def session_permission_mode(self, task_id: str, projected: Any) -> PermissionMode:
+        """A child session always runs in ASK.
+
+        A child never auto-allows a write on the strength of the parent's
+        permission mode: at most, its tier-2 actions park on the operator-visible
+        prompt the child session already exposes.
+        """
+
+        if self._child_agent_link(task_id) is not None:
+            return "ASK"
+        return projected
+
+    # ------------------------------------------------------------------
+    # Form B: the spawner (composition-root half of agent.spawn)
+    # ------------------------------------------------------------------
+
+    def spawn_child_agent(
+        self, action: ActionContract, command: ChildAgentSpawnCommand
+    ) -> ChildAgentSpawnResult:
+        """Create and drive one child session for a governed ``agent.spawn``.
+
+        Called only from the connector's dispatch (inside
+        ``CapabilityBroker.invoke``), so the spawn itself is already admitted by
+        policy/permit/C7 and this method's own failures surface as typed
+        outcomes of that one action.
+        """
+
+        if not self.child_agents_enabled:
+            raise ChildAgentDisabled(
+                "child agents are disabled in this runtime "
+                "(AGENT_OS_CHILD_AGENTS)"
+            )
+        if not self.provider_configured:
+            raise ConnectionError(
+                "configure and verify a provider before spawning a child agent"
+            )
+        index = self.child_agent_index()
+        parent_session_id = index.session_id_for_task(action.task_id)
+        if parent_session_id is None:
+            raise ChildAgentNotSpawnable(
+                "agent.spawn requires the parent session that owns this task"
+            )
+        parent_turn_id = index.open_turn_id(action.task_id)
+        if parent_turn_id is None:
+            raise ChildAgentNotSpawnable(
+                "agent.spawn requires an open parent turn; this action is not "
+                "inside one"
+            )
+        if index.child_link(action.task_id) is not None and not (
+            self.nested_child_agents_enabled
+        ):
+            raise ChildAgentNotSpawnable(
+                "nested child agents are disabled in this runtime "
+                "(AGENT_OS_NESTED_CHILD_AGENTS)"
+            )
+        self._clock()
+        spawn_id = action.action_id
+        request = ChildAgentSpawnRequest(
+            spawn_id=spawn_id,
+            prompt=command.prompt,
+            description=command.description,
+            agent_type=command.agent_type,
+            max_steps=command.max_steps,
+            parent_task_id=action.task_id,
+            parent_run_id=action.run_id,
+            parent_session_id=parent_session_id,
+            parent_turn_id=parent_turn_id,
+            runtime_boot_id=self._runtime_boot_id,
+            runtime_pid=os.getpid(),
+        )
+        child_grants = self.derive_child_agent_grants(request)
+        loop_config = self._child_agent_loop_config(command, request)
+        child_session, child_loop = self._open_session_and_loop(
+            statement=f"child agent task: {command.description}",
+            gateway=DeferredApprovalGateway(),
+            loop_config=loop_config,
+            grants=child_grants,
+            correction=ChildAgentHaltCascade(self.correction, index),
+            capability_ids=tuple(
+                cid for cid in self.chat_capability_ids if cid in child_grants
+            ),
+            permission_mode="ASK",
+            child_agent_builder=lambda session: _child_agent_block(
+                request, session, child_grants
+            ),
+        )
+        self.tasks.record_child_agent_spawned(
+            action.task_id,
+            ChildAgentSpawned(
+                spawn_id=spawn_id,
+                parent_session_id=parent_session_id,
+                parent_turn_id=parent_turn_id,
+                child_session_id=child_session.session_id,
+                child_task_id=child_session.task_id,
+                agent_type=command.agent_type,
+                description=command.description,
+                prompt_digest=spawn_prompt_digest(command.prompt),
+            ),
+            parent_run_id=action.run_id,
+        )
+        with self._live_child_lock:
+            self._live_child_spawns.add(spawn_id)
+        try:
+            outcome = self._drive_child_turn(
+                child_loop, child_session, command.prompt
+            )
+        finally:
+            with self._live_child_lock:
+                self._live_child_spawns.discard(spawn_id)
+        stop_reason = self._child_stop_reason(child_session.task_id, outcome)
+        result = child_agent_spawn_result(
+            child_session_id=child_session.session_id,
+            child_task_id=child_session.task_id,
+            stop_reason=stop_reason,
+            text=outcome.text,
+            steps=outcome.steps,
+            tokens=outcome.total_tokens,
+        )
+        self.tasks.record_child_agent_finished(
+            action.task_id,
+            ChildAgentFinished(
+                spawn_id=spawn_id,
+                status=result.status,
+                steps=result.steps,
+                tokens=result.tokens,
+                stop_reason=result.stop_reason,
+                summary_digest=summary_digest(result.text),
+            ),
+            parent_run_id=action.run_id,
+        )
+        return result
+
+    def _child_agent_loop_config(
+        self, command: ChildAgentSpawnCommand, request: ChildAgentSpawnRequest
+    ) -> AgentLoopConfig:
+        config = _loop_config_with_agents(AgentLoopConfig(), self.workspace_root)
+        if command.max_steps is None:
+            return config
+        return replace(config, max_steps_per_turn=command.max_steps)
+
+    def _drive_child_turn(
+        self, child_loop: AgentLoop, child_session: ChatSession, prompt: str
+    ) -> TurnResult:
+        """Drive the child's one turn on **this** thread, inside a wall-clock bound.
+
+        Same thread on purpose: the broker's C7 linearization holds the
+        correction authority's lock for the duration of an effect, so a child
+        run on a worker thread would deadlock against the parent's own
+        ``guard_unchanged``. Driving it inline also means the parent's turn
+        holds no orphaned worker: the child turn is bounded by the loop's own
+        wall-clock deadline (checked at every step boundary) and by
+        ``max_steps_per_turn``, and the provider call inside a step is itself
+        bounded by the provider's request timeout.
+
+        An exception from the child turn is reported as a failure - never as a
+        completion - and an unknown effect keeps its unknown outcome. A turn
+        that hits the deadline is reported as ``timeout``: the record says the
+        bound was reached, not that the child produced a result.
+        """
+
+        deadline = time.monotonic() + child_agent_timeout_seconds(os.environ)
+        child_loop.set_wall_clock_deadline(deadline)
+        try:
+            outcome = child_loop.run_turn(child_session, prompt)
+        except BaseException as exc:  # reported as a typed child failure
+            return TurnResult(
+                turn_id=TurnId(
+                    turn_id=f"turn-child-error-{child_session.session_id}",
+                    session_id=child_session.session_id,
+                ),
+                text="",
+                steps=0,
+                stop_reason=(
+                    CHILD_AGENT_STOP_REASON_UNKNOWN
+                    if isinstance(exc, CapabilityEffectUnknown)
+                    else f"child_error:{type(exc).__name__}"
+                ),
+                total_tokens=0,
+            )
+        if outcome.stop_reason == "wall_clock_exceeded":
+            return TurnResult(
+                turn_id=outcome.turn_id,
+                text="",
+                steps=outcome.steps,
+                stop_reason=CHILD_AGENT_STOP_REASON_WALL_CLOCK,
+                total_tokens=outcome.total_tokens,
+            )
+        return outcome
+
+    def _record_child_agent_continuation(
+        self, session: ChatSession, result: TurnResult
+    ) -> None:
+        """Update the parent's roll-up when an operator finishes a parked child.
+
+        A child that parked (``awaiting_approval``) has a durable finish record
+        already, because the spawn call returned. When the operator resolves the
+        parked approval and the child's turn really ends, the parent's roll-up
+        must say so - otherwise it would keep reporting a stopped child as if it
+        were still waiting. The write is append-only and digest-only; a child
+        that parks again simply writes another record, and readers take the
+        latest.
+        """
+
+        link = self._child_agent_link(session.task_id)
+        if link is None:
+            return
+        if result.stop_reason == "approval_required":
+            # Still parked: the existing record is the truth.
+            return
+        parent_task_id = link.get("parent_task_id")
+        parent_run_id = link.get("parent_run_id")
+        spawn_id = link.get("spawn_id")
+        if not all(
+            isinstance(value, str) and value
+            for value in (parent_task_id, parent_run_id, spawn_id)
+        ):
+            raise ChildAgentLinkError(
+                "durable child link is missing the parent/spawn binding"
+            )
+        stop_reason = self._child_stop_reason(session.task_id, result)
+        status = child_agent_status_for_stop_reason(stop_reason)
+        self.tasks.record_child_agent_finished(
+            str(parent_task_id),
+            ChildAgentFinished(
+                spawn_id=str(spawn_id),
+                status=status,
+                steps=result.steps,
+                tokens=result.total_tokens,
+                stop_reason=stop_reason,
+                summary_digest=summary_digest(result.text),
+            ),
+            parent_run_id=str(parent_run_id),
+        )
+
+    def _child_stop_reason(self, child_task_id: str, outcome: TurnResult) -> str:
+        """The durable stop reason, with an honest stop attribution.
+
+        A child that ended because the operator corrected it (or any ancestor)
+        is reported with the frozen ``stopped_by_operator`` reason; a child that
+        parked on a permission prompt keeps ``awaiting_approval`` so the parent
+        turn and the operator both see that the child needs a human.
+        """
+
+        if outcome.stop_reason == "correction_halted":
+            return STOP_REASON_STOPPED_BY_OPERATOR
+        if outcome.stop_reason == "approval_required":
+            return CHILD_AGENT_STOP_REASON_AWAITING_APPROVAL
+        return outcome.stop_reason
+
+    def derive_child_agent_grants(
+        self, request: ChildAgentSpawnRequest
+    ) -> dict[str, CapabilityGrant]:
+        """Call ``derive_child_grants`` for real and return its output.
+
+        The proposed child grants are the parent's own grants (copied with a
+        child-scoped grant id and ``granted_by``) minus the child agent type's
+        denied capabilities, and the contract function refuses any widening. The
+        ``parent_remaining_budget`` argument is the parent's **static** grant
+        ceiling: this repository has no consumption ledger, so nothing here may
+        be described as the parent's "remaining" budget.
+        """
+
+        parent_grants = self.session_grants(request.parent_task_id)
+        nested = self.nested_child_agents_enabled
+        explore_allowed = set(EXPLORE_ALLOWED_CAPABILITY_IDS)
+        now = self._clock()
+        proposed: list[CapabilityGrant] = []
+        for capability_id, grant in parent_grants.items():
+            if capability_id == AGENT_SPAWN_CAPABILITY_ID and not nested:
+                continue
+            if (
+                request.agent_type is ChildAgentType.EXPLORE
+                and capability_id not in explore_allowed
+            ):
+                continue
+            proposed.append(
+                grant.model_copy(
+                    update={
+                        "grant_id": f"grant:child:{request.spawn_id}:{capability_id}",
+                        "granted_by": f"agent.spawn:{request.spawn_id}",
+                        "granted_at": now,
+                    }
+                )
+            )
+        try:
+            derived = derive_child_grants(
+                parent_grants=tuple(parent_grants.values()),
+                proposed_child_grants=tuple(proposed),
+                parent_remaining_budget=_static_grant_ceiling(parent_grants),
+                agent_type=request.agent_type,
+                nested_spawn_enabled=nested,
+                task_grants=tuple(parent_grants.values()),
+            )
+        except ChildAgentContractError as exc:
+            raise ChildAgentNotSpawnable(
+                f"child agent grant derivation refused the spawn: {exc}"
+            ) from exc
+        return {grant.capability_id: grant for grant in derived}
+
+    # ------------------------------------------------------------------
+    # Attribution, burial and stop propagation
+    # ------------------------------------------------------------------
+
+    def surface_child_agents(self, session_id: str) -> SurfaceChildAgentsResponse:
+        task_id = self.surface_task_for_session(session_id)
+        return self._child_agents_response(session_id, task_id, buried=())
+
+    def surface_reconcile_child_agents(
+        self, command: SurfaceChildAgentReconcileCommand
+    ) -> SurfaceChildAgentsResponse:
+        """Operator-declared burial of children whose runtime generation is gone.
+
+        The owner of this decision is the authenticated operator, exactly as for
+        the single-session dead-turn recovery: no component fabricates a child's
+        outcome. A child owned by this live runtime generation is never buried
+        (the request is refused), and every burial is one durable
+        ``CHILD_AGENT_FINISHED`` (status ``failed``, reason
+        ``unknown_requires_review``) plus one ``CHILD_AGENT_RECONCILED`` block
+        naming the reason code, the declaring operator and this generation.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("child agent reconciliation requires principal authority")
+        reason = command.reason.strip()
+        if not reason:
+            raise ValueError("child agent reconciliation requires a reason")
+        task_id = self.surface_task_for_session(command.session_id)
+        index = self.child_agent_index()
+        with self._live_child_lock:
+            live = tuple(self._live_child_spawns)
+        orphans = self._buriable_children(
+            index, task_id, in_memory_spawn_ids=live
+        )
+        if not orphans and index.in_flight_children(task_id):
+            raise ChildAgentBurialRefused(
+                "every in-flight child of this session is owned by this live "
+                "runtime generation; nothing is buried"
+            )
+        now = self._clock()
+        buried: list[ChildAgentBurial] = []
+        for orphan in orphans:
+            child = orphan.child
+            self.tasks.record_child_agent_finished(
+                task_id,
+                ChildAgentFinished(
+                    spawn_id=child.spawn_id,
+                    status=ChildAgentStatus.FAILED,
+                    steps=0,
+                    tokens=0,
+                    stop_reason=CHILD_AGENT_STOP_REASON_UNKNOWN,
+                    summary_digest=summary_digest(""),
+                ),
+                parent_run_id=child.parent_run_id,
+            )
+            burial = ChildAgentBurial(
+                spawn_id=child.spawn_id,
+                child_session_id=child.child_session_id,
+                child_task_id=child.child_task_id,
+                reason_code=(
+                    CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE
+                    if orphan.spawn_runtime_boot_id != self._runtime_boot_id
+                    else CHILD_AGENT_RECONCILE_REASON_SPAWN_ABANDONED
+                ),
+                outcome=CHILD_AGENT_RECONCILE_OUTCOME,
+                declared_by=actor.principal_id,
+                declared_at=now,
+                runtime_boot_id=self._runtime_boot_id,
+                runtime_pid=os.getpid(),
+                reason=reason,
+                child_open_turn_id=index.open_turn_id(child.child_task_id),
+            )
+            self.tasks.record_child_agent_reconciled(
+                task_id, burial.payload(), parent_run_id=child.parent_run_id
+            )
+            buried.append(burial)
+        return self._child_agents_response(command.session_id, task_id, buried=tuple(buried))
+
+    def _buriable_children(
+        self,
+        index: ChildAgentIndex,
+        task_id: str,
+        *,
+        in_memory_spawn_ids: Sequence[str],
+    ) -> tuple[Any, ...]:
+        """In-flight children that no live worker owns and no human is deciding.
+
+        A child parked on its own permission prompt is **not** buriable: its
+        session carries a pending approval and only the operator's
+        APPROVE/REJECT may resolve that. Every other ownerless in-flight child
+        is - a crashed generation's child, or one whose spawn call died without
+        writing a finish record inside this generation.
+        """
+
+        orphans = orphaned_children(
+            index, task_id, in_memory_spawn_ids=in_memory_spawn_ids
+        )
+        buriable: list[Any] = []
+        for orphan in orphans:
+            projected = self.tasks.project_session(
+                orphan.child.child_task_id, orphan.child.child_session_id
+            )
+            if projected.pending_approval is not None:
+                continue
+            buriable.append(orphan)
+        return tuple(buriable)
+
+    def stop_child_agent(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        stop_reason: str = STOP_REASON_STOPPED_BY_OPERATOR,
+    ) -> ChildAgentChild:
+        """Stop one in-flight child through the existing C7 correction path.
+
+        This is the *operator's* stop, expressed with the operator's own tool:
+        the same task-scope correction ``surface_correct_session`` writes. The
+        child's next dispatch is denied by the broker and its loop stops at the
+        next step boundary; the durable finish record then says what happened.
+        Nothing here approves, widens or clears anything.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("stopping a child agent requires principal authority")
+        index = self.child_agent_index()
+        task_id = self.surface_task_for_session(session_id)
+        link = index.link_for_child_task(task_id)
+        parent_task_id = str(link["parent_task_id"])
+        spawn_id = str(link["spawn_id"])
+        child = next(
+            (
+                candidate
+                for candidate in index.children(parent_task_id)
+                if candidate.spawn_id == spawn_id
+            ),
+            None,
+        )
+        if child is None:
+            raise ChildAgentLinkError(
+                f"child {spawn_id} has no durable spawn record"
+            )
+        if not index.is_in_flight(child):
+            # The child already ended; stopping is idempotent, not a rewrite.
+            return child
+        epoch = self.correction_admin.correct("task", task_id, reason)
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.CORRECTION_WRITTEN,
+            {
+                "scope": "TASK",
+                "epoch": epoch,
+                "halted": True,
+                "reason": reason,
+                "written_by": actor.principal_id,
+            },
+        )
+        self.tasks.record_child_agent_finished(
+            parent_task_id,
+            ChildAgentFinished(
+                spawn_id=spawn_id,
+                status=child_agent_status_for_stop_reason(stop_reason),
+                steps=0,
+                tokens=0,
+                stop_reason=stop_reason,
+                summary_digest=summary_digest(""),
+            ),
+            parent_run_id=child.parent_run_id,
+        )
+        return child
+
+    def close_session_and_stop_children(self, session_id: str) -> None:
+        """Close a session and make sure no child outlives that closure.
+
+        Every in-flight child is stopped first (the operator's own C7
+        correction on the child's task, which the broker and the child's loop
+        both honour), recorded as ``parent_session_closed``, and its child
+        session closed when it has no pending approval. The parent session is
+        closed last, so the closure never leaves a running child behind it.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("closing a session requires principal authority")
+        task_id = self.surface_task_for_session(session_id)
+        index = self.child_agent_index()
+        for child in index.in_flight_children(task_id):
+            self.stop_child_agent(
+                child.child_session_id,
+                reason=f"parent session {session_id} was closed",
+                stop_reason=CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
+            )
+            try:
+                self.tasks.close_session(child.child_task_id, child.child_session_id)
+            except InvalidTransitionError:
+                # A parked approval keeps the child session open on purpose:
+                # only a human APPROVE/REJECT may resolve it.
+                pass
+        self.tasks.close_session(task_id, session_id)
+
+    def _child_agents_response(
+        self,
+        session_id: str,
+        task_id: str,
+        *,
+        buried: tuple[ChildAgentBurial, ...],
+    ) -> SurfaceChildAgentsResponse:
+        index = self.child_agent_index()
+        by_turn: dict[str, list[ChildAgentChild]] = {}
+        for child in index.children(task_id):
+            by_turn.setdefault(child.spawned.parent_turn_id, []).append(child)
+        open_turn = index.open_turn_id(task_id)
+        if open_turn is not None:
+            by_turn.setdefault(open_turn, [])
+        own_steps: dict[str, tuple[int, int]] = {}
+        for event in self.store.read(task_id):
+            if event.event_type is not TaskEventType.SESSION_TURN_COMPLETED:
+                continue
+            payload = event.decoded_payload()
+            turn_id = payload.get("turn_id")
+            steps = payload.get("steps")
+            tokens = payload.get("total_tokens")
+            if (
+                isinstance(turn_id, str)
+                and isinstance(steps, int)
+                and isinstance(tokens, int)
+            ):
+                own_steps[turn_id] = (steps, tokens)
+        attribution = tuple(
+            index.attribution(
+                task_id,
+                session_id,
+                turn_id,
+                parent_own_steps=own_steps.get(turn_id, (0, 0))[0],
+                parent_own_tokens=own_steps.get(turn_id, (0, 0))[1],
+            )
+            for turn_id in sorted(by_turn)
+        )
+        with self._live_child_lock:
+            live = tuple(sorted(self._live_child_spawns))
+        orphans = self._buriable_children(
+            index, task_id, in_memory_spawn_ids=live
+        )
+        return SurfaceChildAgentsResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            session_id=session_id,
+            children_included_in_totals=True,
+            turns=attribution,
+            orphaned=tuple(
+                ChildAgentOrphanProjection(
+                    spawn_id=orphan.child.spawn_id,
+                    child_session_id=orphan.child.child_session_id,
+                    child_task_id=orphan.child.child_task_id,
+                    description=orphan.child.spawned.description,
+                    agent_type=orphan.child.spawned.agent_type,
+                    spawn_runtime_boot_id=orphan.spawn_runtime_boot_id,
+                    spawned_by_current_generation=(
+                        orphan.spawn_runtime_boot_id == self._runtime_boot_id
+                    ),
+                )
+                for orphan in orphans
+            ),
+            buried=tuple(
+                ChildAgentBurialRecord.model_validate(record.payload())
+                for record in buried
+            ),
+        )
 
     def _record_chat_message(
         self,

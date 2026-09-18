@@ -1096,6 +1096,42 @@ function failedEvent(seq: number, body: Record<string, unknown>) {
   };
 }
 
+/** The durable refusal record a DENY leaves (kernel `_record_policy_verdict`).
+ * Shaped after the real payload: a refused action is never proposed, dispatched
+ * or receipted, so this is the ONLY trace of it. */
+function verdictEvent(seq: number, body: Record<string, unknown>) {
+  return {
+    event_id: `e:${seq}`,
+    task_id: "task:1",
+    event_type: "POLICY_VERDICT_RECORDED",
+    payload_json: JSON.stringify(body),
+    occurred_at: new Date().toISOString(),
+    sequence: seq,
+  };
+}
+
+function ruleDenial(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    verdict: "DENY",
+    basis: "rule",
+    mode_event_id: null,
+    rule_id: "rule-1",
+    rule_reason: "deploy freeze",
+    capability_id: "workspace.edit",
+    risk_tier: 2,
+    action_digest: "digest-1",
+    action_id: "a:edit",
+    node_id: "node:a:edit",
+    arguments_json: JSON.stringify({
+      path: "fixture.txt",
+      old_string: "stable\n",
+      new_string: "fixed\n",
+    }),
+    reason: "denied by an operator permission rule",
+    ...overrides,
+  };
+}
+
 function applyDurable(
   controller: TuiController,
 ): (next: number, events: unknown[]) => void {
@@ -1304,6 +1340,181 @@ test("a tool call that sealed nothing converges to failed, not pending (round-3 
     failedEvent(3, { action_id: "a:edit", node_id: "node:a:edit", error: reason }),
   ]);
   assert.equal(controller.messages[0]?.tool?.resultSummary, summary);
+});
+
+test("a permission DENY reaches the operator as a failed card (defect b)", () => {
+  // The kernel refuses the action before proposing it, so no ACTION_PROPOSED,
+  // no receipt and no completion ever exist — the durable verdict is the ONLY
+  // trace. Before this projection the transcript showed nothing at all while
+  // headless reported success, so this test is also the bypass detector: delete
+  // the POLICY_VERDICT_RECORDED branch and it goes red.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+
+  apply(1, [verdictEvent(1, ruleDenial())]);
+
+  const tool = controller.messages[0]?.tool;
+  assert.ok(tool, "the refusal must produce a card");
+  assert.equal(tool?.status, "failed");
+  assert.equal(toolState(tool!), "failed");
+  assert.equal(tool?.capabilityId, "workspace.edit");
+  assert.equal(tool?.argsSummary, "fixture.txt", "the card names what was attempted");
+  assert.match(tool?.resultSummary ?? "", /denied by rule rule-1/);
+  assert.match(tool?.resultSummary ?? "", /deploy freeze/);
+  // A refusal is not a proposal: never pending, never approvable.
+  assert.notEqual(toolState(tool!), "pending");
+
+  const rendered = renderTranscript(controller.messages, {
+    sessionId: "s:1",
+    mode: "ASK",
+    tokens: 0,
+    goal: null,
+  });
+  assert.match(rendered, /- tool \[failed\] workspace\.edit \(fixture\.txt\)/);
+  assert.match(rendered, /denied by rule rule-1/);
+  assert.ok(!rendered.includes("[pending]"), "a refusal must not export as pending");
+
+  assert.equal(controller.policyDenials.length, 1);
+  assert.equal(controller.policyDenials[0]?.basis, "rule");
+  assert.equal(controller.policyDenials[0]?.ruleId, "rule-1");
+
+  // Replay of the same durable verdict must not double the card or the count.
+  apply(2, [verdictEvent(2, ruleDenial())]);
+  assert.equal(controller.messages.length, 1);
+  assert.equal(controller.policyDenials.length, 1);
+});
+
+test("an out-of-allowlist DENY also produces a failed card", () => {
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [
+    verdictEvent(1, {
+      verdict: "DENY",
+      basis: "out_of_allowlist",
+      mode_event_id: null,
+      capability_id: "workspace.exfiltrate",
+      risk_tier: null,
+      action_digest: "digest-x",
+      proposal_id: "call-x",
+      arguments_json: JSON.stringify({ path: "fixture.txt" }),
+      reason: "capability is outside the frozen session allowlist",
+    }),
+  ]);
+  const tool = controller.messages[0]?.tool;
+  assert.equal(tool?.status, "failed");
+  assert.equal(tool?.capabilityId, "workspace.exfiltrate");
+  assert.match(tool?.resultSummary ?? "", /outside the frozen session allowlist/);
+  assert.equal(controller.policyDenials[0]?.basis, "out_of_allowlist");
+  assert.equal(controller.policyDenials[0]?.ruleId, null);
+});
+
+test("a mode ALLOW verdict is not an operator-visible card", () => {
+  // `POLICY_VERDICT_RECORDED(ALLOW, basis=permission_mode)` is prior session
+  // policy, not an outcome: it must not grow a card of its own.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [
+    verdictEvent(1, {
+      verdict: "ALLOW",
+      basis: "permission_mode",
+      mode_event_id: "evt-1",
+      rule_id: null,
+      capability_id: "workspace.edit",
+      risk_tier: 2,
+      action_digest: "digest-1",
+      action_id: "a:edit",
+      node_id: "node:a:edit",
+      arguments_json: "{}",
+      reason: null,
+    }),
+  ]);
+  assert.equal(controller.messages.length, 0);
+  assert.equal(controller.policyDenials.length, 0);
+});
+
+test("a DENY for an already-proposed action fails that card instead of adding one", () => {
+  // The resume path: the action was escalated (card exists, pending), the
+  // operator then added a DENY rule and pressed approve — the kernel refuses and
+  // the card must converge to failed rather than stay pending forever.
+  const controller = new TuiController({} as never);
+  const apply = applyDurable(controller);
+  apply(1, [proposedEvent(1, "a:edit", "workspace.edit", '{"path":"fixture.txt"}')]);
+  assert.equal(controller.messages[0]?.tool?.status, "pending");
+
+  apply(2, [verdictEvent(2, ruleDenial())]);
+
+  assert.equal(controller.messages.length, 1, "no second card for the same action");
+  assert.equal(controller.messages[0]?.tool?.status, "failed");
+  assert.match(controller.messages[0]?.tool?.resultSummary ?? "", /denied by rule rule-1/);
+  assert.equal(controller.policyDenials.length, 1);
+});
+
+test("a resumed session replays a historical DENY as a card without charging it to this turn", async () => {
+  // Review regression (PR #75): `POLICY_VERDICT_RECORDED` carries no `turn_id`,
+  // and attaching to a session drains from `durableCursor` 0, so the whole
+  // history is replayed here. The card must stay (the transcript is rebuilt
+  // from that replay) while the turn-scoped `policyDenials` — what headless
+  // turns into exit 4 — must not inherit a refusal this client never witnessed.
+  const client = new FakeClient();
+  client.snapshotSequence = 3; // the session already has history up to seq 3
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/resume s:1");
+  const apply = applyDurable(controller);
+
+  apply(3, [verdictEvent(1, ruleDenial())]);
+  const card = controller.messages.find((message) => message.tool !== undefined)?.tool;
+  assert.equal(card?.status, "failed", "the refusal is history: it keeps its card");
+  assert.match(card?.resultSummary ?? "", /denied by rule rule-1/);
+  assert.equal(controller.policyDenials.length, 0, "but it is not this turn's refusal");
+
+  // Exact boundary: the watermark's own sequence is history, not this turn.
+  apply(3, [
+    verdictEvent(3, ruleDenial({ action_id: "a:at-watermark", node_id: "node:a:at-watermark" })),
+  ]);
+  assert.equal(controller.policyDenials.length, 0);
+
+  // A refusal recorded after the attach IS this turn's.
+  apply(4, [
+    verdictEvent(4, ruleDenial({ action_id: "a:edit-now", node_id: "node:a:edit-now" })),
+  ]);
+  assert.equal(controller.policyDenials.length, 1);
+  assert.equal(controller.policyDenials[0]?.ruleId, "rule-1");
+});
+
+test("switching sessions re-seeds the watermark in the new session's sequence space", async () => {
+  // Each task has its own sequence space, so a watermark carried over from a
+  // far-advanced session would hide every refusal of a younger one (and
+  // vice versa). Re-seeding exactly on session change is what keeps the scoping
+  // honest in both directions.
+  const client = new FakeClient();
+  client.snapshotSequence = 50;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("/resume s:1");
+  const apply = applyDurable(controller);
+  apply(51, [verdictEvent(51, ruleDenial())]);
+  assert.equal(controller.policyDenials.length, 1);
+
+  const snapshotFor = client.getSession.bind(client);
+  client.getSession = async () => {
+    const base = await snapshotFor();
+    return { ...base, event_sequence: 2, session: { ...base.session, session_id: "s:2" } };
+  };
+  await controller.submit("/resume s:2");
+  // The new session's own history is history again...
+  apply(2, [
+    verdictEvent(1, ruleDenial({ action_id: "a:hist-s2", node_id: "node:a:hist-s2" })),
+  ]);
+  assert.equal(controller.policyDenials.length, 1, "the new session's history stays history");
+  // ...and its young sequence space is counted on its own scale: under a
+  // carried-over max() watermark (50) this refusal at seq 3 would be dropped.
+  apply(3, [
+    verdictEvent(3, ruleDenial({ action_id: "a:edit-s2", node_id: "node:a:edit-s2" })),
+  ]);
+  assert.equal(
+    controller.policyDenials.length,
+    2,
+    "a refusal after the switch is the new session's, not silently dropped",
+  );
 });
 
 test("a rejected approval resolves the card instead of leaving it pending", async () => {

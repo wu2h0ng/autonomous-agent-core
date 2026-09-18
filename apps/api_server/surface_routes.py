@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from ._cors import _tauri_origin_cors
 
 from agent_os_contracts import (
+    SurfaceChildAgentReconcileCommand,
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
@@ -177,6 +178,10 @@ class SurfaceRoutes:
                 self._get_provider(handler)
                 return
             if method == "GET":
+                session_id = _match_surface_session_leaf(handler.path, "children")
+                if session_id is not None:
+                    self._get_children(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "conflict")
                 if session_id is not None:
                     self._get_conflict(handler, session_id)
@@ -241,6 +246,12 @@ class SurfaceRoutes:
                 session_id = _match_surface_session_leaf(handler.path, "correction")
                 if session_id is not None:
                     self._post_correction(handler, session_id)
+                    return
+                session_id = _match_surface_session_leaf(
+                    handler.path, "children/reconcile"
+                )
+                if session_id is not None:
+                    self._post_reconcile_children(handler, session_id)
                     return
             handler._json(404, {"error": "surface_route_not_found"})
         except Exception as exc:
@@ -422,6 +433,32 @@ class SurfaceRoutes:
         self._require_protocol_header(handler)
         handler._json(
             200, {"snapshot": self._runtime.resume(command).model_dump(mode="json")}
+        )
+
+    def _get_children(self, handler: Any, session_id: str) -> None:
+        """Read-only attribution roll-up and orphan picture for one session."""
+
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            self._runtime.child_agents(session_id).model_dump(mode="json"),
+        )
+
+    def _post_reconcile_children(self, handler: Any, session_id: str) -> None:
+        """Operator-declared burial of children whose runtime generation is gone."""
+
+        body = handler._body()
+        command = SurfaceChildAgentReconcileCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        handler._json(
+            200,
+            self._runtime.reconcile_child_agents(command).model_dump(
+                mode="json"
+            ),
         )
 
     def _post_correction(self, handler: Any, session_id: str) -> None:
