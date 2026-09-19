@@ -17,6 +17,7 @@ from agent_os_contracts import (
 )
 
 from .responsibility_loop import (
+    OperatorWorkEventKind,
     ResponsibilityCycleState,
     ResponsibilityLoopBinding,
     ResponsibilityLoopStaleFence,
@@ -261,6 +262,7 @@ class ResponsibilityLoopController:
         binding: ResponsibilityLoopBinding,
         *,
         process_instance_id: str,
+        operator_input_at: datetime | None = None,
     ) -> ResponsibilityControllerResult:
         if (
             self._actor.tenant_id != binding.tenant_id
@@ -340,6 +342,23 @@ class ResponsibilityLoopController:
                 }
             )
             aggregate = self._tasks.get_task(commitment.task_id)
+            if operator_input_at is not None:
+                self._loop.append_operator_work_event(
+                    binding,
+                    event_id="operator-user-input:"
+                    + content_digest(
+                        {
+                            "binding_digest": binding.digest,
+                            "cycle_id": cycle_id,
+                            "at": operator_input_at.isoformat(),
+                        }
+                    ),
+                    kind=OperatorWorkEventKind.USER_INPUT,
+                    cycle_id=cycle_id,
+                    task_id=commitment.task_id,
+                    run_id=aggregate.run.run_id if aggregate.run is not None else None,
+                    occurred_at=operator_input_at,
+                )
             organ_route = self._select_route(item, commitment)
             if organ_route is ResponsibilityOrganRoute.SELFDEV and (
                 self._execute_selfdev is None or item.link.selfdev_spec is None
@@ -747,6 +766,23 @@ class ResponsibilityLoopController:
                         existing_cycle_receipt.receipt_digest
                     ),
                 )
+                if operator_input_at is not None:
+                    self._loop.append_operator_work_event(
+                        binding,
+                        event_id="operator-user-input:"
+                        + content_digest(
+                            {
+                                "binding_digest": binding.digest,
+                                "cycle_id": cycle_id,
+                                "at": operator_input_at.isoformat(),
+                            }
+                        ),
+                        kind=OperatorWorkEventKind.USER_INPUT,
+                        cycle_id=cycle_id,
+                        task_id=existing_cycle_receipt.task_id,
+                        run_id=existing_cycle_receipt.run_id,
+                        occurred_at=operator_input_at,
+                    )
                 hcw_receipt = self._loop.measure_hcw(
                     binding,
                     cycle_id=cycle_id,

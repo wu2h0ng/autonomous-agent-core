@@ -3149,3 +3149,56 @@ def test_agent_run_interrupt_inside_tool_effect_checkpoints_and_exits_130(
     )
     runtime = context.loop_store.runtime_status(context.binding)
     assert runtime["unknown_effect_count"] == 1
+
+
+def test_run_responsibility_work_records_operator_user_input(
+    tmp_path: Path,
+) -> None:
+    """Each operator-triggered work run persists a USER_INPUT operator event.
+
+    Live-run telemetry must capture the operator's input action, not just
+    HELP_RESPONSE and CORRECTION. This test verifies that invoking
+    run_responsibility_work (ordinary ORDINARY_TASK route) appends a
+    USER_INPUT event to operator_work_events, bound to the active cycle.
+    """
+    isolated, branch, head = _linked_worktree(tmp_path)
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_post_test_read_workflow(NOW),
+        work_route=ResponsibilityWorkRoute.ORDINARY_TASK,
+    )
+    owner.provider = DeterministicProvider(
+        invocation_binding=owner.provider.invocation_binding,
+    )
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+
+    run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={"target_path": "fixture.txt"},
+        resume=False,
+    )
+
+    with sqlite3.connect(database) as connection:
+        rows = connection.execute(
+            "SELECT kind, cycle_id, task_id, run_id FROM operator_work_events"
+        ).fetchall()
+    kinds = [row[0] for row in rows]
+    assert "USER_INPUT" in kinds, (
+        f"run_responsibility_work did not record USER_INPUT; got kinds={kinds}"
+    )
+    user_input_rows = [row for row in rows if row[0] == "USER_INPUT"]
+    assert len(user_input_rows) == 1
+    assert user_input_rows[0][1] is not None
+    assert user_input_rows[0][2] is not None

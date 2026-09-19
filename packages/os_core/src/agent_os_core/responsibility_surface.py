@@ -748,10 +748,12 @@ def run_responsibility_work(
     )
     results: list[dict[str, Any]] = []
     process_prefix = f"agent-work:{os.getpid()}:{uuid4().hex}"
+    operator_input_at = datetime.now(timezone.utc)
     for index in range(max_cycles):
         result = controller.run_once(
             context.binding,
             process_instance_id=f"{process_prefix}:{index}",
+            operator_input_at=operator_input_at if index == 0 else None,
         )
         results.append(_result_payload(result))
         if result.state is not ResponsibilityControllerState.SETTLED:
