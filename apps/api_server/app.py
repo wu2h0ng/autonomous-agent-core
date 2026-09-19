@@ -2967,10 +2967,17 @@ class AgentOSApplication:
         task_id: str,
         run: Any,
         closed: bool,
+        *,
+        racy_halted: bool = False,
     ) -> SurfaceSessionStatus:
         if closed:
             return SurfaceSessionStatus.CLOSED
-        if self.correction.halted(task_id, run.run_id, "provider"):
+        halted = (
+            self.correction.halted_racy(task_id, run.run_id, "provider")
+            if racy_halted
+            else self.correction.halted(task_id, run.run_id, "provider")
+        )
+        if halted:
             return SurfaceSessionStatus.CORRECTION_HALTED
         if run.status is RunStatus.WAITING_APPROVAL:
             return SurfaceSessionStatus.WAITING_APPROVAL
@@ -3023,7 +3030,7 @@ class AgentOSApplication:
                 run = aggregate.run
                 if run is None:
                     continue  # no Run -> not a live enumerable session (fail-closed)
-                status = self._surface_session_status(task_id, run, projected.closed)
+                status = self._surface_session_status(task_id, run, projected.closed, racy_halted=True)
             except Exception:
                 continue  # fail-closed: omit rather than fabricate
             seen_sessions.add(session_id)
