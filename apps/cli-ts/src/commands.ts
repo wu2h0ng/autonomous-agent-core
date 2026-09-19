@@ -21,6 +21,11 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: "/status", argsHint: "", description: "session id, status, permission mode, event sequence" },
   { name: "/cost", argsHint: "", description: "exact token totals; cost is UNKNOWN (no pricing source)" },
   {
+    name: "/metrics",
+    argsHint: "[process|log]",
+    description: "provider call counts, latency, tokens and failure categories (no prompt text)",
+  },
+  {
     name: "/provider",
     argsHint: "[set <base-url> <model> [endpoint-class]]",
     description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",

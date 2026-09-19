@@ -93,6 +93,35 @@ class FakeClient {
       key_source: "env",
     };
   }
+  metricsSources: string[] = [];
+  metricsResult: Record<string, unknown> = {
+    source: "in_process",
+    taken_at: "2026-09-18T10:00:00+00:00",
+    window_records: 3,
+    calls: 2,
+    attempts: 3,
+    responses: 2,
+    failures: 1,
+    retries: 1,
+    latency: { samples: 3, mean_ms: 20, p50_ms: 10, p90_ms: 40, p95_ms: 40, max_ms: 40 },
+    tokens: { input_tokens: 3, output_tokens: 6, total_tokens: 9, usage_samples: 2 },
+    failure_categories: [{ code: "RATE_LIMITED", count: 1, retryable: true }],
+    rate_limit: {
+      rate_limited_attempts: 1,
+      retry_after_observed: 0,
+      max_retry_after_seconds: null,
+      local_waits: 1,
+      local_wait_ms_total: 2000,
+      local_wait_ms_max: 2000,
+      local_rejections: 0,
+    },
+  };
+  metricsFailure: Error | null = null;
+  async providerMetrics(source: string) {
+    this.metricsSources.push(source);
+    if (this.metricsFailure) throw this.metricsFailure;
+    return this.metricsResult;
+  }
   async getSession() {
     this.getSessionCalls += 1;
     return snapshot({
@@ -692,6 +721,32 @@ test("/doctor: wired probe text is surfaced; unavailable probe is honest", async
   });
   await failing.submit("/doctor");
   assert.match(failing.messages.at(-1)?.content ?? "", /doctor failed: probe exploded/);
+});
+
+test("/metrics: renders the aggregated window; an unavailable source is honest", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never);
+
+  await controller.submit("/metrics");
+  const panel = controller.messages.at(-1)?.panel;
+  assert.ok(panel, "the metrics panel is pushed");
+  assert.equal(panel.title, "provider metrics");
+  const rendered = panel.lines.join("\n");
+  assert.match(rendered, /calls\s+2 \(3 attempts, 1 retried\)/);
+  assert.match(rendered, /outcome\s+2 responses, 1 failures/);
+  assert.match(rendered, /p50 10\.0ms/);
+  assert.match(rendered, /failure\s+RATE_LIMITED x1/);
+  assert.equal(client.metricsSources.at(-1), "process", "the default source is the process window");
+
+  await controller.submit("/metrics log");
+  assert.equal(client.metricsSources.at(-1), "log");
+
+  await controller.submit("/metrics sideways");
+  assert.match(controller.messages.at(-1)?.content ?? "", /usage: \/metrics/);
+
+  client.metricsFailure = new Error("no AGENT_OS_PROVIDER_LOG is set");
+  await controller.submit("/metrics log");
+  assert.match(controller.messages.at(-1)?.content ?? "", /metrics unavailable: no AGENT_OS_PROVIDER_LOG/);
 });
 
 test("/retry and /edit: recall the last operator message", async () => {

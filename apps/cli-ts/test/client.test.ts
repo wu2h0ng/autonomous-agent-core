@@ -337,6 +337,60 @@ test("clearProvider posts to the provider clear route", async () => {
   );
 });
 
+test("providerMetrics reads the aggregated, content-free window", async () => {
+  const payload = {
+    schema_version: "1.0",
+    source: "log_file",
+    taken_at: new Date().toISOString(),
+    window_records: 3,
+    calls: 2,
+    attempts: 3,
+    responses: 2,
+    failures: 1,
+    retries: 1,
+    latency: { samples: 3, mean_ms: 20, p50_ms: 10, p90_ms: 40, p95_ms: 40, max_ms: 40 },
+    tokens: { input_tokens: 3, output_tokens: 6, total_tokens: 9, usage_samples: 2 },
+    failure_categories: [{ code: "RATE_LIMITED", count: 1, retryable: true }],
+    rate_limit: {
+      rate_limited_attempts: 1,
+      retry_after_observed: 1,
+      max_retry_after_seconds: 2,
+      local_waits: 1,
+      local_wait_ms_total: 2000,
+      local_wait_ms_max: 2000,
+      local_rejections: 0,
+    },
+  };
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "GET");
+      assert.equal(req.url, "/v1/surface/observability/metrics?source=log");
+      assert.equal(req.body, undefined, "the metrics read is a plain GET");
+      assert.equal(req.auth, `Bearer ${TOKEN}`);
+      return { status: 200, json: { metrics: payload } };
+    },
+    async (client) => {
+      const metrics = await client.providerMetrics("log");
+      assert.equal(metrics.source, "log_file");
+      assert.equal(metrics.attempts, 3);
+      assert.equal(metrics.failure_categories[0]?.code, "RATE_LIMITED");
+      assert.equal(metrics.rate_limit.local_waits, 1);
+    },
+  );
+});
+
+test("providerMetrics defaults to the process window and rejects a malformed body", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.url, "/v1/surface/observability/metrics?source=process");
+      return { status: 200, json: { metrics: { source: "in_process" } } };
+    },
+    async (client) => {
+      await assert.rejects(() => client.providerMetrics());
+    },
+  );
+});
+
 test("getReadOnly issues a GET with no body (read-only projections only)", async () => {
   const seen: { method: string; body?: string; auth: string | null }[] = [];
   await withServer(

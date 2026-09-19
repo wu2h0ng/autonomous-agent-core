@@ -22,6 +22,7 @@ import { chmodSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type {
   PermissionMode,
+  ProviderMetricsSnapshot,
   SurfaceFileEntry,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
@@ -165,6 +166,56 @@ export function parseTodoItems(argsJson: string): TodoItem[] | null {
 export interface MessagePanel {
   title: string;
   lines: string[];
+}
+
+function formatMilliseconds(value: number | null | undefined): string {
+  return value === null || value === undefined ? "n/a" : `${value.toFixed(1)}ms`;
+}
+
+/**
+ * `/metrics` card: the aggregated provider boundary.
+ *
+ * Counts and codes only — the payload has no prompt or completion text, so
+ * there is nothing here to redact. A window with no timed attempt says so
+ * instead of printing a zero latency (`0.0ms` would be a made-up measurement).
+ */
+export function metricsPanel(metrics: ProviderMetricsSnapshot): MessagePanel {
+  const lines = [
+    `source   ${metrics.source} (${metrics.window_records} attempts in the window)`,
+    `calls    ${metrics.calls} (${metrics.attempts} attempts, ${metrics.retries} retried)`,
+    `outcome  ${metrics.responses} responses, ${metrics.failures} failures`,
+  ];
+  if (metrics.latency.samples > 0) {
+    lines.push(
+      `latency  p50 ${formatMilliseconds(metrics.latency.p50_ms)}  p90 ${formatMilliseconds(
+        metrics.latency.p90_ms,
+      )}  max ${formatMilliseconds(metrics.latency.max_ms)}`,
+      `tokens   ${metrics.tokens.total_tokens} (in ${metrics.tokens.input_tokens} / out ${metrics.tokens.output_tokens})`,
+    );
+  } else {
+    lines.push(
+      "latency  no timed attempt in the window",
+      `tokens   ${metrics.tokens.total_tokens} (no usage reported yet)`,
+    );
+  }
+  const rate = metrics.rate_limit;
+  lines.push(
+    `rate     server 429s ${rate.rate_limited_attempts}` +
+      (rate.max_retry_after_seconds === null || rate.max_retry_after_seconds === undefined
+        ? ""
+        : ` (max Retry-After ${rate.max_retry_after_seconds}s)`) +
+      `; local waits ${rate.local_waits} (${rate.local_wait_ms_total.toFixed(0)}ms); local refusals ${rate.local_rejections}`,
+  );
+  for (const category of metrics.failure_categories) {
+    lines.push(`failure  ${category.code} x${category.count}`);
+  }
+  if (metrics.window_truncated) {
+    lines.push("window   truncated: older attempts were dropped from the window");
+  }
+  if ((metrics.ignored_lines ?? 0) > 0) {
+    lines.push(`window   ${metrics.ignored_lines} unusable log line(s) ignored`);
+  }
+  return { title: "provider metrics", lines };
 }
 
 export interface SearchHit {
@@ -510,6 +561,9 @@ export class TuiController {
       case "/cost":
         this.push({ role: "system", content: "", panel: this.costPanel() });
         return true;
+      case "/metrics":
+        await this.metricsCommand(rest);
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -587,6 +641,27 @@ export class TuiController {
         `turns    ${this.turns}`,
       ],
     };
+  }
+
+  /** `/metrics` — the aggregated provider boundary (read-only). `log` reads the
+   * operator's own provider log on the daemon (AGENT_OS_PROVIDER_LOG) instead of
+   * the running process's window; an unavailable source is reported as such
+   * rather than rendered as an empty panel. */
+  private async metricsCommand(rest: string[]): Promise<void> {
+    const source = (rest[0] ?? "process").toLowerCase();
+    if (source !== "process" && source !== "log") {
+      this.push({ role: "system", content: "usage: /metrics [process|log]" });
+      return;
+    }
+    try {
+      const metrics = await this.client.providerMetrics(source);
+      this.push({ role: "system", content: "", panel: metricsPanel(metrics) });
+    } catch (error) {
+      this.push({
+        role: "system",
+        content: `metrics unavailable: ${(error as Error).message}`,
+      });
+    }
   }
 
   /** `/cost` card. Tokens are cumulative session usage; the provider does not
