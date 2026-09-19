@@ -327,6 +327,7 @@ founder 的指示是"按主流做法做"。本节给出来源与差异，并**�
   - 断言：子会话内第二次 begin-turn 仍报 typed `SurfaceTurnInProgress`（`surface_runtime.py:417-422`）；子的在途回合不阻塞父或兄弟的 begin-turn。
   - **证伪观测**：子会话第二次 begin-turn 成功；或父/兄弟的 begin-turn 被子误冻；或出现同会话并发多回合。
 - **G10 stop 语义（先决，baseline `NOT_MET`）**
+  - **【2026-09-19 重裁：仍为 `NOT_MET`，但已收窄到一个具名剩余切片；逐句证据与结论见 §15】**
   - 断言：停父 ⇒ 其在途子各以 `stop_reason=stopped_by_operator` durable 结束；单独停一个子走既有单会话停止路径且其余不受影响；子不比父活得更久。
   - **今天的反例（已记录、未修）**：surface 会话 `pause` 抛 `InvalidTransitionError`——`RunStatus.QUEUED` 的允许集不含 `PAUSED`（`task_service.py:2396-2410`；`app.py:2487-2492`；`docs/CURRENT_STATE.yaml:51` 缺陷 (a)）。
   - **证伪观测**：stop 后其子仍继续产生派发或事件；或 stop 后没有 durable 终止记录；或停一个子导致其它子/父被误停。
@@ -423,3 +424,36 @@ founder 的指示是"按主流做法做"。本节给出来源与差异，并**�
 `specified: 本文件` / `implemented: NO` / `tested: NO` / `integrated: NO` / `verified: NO` / `released: NO`。
 
 本文件**未**新增任何运行时代码、契约或协议改动，**未**运行任何测试、**未**起任何 daemon、**未**读 `~/.agent-os/`、**未**修改 `docs/CURRENT_STATE.yaml`。§4 的 `[证明]` 是对 baseline 代码的结构性读码结论；§4 的 `[推断]` 与 §7 的 gate 是**要求**，其通过与否则由实现批次的证据决定。**不得据本文件声称 C6/C7 保持已被证明成立、不得声称 parity、不得声称产品就绪或任何自主主张。**
+
+
+## 15. G10 重裁记录（2026-09-19，基于实现批次证据）
+
+本节是对 §7 G10 的一次**正式重裁**，只依据在真实 head 上跑到的证据，不凭实现或提交信息。G10 的判据是合取的：必须在 pty 或等价 e2e 中**同时**观测到 `PARENT_STOPPED_CHILDREN_DURABLY` 与 `SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED`，否则记 `NOT_MET`。下面逐句对账。
+
+### 15.1 句 B：`SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED` —— 基本成立（一处加强项缺口）
+
+"单独停一个子，走既有单会话停止路径，且其余不受影响"：
+
+- **在飞子、经真实操作者路径可停（durable）**：`tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_operator_can_stop_one_in_flight_child_over_surface`（真实 daemon + HTTP surface + 短延迟 provider，约 22 s，PASS）。子回合进行中 `POST /v1/surface/sessions/{parent}/children/stop` 立即返回；子事件流以 `RUN_PAUSED` 结尾，随后经正常 spawn 收尾写 `CHILD_AGENT_FINISHED(stop_reason=stopped_by_operator)`；GET children 显示 stopped；用新幂等键再停不产生第二条 finish（幂等）；对**父自身** session id 调 stop 返回 **422 "not a child"**。
+- 内核在飞/停泊两支：`AgentOSApplication.stop_child_agent` 对"父回合 worker 线程 inline 驱动"的子走非阻塞 `RUN_PAUSED`（#77 的持久停止，不碰被父 spawn effect 全程持有的 correction 锁，避免自死锁）；对 parked/orphan/effect 间隙走同步 C7 correction + 终态记录。
+- parked 子的单子停止 + 父不受影响：`tests/product/test_agent_spawn_kernel.py::test_child_is_individually_stoppable_through_the_existing_path`（status=stopped、`stopped_by_operator`、父 run 不被置 PAUSED，PASS）。
+- TUI：agents 面板高亮在飞子按纯 `x` 即停（`opentui/agents.ts`/`viewkeys.ts`/`app.tsx`），Ctrl-X 全局"停本 run"不被劫持。
+- **加强项缺口（不改变本句主体，但需补）**：尚无用**两个并发在飞子**的 e2e 正面证明"停一个时兄弟继续派发、父仍 ACTIVE"。现有证据是父不被误停（kernel 断言 + 对父 id 的 422），但没有"兄弟继续跑"的正面观测。
+
+### 15.2 句 A：`PARENT_STOPPED_CHILDREN_DURABLY` —— 未成立（操作者路径未接线）
+
+"停父 ⇒ 其**在途**子各以 `stop_reason=stopped_by_operator` durable 结束"：
+
+- 内核**有**助手 `AgentOSApplication.close_session_and_stop_children`，但它**没有接到任何操作者可达的 surface 命令/路由**：全仓生产代码无调用方，仅 `tests/product/test_agent_spawn_kernel.py::test_parent_closure_stops_in_flight_children` 直接调用它，且该用例用的是 **parked** 子、终态原因是 **`parent_session_closed`**（不是 G10 具名的 `stopped_by_operator`）。
+- 操作者实际的"停"（Ctrl-X → `surface_pause_session`；correction → `surface_correct_session`）**只作用于父任务本身**，不遍历停在飞子。
+- 读侧祖先级联 `ChildAgentHaltCascade` 会在父被 halt 后**拒绝子的下一次派发**（C7 不旁路），但"拒绝后续派发"不等于"为每个在飞子补一条 durable `CHILD_AGENT_FINISHED(stopped_by_operator)`"；目前没有 pty/e2e 观测到停父时每个在飞子都 durable 终止。
+- "子不比父活得更久"只在**运行时死亡/重启**这一支成立：P6 启动 orphan scan 在 SIGKILL+重启后回收每个在飞子，终态 `failed / unknown_requires_review`（探针 P6 PASS）——它覆盖崩溃恢复，**不**覆盖操作者主动停父，且原因不是 `stopped_by_operator`。
+
+### 15.3 重裁结论
+
+- **G10 整体仍记 `NOT_MET`**：句 B 基本成立，句 A 在操作者路径上未成立，合取不满足。**不得**据本节或据"单子可停已实现"对外声称"可以停掉子代理（含停父级联）"。
+- 剩余切片（很小，且含一个需 founder/设计拍板的语义点，不允许实现侧自行猜测）：
+  1. **语义决策**：哪个操作者动作级联停在飞子——可 resume 的 Ctrl-X/pause，还是一个独立的"关闭会话"动作；以及终态原因取 G10 具名的 `stopped_by_operator` 还是助手现用的 `parent_session_closed`。
+  2. 把该操作者路径接线到遍历 `in_flight_children` 并复用现有非阻塞 `stop_child_agent`（在飞走 `RUN_PAUSED` 由子循环自收尾，parked/orphan 同步终态），为每个在飞子写 durable 终态。
+  3. 用**至少两个并发在飞子**的 pty/等价 e2e，按具名观测落地：停父→两个子都 `CHILD_AGENT_FINISHED(stopped_by_operator)`（`PARENT_STOPPED_CHILDREN_DURABLY`）；停一个→被停子终止、**兄弟继续派发、父保持 ACTIVE**（`SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED`，同时补上 15.1 的加强项）。
+- 不变的既有保留项：Form B 默认**关**、三条 fail-closed 关断开关仍在；本线所有评审仍是**同模型 subagent** 工作，`builder_id != reviewed_by` **不满足**、无独立 provider 批准——这是 founder 接受过的**豁免**，不是满足；本节不构成 release/publish 授权。
