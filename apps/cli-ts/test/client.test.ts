@@ -6,11 +6,8 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import test from "node:test";
-import {
-  SurfaceClient,
-  SurfaceClientAuthenticationError,
-  SurfaceStreamStaleError,
-} from "../src/client.js";
+import { SurfaceClient, SurfaceClientAuthenticationError, SurfaceStreamStaleError } from "../src/client.js";
+import { SURFACE_PROTOCOL_VERSION } from "../src/contracts.js";
 import type { RuntimeDescriptor } from "../src/descriptor.js";
 
 const TOKEN = "test-token";
@@ -91,7 +88,10 @@ test("openSession sends protocol version + bearer and tracks sequence", async ()
     (req) => {
       assert.equal(req.auth, `Bearer ${TOKEN}`);
       const command = JSON.parse(req.body ?? "{}");
-      assert.equal(command.protocol_version, "1.1");
+      // Compared against the declared constant, not a literal: pinning a
+      // version here is what made the 1.1 -> 1.2 bump a test edit instead of a
+      // contract change.
+      assert.equal(command.protocol_version, SURFACE_PROTOCOL_VERSION);
       assert.equal(command.client.client_type, "CLI");
       assert.ok(command.idempotency_key.length > 0);
       return { status: 200, json: { snapshot: snapshot("s:1", 3) } };
@@ -337,6 +337,60 @@ test("clearProvider posts to the provider clear route", async () => {
   );
 });
 
+test("providerMetrics reads the aggregated, content-free window", async () => {
+  const payload = {
+    schema_version: "1.0",
+    source: "log_file",
+    taken_at: new Date().toISOString(),
+    window_records: 3,
+    calls: 2,
+    attempts: 3,
+    responses: 2,
+    failures: 1,
+    retries: 1,
+    latency: { samples: 3, mean_ms: 20, p50_ms: 10, p90_ms: 40, p95_ms: 40, max_ms: 40 },
+    tokens: { input_tokens: 3, output_tokens: 6, total_tokens: 9, usage_samples: 2 },
+    failure_categories: [{ code: "RATE_LIMITED", count: 1, retryable: true }],
+    rate_limit: {
+      rate_limited_attempts: 1,
+      retry_after_observed: 1,
+      max_retry_after_seconds: 2,
+      local_waits: 1,
+      local_wait_ms_total: 2000,
+      local_wait_ms_max: 2000,
+      local_rejections: 0,
+    },
+  };
+  await withServer(
+    (req) => {
+      assert.equal(req.method, "GET");
+      assert.equal(req.url, "/v1/surface/observability/metrics?source=log");
+      assert.equal(req.body, undefined, "the metrics read is a plain GET");
+      assert.equal(req.auth, `Bearer ${TOKEN}`);
+      return { status: 200, json: { metrics: payload } };
+    },
+    async (client) => {
+      const metrics = await client.providerMetrics("log");
+      assert.equal(metrics.source, "log_file");
+      assert.equal(metrics.attempts, 3);
+      assert.equal(metrics.failure_categories[0]?.code, "RATE_LIMITED");
+      assert.equal(metrics.rate_limit.local_waits, 1);
+    },
+  );
+});
+
+test("providerMetrics defaults to the process window and rejects a malformed body", async () => {
+  await withServer(
+    (req) => {
+      assert.equal(req.url, "/v1/surface/observability/metrics?source=process");
+      return { status: 200, json: { metrics: { source: "in_process" } } };
+    },
+    async (client) => {
+      await assert.rejects(() => client.providerMetrics());
+    },
+  );
+});
+
 test("getReadOnly issues a GET with no body (read-only projections only)", async () => {
   const seen: { method: string; body?: string; auth: string | null }[] = [];
   await withServer(
@@ -352,6 +406,87 @@ test("getReadOnly issues a GET with no body (read-only projections only)", async
   assert.equal(seen[0]?.method, "GET");
   assert.equal(seen[0]?.body, undefined);
   assert.equal(seen[0]?.auth, `Bearer ${TOKEN}`);
+});
+
+function childRollup(sessionId: string) {
+  return {
+    protocol_version: "1.2",
+    session_id: sessionId,
+    children_included_in_totals: true,
+    turns: [
+      {
+        parent_session_id: sessionId,
+        parent_turn_id: "turn-1",
+        children: [
+          {
+            spawn_id: "spawn-1",
+            child_session_id: "child-1",
+            child_task_id: "ctask-1",
+            agent_type: "explorer",
+            description: "d",
+            status: "stopped",
+            steps: 0,
+            tokens: 0,
+            stop_reason: null,
+          },
+        ],
+      },
+    ],
+    in_flight: [
+      { spawn_id: "spawn-1", child_session_id: "child-1", parent_turn_id: "turn-1" },
+    ],
+    orphaned: [],
+    buried: [],
+  };
+}
+
+test("childAgents GETs the roll-up and exposes the in-flight (stoppable) set", async () => {
+  const seen: { method: string; url: string; body?: string }[] = [];
+  await withServer(
+    (req) => {
+      seen.push({ method: req.method, url: req.url, ...(req.body ? { body: req.body } : {}) });
+      return { status: 200, json: childRollup("parent-1") };
+    },
+    async (client) => {
+      const rollup = await client.childAgents("parent-1");
+      assert.equal(rollup.session_id, "parent-1");
+      assert.equal(rollup.in_flight[0]?.child_session_id, "child-1");
+      assert.equal(rollup.turns[0]?.children[0]?.child_session_id, "child-1");
+    },
+  );
+  assert.equal(seen[0]?.method, "GET");
+  assert.equal(seen[0]?.url, "/v1/surface/sessions/parent-1/children");
+  assert.equal(seen[0]?.body, undefined);
+});
+
+test("stopChildAgent POSTs the per-child stop command with route scope + idempotency key", async () => {
+  const seen: { method: string; url: string; body?: string }[] = [];
+  await withServer(
+    (req) => {
+      seen.push({ method: req.method, url: req.url, ...(req.body ? { body: req.body } : {}) });
+      return { status: 200, json: childRollup("parent-1") };
+    },
+    async (client) => {
+      const rollup = await client.stopChildAgent("parent-1", "child-1");
+      assert.equal(rollup.session_id, "parent-1");
+    },
+  );
+  assert.equal(seen[0]?.method, "POST");
+  assert.equal(seen[0]?.url, "/v1/surface/sessions/parent-1/children/stop");
+  const body = JSON.parse(seen[0]?.body ?? "{}") as Record<string, unknown>;
+  assert.equal(body.session_id, "parent-1");
+  assert.equal(body.child_session_id, "child-1");
+  assert.equal(body.reason, "stopped_by_operator");
+  assert.equal(typeof body.idempotency_key, "string");
+  assert.equal(typeof body.requested_at, "string");
+  assert.equal(body.protocol_version, SURFACE_PROTOCOL_VERSION);
+  const clientRef = body.client as Record<string, unknown>;
+  assert.equal(clientRef.client_type, "CLI");
+  assert.equal(clientRef.principal_id, "user:local");
+  assert.equal(clientRef.tenant_id, "tenant:local");
+  assert.equal(clientRef.workspace_id, "workspace:local");
+  assert.equal(typeof clientRef.client_id, "string");
+  assert.equal(typeof clientRef.device_id, "string");
 });
 
 const TASK_ID = "task:1";

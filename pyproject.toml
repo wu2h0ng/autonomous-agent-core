@@ -20,6 +20,10 @@ product-test = [
     "pyright>=1.1.410,<2",
     "pyyaml>=6,<7",
     "ruff>=0.14,<1",
+    # Test-time only: powers the optional, default-off Ed25519 signature
+    # verification scaffold (packages/os_core/.../distribution/signature_verify.py)
+    # and its hermetic test. NOT a runtime dependency of the installed tool.
+    "cryptography>=43,<56",
 ]
 # Optional OS-keychain backend for the terminal provider credential store
 # (no argv exposure). Without it the runtime falls back to the `security` CLI
@@ -54,6 +58,15 @@ pythonpath = [
     "packages/contracts/src",
     "packages/os_core/src",
 ]
+# `quarantine(reason=...)` marks an offline-deterministic test that cannot run in this
+# repo's CI because it depends on an asset this repo does not materialize (a live provider
+# key, a Docker daemon + pinned image, or the cross-repo runner worktree pinned at a
+# commit). The conftest hook turns each such mark into a skip that ALWAYS carries its
+# reason; there is no bare skip and no deleted test. Un-quarantine only when the named
+# asset is available and the test re-confirms green.
+markers = [
+    "quarantine: offline test gated on an asset this repo does not ship; reason= states what is missing and when it can be lifted",
+]
 
 [tool.pyright]
 pythonVersion = "3.11"
@@ -71,6 +84,8 @@ include = [
     "tests/product_eval/test_terminal_agent_eval.py",
     "tests/product_eval/test_terminal_agent_eval_l1.py",
     "tests/product_eval/test_terminal_agent_eval_live.py",
+    "tests/product_eval/test_terminal_coding_eval.py",
+    "tests/product_eval/test_terminal_coding_eval_live.py",
     "tests/research/r_srl_1",
 ]
 extraPaths = [

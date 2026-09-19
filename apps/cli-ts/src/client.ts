@@ -15,19 +15,25 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
+  SurfaceChildAgentsResponseSchema,
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
   SurfaceProviderStatusSchema,
+  ProviderMetricsSnapshotSchema,
   SurfaceSessionListResponseSchema,
   SurfaceSessionSnapshotSchema,
   SurfaceStreamBatchSchema,
   SurfaceStreamFrameSchema,
   SurfaceStreamSubscriptionSchema,
   SurfaceTaskOverviewSchema,
+  SurfaceTurnRecoveryResponseSchema,
   SurfaceTurnResponseSchema,
   TaskEventSchema,
+  TurnTraceSchema,
+  type ProviderMetricsSnapshot,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
+  type SurfaceChildAgentsResponse,
   type SurfaceClientRef,
   type SurfaceEventBatch,
   type SurfaceFileEntry,
@@ -39,8 +45,10 @@ import { z } from "zod";import {
   type SurfaceStreamFrame,
   type SurfaceStreamSubscription,
   type SurfaceTaskOverview,
+  type SurfaceTurnRecoveryResponse,
   type SurfaceTurnResponse,
   type TaskEvent,
+  type TurnTrace,
 } from "./contracts.js";
 import { localHostname, type RuntimeDescriptor } from "./descriptor.js";
 import { parseSse } from "./sse.js";
@@ -216,6 +224,45 @@ export class SurfaceClient {
     return this.unwrap(response, "provider", SurfaceProviderStatusSchema);
   }
 
+  /**
+   * Aggregated provider boundary (read-only): call/attempt counts, latency,
+   * tokens, failure categories and both directions of rate limiting.
+   *
+   * `process` (the default) is the runtime's own bounded window; `log` is the
+   * operator's provider log file, which only exists when the daemon was started
+   * with AGENT_OS_PROVIDER_LOG. Either way the payload is content-free, so it is
+   * safe to render in the transcript.
+   */
+  async providerMetrics(source: "process" | "log" = "process"): Promise<ProviderMetricsSnapshot> {
+    const query = new URLSearchParams({ source });
+    const response = await this.request(
+      "GET",
+      `/v1/surface/observability/metrics?${query.toString()}`,
+    );
+    return this.unwrap(response, "metrics", ProviderMetricsSnapshotSchema);
+  }
+
+  /**
+   * Read-only trace of one governed turn: which durable records the turn
+   * contains, in order, and which id links each one to the turn.
+   *
+   * `turnId` is optional — without it the daemon traces the session's most
+   * recently started turn, which is what "the turn that just ran" means. An
+   * unknown turn is a typed 404 from the daemon, surfaced as a thrown error so
+   * the caller can say so rather than render an empty timeline.
+   */
+  async turnTrace(sessionId: string, turnId?: string): Promise<TurnTrace> {
+    if (!sessionId.trim()) throw new Error("session id must be non-empty");
+    const query = new URLSearchParams();
+    if (turnId !== undefined && turnId !== "") query.set("turn_id", turnId);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    const response = await this.request(
+      "GET",
+      `/v1/surface/sessions/${encodeURIComponent(sessionId)}/trace${suffix}`,
+    );
+    return this.unwrap(response, "trace", TurnTraceSchema);
+  }
+
   /** Read-only session listing (C2). Returns [] if the runtime has no
    * sessions; throws on transport/protocol errors so callers can fall back. */
   async listSessions(limit = 50): Promise<SurfaceSessionSummary[]> {
@@ -235,6 +282,46 @@ export class SurfaceClient {
    */
   async getReadOnly(path: string): Promise<unknown> {
     return this.request("GET", path);
+  }
+
+  /** Read-only child-agent roll-up for one parent session (Form B / G10). */
+  async childAgents(parentSessionId: string): Promise<SurfaceChildAgentsResponse> {
+    const response = await this.request(
+      "GET",
+      `/v1/surface/sessions/${encodeURIComponent(parentSessionId)}/children`,
+    );
+    return SurfaceChildAgentsResponseSchema.parse(response);
+  }
+
+  /**
+   * Operator stop of ONE in-flight child (per-child stop). It drives the same
+   * per-child C7 stop the kernel exposes and is idempotent at the kernel: a
+   * child that already ended returns the current roll-up without rewriting it,
+   * and a session that is not a live child of this parent is refused 422.
+   */
+  async stopChildAgent(
+    parentSessionId: string,
+    childSessionId: string,
+    reason = "stopped_by_operator",
+    idempotencyKey?: string,
+  ): Promise<SurfaceChildAgentsResponse> {
+    if (!childSessionId.trim()) throw new Error("child session id must be non-empty");
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${encodeURIComponent(parentSessionId)}/children/stop`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: parentSessionId,
+        child_session_id: childSessionId,
+        reason,
+        idempotency_key:
+          idempotencyKey ??
+          `cli-ts-child-stop:${parentSessionId}:${childSessionId}:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    return SurfaceChildAgentsResponseSchema.parse(response);
   }
 
   /** Subscription-first: mint a transient stream under the current daemon
@@ -341,6 +428,74 @@ export class SurfaceClient {
     const snapshot = this.unwrap(response, "snapshot", SurfaceSessionSnapshotSchema);
     this.track(snapshot);
     return snapshot;
+  }
+
+  /**
+   * Operator-explicit close of a session (G10), cascading to its children.
+   *
+   * Distinct from a resumable pause/Ctrl-X: this ends the session and stops
+   * every in-flight child, whose durable terminal record is named
+   * `stopped_by_operator`. The returned snapshot shows the session CLOSED.
+   */
+  async closeSession(
+    sessionId: string,
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<SurfaceSessionSnapshot> {
+    if (!reason.trim()) throw new Error("close reason must be non-empty");
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/close`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        reason,
+        expected_event_sequence: this.sequence(sessionId),
+        idempotency_key: idempotencyKey ?? `cli-ts-close:${sessionId}:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const snapshot = this.unwrap(response, "snapshot", SurfaceSessionSnapshotSchema);
+    this.track(snapshot);
+    return snapshot;
+  }
+
+  /** Declare the session's open durable turn dead and close it as unknown.
+   *
+   * The turn's owning process is gone, so nothing will ever complete it; the
+   * kernel records the closure as `unknown_requires_review` with the typed
+   * recovery record (who declared it, on what evidence, why). It is never a
+   * success record, and the kernel refuses a turn its own runtime still owns. */
+  async recoverTurn(
+    sessionId: string,
+    turnId: string,
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<SurfaceTurnRecoveryResponse> {
+    if (!turnId.trim()) throw new Error("turn id must be non-empty");
+    if (!reason.trim()) throw new Error("recovery reason must be non-empty");
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/recover-turn`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        turn_id: turnId,
+        reason,
+        expected_event_sequence: this.sequence(sessionId),
+        idempotency_key: idempotencyKey ?? `cli-ts-recover-turn:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const recovery = this.unwrap(
+      response,
+      "recovery",
+      SurfaceTurnRecoveryResponseSchema,
+    );
+    this.track(recovery.snapshot);
+    return recovery;
   }
 
   private readonly streamCursors = new Map<string, number>();

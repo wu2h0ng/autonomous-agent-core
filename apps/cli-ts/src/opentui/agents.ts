@@ -7,7 +7,22 @@
  * The terminal never renders mandate mission/statement text or credentials —
  * rows carry identifiers, kind and status only (AB §4/G5).
  */
-export type AgentRowKind = "mandate" | "task" | "session" | "group";
+export type AgentRowKind = "mandate" | "task" | "session" | "child" | "group";
+
+/** One child agent row, flattened from the parent session's roll-up.
+ * `in_flight` is the runtime liveness signal, NOT the conservative attribution
+ * status (an unfinished child is reported `stopped` in the roll-up). */
+export interface ChildRowInput {
+  parent_session_id: string;
+  spawn_id: string;
+  child_session_id: string;
+  agent_type: string;
+  status: string;
+  steps: number;
+  tokens: number;
+  stop_reason: string | null;
+  in_flight: boolean;
+}
 
 export interface AgentTreeInput {
   mandates: readonly { mandate_id: string; status: string }[];
@@ -19,6 +34,8 @@ export interface AgentTreeInput {
     /** Read-only projection of the durable pending approval (never inferred). */
     hasPendingApproval?: boolean;
   }[];
+  /** Child agents, keyed by their parent session id. */
+  children?: readonly ChildRowInput[];
 }
 
 export interface AgentRow {
@@ -28,6 +45,13 @@ export interface AgentRow {
   status: string;
   /** Only ever true for a session row whose projection reported a pending approval. */
   pendingApproval?: boolean;
+  /** Child rows only: the parent session (the route scope for a stop). */
+  parentSessionId?: string;
+  /** Child rows only: liveness - true while the child is actually executing. */
+  inFlight?: boolean;
+  steps?: number;
+  tokens?: number;
+  stopReason?: string | null;
 }
 
 export interface AgentTree {
@@ -73,10 +97,34 @@ export function buildAgentTree(
     list.push(session);
     sessionsByTask.set(session.task_id, list);
   }
+  const childrenByParent = new Map<string, ChildRowInput[]>();
+  for (const child of input.children ?? []) {
+    const list = childrenByParent.get(child.parent_session_id) ?? [];
+    list.push(child);
+    childrenByParent.set(child.parent_session_id, list);
+  }
 
   const rows: AgentRow[] = [];
   const push = (row: AgentRow): void => {
     rows.push(row);
+  };
+  const pushChildren = (parentSessionId: string, depth: number): void => {
+    const children = [...(childrenByParent.get(parentSessionId) ?? [])].sort(
+      (a, b) => compareIds(a.spawn_id, b.spawn_id),
+    );
+    for (const child of children) {
+      push({
+        depth,
+        kind: "child",
+        id: child.child_session_id,
+        status: child.in_flight ? "running" : child.status,
+        parentSessionId,
+        inFlight: child.in_flight,
+        steps: child.steps,
+        tokens: child.tokens,
+        stopReason: child.stop_reason,
+      });
+    }
   };
   const pushTask = (taskId: string, depth: number): void => {
     const sessions = [...(sessionsByTask.get(taskId) ?? [])].sort(
@@ -96,6 +144,7 @@ export function buildAgentTree(
         status: session.status,
         pendingApproval: session.hasPendingApproval === true,
       });
+      pushChildren(session.session_id, depth + 2);
     }
   };
 
@@ -128,8 +177,20 @@ export function agentRowLine(row: AgentRow): string {
         ? "▸"
         : row.kind === "session"
           ? "•"
-          : "≡";
+          : row.kind === "child"
+            ? "◦"
+            : "≡";
   const flag = row.pendingApproval === true ? "  !pending approval" : "";
+  if (row.kind === "child") {
+    const live = row.inFlight === true ? "  !running" : "";
+    const counters =
+      typeof row.steps === "number" && typeof row.tokens === "number"
+        ? `  ${row.steps} step(s) · ${row.tokens} tok`
+        : "";
+    const reason =
+      !row.inFlight && row.stopReason ? `  (${row.stopReason})` : "";
+    return `${indent}${marker} ${row.id}  ${row.status}${counters}${reason}${live}`;
+  }
   const status = row.status === "" ? "" : `  ${row.status}`;
   return `${indent}${marker} ${row.id}${status}${flag}`;
 }
@@ -151,6 +212,30 @@ export function resumableSessionId(
 ): string | null {
   const row = rows[clampCursor(cursor, rows.length)];
   return row !== undefined && row.kind === "session" ? row.id : null;
+}
+
+/** A per-child stop target: only an in-flight child row is stoppable. The
+ * parent session is the route scope; terminal/not-a-child rows return null so
+ * the key falls through instead of issuing a meaningless request. */
+export interface ChildStopTarget {
+  parentSessionId: string;
+  childSessionId: string;
+}
+
+export function stopTargetAtRow(
+  rows: readonly AgentRow[],
+  cursor: number,
+): ChildStopTarget | null {
+  const row = rows[clampCursor(cursor, rows.length)];
+  if (
+    row !== undefined &&
+    row.kind === "child" &&
+    row.inFlight === true &&
+    typeof row.parentSessionId === "string"
+  ) {
+    return { parentSessionId: row.parentSessionId, childSessionId: row.id };
+  }
+  return null;
 }
 
 /** Stable identity of a row, so a refresh can keep the same row highlighted

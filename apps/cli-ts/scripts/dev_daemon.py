@@ -33,6 +33,8 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "packages" / "contracts" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "packages" / "os_core" / "src"))
 
+from agent_os_contracts import SURFACE_PROTOCOL_VERSION  # noqa: E402
+
 TURN1_TEXT = (
     "cli-ts spike deterministic reply: the surface protocol carries these "
     "streaming chunks end to end, with begin-turn reservation, per-frame "
@@ -122,7 +124,7 @@ def main() -> None:
     port = server.server_address[1]
 
     descriptor = {
-        "protocol_version": "1.1",
+        "protocol_version": SURFACE_PROTOCOL_VERSION,
         "pid": os.getpid(),
         "boot_id": f"boot:spike-{os.urandom(4).hex()}",
         "host": "127.0.0.1",

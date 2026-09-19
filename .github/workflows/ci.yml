@@ -258,6 +258,54 @@ jobs:
             exit "$TEST_STATUS"
           fi
 
+      - name: Terminal coding eval (offline qualification, pytest)
+        run: |
+          # Why this step exists: tests/product_eval/ is not in $PRODUCT_ARGS, so the step above
+          # never runs it, and `unittest discover -s tests` cannot collect it either (it has no
+          # __init__.py, and its modules are pytest-style functions, not TestCase classes).
+          # Until this step existed the terminal line's own coding eval -- the corpus that asks
+          # whether the agent can fix code until a suite passes, derive a value it can only know
+          # by reading a file, write a regression test that actually detects the bug it names,
+          # and refuse work the governance path does not authorize -- ran only on a developer's
+          # machine, so "can the terminal agent do work" had no attributable measurement in CI.
+          # What it gates: the OFFLINE qualification of TERMINAL-CODING-EVAL-1 only. The frozen
+          # corpus (product_evals/terminal_agent_eval/manifests/coding_v1.json, digest-verified
+          # before any task runs) is driven through the real product loop three times with
+          # deterministic plans, and each arm has a frozen expected pattern: reference must score
+          # 6/6, null (proposes nothing) must fail every WORK task -- that is what proves the
+          # acceptance graders are not constant-return -- and mutant (plausible but wrong work)
+          # must fail exactly the three tasks it gets wrong. It needs NO provider key, starts no
+          # daemon, and writes only inside a temp workspace it creates; it also fails closed if a
+          # provider is configured from the environment, so an ambient key cannot silently turn
+          # an offline arm into a billable one.
+          # What it does NOT gate, stated so this line is not read as more than it is: model
+          # capability. The live arm of the same corpus needs AGENT_OS_PROVIDER_PROFILE plus
+          # <PROFILE>_BASE_URL/_MODEL/_API_KEY and is skipped here; the second file below asserts
+          # that the live arm fails closed while those are absent.
+          # It is also the only CI dependency tests/product_eval/ has, and `grep -n product_eval
+          # .github/workflows/ci.yml` matches this step and nothing else -- so its own wiring is
+          # asserted in tests/product/test_ci_gate_wiring.py, which used to pass with this whole
+          # step deleted (its product-suite predicate matches `tests/product\b`, never
+          # `tests/product_eval`), emptied into an echo, or given continue-on-error.
+          # Measured on this tree 2026-09-18: 19 passed, 1 skipped in ~8 s (15 passed before this
+          # commit's grader hardening added four cases), and the two files are green when run
+          # together on their own -- that is the local baseline, not a CI one: this step is what
+          # puts them in CI at all.
+          # The third file is the MCP PRECONDITION measurement (capability_horizon.py): it re-runs
+          # the corpus's own reference solutions through the real loop to show that all six demand
+          # nothing outside CHAT_CAPABILITY_IDS, and probes the gate itself -- a capability that is
+          # registered but not exposed is denied with basis=out_of_allowlist and leaves no effect,
+          # while the frozen projection records 0 tool calls and 0 denials for that turn. It gates
+          # the claim in docs/product/MCP-PRECONDITION-EVIDENCE-2026-09-18.md: widen the chat
+          # surface or teach the projection to count a horizon denial, and this file fails.
+          # Measured on this tree 2026-09-18: 22 passed, 1 skipped in ~10 s, and the identical run
+          # reported 0 failures before the horizon file was added (15 passed, 1 skipped in ~6 s).
+
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src \
+            python -m pytest tests/product_eval/test_terminal_coding_eval.py \
+                            tests/product_eval/test_terminal_coding_eval_live.py \
+                            tests/product_eval/test_terminal_coding_horizon.py -q
+
   # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
   # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it
   # runs on a different runtime (Bun) with its own suite (node:test, 205 cases). It had NO CI
@@ -268,14 +316,17 @@ jobs:
     runs-on: ubuntu-latest
     # Wall-clock bound, because this job has none of its own and CI's default is 360 minutes.
     # It is the only job that installs a full node + bun toolchain, builds the client, packs the
-    # tarball and starts a hermetic daemon, so it is the slowest and the one that can HANG: the
-    # render tests spawn Bun (which can block on a renderer that never exits) and the install
-    # smoke spawns a daemon (which can block on a socket that never answers). Measured here, a
-    # healthy run is far inside this bound (the node:test suite itself: 205 cases / 0 fail in
-    # ~1.6 s; the build/pack/start hops dominate), so 20 minutes is a hang detector, not a
-    # performance gate -- it turns "the turn never finishes" into a 20-minute attributable
-    # failure instead of six hours of runner time.
-    timeout-minutes: 20
+    # tarball, starts a hermetic daemon and now drives that client through a real pty, so it is the
+    # slowest and the one that can HANG: the render tests spawn Bun (which can block on a renderer
+    # that never exits), the install smoke spawns a daemon (which can block on a socket that never
+    # answers) and the frame checks spawn both. Raised 20 -> 30 minutes on 2026-09-19 to hold the
+    # frame-check step added below (~390 s measured, budget-bounded at 720 s) next to the rest, and
+    # it is still a hang detector rather than a performance gate: each of the two suites that can
+    # hang is bounded by its OWN budget (scripts/test-ci.mjs 720 s, scripts/pty-ci.mjs 720 s) and
+    # tests/product/test_ci_gate_wiring.py asserts both fit inside this bound with a 300 s reserve
+    # left for install/typecheck/install-smoke. A hung child therefore turns into an attributable
+    # failure well before this number.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       # Node is only the test DRIVER: scripts.test is `node --import tsx --test <files>`, and no
@@ -363,6 +414,60 @@ jobs:
           python-version: "3.12"
       - name: Python runtime for the hermetic daemon
         run: pip install "sqlglot==30.13.0" "pydantic>=2.13,<3" "pyyaml>=6,<7"
+      # --- TUI frame checks: the terminal-level claims, enforced -----------------------------------
+      # Why this step exists: every claim that can only be established by looking at a REAL
+      # terminal frame -- key handling, modal layers, the theme actually repainting, the composer
+      # invariants, the home panel, search, syntax highlighting -- is checked by scripts/pty_*.py,
+      # and until this step existed NONE of those scripts ran in CI. The node:test suite never opens
+      # a pty, the typecheck only reads types, and the install smoke drives the entry headlessly
+      # (`--output-format json`), so the whole frame layer was unenforced: a rendering or
+      # key-handling regression was caught only if someone remembered to run the scripts by hand.
+      # This is the same class of gap the governed product suite and the eval suite each had once,
+      # and it is closed the same way.
+      #
+      # The entry point is `scripts/pty-ci.mjs` -- the same shape as `scripts/test-ci.mjs`: one
+      # bounded process per check with its own deadline (240 s) inside a SUITE budget (720 s), each
+      # check's name printed before it runs, and the checks a spent budget never reached reported as
+      # FAILURES rather than skipped. So a hang on the runner is attributable ("this check timed
+      # out") instead of an anonymous cancellation, and a truncated run cannot report success.
+      # `PTY_CHECK_TIMEOUT_MS` / `PTY_SUITE_BUDGET_MS` overrides outside the enforced range are
+      # REJECTED, not clamped.
+      #
+      # It runs the checks that can actually FAIL: 15 of the 19 on disk. The other four
+      # (`pty_fullscreen_p2/p3a/parity_a/parity_c`) print frames and booleans and have no non-zero
+      # exit path -- a step that cannot go red is not a gate, and saying so is better than adding
+      # one that looks enforced -- so they stay in the local `npm run check:frames` set (all 19,
+      # `--all`) and are listed with that reason in scripts/pty-ci.mjs. The runner fails on any
+      # unclassified scripts/pty_*.py, so a new check cannot silently stay out of both sets.
+      #
+      # Measured cost on this tree (2026-09-19, macOS): the 15 gates are ~507 s of wall clock,
+      # dominated by fixed sleeps INSIDE the checks (the TUI has to be given time to paint), which
+      # is why a slower runner scales them far less than CPU-bound work. The job's bound below was
+      # raised 20 -> 30 minutes to hold that next to the existing steps; it is still a hang
+      # detector, because the worst case is bounded by PTY_SUITE_BUDGET_MS and the wiring test
+      # asserts that budget leaves the job's other steps their reserve.
+      #
+      # The checks are hermetic (their own temp descriptor/database/workspace, the scripted
+      # DeterministicProvider, no credentials, no network) and the runner additionally points every
+      # child away from any operator store -- AGENT_OS_CLI_STATE / AGENT_OS_PROVIDER_CONFIG /
+      # AGENT_OS_PRICING_FILE into a temp dir of its own, ambient AGENT_OS_RUNTIME_* dropped -- so
+      # the runner behaves the same on a clean machine as on a developer's.
+      #
+      # The operator-control surface is enforced here as well: the Ctrl-X stop-key, `/resume`
+      # after a stop, the rule-DENY frame, and the runtime-lost (daemon killed mid-session) checks
+      # are all GATES. Each drives the shipped Bun TUI in a real pty and starts its hermetic daemon
+      # with `sys.executable` (no `uv`); pty_fullscreen_p3a_multisession.py also puts the workspace
+      # packages on its own sys.path, because this frame step -- unlike install smoke below -- sets
+      # no PYTHONPATH. Whoever adds a further check classifies it into `GATES` (if it exits non-zero
+      # on a failed assertion) or `EVIDENCE_ONLY` with its reason, in the same PR: pty-ci.mjs fails
+      # on an unclassified scripts/pty_*.py, so this coverage cannot silently stay partial.
+      - name: Frame checks (TUI in a real pty)
+        working-directory: apps/cli-ts
+        # No `uv`: the checks now start their hermetic daemon with `sys.executable` -- the
+        # interpreter running the check -- so the python3 the step above just installed into is the
+        # only one needed. (install_smoke.sh makes the same choice for the same reason: "no `uv`,
+        # which CI need not have".)
+        run: npm run check:frames:ci
       - name: Install smoke (build -> pack -> start -> answer)
         working-directory: apps/cli-ts
         env:

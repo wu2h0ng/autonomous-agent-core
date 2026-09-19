@@ -15,17 +15,18 @@ from threading import RLock
 from typing import Any, Protocol, TypeVar
 
 from agent_os_contracts import (
-    SURFACE_PROTOCOL_VERSION,
     PrincipalIdentity,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
     SurfaceChildAgentReconcileCommand,
+    SurfaceChildAgentStopCommand,
     SurfaceChildAgentsResponse,
     SurfaceClientRef,
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProtocolVersionError,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
     SurfaceProviderStatus,
@@ -35,8 +36,12 @@ from agent_os_contracts import (
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
+    TurnTrace,
     canonical_json,
+    negotiate_surface_protocol_version,
 )
 
 from .session_stream import SessionStreamRegistry, StreamCursor, SurfaceStreamGone
@@ -46,6 +51,7 @@ ResponseT = TypeVar(
     SurfaceSessionSnapshot,
     SurfaceTurnResponse,
     SurfaceBeginTurnResponse,
+    SurfaceTurnRecoveryResponse,
 )
 
 
@@ -77,6 +83,16 @@ class SurfaceTurnInProgress(RuntimeError):
     """
 
 
+class SurfaceTurnOwnedByLiveRuntime(RuntimeError):
+    """Recovery was asked for a turn this runtime generation is still running.
+
+    The in-process ownership registry is the only sound liveness test: a turn
+    this generation holds in flight is alive by construction and must never be
+    closed from under it. A turn with no live owner is a candidate for the
+    operator's explicit dead-turn declaration.
+    """
+
+
 class SurfaceApplicationPort(Protocol):
     """Composition-root authority consumed by the Surface runtime service."""
 
@@ -91,9 +107,15 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_has_uncommitted_turn(self, session_id: str) -> bool: ...
 
+    def surface_open_turn_id(self, session_id: str) -> str | None: ...
+
     def surface_begin_turn(
         self, command: SurfaceBeginTurnCommand
     ) -> SurfaceBeginTurnResponse: ...
+
+    def surface_recover_unknown_turn(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse: ...
 
     def surface_decide_approval(
         self, command: SurfaceApprovalCommand
@@ -111,14 +133,24 @@ class SurfaceApplicationPort(Protocol):
         self, command: SurfaceCorrectionCommand
     ) -> SurfaceSessionSnapshot: ...
 
+    def surface_close_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot: ...
+
     def surface_set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand
     ) -> SurfaceSessionSnapshot: ...
 
     def surface_child_agents(self, session_id: str) -> SurfaceChildAgentsResponse: ...
 
+    def surface_session_is_open(self, session_id: str) -> bool: ...
+
     def surface_reconcile_child_agents(
         self, command: SurfaceChildAgentReconcileCommand
+    ) -> SurfaceChildAgentsResponse: ...
+
+    def surface_stop_child_agent(
+        self, command: SurfaceChildAgentStopCommand
     ) -> SurfaceChildAgentsResponse: ...
 
     def surface_provider_status(self) -> SurfaceProviderStatus: ...
@@ -143,6 +175,10 @@ class SurfaceApplicationPort(Protocol):
     def surface_files_listing(self, task_id: str) -> list[dict[str, Any]]: ...
 
     def surface_task_overview(self, task_id: str) -> dict[str, Any]: ...
+
+    def surface_turn_trace(
+        self, session_id: str, turn_id: str | None = None
+    ) -> TurnTrace: ...
 
     def surface_task_for_session(self, session_id: str) -> str: ...
 
@@ -297,6 +333,37 @@ class SurfaceRuntime:
                 operation=lambda: self._decide_approval_once(command),
             )
 
+    def recover_unknown_turn(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse:
+        """Operator-only: close the session's dead turn as an unknown outcome.
+
+        The gates are the same ones every other state-changing command passes
+        (protocol, principal scope, exact durable sequence, open session,
+        idempotency). This command resolves a *dead* turn only; it never starts
+        a second live one, so the "one in-flight turn per session" invariant is
+        untouched. The application refuses a turn this runtime generation still
+        holds in flight (`SurfaceTurnOwnedByLiveRuntime`).
+        """
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:recover-turn:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceTurnRecoveryResponse,
+                operation=lambda: self._recover_unknown_turn_once(command),
+            )
+
+    def _recover_unknown_turn_once(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse:
+        self._require_protocol(command.protocol_version)
+        task_id = self._application.surface_task_for_session(command.session_id)
+        self._require_principal_scope(command.client)
+        self._require_sequence(task_id, command.expected_event_sequence)
+        self._require_open_session(command.session_id)
+        return self._application.surface_recover_unknown_turn(command)
+
     def pause(self, command: SurfaceCorrectionCommand) -> SurfaceSessionSnapshot:
         return self._control_command(
             command,
@@ -316,6 +383,21 @@ class SurfaceRuntime:
             command,
             f"surface:correct:{command.session_id}",
             self._application.surface_correct_session,
+        )
+
+    def close(self, command: SurfaceCorrectionCommand) -> SurfaceSessionSnapshot:
+        """Operator-explicit close of a session, cascading to its children.
+
+        Distinct from a resumable pause/Ctrl-X: this closes the parent only
+        after every in-flight child is stopped, and the children's durable
+        terminal records are named ``stopped_by_operator``. Idempotent gates
+        are the same as every other control command (protocol, principal
+        scope, exact durable sequence, open session).
+        """
+        return self._control_command(
+            command,
+            f"surface:close:{command.session_id}",
+            self._application.surface_close_session,
         )
 
     def child_agents(self, session_id: str) -> SurfaceChildAgentsResponse:
@@ -351,6 +433,35 @@ class SurfaceRuntime:
         self._require_principal_scope(command.client)
         self._require_open_session(command.session_id)
         return self._application.surface_reconcile_child_agents(command)
+
+    def stop_child_agent(
+        self, command: SurfaceChildAgentStopCommand
+    ) -> SurfaceChildAgentsResponse:
+        """Operator stop of one in-flight child of the route's parent session."""
+
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=(
+                    "surface:child-stop:"
+                    f"{command.session_id}:{command.child_session_id}"
+                ),
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceChildAgentsResponse,
+                operation=lambda: self._stop_child_agent_once(command),
+            )
+
+    def _stop_child_agent_once(
+        self, command: SurfaceChildAgentStopCommand
+    ) -> SurfaceChildAgentsResponse:
+        self._require_protocol(command.protocol_version)
+        self._require_principal_scope(command.client)
+        # A lock-free closed check: the full snapshot gate projects correction
+        # state and would block on the parent spawn effect's held guard while
+        # the child is driven inline (the very window a live stop targets).
+        if not self._application.surface_session_is_open(command.session_id):
+            raise SurfaceProtocolError("surface session is closed")
+        return self._application.surface_stop_child_agent(command)
 
     def set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand
@@ -410,6 +521,21 @@ class SurfaceRuntime:
             raise ValueError("after_sequence must be a non-negative integer")
         return self._application.surface_event_batch(task_id, after_sequence)
 
+    def turn_trace(self, session_id: str, turn_id: str | None = None) -> TurnTrace:
+        """Read-only trace of one governed turn.
+
+        A projection read, not a command: it holds no session lock, writes no
+        idempotency record and changes no state, because a read that could change
+        behaviour is not a read. ``turn_id=None`` asks the application for the
+        session's most recently started turn.
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        if turn_id is not None and not turn_id.strip():
+            raise ValueError("turn_id must be non-empty when provided")
+        return self._application.surface_turn_trace(session_id, turn_id)
+
     def conflict_projection(self, session_id: str) -> Any | None:
         if not session_id.strip():
             raise ValueError("session_id must be non-empty")
@@ -459,8 +585,14 @@ class SurfaceRuntime:
         if self._application.surface_has_uncommitted_turn(command.session_id):
             # Frozen (rev 9): one in-flight turn per session; no queueing, no
             # multiplexing, provider never started.
+            turn_id = self._application.surface_open_turn_id(command.session_id)
             raise SurfaceTurnInProgress(
                 "a prior turn is still uncommitted for this session"
+                + (f" (turn {turn_id})" if turn_id else "")
+                + ": if the runtime that started it is gone the turn can only be"
+                " closed by an explicit operator declaration - POST"
+                f" /v1/surface/sessions/{command.session_id}/recover-turn with"
+                " that turn_id, or `noem session recover <session-id>`"
             )
         response = self._application.surface_begin_turn(command)
         if self._stream_registry is not None:
@@ -534,11 +666,25 @@ class SurfaceRuntime:
             return response_type.model_validate(winning_response)
         return response
 
-    def _require_protocol(self, protocol_version: str) -> None:
-        if protocol_version != SURFACE_PROTOCOL_VERSION:
-            raise SurfaceProtocolError(
-                f"unsupported surface protocol version {protocol_version}"
-            )
+    def _require_protocol(self, protocol_version: str) -> str:
+        """Negotiate the command's protocol version, or raise.
+
+        Ordered MINOR rule: a client one minor behind still speaks a shape this
+        build understands, because a MINOR step is additive. It is negotiated
+        down to its own version rather than rejected, and the callers that
+        serialize a response project it back onto that version (see
+        ``downgrade_surface_payload``), so the version on the wire and the shape
+        of the payload never disagree.
+
+        Anything outside ``[SURFACE_PROTOCOL_MIN_SUPPORTED,
+        SURFACE_PROTOCOL_VERSION]`` — a higher minor, another MAJOR, a malformed
+        value — is refused: there is no lenient fallback.
+        """
+
+        try:
+            return negotiate_surface_protocol_version(protocol_version)
+        except SurfaceProtocolVersionError as exc:
+            raise SurfaceProtocolError(str(exc)) from exc
 
     def _require_principal_scope(self, client: SurfaceClientRef) -> None:
         principal = self._application.principal

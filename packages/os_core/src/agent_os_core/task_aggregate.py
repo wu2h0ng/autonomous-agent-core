@@ -455,6 +455,7 @@ class TaskAggregate:
             TaskEventType.SESSION_TURN_CONTINUATION_CHECKPOINT,
             TaskEventType.SESSION_CONTEXT_COMPACTED,
             TaskEventType.SESSION_PERMISSION_MODE_SET,
+            TaskEventType.PROVIDER_ATTEMPT_FAILED,
             TaskEventType.POLICY_VERDICT_RECORDED,
             TaskEventType.SESSION_CLOSED,
             # Form B child-agent audit markers: durable records about a child
@@ -462,6 +463,9 @@ class TaskAggregate:
             TaskEventType.CHILD_AGENT_SPAWNED,
             TaskEventType.CHILD_AGENT_FINISHED,
             TaskEventType.CHILD_AGENT_RECONCILED,
+            # Append-only session checkpoint marker: a durable reference into the
+            # stream, not a parent state transition.
+            TaskEventType.SESSION_CHECKPOINT_RECORDED,
         }:
             # Chat-turn audit markers carry no aggregate state transition.
             return replace(

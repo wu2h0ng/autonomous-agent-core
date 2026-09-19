@@ -71,6 +71,7 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
     ProtocolIngressReceipt,
+    RecoveredUnknownTurn,
     ResourceBudget,
     RunStatus,
     TaskConfigurationSnapshot,
@@ -79,12 +80,14 @@ from agent_os_contracts import (
     TaskDraftProposal,
     TaskStatus,
     TrajectoryProjection,
+    TurnTrace,
     WorkflowGraph,
     SessionRef,
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
     SurfaceChildAgentReconcileCommand,
     SurfaceChildAgentsResponse,
+    SurfaceChildAgentInFlight,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
     SurfaceCorrectionCommand,
@@ -101,6 +104,8 @@ from agent_os_contracts import (
     SurfaceConflictProjection,
     SurfaceStreamFrameKind,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
     TurnId,
     content_digest,
@@ -192,12 +197,14 @@ from agent_os_core import (
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
+    SurfaceTurnOwnedByLiveRuntime,
     TaskService,
     EnvCredentialBroker,
     AnthropicMessagesProvider,
     GeminiGenerativeProvider,
     OpenAICompatibleProvider,
     build_recovery_snapshot,
+    dead_turn_recovery_notice,
     PromotionPolicyRegistry,
     split_correction_authority,
     PromotionPolicyV1,
@@ -212,6 +219,7 @@ from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.session_projection import SessionLoopConfig
 from agent_os_core.trajectory import TrajectoryProjector
+from agent_os_core.turn_trace import build_turn_trace
 from domain_packs.developer_agent import (
     EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
     DeveloperRepositoryPatchProfile,
@@ -583,6 +591,12 @@ class AgentOSApplication:
             self.workspace_fence
         )
         self._surface_conflicts: dict[str, SurfaceConflictProjection] = {}
+        # Turn ownership for THIS runtime generation only: session -> token of
+        # the begin-turn/synchronous turn this process is executing. In-memory
+        # by construction - a live owner is a process-local fact - and the only
+        # sound liveness test a dead-turn declaration can be checked against.
+        self._surface_turns_in_flight: dict[str, str] = {}
+        self._surface_turns_guard = RLock()
         self.execution_profile = DeveloperRepositoryPatchProfile()
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self._correction_authority = CorrectionAuthority(
@@ -2206,6 +2220,7 @@ class AgentOSApplication:
             config=config,
             initial_history=(system_message,),
             message_sink=self._record_chat_message,
+            runtime_generation=(self._runtime_boot_id, os.getpid()),
             collaboration_preflight=self.collaboration_preflight,
             deny_rules=self.permission_rule_store.list_active(
                 tenant_id=self.principal.tenant_id,
@@ -2329,6 +2344,7 @@ class AgentOSApplication:
             initial_history=projected.history,
             message_sink=self._record_chat_message,
             resumable_turn_ids=resumable_turn_ids,
+            runtime_generation=(self._runtime_boot_id, os.getpid()),
             collaboration_preflight=self.collaboration_preflight,
             text_delta_sink=text_delta_sink,
             reasoning_delta_sink=reasoning_delta_sink,
@@ -2429,6 +2445,7 @@ class AgentOSApplication:
             command.session_id, DeferredApprovalGateway()
         )
         history_before = len(loop.history)
+        ownership = self._claim_surface_turn(command.session_id)
         try:
             result = loop.run_turn(session, command.text)
         except (WorkspaceWriteRejected, ReplanRequired) as exc:
@@ -2438,6 +2455,8 @@ class AgentOSApplication:
                     SurfaceConflictProjection.from_decision(decision)
                 )
             raise
+        finally:
+            self._release_surface_turn(command.session_id, ownership)
         return self._surface_turn_response(
             session.session_id,
             result,
@@ -2483,6 +2502,53 @@ class AgentOSApplication:
             else:
                 completed.add(turn_id)
         return bool(started - completed)
+
+    def surface_open_turn_id(self, session_id: str) -> str | None:
+        """The session's one open durable turn id, or None.
+
+        Same durable truth as `surface_has_uncommitted_turn`, named so an
+        operator notice can bind the exact turn it is talking about.
+        """
+        task_id = self.surface_task_for_session(session_id)
+        started: dict[str, int] = {}
+        completed: set[str] = set()
+        for event in self.store.read(task_id):
+            if event.event_type not in {
+                TaskEventType.SESSION_TURN_STARTED,
+                TaskEventType.SESSION_TURN_COMPLETED,
+            }:
+                continue
+            payload = json.loads(event.payload_json)
+            turn_id = payload.get("turn_id")
+            if not isinstance(turn_id, str) or not turn_id:
+                continue
+            if event.event_type is TaskEventType.SESSION_TURN_STARTED:
+                started.setdefault(turn_id, event.sequence)
+            else:
+                completed.add(turn_id)
+        open_turns = sorted(
+            (sequence, turn_id)
+            for turn_id, sequence in started.items()
+            if turn_id not in completed
+        )
+        return open_turns[-1][1] if open_turns else None
+
+    def _claim_surface_turn(self, session_id: str) -> str:
+        """Record that THIS generation owns the session's turn in flight."""
+        token = uuid4().hex
+        with self._surface_turns_guard:
+            self._surface_turns_in_flight[session_id] = token
+        return token
+
+    def _release_surface_turn(self, session_id: str, token: str) -> None:
+        with self._surface_turns_guard:
+            if self._surface_turns_in_flight.get(session_id) == token:
+                del self._surface_turns_in_flight[session_id]
+
+    def surface_turn_in_flight(self, session_id: str) -> bool:
+        """Whether this runtime generation is executing a turn for the session."""
+        with self._surface_turns_guard:
+            return session_id in self._surface_turns_in_flight
 
     def surface_begin_turn(
         self, command: SurfaceBeginTurnCommand
@@ -2531,6 +2597,11 @@ class AgentOSApplication:
             text_delta_sink=_sink,
             reasoning_delta_sink=_reasoning_sink,
         )
+        # Ownership of this turn for THIS generation, claimed before the worker
+        # can start: a dead-turn declaration must never close a turn this
+        # process is executing, and the claim must hold for the whole window in
+        # which the worker could be running.
+        ownership = self._claim_surface_turn(command.session_id)
 
         def _execute() -> None:
             try:
@@ -2545,6 +2616,7 @@ class AgentOSApplication:
             except BaseException as exc:  # surfaced to the caller below
                 failures.append(exc)
             finally:
+                self._release_surface_turn(command.session_id, ownership)
                 # stream_end (transient): the provider stream closed; the
                 # durable turn commit remains authoritative. Wait briefly for
                 # the authoritative turn_id — a fast provider can finish the
@@ -2650,6 +2722,49 @@ class AgentOSApplication:
             loop_after.history[history_before:],
         )
 
+    def surface_recover_unknown_turn(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse:
+        """Operator declaration that this session's open turn is dead.
+
+        The turn is closed as an unknown outcome (never a success) with a typed,
+        durable record naming the turn, its owning runtime generation, the
+        generation that closed it, and the operator's reason. This is a
+        bookkeeping decision about an outcome that already happened, not an
+        approval: nothing here permits a capability, consumes or grants an
+        approval, or touches policy, evidence or C7.
+
+        Refused when this generation is still executing the session's turn:
+        only a runtime that no longer owns the turn may declare it dead.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("dead turn recovery requires principal authority")
+        if self.surface_turn_in_flight(command.session_id):
+            raise SurfaceTurnOwnedByLiveRuntime(
+                "this runtime generation is still executing this session's turn; "
+                "a live turn is never closed from under itself"
+            )
+        task_id = self.surface_task_for_session(command.session_id)
+        now = self._clock()
+        block = self.tasks.close_dead_session_turn(
+            task_id,
+            command.session_id,
+            turn_id=command.turn_id,
+            declared_by=actor.principal_id,
+            declared_at=now,
+            reason=command.reason,
+            runtime_boot_id=self._runtime_boot_id,
+            runtime_pid=os.getpid(),
+        )
+        return SurfaceTurnRecoveryResponse(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            snapshot=self.surface_session_snapshot(command.session_id),
+            recovery=RecoveredUnknownTurn.model_validate(block),
+            notice=dead_turn_recovery_notice(block),
+        )
+
     def surface_pause_session(
         self, command: SurfaceCorrectionCommand
     ) -> SurfaceSessionSnapshot:
@@ -2680,7 +2795,23 @@ class AgentOSApplication:
     def surface_resume_session(
         self, command: SurfaceCorrectionCommand
     ) -> SurfaceSessionSnapshot:
+        # P1: the terminal must not hand the operator back a corrected/voided
+        # session. A correction halts a new epoch that seals the task; pretending
+        # to resume it (setting the run back to RUNNING) would return a session
+        # that refuses every turn - the dead end the terminal used to fall into.
+        # Refuse HERE, at the terminal-facing surface, with a typed "start a new
+        # session" answer. The internal recovery path (resume_task) is left
+        # alone: C7 recovery un-halts the task to drive compensation, and that
+        # is a different caller, not the terminal.
         task_id = self.surface_task_for_session(command.session_id)
+        task = self.tasks.get_task(task_id)
+        if task.run is not None and self.correction.halted(
+            task_id, task.run.run_id, "provider"
+        ):
+            raise InvalidTransitionError(
+                "this session was corrected and is permanently voided; "
+                "no resume restores it - start a new session"
+            )
         self.resume_task(task_id)
         return self.surface_session_snapshot(command.session_id)
 
@@ -2790,6 +2921,24 @@ class AgentOSApplication:
             }
         )
         return self.surface_provider_status()
+
+    def surface_session_is_open(self, session_id: str) -> bool:
+        """Closed-only open check that never acquires the correction lock.
+
+        The full session snapshot projects correction-halted state, which
+        takes the correction authority's global lock. A live ``agent.spawn``
+        effect drives its child inline while holding that lock for the whole
+        child run, so a per-child stop gated on the full snapshot would block
+        until the child's wall-clock bound - a deadlock against the run it must
+        stop. Stopping only needs the durable closed flag, read straight from
+        the event stream (the same ``projected.closed`` the snapshot uses).
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        return not projected.closed
 
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
         if not session_id.strip():
@@ -2958,6 +3107,31 @@ class AgentOSApplication:
         if len(matches) != 1:
             raise SurfaceSessionNotFound("duplicate durable session identity")
         return matches[0]
+
+    def surface_turn_trace(
+        self,
+        session_id: str,
+        turn_id: str | None = None,
+    ) -> TurnTrace:
+        """Read-only trace of one governed turn, projected from durable records.
+
+        The whole read path is a pure function over the task's own event stream
+        (``agent_os_core.turn_trace.build_turn_trace``): nothing is appended, no
+        authority is consulted and no state changes, so asking for a trace can
+        never alter what happened. The session resolves to its task through the
+        same durable ``SESSION_OPENED`` lookup every other session route uses.
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        self.tasks.get_task(task_id)
+        return build_turn_trace(
+            tuple(self.store.read(task_id)),
+            session_id=session_id,
+            turn_id=turn_id,
+            task_id=task_id,
+        )
 
     def surface_task_overview(self, task_id: str) -> dict[str, object]:
         """Closed read-only task projection for the Plan and Tasks panel."""
@@ -3542,6 +3716,46 @@ class AgentOSApplication:
             buried.append(burial)
         return self._child_agents_response(command.session_id, task_id, buried=tuple(buried))
 
+    def surface_stop_child_agent(self, command: Any) -> SurfaceChildAgentsResponse:
+        """Operator stop of one in-flight child, scoped to its parent session.
+
+        The route is parent-scoped (``command.session_id``), and the named
+        child must be a durable child of that parent: a stop for a session that
+        is not this parent's child fails closed with a typed link error. The
+        stop itself delegates to :meth:`stop_child_agent`, which drives the
+        operator's own C7 correction and is idempotent for an already-ended
+        child. Nothing here approves, widens, retries or fabricates an outcome;
+        the returned roll-up is the parent's fresh child picture.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError(
+                "stopping a child agent requires principal authority"
+            )
+        parent_task_id = self.surface_task_for_session(command.session_id)
+        index = self.child_agent_index()
+        target = next(
+            (
+                child
+                for child in index.children(parent_task_id)
+                if child.child_session_id == command.child_session_id
+            ),
+            None,
+        )
+        if target is None:
+            # Surface boundary: the command names a child relationship that
+            # does not exist (422, fail closed). The kernel's own link
+            # resolution keeps the stricter ChildAgentLinkError internally.
+            raise ValueError(
+                f"child session {command.child_session_id} is not a child of "
+                f"session {command.session_id}; nothing stopped"
+            )
+        self.stop_child_agent(command.child_session_id, reason=command.reason)
+        return self._child_agents_response(
+            command.session_id, parent_task_id, buried=()
+        )
+
     def _buriable_children(
         self,
         index: ChildAgentIndex,
@@ -3571,6 +3785,99 @@ class AgentOSApplication:
             buriable.append(orphan)
         return tuple(buriable)
 
+    def recover_orphaned_children_on_startup(self) -> list[ChildAgentBurial]:
+        """System-run startup sweep: bury children a dead runtime left in flight.
+
+        The daemon composition root calls this once when a fresh runtime
+        generation takes over an existing database (ADR-0061 review G4/G5/E1,
+        probe P6). A child whose owning runtime generation is gone can never
+        finish - its provider call died with that process - so leaving it in
+        flight hangs the parent roll-up for ever, with no durable way to tell
+        "still running" from "was killed".
+
+        This is the automatic counterpart of
+        :meth:`surface_reconcile_child_agents`, with three deliberate
+        differences:
+
+        * no operator principal and no operator reason - the runtime itself
+          owns the call, and ``declared_by`` names this generation rather than
+          impersonating a human;
+        * only children whose durable spawn generation is not THIS generation
+          are eligible (a child this generation owns is never touched), and a
+          child parked on a pending human approval is never buried;
+        * every burial writes the same two durable records as the operator
+          path - ``CHILD_AGENT_FINISHED`` (status ``failed``, stop reason
+          ``unknown_requires_review``) plus ``CHILD_AGENT_RECONCILED`` naming
+          ``CHILD_RUNTIME_GENERATION_GONE`` and the recovering generation.
+
+        Nothing fabricates the dead child's outcome: the finish is never
+        ``completed``, no receipt is invented and no effect is re-dispatched.
+        Returns the burials it wrote so the caller can log them; a database
+        with no orphans (the normal fresh-start case) returns an empty list.
+        """
+
+        if not self.child_agents_enabled:
+            return []
+        index = self.child_agent_index()
+        # A fresh generation owns no in-memory spawns. If this generation
+        # already holds live children the sweep is being called too late and
+        # must not run: fail closed rather than risk burying a live child.
+        with self._live_child_lock:
+            live = tuple(self._live_child_spawns)
+        if live:
+            return []
+        now = self._clock()
+        buried: list[ChildAgentBurial] = []
+        for parent_task_id in self.store.list_task_ids():
+            orphans = self._buriable_children(
+                index, parent_task_id, in_memory_spawn_ids=live
+            )
+            for orphan in orphans:
+                child = orphan.child
+                owner = orphan.spawn_runtime_boot_id
+                # Durable defence in depth: never bury a child this generation
+                # owns. At startup the live set is empty, but the recorded
+                # spawn generation is the real evidence.
+                if owner is not None and owner == self._runtime_boot_id:
+                    continue
+                self.tasks.record_child_agent_finished(
+                    parent_task_id,
+                    ChildAgentFinished(
+                        spawn_id=child.spawn_id,
+                        status=ChildAgentStatus.FAILED,
+                        steps=0,
+                        tokens=0,
+                        stop_reason=CHILD_AGENT_STOP_REASON_UNKNOWN,
+                        summary_digest=summary_digest(""),
+                    ),
+                    parent_run_id=child.parent_run_id,
+                )
+                burial = ChildAgentBurial(
+                    spawn_id=child.spawn_id,
+                    child_session_id=child.child_session_id,
+                    child_task_id=child.child_task_id,
+                    reason_code=CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE,
+                    outcome=CHILD_AGENT_RECONCILE_OUTCOME,
+                    declared_by=f"runtime:{self._runtime_boot_id}:startup-recovery",
+                    declared_at=now,
+                    runtime_boot_id=self._runtime_boot_id,
+                    runtime_pid=os.getpid(),
+                    reason=(
+                        "automatic startup recovery: the runtime generation "
+                        f"that owned this child ({owner}) is gone; the new "
+                        f"generation ({self._runtime_boot_id}) buried it as an "
+                        "unknown outcome"
+                    ),
+                    child_open_turn_id=index.open_turn_id(child.child_task_id),
+                )
+                self.tasks.record_child_agent_reconciled(
+                    parent_task_id,
+                    burial.payload(),
+                    parent_run_id=child.parent_run_id,
+                )
+                buried.append(burial)
+        return buried
+
     def stop_child_agent(
         self,
         session_id: str,
@@ -3578,13 +3885,24 @@ class AgentOSApplication:
         reason: str,
         stop_reason: str = STOP_REASON_STOPPED_BY_OPERATOR,
     ) -> ChildAgentChild:
-        """Stop one in-flight child through the existing C7 correction path.
+        """Stop one in-flight child, by the only path that cannot deadlock.
 
-        This is the *operator's* stop, expressed with the operator's own tool:
-        the same task-scope correction ``surface_correct_session`` writes. The
-        child's next dispatch is denied by the broker and its loop stops at the
-        next step boundary; the durable finish record then says what happened.
-        Nothing here approves, widens or clears anything.
+        Two cases, chosen from the live spawn set, not from durable status:
+
+        * Driven inline on the parent turn's thread, the child runs INSIDE the
+          parent ``agent.spawn`` effect's C7 guard, which holds the correction
+          authority's lock for the effect's whole duration. A synchronous
+          correction would block until the child's wall-clock bound (a deadlock
+          against the run we mean to stop). We use the same non-blocking durable
+          stop as a live parent turn (#77): append RUN_PAUSED; the child observes
+          it at its next safe boundary and writes its own finish.
+        * Parked, orphaned, or between effects, no guard is held, so the
+          synchronous task-scope correction plus a terminal finish is safe and
+          guarantees a terminal record even with no live worker.
+
+        This is the operator's stop with the operator's own tool; it never
+        approves, widens or clears anything. Stopping an already-ended child is
+        an idempotent no-op, not a rewrite.
         """
 
         actor = self.principal
@@ -3610,6 +3928,24 @@ class AgentOSApplication:
         if not index.is_in_flight(child):
             # The child already ended; stopping is idempotent, not a rewrite.
             return child
+        with self._live_child_lock:
+            driven_inline = spawn_id in self._live_child_spawns
+        if driven_inline:
+            # The child is being driven inline on the parent turn's thread,
+            # INSIDE the parent ``agent.spawn`` effect's C7 guard - which holds
+            # the correction authority's lock for the effect's whole duration.
+            # A synchronous correction here would block until the child's wall
+            # clock bound (a deadlock against the very run we mean to stop). Use
+            # the same non-blocking durable stop as a live parent turn (#77):
+            # append RUN_PAUSED to the child's optimistic stream. Its loop
+            # observes PAUSED at the next safe boundary (before the next
+            # provider call / proposal dispatch) and records its own
+            # ``stopped_by_operator`` finish through the normal spawn path.
+            self._pause_task_with_conflict_retry(task_id)
+            return child
+        # Parked, orphaned or between effects: no effect guard is held, so the
+        # synchronous C7 correction + terminal finish is safe and guarantees a
+        # terminal record even when no live worker remains to write one.
         epoch = self.correction_admin.correct("task", task_id, reason)
         self.tasks.append_event(
             task_id,
@@ -3636,14 +3972,27 @@ class AgentOSApplication:
         )
         return child
 
-    def close_session_and_stop_children(self, session_id: str) -> None:
+    def close_session_and_stop_children(
+        self,
+        session_id: str,
+        *,
+        stop_reason: str = CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
+        reason: str | None = None,
+    ) -> None:
         """Close a session and make sure no child outlives that closure.
 
         Every in-flight child is stopped first (the operator's own C7
         correction on the child's task, which the broker and the child's loop
-        both honour), recorded as ``parent_session_closed``, and its child
-        session closed when it has no pending approval. The parent session is
-        closed last, so the closure never leaves a running child behind it.
+        both honour), recorded with ``stop_reason``, and its child session
+        closed when it has no pending approval. The parent session is closed
+        last, so the closure never leaves a running child behind it.
+
+        ``stop_reason`` selects why the durable child terminal record names the
+        stop. The internal, non-operator closure of a session (daemon teardown)
+        uses :data:`CHILD_AGENT_STOP_REASON_PARENT_CLOSED`; the operator's
+        explicit "close session" action (G10) uses the operator-named
+        :data:`STOP_REASON_STOPPED_BY_OPERATOR`, because a human deliberately
+        closed the parent.
         """
 
         actor = self.principal
@@ -3651,11 +4000,12 @@ class AgentOSApplication:
             raise PermissionError("closing a session requires principal authority")
         task_id = self.surface_task_for_session(session_id)
         index = self.child_agent_index()
+        cascade_reason = reason or f"parent session {session_id} was closed"
         for child in index.in_flight_children(task_id):
             self.stop_child_agent(
                 child.child_session_id,
-                reason=f"parent session {session_id} was closed",
-                stop_reason=CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
+                reason=cascade_reason,
+                stop_reason=stop_reason,
             )
             try:
                 self.tasks.close_session(child.child_task_id, child.child_session_id)
@@ -3664,6 +4014,109 @@ class AgentOSApplication:
                 # only a human APPROVE/REJECT may resolve it.
                 pass
         self.tasks.close_session(task_id, session_id)
+
+    def surface_close_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        """Operator-explicit close of a session, cascading to its children.
+
+        This is the operator's durable "close this session" action (G10): it is
+        distinct from a resumable pause/Ctrl-X, and it closes the parent only
+        after every in-flight child has been stopped. Each child's durable
+        terminal record is named ``stopped_by_operator`` - the operator
+        deliberately closed the parent that owned them - never
+        ``parent_session_closed`` (that reason names a non-operator teardown).
+
+        It never approves, widens or retries anything; a parked child approval
+        stays open on purpose (only a human APPROVE/REJECT resolves it), and
+        the parent session close refuses if the parent itself holds a pending
+        approval.
+        """
+
+        self.close_session_and_stop_children(
+            command.session_id,
+            stop_reason=STOP_REASON_STOPPED_BY_OPERATOR,
+            reason=command.reason,
+        )
+        return self.surface_session_snapshot(command.session_id)
+
+    # ------------------------------------------------------------------
+    # Append-only session checkpoints (P0 forward form): write a named marker,
+    # then recover by re-projecting the stream FORWARD from it. No history is
+    # deleted or rewritten.
+    # ------------------------------------------------------------------
+
+    def _checkpoint_state(self, task_id: str, session_id: str):
+        aggregate = self.tasks.get_task(task_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        events = self.store.read(task_id)
+        last_type = events[-1].event_type.value if events else None
+        return aggregate, projected, last_type
+
+    def surface_write_checkpoint(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        """Write an operator-named, append-only checkpoint marker.
+
+        The marker references the current durable sequence and a digest of the
+        projected state. It never copies state and never rewrites history.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("writing a checkpoint requires principal authority")
+        task_id = self.surface_task_for_session(command.session_id)
+        aggregate, projected, last_type = self._checkpoint_state(
+            task_id, command.session_id
+        )
+        from agent_os_core.session_checkpoint import project_state_digest
+
+        digest = project_state_digest(projected.next_message_index, last_type)
+        open_turn = self.surface_open_turn_id(command.session_id)
+        self.tasks.record_session_checkpoint(
+            task_id,
+            session_id=command.session_id,
+            run_id=aggregate.run.run_id,
+            turn_id=open_turn,
+            label=command.reason,
+            state_digest=digest,
+        )
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_list_checkpoints(self, session_id: str) -> list[dict[str, object]]:
+        task_id = self.surface_task_for_session(session_id)
+        from agent_os_core.session_checkpoint import list_checkpoints
+
+        return [
+            {
+                "sequence": cp.sequence,
+                "turn_id": cp.turn_id,
+                "label": cp.label,
+                "state_digest": cp.state_digest,
+            }
+            for cp in list_checkpoints(self.store, task_id)
+        ]
+
+    def surface_replay_checkpoint(
+        self, session_id: str, from_sequence: int
+    ) -> dict[str, object]:
+        """Re-project the stream FORWARD from ``from_sequence`` (crash recovery).
+
+        This reconstructs the session state purely from durable events, which is
+        what a fresh process does after a crash: it never rewinds or deletes.
+        """
+
+        task_id = self.surface_task_for_session(session_id)
+        from agent_os_core.session_checkpoint import replay_forward
+
+        replay = replay_forward(self.store, task_id, from_sequence)
+        return {
+            "from_sequence": replay.from_sequence,
+            "event_count": replay.event_count,
+            "message_count": replay.message_count,
+            "last_event_type": replay.last_event_type,
+            "turn_ids_seen": list(replay.turn_ids_seen),
+        }
 
     def _child_agents_response(
         self,
@@ -3708,11 +4161,22 @@ class AgentOSApplication:
         orphans = self._buriable_children(
             index, task_id, in_memory_spawn_ids=live
         )
+        orphan_spawn_ids = {orphan.child.spawn_id for orphan in orphans}
+        in_flight = tuple(
+            SurfaceChildAgentInFlight(
+                spawn_id=child.spawn_id,
+                child_session_id=child.child_session_id,
+                parent_turn_id=child.spawned.parent_turn_id,
+            )
+            for child in index.in_flight_children(task_id)
+            if child.spawn_id not in orphan_spawn_ids
+        )
         return SurfaceChildAgentsResponse(
             protocol_version=SURFACE_PROTOCOL_VERSION,
             session_id=session_id,
             children_included_in_totals=True,
             turns=attribution,
+            in_flight=in_flight,
             orphaned=tuple(
                 ChildAgentOrphanProjection(
                     spawn_id=orphan.child.spawn_id,

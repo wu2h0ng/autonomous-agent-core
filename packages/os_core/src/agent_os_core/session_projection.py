@@ -15,6 +15,7 @@ from agent_os_contracts import (
     CorrectionEpochVector,
     PendingSurfaceApproval,
     PermissionMode,
+    ProviderAttemptFailure,
     ProviderMessage,
     ProviderMessageRole,
     ProviderToolProposal,
@@ -477,6 +478,41 @@ def _strict_project(
                 # Audit-only marker: carries no projected session state.
                 continue
 
+            if event.event_type is TaskEventType.PROVIDER_ATTEMPT_FAILED:
+                # Audit-only, like the compaction marker: a failed model attempt is
+                # evidence about a turn, never an assertion that one started or
+                # finished, so it can neither open nor close a turn here.
+                if closed:
+                    raise SessionProjectionError("session event recorded after close")
+                if ref is None:
+                    raise SessionProjectionError(
+                        "provider attempt failure recorded before session open"
+                    )
+                if set(payload) != {
+                    "session_id",
+                    "turn_id",
+                    "provider_attempt_failure",
+                }:
+                    raise SessionProjectionError(
+                        "provider attempt failure fields are invalid"
+                    )
+                try:
+                    attempt = ProviderAttemptFailure.model_validate(
+                        payload["provider_attempt_failure"]
+                    )
+                except (KeyError, ValidationError, TypeError, ValueError) as exc:
+                    raise SessionProjectionError(
+                        f"invalid provider attempt failure record: {exc}"
+                    ) from exc
+                if (
+                    attempt.session_id != ref.session_id
+                    or attempt.turn_id != payload["turn_id"]
+                ):
+                    raise SessionProjectionError(
+                        "provider attempt failure binding mismatch"
+                    )
+                continue
+
             if event.event_type is TaskEventType.SESSION_CLOSED:
                 if closed:
                     raise SessionProjectionError("duplicate close for session")
@@ -548,6 +584,12 @@ def _strict_project(
                 permission_mode_event_id = event.event_id
                 continue
 
+            if event.event_type is TaskEventType.SESSION_CHECKPOINT_RECORDED:
+                # Append-only checkpoint marker: a durable reference into the
+                # stream, never a session state transition. The projection only
+                # advances; the checkpoint's own replay reads the raw stream.
+                continue
+
             raise SessionProjectionError(
                 f"unsupported session event: {event.event_type.value}"
             )
@@ -603,6 +645,29 @@ def _required_str(payload: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise SessionProjectionError(f"{key} must be a non-empty string")
     return value
+
+
+def has_unanswered_tool_calls(history: Sequence[ProviderMessage]) -> bool:
+    """Whether any ASSISTANT tool_call still lacks its TOOL reply.
+
+    This is the projector's own invariant for `SESSION_TURN_COMPLETED` ("cannot
+    complete a turn with unanswered tool calls"), exposed so a writer that
+    closes a turn outside the loop refuses to append a completion the projector
+    would then reject - a rejected projection makes the whole session
+    unreadable.
+    """
+
+    answered = {
+        message.tool_call_id
+        for message in history
+        if message.role is ProviderMessageRole.TOOL
+    }
+    return any(
+        call.tool_call_id not in answered
+        for message in history
+        if message.role is ProviderMessageRole.ASSISTANT
+        for call in message.tool_calls
+    )
 
 
 def _validate_event_scope(

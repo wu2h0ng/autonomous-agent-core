@@ -32,6 +32,19 @@ from agent_os_contracts import (
     content_digest,
 )
 
+from .client_rate_limit import (
+    ClientRateLimitConfig,
+    LocalRateLimitRejection,
+    ProviderRateLimitGate,
+    rate_limit_key,
+    retry_after_cap_seconds,
+)
+from .provider_metrics import (
+    LOCAL_REJECTION_KEY,
+    PROVIDER_REQUEST_KEY,
+    shared_provider_metrics_ledger,
+)
+
 
 _WORKSPACE_TOOL_PARAMETERS: dict[str, dict[str, object]] = {
     "agent.spawn": {
@@ -154,18 +167,11 @@ def _optional_float_env(name: str) -> float | None:
         return None
 
 
-# A Retry-After instruction is honoured up to this many seconds. A provider (or
-# anything in front of it) can otherwise ask for an hour of silence and the turn
-# would sit there; the cap keeps the server's pacing advisory rather than a way
-# to stall the operator.
-_MAX_RETRY_AFTER_SECONDS = 30.0
-
-
+# A Retry-After instruction is honoured up to this many seconds; the bound (and
+# the cross-call cooldown's) lives in `client_rate_limit` so both sides of
+# "wait, but not forever" cannot drift.
 def _retry_after_cap_seconds() -> float:
-    configured = _optional_float_env("AGENT_OS_PROVIDER_MAX_RETRY_AFTER_SECONDS")
-    if configured is None or configured < 0:
-        return _MAX_RETRY_AFTER_SECONDS
-    return configured
+    return retry_after_cap_seconds()
 
 
 def _retry_after_seconds(headers: object) -> float | None:
@@ -200,12 +206,15 @@ def _retry_after_seconds(headers: object) -> float | None:
     return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
-def _operator_log_path() -> str | None:
+def provider_log_path() -> str | None:
     """Where the operator's provider-attempt log goes, or None when disabled.
 
     Opt-in by design: `AGENT_OS_PROVIDER_LOG` names a file, and nothing is
     written (or created) without it. The log grows by one line per model call
     attempt and is not rotated - a long-lived session appends to it.
+
+    Public because the log is also a read surface: the metrics route can
+    aggregate the operator's own file instead of this process's window.
     """
 
     raw = os.environ.get("AGENT_OS_PROVIDER_LOG")
@@ -221,7 +230,7 @@ def _append_operator_log(record: dict[str, object]) -> None:
     state file.
     """
 
-    path = _operator_log_path()
+    path = provider_log_path()
     if path is None:
         return
     try:
@@ -533,6 +542,8 @@ class OpenAICompatibleProvider(ProviderPort):
         max_tokens: int | None = None,
         max_retries: int | None = None,
         retry_base_seconds: float | None = None,
+        rate_limit_gate: ProviderRateLimitGate | None = None,
+        rate_limit_config: ClientRateLimitConfig | None = None,
         opener: Callable[..., object] | None = None,
         provider_profile: ProviderProfile | None = None,
     ) -> None:
@@ -579,6 +590,14 @@ class OpenAICompatibleProvider(ProviderPort):
         # Set from a Retry-After header by the HTTPError path and consumed by the
         # retry loop; None means "no instruction from the server".
         self._retry_after_hint: float | None = None
+        # The client's own pacing (rate, concurrency, cross-call 429 cooldown).
+        # The gate carries the configuration; the state behind it is shared
+        # process-wide, so a reconfigure does not forget a cooldown.
+        self._rate_limit_gate = (
+            rate_limit_gate
+            if rate_limit_gate is not None
+            else ProviderRateLimitGate(rate_limit_config)
+        )
         self._pricing = load_pricing_table()
         self._opener = opener or urllib.request.urlopen
         self._invocation_binding: ProviderInvocationBinding | None = None
@@ -674,10 +693,18 @@ class OpenAICompatibleProvider(ProviderPort):
         A stream that has already emitted a delta is never retried: replaying
         would duplicate output. Read-only completions carry no side effects, so
         retrying before any output is safe.
+
+        The client also paces itself here: every attempt takes a slot from the
+        rate limiter, and a 429 leaves a cooldown behind for other calls. A call
+        whose wait would exceed the configured bound is refused locally rather
+        than stalling the turn. A refused call sent nothing, so it reports no
+        provider latency at all: its record is flagged as unsent, and the
+        refusal and the local wait are counted on their own fields.
         """
 
         attempts = max(1, int(self._max_retries) + 1)
         emitted = False
+        gate_key = rate_limit_key(self._credential.provider_id, self._effective_base_url())
 
         def _text_delta(chunk: str) -> None:
             nonlocal emitted
@@ -693,41 +720,114 @@ class OpenAICompatibleProvider(ProviderPort):
 
         result: ProviderResponse | ProviderFailure | None = None
         for attempt in range(attempts):
-            started = time.monotonic()
-            result = self._invoke(
-                request,
-                allowed_capability_ids=allowed_capability_ids,
-                stream=stream,
-                on_text_delta=_text_delta if stream else on_text_delta,
-                on_reasoning_delta=_reasoning_delta if stream else on_reasoning_delta,
-            )
-            # The operator log is the only machine-readable record of what a
-            # session did at the model boundary (the durable audit is a different,
-            # kernel-side artifact). Opt-in, and never in the way of a turn.
-            _append_operator_log(
-                self._operator_log_record(
+            reserve_started = time.monotonic()
+            try:
+                # A retry of the call that received the 429 has already honoured
+                # that instruction through this loop's own bounded backoff;
+                # waiting for the cooldown again would double it. Other calls
+                # defer, which is what makes the instruction outlive the call.
+                lease = self._rate_limit_gate.reserve(
+                    gate_key, defer_to_cooldown=attempt == 0
+                )
+            except LocalRateLimitRejection as rejection:
+                refused = self._failure(
+                    request,
+                    ProviderErrorCode.LOCAL_RATE_LIMITED,
+                    f"local client rate limit refused the call: {rejection}",
+                    False,
+                )
+                # Nothing was sent, so this call has no provider latency: the
+                # record says so and reports what it actually cost - time spent
+                # waiting here before the refusal - on the wait field instead of
+                # leaking it into `latency_ms` as a ~0 ms sample.
+                waited_seconds = time.monotonic() - reserve_started
+                record = self._operator_log_record(
                     request,
                     attempt,
                     stream,
-                    result,
-                    time.monotonic() - started,
+                    refused,
+                    waited_seconds,
+                    sent=False,
                 )
+                record[LOCAL_REJECTION_KEY] = True
+                record["local_rate_limit_reason"] = rejection.reason
+                record["local_rate_limit_required_wait_seconds"] = round(
+                    rejection.required_wait_seconds, 3
+                )
+                wait_ms = round(waited_seconds * 1000, 1)
+                # Below a millisecond this is the bookkeeping between asking for
+                # a slot and being refused, not a wait: reporting it would claim
+                # a delay the call never took. A concurrency refusal that really
+                # did wait is above it and is reported.
+                if wait_ms >= 1.0:
+                    record["local_rate_limit_wait_ms"] = wait_ms
+                self._emit_attempt_record(record)
+                return refused
+            # Measured after our own pacing: `latency_ms` stays the provider's
+            # request time and the local wait is reported on its own field, so a
+            # cooldown does not show up as a slow provider in the distribution.
+            started = time.monotonic()
+            try:
+                result = self._invoke(
+                    request,
+                    allowed_capability_ids=allowed_capability_ids,
+                    stream=stream,
+                    on_text_delta=_text_delta if stream else on_text_delta,
+                    on_reasoning_delta=(
+                        _reasoning_delta if stream else on_reasoning_delta
+                    ),
+                )
+            finally:
+                lease.release()
+            record = self._operator_log_record(
+                request,
+                attempt,
+                stream,
+                result,
+                time.monotonic() - started,
             )
+            if lease.waited_seconds > 0:
+                record["local_rate_limit_wait_ms"] = round(
+                    lease.waited_seconds * 1000, 1
+                )
+                record["local_rate_limit_reason"] = lease.reason
+            self._emit_attempt_record(record)
             if isinstance(result, ProviderResponse):
                 return result
+            # The server's own instruction wins over our backoff, bounded by the
+            # cap so a hostile or mistaken header cannot stall the turn; the hint
+            # belongs to this attempt and is cleared once used. Its effect
+            # outlives the call: a 429 defers other calls to this provider even
+            # when this call itself cannot be retried any further.
+            hint, self._retry_after_hint = self._retry_after_hint, None
+            if result.code is ProviderErrorCode.RATE_LIMITED:
+                self._rate_limit_gate.note_rate_limited(gate_key, hint)
             if not result.retryable or emitted or attempt >= attempts - 1:
                 return result
             delay = self._retry_base_seconds * (2**attempt)
-            # The server's own instruction wins over our backoff, bounded by the
-            # cap so a hostile or mistaken header cannot stall the turn; the hint
-            # belongs to this attempt and is cleared once used.
-            hint, self._retry_after_hint = self._retry_after_hint, None
             if hint is not None:
                 delay = min(max(delay, hint), _retry_after_cap_seconds())
             if delay > 0:
                 time.sleep(delay)
         assert result is not None
         return result
+
+    def _effective_base_url(self) -> str:
+        """The endpoint the calls actually go to (a profile may pin it)."""
+
+        if self._invocation_binding is not None:
+            return self._invocation_binding.base_url
+        return self._base_url
+
+    def _emit_attempt_record(self, record: dict[str, object]) -> None:
+        """Publish one attempt to the operator log and the process ledger.
+
+        Both readers consume the identical dict, so the durable file and the
+        in-process metrics cannot disagree about what happened.
+        """
+
+        _append_operator_log(record)
+        shared_provider_metrics_ledger().record(record)
 
     def _operator_log_record(
         self,
@@ -736,6 +836,8 @@ class OpenAICompatibleProvider(ProviderPort):
         stream: bool,
         result: ProviderResponse | ProviderFailure,
         elapsed_seconds: float,
+        *,
+        sent: bool = True,
     ) -> dict[str, object]:
         """One record per model call attempt, for an operator's own log.
 
@@ -743,6 +845,13 @@ class OpenAICompatibleProvider(ProviderPort):
         answers "how long, how many tokens, which failure, after how many
         retries", and writing prompt or completion text into a file the operator
         did not ask for would be a privacy leak dressed up as observability.
+
+        ``sent`` is False only for a call the client's own rate limit refused
+        before any request was made. Such a call has no provider latency, so its
+        record carries no ``latency_ms`` and says ``provider_request: false``;
+        whatever it did cost (local waiting) is written by the caller onto the
+        wait field, and the metrics aggregator keeps it out of the latency
+        distribution on the strength of that flag.
         """
 
         record: dict[str, object] = {
@@ -753,11 +862,15 @@ class OpenAICompatibleProvider(ProviderPort):
             "model_id": self._model,
             "attempt": attempt,
             "stream": stream,
-            "latency_ms": round(elapsed_seconds * 1000, 1),
+            PROVIDER_REQUEST_KEY: sent,
             "outcome": "response"
             if isinstance(result, ProviderResponse)
             else "failure",
         }
+        # A call the client refused locally was never sent: there is no request
+        # time to report, so the field is absent rather than a 0 ms sample.
+        if sent:
+            record["latency_ms"] = round(elapsed_seconds * 1000, 1)
         if isinstance(result, ProviderResponse):
             record["input_tokens"] = result.usage.input_tokens
             record["output_tokens"] = result.usage.output_tokens
@@ -1062,6 +1175,7 @@ class OpenAICompatibleProvider(ProviderPort):
         usage_payload: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
+        saw_end_of_turn = False
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1079,6 +1193,7 @@ class OpenAICompatibleProvider(ProviderPort):
             else:
                 data = line
             if data == "[DONE]":
+                saw_end_of_turn = True
                 break
             try:
                 payload = json.loads(data)
@@ -1099,7 +1214,12 @@ class OpenAICompatibleProvider(ProviderPort):
             if not choices:
                 continue
             choice = choices[0]
-            finish_reason = str(choice.get("finish_reason") or finish_reason)
+            # A non-null finish_reason is this dialect's own statement that the
+            # model stopped, and the last chunk of a complete stream carries it.
+            raw_finish = choice.get("finish_reason")
+            if raw_finish:
+                finish_reason = str(raw_finish)
+                saw_end_of_turn = True
             delta = choice.get("delta") or {}
             content = delta.get("content")
             if content:
@@ -1144,6 +1264,8 @@ class OpenAICompatibleProvider(ProviderPort):
                 "provider reported a content filter"
             )
             return self._refusal(request, refusal_text)
+        if not saw_end_of_turn:
+            return self._incomplete_stream(request)
         input_tokens = int(usage_payload.get("prompt_tokens") or 0)
         output_tokens = int(usage_payload.get("completion_tokens") or 0)
         total_tokens = int(usage_payload.get("total_tokens") or 0)
@@ -1202,6 +1324,43 @@ class OpenAICompatibleProvider(ProviderPort):
             ProviderErrorCode.REFUSED,
             f"provider refused: {sanitized}",
             False,
+        )
+
+    def _incomplete_stream(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+    ) -> ProviderFailure:
+        """The one shape for a stream that ended without its end-of-turn marker.
+
+        Measured on this client: a connection that dies mid-response is invisible
+        at the transport layer. For a body whose Content-Length is larger than what
+        arrived, and for a chunked body cut before its own terminator, ``readline``
+        returns ``b""`` at EOF and raises nothing, so from the transport alone the
+        adapter cannot tell "the provider finished" from "the connection died".
+        The only evidence is the dialect's end-of-turn marker: the final chunk's
+        ``finish_reason`` or the ``[DONE]`` sentinel for OpenAI-compatible chat
+        completions, the Messages ``message_delta.stop_reason`` (or
+        ``message_stop``), the candidate ``finishReason`` for Gemini.
+
+        That marker is deliberately the test rather than ``[DONE]`` alone: the
+        reference client treats a missing ``[DONE]`` as an ordinary end of
+        iteration, so a sentinel-only rule would fail streams that are complete. A
+        stream carrying none of these has said nothing about why it stopped, and
+        the alternative - what this used to do - is to hand the operator a
+        half-written answer recorded as a completed turn.
+
+        The same class as a transport failure, so UNAVAILABLE and retryable: safe
+        to fetch again while nothing has been streamed, and refused once a delta
+        has been emitted (the adapter's own ``emitted`` flag and AgentLoop's
+        per-attempt sink both stop the replay).
+        """
+
+        return self._failure(
+            request,
+            ProviderErrorCode.UNAVAILABLE,
+            "provider stream ended before the response was complete "
+            "(the provider never signalled the end of the turn)",
+            True,
         )
 
     @staticmethod
@@ -1539,6 +1698,9 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         (text_delta + input_json_delta) / message_delta. Text deltas are streamed
         to ``on_text_delta``; tool inputs are accumulated and normalized. A
         message_delta carrying stop_reason="refusal" ends as a REFUSED failure.
+        A stream that ends without this dialect's end-of-turn event (the
+        message_delta carrying stop_reason, or message_stop) ends as an incomplete
+        stream failure rather than as a completed turn.
         """
 
         text_parts: list[str] = []
@@ -1547,6 +1709,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
         stop_details: dict[str, Any] | None = None
+        saw_end_of_turn = False
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1611,13 +1774,18 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                 delta = payload.get("delta") or {}
                 if delta.get("stop_reason"):
                     finish_reason = str(delta["stop_reason"])
+                    saw_end_of_turn = True
                 if isinstance(delta.get("stop_details"), dict):
                     stop_details = delta["stop_details"]
                 delta_usage = payload.get("usage")
                 if isinstance(delta_usage, dict):
                     usage.update(delta_usage)
+            elif event_type == "message_stop":
+                saw_end_of_turn = True
         if finish_reason == "refusal":
             return self._refusal(request, _anthropic_refusal_detail(stop_details))
+        if not saw_end_of_turn:
+            return self._incomplete_stream(request)
         proposals = tuple(
             ProviderToolProposal(
                 proposal_id=item["id"] or f"proposal-{uuid4()}",
@@ -1883,7 +2051,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         text parts are streamed, functionCalls are mapped, usageMetadata is
         accumulated and the model's finishReason is taken from the last chunk. A
         chunk carrying promptFeedback or a blocking finishReason ends as a
-        REFUSED failure.
+        REFUSED failure. A stream that ends with no candidate finishReason (this
+        dialect's end-of-turn statement) and no ``[DONE]`` ends as an incomplete
+        stream failure rather than as a completed turn.
         """
 
         text_parts: list[str] = []
@@ -1892,6 +2062,7 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
         prompt_feedback: dict[str, Any] | None = None
+        saw_end_of_turn = False
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1905,7 +2076,10 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             if not line or not line.startswith("data:"):
                 continue
             data = line[5:].strip()
-            if not data or data == "[DONE]":
+            if not data:
+                continue
+            if data == "[DONE]":
+                saw_end_of_turn = True
                 continue
             try:
                 payload = json.loads(data)
@@ -1933,6 +2107,7 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
                 continue
             if candidate.get("finishReason"):
                 finish_reason = str(candidate["finishReason"]).lower()
+                saw_end_of_turn = True
             content = candidate.get("content") or {}
             parts = content.get("parts") if isinstance(content, dict) else None
             for part in parts or []:
@@ -1967,6 +2142,8 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         ) or _gemini_finish_reason_detail(finish_reason)
         if refusal_detail is not None:
             return self._refusal(request, refusal_detail)
+        if not saw_end_of_turn:
+            return self._incomplete_stream(request)
         input_tokens = int(usage.get("promptTokenCount") or 0)
         output_tokens = int(usage.get("candidatesTokenCount") or 0)
         return ProviderResponse(

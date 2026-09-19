@@ -35,7 +35,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from frame_reader import Screen  # noqa: E402
+from frame_reader import PALETTE_256, Screen  # noqa: E402
 
 ROOT = HERE.parents[2]
 CLI = ROOT / "apps" / "cli-ts"
@@ -44,9 +44,33 @@ CLI = ROOT / "apps" / "cli-ts"
 # resolved values (src/theme.ts accent cyan/white -> src/opentui/theme-colors.ts
 # INK_HEX). Asserting "something changed" alone would pass on a wrong theme
 # being rendered; asserting the concrete pair does not.
-HEADER_DEFAULT_FG = (17, 168, 205)   # #11a8cd, default.accent = cyan
+#
+# WHICH ENCODING CARRIES THE COLOUR IS THE TERMINAL'S, NOT THE THEME'S, and that
+# is a MEASURED platform difference rather than a theory: the same build renders
+# the accent as ANSI cyan on macOS (whose system terminfo has no xterm-256color
+# entry, so the renderer degrades to 16 colours) and as 256-colour palette index
+# 38 on the Linux CI runner. frame_reader maps both back to the right family --
+# `36m`/`96m` to the token's own hex, `38;5;38` to the nearest palette entry to
+# it -- so the expectation is the SET of encodings of the one theme colour. The
+# assertion still discriminates: every other theme token (white, gray, red,
+# yellow, green, blue) is a different colour in all three encodings.
+HEADER_DEFAULT_HEX = (17, 168, 205)  # #11a8cd, default.accent = cyan
 HEADER_MONO_FG = (255, 255, 255)     # #ffffff, mono.accent = white
 LOCATE_TIMEOUT = 20.0
+
+
+def encodings_of(rgb: tuple[int, int, int]) -> set[tuple[int, int, int]]:
+    """Every colour a terminal may legitimately receive for this token value.
+
+    Truecolor sends the hex itself; a 256-colour terminal sends the nearest
+    palette entry; a 16-colour terminal sends an ANSI code, which frame_reader
+    maps back to a value in this set (for the theme's cyan, exactly the hex).
+    """
+    nearest = min(
+        PALETTE_256,
+        key=lambda entry: sum((a - b) ** 2 for a, b in zip(entry, rgb, strict=True)),
+    )
+    return {rgb, nearest}
 
 
 def spawn(descriptor: Path) -> tuple[int, int]:
@@ -130,7 +154,7 @@ def main() -> int:
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),
@@ -186,16 +210,18 @@ def main() -> int:
 
         # Concrete colours, not just "they differ": the resolved tokens are
         # src/theme.ts accent (default cyan / mono white) through
-        # src/opentui/theme-colors.ts INK_HEX.
+        # src/opentui/theme-colors.ts INK_HEX. Compared in any of the encodings
+        # the terminal may carry them in (see encodings_of above).
         header_before = before["header"][1]
         header_after = after["header"][1]
         assert header_before is not None, "header span carries no SGR at all"
-        assert header_before[0] == HEADER_DEFAULT_FG, (
-            f"header accent under the default theme is {header_before[0]}, expected {HEADER_DEFAULT_FG}"
+        assert header_before[0] in encodings_of(HEADER_DEFAULT_HEX), (
+            f"header accent under the default theme is {header_before[0]}, expected the theme's "
+            f"cyan in one of its encodings {sorted(encodings_of(HEADER_DEFAULT_HEX))}"
         )
-        assert header_after is not None and header_after[0] == HEADER_MONO_FG, (
+        assert header_after is not None and header_after[0] in encodings_of(HEADER_MONO_FG), (
             f"header accent under mono is {header_after[0] if header_after else None}, "
-            f"expected {HEADER_MONO_FG}"
+            f"expected {HEADER_MONO_FG} (or a terminal encoding of it)"
         )
 
         os.write(fd, b"\x03")

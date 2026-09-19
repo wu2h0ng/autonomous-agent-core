@@ -25,11 +25,27 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
 import urllib.request
 from pathlib import Path
+
+# CI runs this gate with only the runtime's three pinned wheels and no
+# `pip install -e .`; the frame-check step itself sets no PYTHONPATH. The
+# workspace packages are reached exactly the way the hermetic daemon this
+# script spawns reaches them (see dev_daemon.py), not via an ambient path.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+for _p in (
+    _REPO_ROOT,
+    _REPO_ROOT / "packages" / "contracts" / "src",
+    _REPO_ROOT / "packages" / "os_core" / "src",
+):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from agent_os_contracts import SURFACE_PROTOCOL_VERSION  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 CLI = ROOT / "apps" / "cli-ts"
@@ -99,7 +115,7 @@ def api(descriptor_path: Path, method: str, path: str, body: dict | None = None)
         data=None if body is None else json.dumps(body).encode(),
         headers={
             "Authorization": f"Bearer {descriptor['bearer_token']}",
-            "X-Agent-OS-Protocol": "1.1",
+            "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
             **({"Content-Type": "application/json"} if body is not None else {}),
         },
     )
@@ -125,7 +141,7 @@ def main() -> None:
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor_path),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),
@@ -168,7 +184,7 @@ def main() -> None:
         # registered in the same daemon the client is talking to.
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         created = api(descriptor_path, "POST", "/v1/surface/sessions", {
-            "protocol_version": "1.1",
+            "protocol_version": SURFACE_PROTOCOL_VERSION,
             "client": client_ref(),
             "statement": "fixture: second session for the multi-session switch",
             "idempotency_key": "p3a-fixture-open-1",

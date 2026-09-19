@@ -56,3 +56,36 @@ def load_manifest(path: str | Path) -> EvalManifest:
     except ValidationError as exc:
         raise ManifestIntegrityError(f"manifest schema invalid: {exc}") from exc
     return verify_manifest(manifest)
+
+
+def refreeze_manifest(path: str | Path) -> EvalManifest:
+    """Recompute and rewrite one manifest file's digest, in place.
+
+    Maintenance entry point, not a run path: the canonical payload includes
+    every field's value, so adding a defaulted field to ``EvalTask`` changes
+    the digest of every manifest already on disk. That must be an explicit,
+    reviewable re-freeze (the re-freeze shows up in the diff) instead of a
+    silent re-hash somewhere in the loader. Run it as::
+
+        python -m product_evals.terminal_agent_eval.manifest manifests/*.json
+    """
+    manifest_path = Path(path)
+    try:
+        raw = json.loads(manifest_path.read_text("utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestIntegrityError(f"manifest unreadable or malformed: {exc}") from exc
+    try:
+        manifest = EvalManifest.model_validate(raw)
+    except ValidationError as exc:
+        raise ManifestIntegrityError(f"manifest schema invalid: {exc}") from exc
+    frozen = freeze_manifest(manifest)
+    manifest_path.write_text(frozen.model_dump_json(indent=2) + "\n", "utf-8")
+    return frozen
+
+
+if __name__ == "__main__":  # explicit re-freeze of manifests on disk
+    import sys
+
+    for argument in sys.argv[1:]:
+        refrozen = refreeze_manifest(argument)
+        print(f"refroze {argument}: {refrozen.manifest_sha256}")

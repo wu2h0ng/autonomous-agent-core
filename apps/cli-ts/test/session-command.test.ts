@@ -33,7 +33,11 @@ function snapshot(sessionId: string, overrides: Record<string, unknown> = {}) {
 }
 
 async function withServer(
-  handler: (path: string, method: string, body: unknown) => { status: number; json: unknown },
+  handler: (
+    path: string,
+    method: string,
+    body: unknown,
+  ) => { status: number; json?: unknown; sse?: string },
   run: (descriptorPath: string) => Promise<void>,
 ): Promise<void> {
   const server = createServer((req, res) => {
@@ -43,6 +47,14 @@ async function withServer(
       try {
         const result = handler(req.url ?? "", req.method ?? "GET", raw ? JSON.parse(raw) : {});
         res.statusCode = result.status;
+        if (result.sse !== undefined) {
+          // The durable events endpoint is SSE, not JSON: a JSON body would be
+          // parsed as zero events and a client that "found no turn" would look
+          // identical to one that read an empty stream.
+          res.setHeader("content-type", "text/event-stream");
+          res.end(result.sse);
+          return;
+        }
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(result.json));
       } catch (cause) {
@@ -236,4 +248,221 @@ test("a control command the kernel keeps rejecting exits non-zero and says so", 
       assert.match(err, /the correct was NOT applied to s:1/);
     },
   );
+});
+
+test("a resume that leaves the session halted exits non-zero and names the state", async () => {
+  // Measured on a real daemon (2026-09-18): `noem session resume` against a
+  // CORRECTION_HALTED session answered 200 with status CORRECTION_HALTED and
+  // exit 0, while every following turn was refused by the kernel. An operator
+  // scripting recovery from the shell could not tell that from a success.
+  await withServer(
+    (path, method) => {
+      if (method === "GET") {
+        return { status: 200, json: snapshot("s:1", { status: "CORRECTION_HALTED" }) };
+      }
+      assert.equal(path, "/v1/surface/sessions/s:1/resume");
+      return { status: 200, json: { snapshot: snapshot("s:1", { status: "CORRECTION_HALTED" }) } };
+    },
+    async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["resume", "s:1"] }),
+      );
+      assert.equal(result, 1, "a resume that cannot make the session usable is not a success");
+      // The kernel's own status is still reported (it is durable truth, not a
+      // failure to read).
+      assert.equal(JSON.parse(out).status, "CORRECTION_HALTED");
+      assert.match(err, /still reports CORRECTION_HALTED/);
+      assert.match(err, /cannot accept turns/);
+    },
+  );
+});
+
+test("a successful resume still exits zero", async () => {
+  await withServer(
+    (path, method) => {
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      assert.equal(path, "/v1/surface/sessions/s:1/resume");
+      return { status: 200, json: { snapshot: snapshot("s:1", { status: "ACTIVE" }) } };
+    },
+    async (descriptorPath) => {
+      const { result, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["resume", "s:1"] }),
+      );
+      assert.equal(result, 0);
+      assert.equal(err, "");
+    },
+  );
+});
+
+test("CLI flags never become part of the durable correction reason", async () => {
+  // The reason lands in `CORRECTION_WRITTEN.reason` (durable evidence), so the
+  // transport flags must not be smuggled into it.
+  const reasons: string[] = [];
+  await withServer(
+    (path, method, body) => {
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      reasons.push((body as { reason?: string }).reason ?? "");
+      return { status: 200, json: { snapshot: snapshot("s:1") } };
+    },
+    async (descriptorPath) => {
+      await capture(() =>
+        runSessionCommand({
+          descriptorPath,
+          args: ["correct", "s:1", "operator", "interrupt", "--descriptor", descriptorPath],
+        }),
+      );
+      await capture(() =>
+        runSessionCommand({
+          descriptorPath,
+          args: ["pause", "s:1", "--descriptor", descriptorPath],
+        }),
+      );
+    },
+  );
+  assert.deepEqual(reasons, ["operator interrupt", "paused by user"]);
+});
+
+/** Durable events as the events endpoint really sends them (SSE). */
+function eventsSse(
+  entries: { event_type: string; payload: Record<string, unknown> }[],
+): string {
+  const lines: string[] = [];
+  entries.forEach((entry, index) => {
+    const sequence = index + 1;
+    lines.push(
+      `id: ${sequence}`,
+      `event: ${entry.event_type}`,
+      `data: ${JSON.stringify({
+        event_id: `e:${sequence}`,
+        task_id: "task:1",
+        event_type: entry.event_type,
+        payload_json: JSON.stringify(entry.payload),
+        occurred_at: "2026-09-19T00:00:00Z",
+        correlation_id: "run:1",
+        sequence,
+      })}`,
+      "",
+    );
+  });
+  lines.push("event: cursor", `data: ${JSON.stringify({ next_sequence: entries.length })}`, "");
+  return lines.join("\n");
+}
+
+const DEAD_TURN_EVENTS = [
+  { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:dead", session_id: "s:1" } },
+];
+
+test("session recover names the durable turn and closes it as an unknown outcome", async () => {
+  // The operator does not have to know the turn id: it is read from durable
+  // truth (started without completed) and bound into the command, which is why
+  // there is no "recover everything" sweep.
+  const posted: Record<string, unknown>[] = [];
+  let recovered = false;
+  await withServer(
+    (path, method, body) => {
+      if (path === "/v1/surface/tasks/task:1/events?after=0&wait_ms=0") {
+        return {
+          status: 200,
+          sse: eventsSse([
+            ...DEAD_TURN_EVENTS,
+            ...(recovered
+              ? [
+                  {
+                    event_type: "SESSION_TURN_COMPLETED",
+                    payload: {
+                      turn_id: "turn:dead",
+                      session_id: "s:1",
+                      stop_reason: "unknown_requires_review",
+                      dead_turn_recovery: { turn_id: "turn:dead" },
+                    },
+                  },
+                ]
+              : []),
+          ]),
+        };
+      }
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      assert.equal(path, "/v1/surface/sessions/s:1/recover-turn");
+      posted.push(body as Record<string, unknown>);
+      recovered = true;
+      return {
+        status: 200,
+        json: {
+          recovery: {
+            protocol_version: "1.2",
+            snapshot: snapshot("s:1"),
+            recovery: {
+              turn_id: "turn:dead",
+              session_id: "s:1",
+              reason_code: "TURN_OWNER_PROCESS_GONE",
+              declared_by: "user:local",
+              declared_at: "2026-09-19T00:00:00Z",
+              reason: "the runtime was killed",
+              owner_runtime_boot_id: "boot:dead",
+              owner_runtime_pid: 4242,
+              recovered_by_runtime_boot_id: "boot:new",
+              recovered_by_runtime_pid: 5252,
+              started_event_id: "e:1",
+              started_sequence: 1,
+              counters_recorded: false,
+            },
+            notice: "turn turn:dead was abandoned as an unknown outcome",
+          },
+        },
+      };
+    },
+    async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runSessionCommand({
+          descriptorPath,
+          args: ["recover", "s:1", "the runtime was killed"],
+        }),
+      );
+      assert.equal(result, 0);
+      assert.equal(err, "");
+      const parsed = JSON.parse(out) as Record<string, unknown>;
+      assert.equal(parsed.recovered, true);
+      assert.equal(parsed.turn_id, "turn:dead");
+      assert.equal(parsed.stop_reason, "unknown_requires_review");
+      assert.equal(parsed.owner_runtime_boot_id, "boot:dead");
+    },
+  );
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0]?.turn_id, "turn:dead");
+  assert.equal(posted[0]?.reason, "the runtime was killed");
+  assert.equal(posted[0]?.expected_event_sequence, 3);
+});
+
+test("session recover says so — and does not pretend — when there is nothing to recover", async () => {
+  await withServer(
+    (path, method) => {
+      if (path === "/v1/surface/tasks/task:1/events?after=0&wait_ms=0") {
+        return { status: 200, sse: eventsSse([]) };
+      }
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      throw new Error(`recover route must not be called (${path})`);
+    },
+    async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["recover", "s:1", "just in case"] }),
+      );
+      assert.equal(result, 0);
+      assert.equal(JSON.parse(out).recovered, false);
+      assert.match(err, /nothing to recover/);
+    },
+  );
+});
+
+test("session recover requires the operator's reason", async () => {
+  // The reason check must happen before anything is read: a missing reason used
+  // to fall through to the descriptor lookup and reach the operator's real
+  // ~/.agent-os/runtime.json.
+  const { result, err } = await capture(() =>
+    runSessionCommand({
+      descriptorPath: "/nonexistent/descriptor.json",
+      args: ["recover", "s:1"],
+    }),
+  );
+  assert.equal(result, 1);
+  assert.match(err, /usage: noem session recover/);
 });

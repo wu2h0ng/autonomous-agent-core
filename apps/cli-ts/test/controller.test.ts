@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TuiController, STALL_DEFAULT_MS, renderTranscript, toolState } from "../src/controller.js";
 import type { ChatMessage } from "../src/controller.js";
+import { SurfaceHttpError } from "../src/client.js";
 import type {
   PermissionMode,
   SurfaceSessionSnapshot,
@@ -58,6 +59,11 @@ class FakeClient {
   getSessionCalls = 0;
   snapshotSequence = 1;
   beginTexts: string[] = [];
+  /** Durable events the fake stream reports (started/completed pairs, closure
+   * records) - the only place a controller may learn about a dead turn. */
+  durableScript: { event_type: string; payload: Record<string, unknown> }[] = [];
+  recoverCalls: { sessionId: string; turnId: string; reason: string }[] = [];
+  beginTurnError: Error | null = null;
 
   async openSession() {
     return snapshot();
@@ -93,11 +99,45 @@ class FakeClient {
       key_source: "env",
     };
   }
+  metricsSources: string[] = [];
+  metricsResult: Record<string, unknown> = {
+    source: "in_process",
+    taken_at: "2026-09-18T10:00:00+00:00",
+    window_records: 3,
+    calls: 2,
+    attempts: 3,
+    responses: 2,
+    failures: 1,
+    retries: 1,
+    latency: { samples: 3, mean_ms: 20, p50_ms: 10, p90_ms: 40, p95_ms: 40, max_ms: 40 },
+    tokens: { input_tokens: 3, output_tokens: 6, total_tokens: 9, usage_samples: 2 },
+    failure_categories: [{ code: "RATE_LIMITED", count: 1, retryable: true }],
+    rate_limit: {
+      rate_limited_attempts: 1,
+      retry_after_observed: 0,
+      max_retry_after_seconds: null,
+      local_waits: 1,
+      local_wait_ms_total: 2000,
+      local_wait_ms_max: 2000,
+      local_rejections: 0,
+    },
+  };
+  metricsFailure: Error | null = null;
+  async providerMetrics(source: string) {
+    this.metricsSources.push(source);
+    if (this.metricsFailure) throw this.metricsFailure;
+    return this.metricsResult;
+  }
+  /** Explicit durable status for `getSession`, when the test needs the session
+   * to be something other than ACTIVE/WAITING_APPROVAL (e.g. PAUSED after a
+   * stop). Null keeps the approval-derived default. */
+  sessionStatus: SurfaceSessionSnapshot["status"] | null = null;
   async getSession() {
     this.getSessionCalls += 1;
     return snapshot({
       event_sequence: this.snapshotSequence,
-      status: this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE",
+      status:
+        this.sessionStatus ?? (this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE"),
       ...(this.approvalPending
         ? {
             pending_approval: {
@@ -115,6 +155,7 @@ class FakeClient {
     return { protocol_version: "1.1", runtime_boot_id: "boot:1", stream_id: "stream:1" };
   }
   async beginTurn(_sid: string, text: string) {
+    if (this.beginTurnError) throw this.beginTurnError;
     this.beginTexts.push(text);
     return { protocol_version: "1.1", turn_id: "turn:1", stream_id: "stream:1" };
   }
@@ -124,6 +165,16 @@ class FakeClient {
   async events(_taskId: string, after: number) {
     this.eventsCalls += 1;
     const events = [];
+    for (const [index, scripted] of this.durableScript.entries()) {
+      events.push({
+        event_id: `e:s${index + 1}`,
+        task_id: "task:1",
+        event_type: scripted.event_type,
+        payload_json: JSON.stringify(scripted.payload),
+        occurred_at: new Date().toISOString(),
+        sequence: index + 1,
+      });
+    }
     if (this.approvalPending) {
       events.push({
         event_id: "e:ap",
@@ -176,13 +227,45 @@ class FakeClient {
       total_tokens: 12,
     };
   }
+  /** Every pause/resume/correction command this client was asked to send. */
+  correctCalls: {
+    sessionId: string | undefined;
+    reason: string | undefined;
+    action: string | undefined;
+  }[] = [];
+  /** Durable session status the control command answers with. */
+  correctStatus: SurfaceSessionSnapshot["status"] = "CORRECTION_HALTED";
   async correct(
-    _sessionId?: string,
-    _reason?: string,
-    _action?: string,
+    sessionId?: string,
+    reason?: string,
+    action?: string,
     _idempotencyKey?: string,
   ) {
-    return snapshot({ status: "CORRECTION_HALTED" });
+    this.correctCalls.push({ sessionId, reason, action });
+    return snapshot({ status: this.correctStatus });
+  }
+  async recoverTurn(sessionId: string, turnId: string, reason: string) {
+    this.recoverCalls.push({ sessionId, turnId, reason });
+    return {
+      protocol_version: "1.1",
+      snapshot: snapshot({ event_sequence: 9 }),
+      recovery: {
+        turn_id: turnId,
+        session_id: sessionId,
+        reason_code: "TURN_OWNER_PROCESS_GONE" as const,
+        declared_by: "user:local",
+        declared_at: "2026-09-19T00:00:00Z",
+        reason,
+        owner_runtime_boot_id: "boot:dead",
+        owner_runtime_pid: 4242,
+        recovered_by_runtime_boot_id: "boot:new",
+        recovered_by_runtime_pid: 5252,
+        started_event_id: "e:1",
+        started_sequence: 1,
+        counters_recorded: false,
+      },
+      notice: `turn ${turnId} was abandoned as an unknown outcome`,
+    };
   }
   filesList = [
     { path: "fixture.txt", size: 12, mtime: "2026-09-11T00:00:00Z" },
@@ -692,6 +775,32 @@ test("/doctor: wired probe text is surfaced; unavailable probe is honest", async
   });
   await failing.submit("/doctor");
   assert.match(failing.messages.at(-1)?.content ?? "", /doctor failed: probe exploded/);
+});
+
+test("/metrics: renders the aggregated window; an unavailable source is honest", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never);
+
+  await controller.submit("/metrics");
+  const panel = controller.messages.at(-1)?.panel;
+  assert.ok(panel, "the metrics panel is pushed");
+  assert.equal(panel.title, "provider metrics");
+  const rendered = panel.lines.join("\n");
+  assert.match(rendered, /calls\s+2 \(3 attempts, 1 retried\)/);
+  assert.match(rendered, /outcome\s+2 responses, 1 failures/);
+  assert.match(rendered, /p50 10\.0ms/);
+  assert.match(rendered, /failure\s+RATE_LIMITED x1/);
+  assert.equal(client.metricsSources.at(-1), "process", "the default source is the process window");
+
+  await controller.submit("/metrics log");
+  assert.equal(client.metricsSources.at(-1), "log");
+
+  await controller.submit("/metrics sideways");
+  assert.match(controller.messages.at(-1)?.content ?? "", /usage: \/metrics/);
+
+  client.metricsFailure = new Error("no AGENT_OS_PROVIDER_LOG is set");
+  await controller.submit("/metrics log");
+  assert.match(controller.messages.at(-1)?.content ?? "", /metrics unavailable: no AGENT_OS_PROVIDER_LOG/);
 });
 
 test("/retry and /edit: recall the last operator message", async () => {
@@ -1575,4 +1684,712 @@ test("approving does not mark the card rejected", async () => {
       message.content.includes("APPROVE: workspace.edit"),
     ),
   );
+});
+
+/** The stop-key tests live here rather than in keys.test.ts because what they
+ * pin is the CONTROLLER half: the real pause command, and a transcript that
+ * never claims a stop the kernel did not perform. keys.test.ts owns the routing
+ * (which key calls it). */
+
+const settled = (ms = 20): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+test("ctrl-x pauses the session through the real endpoint and does not claim it stopped", async () => {
+  const client = new FakeClient();
+  client.correctStatus = "PAUSED";
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+
+  // A turn in flight: not awaited, so the controller is observed while
+  // streaming, which is the only state a stop may act on.
+  const turn = controller.submit("do the thing");
+  await settled();
+  assert.equal(controller.status, "streaming", "the turn must be in flight for this test");
+
+  assert.equal(await controller.stopTurn(), "stopped");
+
+  // 1. It went through the REAL surface control command — the same one
+  //    `noem session pause <session-id>` sends — and nothing local.
+  assert.equal(client.correctCalls.length, 1, "exactly one pause command");
+  assert.equal(client.correctCalls[0]?.action, "pause");
+  assert.equal(client.correctCalls[0]?.sessionId, "s:1");
+  assert.match(client.correctCalls[0]?.reason ?? "", /operator stop \(ctrl-x\)/);
+
+  const said = (): string => controller.messages.map((m) => m.content).join("\n");
+  assert.match(said(), /stop requested/);
+  // 2. The status reported is the kernel's own returned status, verbatim.
+  assert.match(said(), /stop applied: session status PAUSED/);
+  // 3. ... but "applied" is not "the turn is over": the stop stays requested
+  //    until the DURABLE turn record ends the turn, and until then nothing in
+  //    the transcript may say the turn stopped.
+  assert.match(said(), /the terminal state arrives with the durable turn record/);
+  assert.equal(controller.stopRequested, true, "still stopping until the durable record says otherwise");
+  assert.doesNotMatch(said(), /turn stopped by the operator/);
+  assert.equal(controller.status, "streaming");
+
+  // The durable record finally ends the turn.
+  client.completedTokens = 7;
+  client.completedStopReason = "stopped_by_operator";
+  client.completedSteps = 2;
+  await turn;
+
+  assert.equal(controller.status, "idle");
+  assert.equal(controller.stopRequested, false);
+  assert.equal(controller.lastStopReason, "stopped_by_operator");
+  assert.match(
+    said(),
+    /turn stopped by the operator \(2 steps, tokens counted\) — the session is PAUSED/,
+  );
+  assert.match(said(), /noem session resume s:1/);
+});
+
+test("a stop the kernel rejects is reported typed and never as a stop", async () => {
+  const rejections: Array<[SurfaceHttpError, RegExp]> = [
+    [
+      new SurfaceHttpError(409, "cannot move run from PAUSED to PAUSED"),
+      /HTTP 409: cannot move run from PAUSED to PAUSED — the stop was NOT applied; the run is PAUSED \(already stopped\)/,
+    ],
+    [
+      new SurfaceHttpError(409, "cannot move run from SUCCEEDED to PAUSED"),
+      /the stop was NOT applied; the run is SUCCEEDED/,
+    ],
+    [
+      new SurfaceHttpError(403, "surface principal is outside this session scope"),
+      /HTTP 403.*the stop was NOT applied \(this client is outside the session's scope\)/,
+    ],
+    [
+      new SurfaceHttpError(503, "ConcurrentWriteError: optimistic append conflict"),
+      /HTTP 503: ConcurrentWriteError: optimistic append conflict — the stop was NOT applied/,
+    ],
+  ];
+
+  for (const [error, expected] of rejections) {
+    class RejectingClient extends FakeClient {
+      async correct(): Promise<never> {
+        throw error;
+      }
+    }
+    const client = new RejectingClient();
+    const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+    const turn = controller.submit("do the thing");
+    await settled();
+    assert.equal(controller.status, "streaming");
+
+    assert.equal(await controller.stopTurn(), "failed");
+
+    const said = controller.messages.map((m) => m.content).join("\n");
+    assert.match(said, /stop FAILED — /);
+    assert.match(said, expected);
+    assert.doesNotMatch(said, /stop applied/);
+    // Not stopped: the run is still going, and the view must not show the
+    // stopping state any more either (nothing is being stopped).
+    assert.equal(controller.stopRequested, false);
+    assert.equal(controller.status, "streaming");
+
+    client.completedTokens = 1; // end the turn so the test does not leak a poller
+    await turn;
+  }
+});
+
+test("a stop with nothing in flight sends nothing and says so", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  assert.equal(await controller.stopTurn(), "no-turn");
+  assert.equal(client.correctCalls.length, 0, "nothing may be paused on an idle keypress");
+  assert.match(
+    controller.messages.map((m) => m.content).join("\n"),
+    /no turn in flight \(status idle\) — nothing was sent/,
+  );
+  assert.equal(controller.stopRequested, false);
+});
+
+test("a stale-cursor stop is retried from a fresh read, with one idempotency key", async () => {
+  // The kernel rejects a control command carrying a stale event cursor (409
+  // SurfaceSequenceConflict). A pause mid-turn is the likeliest command in the
+  // whole surface to lose that race — the turn it is stopping appends to the
+  // same optimistic stream. The resend must re-read durable truth and must carry
+  // the same idempotency key, so one operator keypress can never pause twice.
+  class StaleOnceClient extends FakeClient {
+    calls: string[] = [];
+    keys: (string | undefined)[] = [];
+    async getSession() {
+      this.calls.push("getSession");
+      return super.getSession();
+    }
+    async correct(_sid: string, _reason: string, _action: string, key?: string) {
+      this.calls.push("correct");
+      this.keys.push(key);
+      if (this.calls.filter((call) => call === "correct").length === 1) {
+        throw new Error(
+          "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+        );
+      }
+      return snapshot({ status: "PAUSED" });
+    }
+  }
+  const client = new StaleOnceClient();
+  const controller = new TuiController(client as never, {
+    pollMs: 1,
+    sequenceRetryDelayMs: 1,
+  });
+  // No live turn: this test is about the retry sequence, and a running turn's
+  // durable poller interleaves its own getSession calls (measured).
+  (controller as never as { status: string }).status = "streaming";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+
+  assert.equal(await controller.stopTurn(), "stopped");
+  assert.deepEqual(
+    client.calls,
+    ["getSession", "correct", "getSession", "correct"],
+    "the resend must re-read durable truth, not reuse the stale cursor",
+  );
+  assert.equal(client.keys[0], client.keys[1], "one operator intent keeps one idempotency key");
+  assert.match(
+    controller.messages.map((m) => m.content).join("\n"),
+    /stop applied: session status PAUSED/,
+  );
+});
+
+/** The other half of the stop: PR #77's stop leaves the Run PAUSED, and the
+ * kernel then refuses every new turn until it is resumed, so a TUI that could
+ * only attach (GET) left the operator in a state the terminal could not get out
+ * of. `/resume` must therefore drive the REAL resume endpoint — the same one
+ * `noem session resume <session-id>` sends — and report only what the kernel
+ * reads back. */
+
+test("/resume un-pauses a kernel-reported PAUSED session through the real endpoint", async () => {
+  const client = new FakeClient();
+  client.sessionStatus = "PAUSED";
+  // `correct()` answers with the kernel's post-resume snapshot.
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:1");
+
+  // 1. The real governed command, not a local flag: POST /v1/surface/sessions/
+  //    {id}/resume (client.correct maps action "resume" onto that route).
+  assert.equal(client.correctCalls.length, 1, "exactly one resume command");
+  assert.equal(client.correctCalls[0]?.action, "resume");
+  assert.equal(client.correctCalls[0]?.sessionId, "s:1");
+  assert.match(client.correctCalls[0]?.reason ?? "", /operator resume/);
+
+  const said = (): string => controller.messages.map((m) => m.content).join("\n");
+  // 2. It said what it was doing BEFORE doing it, naming the real endpoint.
+  assert.match(said(), /the kernel reports this Run PAUSED — resuming it/);
+  assert.match(said(), /POST \/v1\/surface\/sessions\/\{id\}\/resume/);
+  // 3. The status rendered is the kernel's own returned snapshot, verbatim.
+  assert.match(said(), /resume applied: session status CORRECTION_HALTED/);
+  assert.match(said(), /read back from the kernel/);
+  assert.doesNotMatch(said(), /resume FAILED/);
+});
+
+test("/resume sends no resume for a session the kernel does not report PAUSED", async () => {
+  // A blind resume would append a durable RUN_RESUMED to a session that was
+  // never paused — a durable claim about a transition that did not happen.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:1");
+
+  assert.equal(client.correctCalls.length, 0, "nothing to un-pause: nothing may be sent");
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /resumed session s:1 \(status ACTIVE, mode ASK\)/);
+  assert.doesNotMatch(said, /resuming it/);
+});
+
+test("a resume the kernel rejects is reported typed and never as a resume", async () => {
+  const rejections: Array<[SurfaceHttpError, RegExp]> = [
+    [
+      new SurfaceHttpError(409, "cannot move run from SUCCEEDED to RUNNING"),
+      /HTTP 409: cannot move run from SUCCEEDED to RUNNING — the resume was NOT applied; the run is SUCCEEDED \(a terminal run has nothing left to resume/,
+    ],
+    [
+      new SurfaceHttpError(
+        409,
+        "UNKNOWN_REQUIRES_REVIEW requires explicit reconciliation",
+      ),
+      /the resume was NOT applied \(this pause is a reconciliation hold, not an operator stop/,
+    ],
+    [
+      new SurfaceHttpError(403, "surface principal is outside this session scope"),
+      /HTTP 403.*the resume was NOT applied \(this client is outside the session's scope\)/,
+    ],
+    [
+      new SurfaceHttpError(
+        409,
+        "SurfaceSequenceConflict: expected event sequence 7 does not match current sequence 9",
+      ),
+      /HTTP 409.*the resume was NOT applied \(a stale event cursor survived the bounded refresh-and-resend\)/,
+    ],
+    [
+      new SurfaceHttpError(503, "ConcurrentWriteError: optimistic append conflict"),
+      /HTTP 503: ConcurrentWriteError: optimistic append conflict — the resume was NOT applied/,
+    ],
+  ];
+
+  for (const [error, expected] of rejections) {
+    class RejectingClient extends FakeClient {
+      async correct(): Promise<never> {
+        throw error;
+      }
+    }
+    const client = new RejectingClient();
+    client.sessionStatus = "PAUSED";
+    const controller = new TuiController(client as never, {
+      pollMs: 1,
+      sequenceRetryDelayMs: 1,
+    });
+
+    await controller.submit("/resume s:1");
+
+    const said = controller.messages.map((m) => m.content).join("\n");
+    assert.match(said, /resume FAILED — /, `the rejection must be visible: ${said}`);
+    assert.match(said, expected);
+    assert.doesNotMatch(said, /resume applied/, "a rejected resume must never render as applied");
+  }
+});
+
+test("a resume the kernel answers while still PAUSED is not rendered as resumed", async () => {
+  // The endpoint can answer 200 with a snapshot whose status is PAUSED (the
+  // transition is idempotent under a reused key). Claiming success from the
+  // HTTP status alone would be exactly the optimistic guess this must not do.
+  class StillPausedClient extends FakeClient {
+    async correct() {
+      return snapshot({ status: "PAUSED" });
+    }
+  }
+  const client = new StillPausedClient();
+  client.sessionStatus = "PAUSED";
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:1");
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /the kernel still reports PAUSED — the session is STILL PAUSED/);
+  assert.doesNotMatch(said, /new turns are accepted again/);
+});
+
+test("an attach that fails is visible and sends no resume", async () => {
+  class UnreadableClient extends FakeClient {
+    async getSession(): Promise<never> {
+      throw new SurfaceHttpError(404, "unknown_session");
+    }
+  }
+  const client = new UnreadableClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+
+  await controller.submit("/resume s:missing");
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /cannot attach to s:missing \(HTTP 404: unknown_session\)/);
+  assert.match(said, /nothing was attached and no resume was sent/);
+  assert.equal(client.correctCalls.length, 0, "no resume for a session that could not be read");
+});
+
+test("a turn refused because the Run is PAUSED names the way out", async () => {
+  // The dead end the operator actually hits: they type a message instead of a
+  // command. The kernel's refusal is honest but not actionable on its own.
+  class PausedTurnClient extends FakeClient {
+    async beginTurn(): Promise<never> {
+      throw new SurfaceHttpError(
+        409,
+        "run_turn requires a runnable Run; a PAUSED or terminal Run must be resumed first",
+      );
+    }
+  }
+  const client = new PausedTurnClient();
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+  await controller.submit("/resume s:1");
+
+  await controller.submit("carry on");
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /the turn was refused: run_turn requires a runnable Run/);
+  assert.match(said, /resume this session with `\/resume s:1`/);
+});
+
+test("the post-stop line tells the operator to resume from this terminal", async () => {
+  const client = new FakeClient();
+  client.correctStatus = "PAUSED";
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 100_000 });
+
+  const turn = controller.submit("do the thing");
+  await settled();
+  assert.equal(await controller.stopTurn(), "stopped");
+  client.completedTokens = 7;
+  client.completedStopReason = "stopped_by_operator";
+  await turn;
+
+  const said = controller.messages.map((m) => m.content).join("\n");
+  assert.match(said, /the session is PAUSED/);
+  // The in-terminal command, in the exact form the operator can type next...
+  assert.match(said, /resume it here with `\/resume s:1`/);
+  // ...and the shell equivalent is still named, so a script or another
+  // terminal is not left guessing either.
+  assert.match(said, /`noem session resume s:1` from a shell/);
+});
+// ---------------------------------------------------------------------------
+// Operator dead-end sweep (2026-09-18): the failures that used to leave the
+// operator with nothing — or with a destroyed screen.
+// ---------------------------------------------------------------------------
+
+test("a failing read command is reported, never thrown into a void", async () => {
+  // Measured on the shipped TUI: with the daemon killed under a live session,
+  // `/task` rejected out of `submit`, which the view calls as `void ...`. On the
+  // shipped runtime an unhandled rejection prints its stack INTO the alternate
+  // screen and, with an otherwise idle loop, exits the process — the operator
+  // lost the frame and the session.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { taskId: string | null }).taskId = "task:1";
+  client.overview = async () => {
+    throw new Error("cannot reach the local runtime");
+  };
+
+  await controller.submit("/task");
+
+  const overview = controller.messages.at(-1)?.content ?? "";
+  assert.match(overview, /task overview unavailable: cannot reach the local runtime/);
+  assert.match(overview, /no status is being guessed/);
+
+  client.files = async () => {
+    throw new Error("cannot reach the local runtime");
+  };
+  await controller.submit("/files");
+
+  const files = controller.messages.at(-1)?.content ?? "";
+  assert.match(files, /files unavailable: cannot reach the local runtime/);
+  assert.match(files, /nothing was read/);
+});
+
+test("answering an approval with nothing pending reports instead of rejecting", async () => {
+  // The y/n layer is chosen from render state, so a second press (or one that
+  // lands while the first decision is still in flight) reaches this with
+  // nothing left to decide. That used to throw into a `void`.
+  const controller = new TuiController(new FakeClient() as never);
+
+  await assert.doesNotReject(() => controller.approve());
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /no approval is pending — APPROVE ignored/,
+  );
+
+  await assert.doesNotReject(() => controller.reject());
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /no approval is pending — REJECT ignored/,
+  );
+});
+
+test("an approval the kernel refuses to record is reported and stays pending", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("edit it");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "awaiting_approval");
+
+  client.decideApproval = async () => {
+    throw new Error("cannot reach the local runtime");
+  };
+
+  await assert.doesNotReject(() => controller.approve());
+
+  assert.equal(
+    controller.status,
+    "awaiting_approval",
+    "a decision that never reached the kernel must leave the approval resolvable",
+  );
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /APPROVE FAILED \(cannot reach the local runtime\)/,
+  );
+  assert.deepEqual(client.approvals, [], "nothing was recorded");
+});
+
+test("an approval resolved elsewhere does not leave the card up forever", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("edit it");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "awaiting_approval");
+
+  // Decided out of band (another client / the API): the kernel no longer has a
+  // pending approval, so this client must stop showing one.
+  client.approvalPending = false;
+  await controller.approve();
+
+  assert.equal(controller.status, "idle");
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /the kernel reports no pending approval — APPROVE was NOT recorded/,
+  );
+});
+
+test("a correction reports the halt it caused (CORRECTION_HALTED)", async () => {
+  // A correction is not a benign interrupt: the kernel halts the task and then
+  // refuses every further turn of that session. The kernel's own response says
+  // so; rendering it here is what stops the operator from finding out only as a
+  // bare error on their next message.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as {
+    status: string;
+    sessionId: string | null;
+  };
+  internals.status = "streaming";
+  internals.sessionId = "s:1";
+
+  assert.equal(await controller.interrupt("escape"), "corrected");
+
+  const transcript = controller.messages.map((message) => message.content).join("\n");
+  assert.match(transcript, /correction issued \(operator interrupt\)/);
+  assert.match(transcript, /CORRECTION_HALTED/);
+  assert.match(transcript, /refuses every further turn/);
+});
+
+test("a turn on a halted session is named and not sent", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { taskId: string | null }).taskId = "task:1";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+  (controller as never as { snapshot: unknown }).snapshot = snapshot({
+    status: "CORRECTION_HALTED",
+  });
+  client.getSession = async () => snapshot({ status: "CORRECTION_HALTED" });
+
+  await controller.submit("keep working");
+
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /CORRECTION_HALTED/,
+  );
+  assert.deepEqual(
+    client.beginTexts,
+    [],
+    "no turn may be sent to a session the kernel will refuse",
+  );
+});
+
+test("a halt lifted out of band does not block the next turn", async () => {
+  // The guard reads durable truth before refusing, so an external authority
+  // lifting the correction is honoured rather than remembered as a client flag.
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 5;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { taskId: string | null }).taskId = "task:1";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+  (controller as never as { snapshot: unknown }).snapshot = snapshot({
+    status: "CORRECTION_HALTED",
+  });
+
+  await controller.submit("keep working");
+
+  assert.deepEqual(client.beginTexts, ["keep working"]);
+});
+
+test("the stall notice names a way out that works, and /retry's queue is explained", async () => {
+  // Measured in a real pty 2026-09-18 (pty_correction_probe): while stalled,
+  // `canStartTurn()` is false, so `/retry` and every other message are QUEUED
+  // and the queue is only drained by the correction (`maybeDrain` runs from
+  // runTurn's finally / decide / interrupt). Advice to "try /retry" therefore
+  // could not work — and the queue answered "will send when the current turn
+  // ends" for a turn that never would.
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 5 });
+  await controller.submit("stall please");
+  assert.equal(controller.status, "stalled");
+
+  const stallNotice = controller.messages
+    .map((message) => message.content)
+    .filter((text) => text.includes("no durable resolution within"))
+    .join("\n");
+  assert.match(stallNotice, /press Esc to leave the stalled state/);
+  assert.ok(
+    !/\(try \/retry or \/status\)/.test(stallNotice),
+    "the notice must not send the operator to a command that cannot run here",
+  );
+
+  // `/retry` here really does only queue, and nothing drains it until the
+  // stalled state is left — so the notice has to say that.
+  await controller.submit("/retry");
+  assert.equal(controller.queuedCount, 1);
+  const texts = client.beginTexts;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(client.beginTexts, texts, "no turn may start while stalled");
+});
+
+test("the /keys card describes the keymap that exists", async () => {
+  // Ctrl-P/Ctrl-N are the agents panel's movement keys, not composer history
+  // (resolveViewKey); the card used to claim otherwise. Ctrl-A/Ctrl-E do work
+  // (the textarea handles them — measured in a real pty).
+  const controller = new TuiController(new FakeClient() as never);
+  await controller.submit("/keys");
+  const card = controller.messages
+    .map((message) =>
+      message.panel ? [message.panel.title, ...message.panel.lines].join("\n") : "",
+    )
+    .join("\n");
+  assert.match(card, /↑\/↓ history/);
+  assert.match(card, /ctrl-p\/ctrl-n: agents panel/);
+  assert.match(card, /ctrl-a\/ctrl-e line start\/end/);
+  assert.match(card, /esc correction \(halts the session\)/);
+  assert.ok(
+    !/ctrl-p\/ctrl-n history/.test(card),
+    "the card must not advertise a binding that is not wired",
+  );
+
+});
+
+// ---------------------------------------------------------------------------
+// A dead uncommitted turn: the session reports ACTIVE, refuses every turn, and
+// only an explicit operator declaration closes it (measured on a real daemon
+// 2026-09-19: kill mid-turn, restart on the same database).
+// ---------------------------------------------------------------------------
+
+const DEAD_TURN = [
+  { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:dead", session_id: "s:1" } },
+];
+
+const CLOSURE_RECORD = {
+  event_type: "SESSION_TURN_COMPLETED",
+  payload: {
+    turn_id: "turn:dead",
+    session_id: "s:1",
+    stop_reason: "unknown_requires_review",
+    dead_turn_recovery: {
+      turn_id: "turn:dead",
+      session_id: "s:1",
+      reason_code: "TURN_OWNER_PROCESS_GONE",
+      declared_by: "user:local",
+      declared_at: "2026-09-19T00:00:00Z",
+      reason: "the runtime was killed mid-turn",
+      owner_runtime_boot_id: "boot:dead",
+      owner_runtime_pid: 4242,
+      recovered_by_runtime_boot_id: "boot:new",
+      recovered_by_runtime_pid: 5252,
+      started_event_id: "e:s1",
+      started_sequence: 1,
+      counters_recorded: false,
+    },
+  },
+};
+
+function transcript(controller: TuiController): string {
+  return controller.messages
+    .map((m) => (m.panel ? [m.panel.title, ...m.panel.lines].join("\n") : m.content))
+    .join("\n");
+}
+
+test("/recover names the durable turn, requires a reason, and reports the closure", async () => {
+  const client = new FakeClient();
+  client.durableScript = [...DEAD_TURN];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+
+  // No reason: the operator's declaration IS the reason, so nothing is sent.
+  await controller.submit("/recover");
+  assert.match(transcript(controller), /usage: \/recover <why the runtime died>/);
+  assert.equal(client.recoverCalls.length, 0);
+
+  await controller.submit("/recover the runtime was killed mid-turn");
+  assert.deepEqual(client.recoverCalls, [
+    { sessionId: "s:1", turnId: "turn:dead", reason: "the runtime was killed mid-turn" },
+  ]);
+  const text = transcript(controller);
+  assert.match(text, /turn:dead was closed as an unknown outcome/);
+  assert.match(text, /unknown_requires_review/);
+  assert.match(text, /boot:dead/);
+  assert.match(text, /the runtime was killed mid-turn/);
+});
+
+test("/recover says there is nothing to recover instead of inventing a turn", async () => {
+  const client = new FakeClient();
+  client.durableScript = [
+    { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:done", session_id: "s:1" } },
+    { event_type: "SESSION_TURN_COMPLETED", payload: { turn_id: "turn:done", stop_reason: "completed" } },
+  ];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("/recover looks dead to me");
+  assert.equal(client.recoverCalls.length, 0);
+  assert.match(transcript(controller), /no uncommitted turn in this session: nothing to recover/);
+});
+
+test("reattaching to a session reports the dead turn and the last closure from durable truth", async () => {
+  const client = new FakeClient();
+  client.durableScript = [
+    ...DEAD_TURN,
+    CLOSURE_RECORD,
+    // A later turn that is still open: the operator must be told about BOTH the
+    // turn that was closed and the one that blocks the session now.
+    { event_type: "SESSION_TURN_STARTED", payload: { turn_id: "turn:open", session_id: "s:1" } },
+  ];
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("/resume s:1");
+  const text = transcript(controller);
+  // What happened to the previous turn (durable record, so it re-renders) ...
+  assert.match(text, /turn:dead was closed as an unknown outcome/);
+  // ... and the fact that a turn is STILL open, with the only route out.
+  assert.match(text, /uncommitted turn turn:open/);
+  assert.match(text, /\/recover/);
+});
+
+test("a turn refused for an uncommitted turn is named, not left as kernel jargon", async () => {
+  const client = new FakeClient();
+  client.durableScript = [...DEAD_TURN];
+  client.beginTurnError = new Error(
+    "a prior turn is still uncommitted for this session (turn turn:dead)",
+  );
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("carry on");
+
+  const text = transcript(controller);
+  assert.match(text, /uncommitted turn turn:dead/);
+  assert.match(text, /\/recover <why it died>/);
+  assert.equal(client.beginTexts.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// P1: a correction voids the session's sealed configuration. Every turn is then
+// refused with the kernel's bare string, and the session can even report ACTIVE
+// while refusing (a halt lifted out of band) - which is how `noem session
+// resume` could exit 0 for a session that cannot accept turns.
+// ---------------------------------------------------------------------------
+
+test("a turn refused by the stale configuration seal is named, not left as kernel jargon", async () => {
+  const client = new FakeClient();
+  client.beginTurnError = new Error("configuration correction epochs changed after seal");
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  await controller.submit("carry on");
+
+  const text = transcript(controller);
+  assert.match(text, /sealed configuration predates a correction/);
+  assert.match(text, /start a new one/);
+  // The kernel's own refusal is still reported verbatim (never replaced).
+  assert.match(controller.lastError ?? "", /configuration correction epochs changed after seal/);
+});
+
+test("a halted session refuses the turn without reporting a successful empty turn", async () => {
+  const client = new FakeClient();
+  client.getSession = async () => snapshot({ status: "CORRECTION_HALTED" });
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.ensureSession();
+  (controller as never as { snapshot: unknown }).snapshot = snapshot({
+    status: "CORRECTION_HALTED",
+  });
+  await controller.submit("carry on");
+  assert.deepEqual(client.beginTexts, [], "no turn may be sent to a halted session");
+  assert.match(transcript(controller), /CORRECTION_HALTED/);
+  // Nothing ran: a caller (headless) must be able to tell that from success.
+  assert.match(controller.lastError ?? "", /CORRECTION_HALTED; the turn was not sent/);
 });

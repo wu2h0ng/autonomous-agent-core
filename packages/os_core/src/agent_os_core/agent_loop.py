@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     ActionContract,
+    AgentRun,
     ApprovalDecision,
     ApprovalDisposition,
     BindingStatus,
@@ -20,6 +21,7 @@ from agent_os_contracts import (
     PermissionMode,
     PrincipalIdentity,
     PrincipalRole,
+    ProviderAttemptFailure,
     ProviderFailure,
     ProviderMessage,
     ProviderMessageRole,
@@ -45,7 +47,12 @@ from .capability import (
     CapabilityResult,
     CollaborationPreflightPort,
 )
-from .errors import ConcurrentWriteError, InvalidTransitionError, RunExecutionError
+from .errors import (
+    ConcurrentWriteError,
+    InvalidTransitionError,
+    ProviderCorrectionHalt,
+    RunExecutionError,
+)
 from .governance import CorrectionReadPort, PolicyKernel
 from .permission_gate import (
     ACTION_RISK_TIERS,
@@ -128,9 +135,29 @@ _MAX_TOOL_RESULT_CHARS = 8000
 
 
 class ConfirmationGateway(Protocol):
-    """Interactive authority bridge. Implementations must be human-driven UI."""
+    """Interactive authority bridge. Implementations must be human-driven UI.
+
+    ``authority_id`` is the deciding authority named in the durable approval
+    record this bridge's decision produces. It is the only place the durable
+    stream can carry the identity behind a confirmation: a non-declaring
+    implementation is recorded as ``UNIDENTIFIED_GATEWAY_AUTHORITY`` and is
+    never recorded as an operator decision.
+    """
+
+    authority_id: str
 
     def confirm(self, action: ActionContract, preview: str) -> bool: ...
+
+
+UNIDENTIFIED_GATEWAY_AUTHORITY = "gateway:unidentified"
+
+
+def gateway_authority_id(gateway: object) -> str:
+    """The declared confirmation authority, or the unidentified fail-closed id."""
+    value = getattr(gateway, "authority_id", "")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return UNIDENTIFIED_GATEWAY_AUTHORITY
 
 
 @dataclass(frozen=True)
@@ -141,6 +168,8 @@ class ApprovalRequired(Exception):
 
 class DeferredApprovalGateway:
     """Persist the exact proposal and return control to the Surface caller."""
+
+    authority_id = "gateway:deferred-surface"
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
         raise ApprovalRequired(action=action, preview=preview)
@@ -156,12 +185,16 @@ class AutoApproveGateway:
     must not be wired into interactive production paths.
     """
 
+    authority_id = "gateway:auto-approve"
+
     def confirm(self, action: ActionContract, preview: str) -> bool:
         return action.risk_tier < 3
 
 
 class NonInteractiveDenyGateway:
     """Fail closed when a headless run reaches a confirmation-required action."""
+
+    authority_id = "gateway:non-interactive-deny"
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
         return False
@@ -210,6 +243,48 @@ def _session_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# How many failed attempts of one model call may be written to the durable log.
+#
+# The loop makes `max_provider_retries + 1` attempts, so the ordinary ceiling is
+# the configured retry budget (3 at the product default, 2 retries) and a failed
+# attempt ends the turn - a failing turn therefore costs at most this many
+# records, one per network attempt it actually made. The provider cannot raise
+# that count: only the session's own configuration can, and the limit keeps a
+# session configured with an absurd retry budget from growing the log without
+# bound. It is deliberately far above any retry budget the product configures, so
+# in ordinary operation it never truncates evidence.
+_PROVIDER_ATTEMPT_FAILURE_RECORD_LIMIT = 16
+
+
+class _AttemptDeltaSink:
+    """Per-attempt delta fan-out that remembers whether anything was streamed.
+
+    ``emitted`` is the same fact the adapter's own retry rule turns on ("a stream
+    that has already emitted a delta is never retried: replaying would duplicate
+    output"), and the durable attempt record states it so an operator can see
+    whether a failed attempt had already produced output. Text and reasoning
+    deltas both count, exactly as they do inside the adapter.
+    """
+
+    def __init__(
+        self,
+        *,
+        on_text: Callable[[str], None],
+        on_reasoning: Callable[[str], None],
+    ) -> None:
+        self.emitted = False
+        self._on_text = on_text
+        self._on_reasoning = on_reasoning
+
+    def text(self, chunk: str) -> None:
+        self.emitted = True
+        self._on_text(chunk)
+
+    def reasoning(self, chunk: str) -> None:
+        self.emitted = True
+        self._on_reasoning(chunk)
+
+
 class AgentLoop:
     """Governed multi-turn provider<->capability loop for terminal chat.
 
@@ -237,6 +312,7 @@ class AgentLoop:
         message_sink: Callable[[ChatSession, int, ProviderMessage, str | None], None],
         resumable_turn_ids: tuple[str, ...] = (),
         execution_fence: Callable[[str], None] | None = None,
+        runtime_generation: tuple[str, int] | None = None,
         effect_custody: EffectCustodyPort | None = None,
         independent_approval: bool = False,
         external_exact_approval: bool = False,
@@ -285,6 +361,7 @@ class AgentLoop:
         self._history = list(history)
         self._message_sink = message_sink
         self._resumable_turn_ids = set(resumable_turn_ids)
+        self._runtime_generation = runtime_generation
         self._execution_owner = f"surface-runtime:{uuid4()}"
         self._execution_fence = execution_fence
         self._effect_custody = effect_custody
@@ -386,17 +463,23 @@ class AgentLoop:
             ProviderMessage(role=ProviderMessageRole.USER, content=text),
             turn_id=turn_id.turn_id,
         )
+        started_payload: dict[str, object] = {
+            "turn_id": turn_id.turn_id,
+            "session_id": turn_id.session_id,
+            "user_text": text,
+        }
+        if self._runtime_generation is not None:
+            boot_id, pid = self._runtime_generation
+            started_payload["runtime_boot_id"] = boot_id
+            started_payload["runtime_pid"] = pid
         self._durable_write(
             lambda: self._tasks.append_event(
                 session.task_id,
                 TaskEventType.SESSION_TURN_STARTED,
-                {
-                    "turn_id": turn_id.turn_id,
-                    "session_id": turn_id.session_id,
-                    "user_text": text,
-                },
+                started_payload,
                 correlation_id=session.run_id,
             )
+
         )
         self._resumable_turn_ids.add(turn_id.turn_id)
         return self.resume_turn(session, turn_id, started_here=True)
@@ -1034,7 +1117,18 @@ class AgentLoop:
                         "a terminal Run cannot continue a turn"
                     )
                 self._assert_execution_fence("before_provider")
-                response = self._call_provider(session, turn_id, steps)
+                try:
+                    response = self._call_provider(session, turn_id, steps)
+                except ProviderCorrectionHalt:
+                    # A correction landed while the provider call was in flight.
+                    # The answer is discarded (no PROVIDER_RESPONDED, no dispatch)
+                    # and the turn ends here with the same frozen stop reason the
+                    # pre-invocation halt uses. Raising out of the turn instead
+                    # left SESSION_TURN_STARTED without its completion, and every
+                    # later begin-turn was then refused with SurfaceTurnInProgress
+                    # for the rest of the session's life.
+                    stop_reason = "correction_halted"
+                    break
                 if isinstance(response, ProviderFailure):
                     stop_reason = f"provider_failure:{response.code.value}"
                     final_text = response.safe_message
@@ -1419,7 +1513,9 @@ class AgentLoop:
     ) -> ProviderResponse | ProviderFailure:
         attempts = self._config.max_provider_retries + 1
         last_failure: ProviderFailure | None = None
-        for _ in range(attempts):
+        recorded_failures = 0
+        node_id = f"{turn_id.turn_id}-step-{step + 1}"
+        for attempt in range(attempts):
             aggregate = self._tasks.get_task(session.task_id)
             run = aggregate.run
             snapshot = aggregate.configuration_snapshot
@@ -1461,10 +1557,16 @@ class AgentLoop:
                 timeout_seconds=self._profile.request_timeout_seconds,
                 created_at=_session_now(),
             )
+            deltas = _AttemptDeltaSink(
+                on_text=self._emit_text_delta,
+                on_reasoning=self._emit_reasoning_delta,
+            )
+            started_at = _session_now()
+            started_monotonic = time.monotonic()
             response = self._provider.complete_streaming(
                 request,
-                on_text_delta=self._emit_text_delta,
-                on_reasoning_delta=self._emit_reasoning_delta,
+                on_text_delta=deltas.text,
+                on_reasoning_delta=deltas.reasoning,
             )
             if isinstance(response, ProviderFailure):
                 last_failure = response
@@ -1472,7 +1574,28 @@ class AgentLoop:
                     raise RunExecutionError(
                         "chat provider failure request binding mismatch"
                     )
-                if response.retryable:
+                if recorded_failures < _PROVIDER_ATTEMPT_FAILURE_RECORD_LIMIT:
+                    recorded_failures += 1
+                    self._record_provider_attempt_failure(
+                        session=session,
+                        run=run,
+                        turn_id=turn_id.turn_id,
+                        node_id=node_id,
+                        attempt_index=attempt,
+                        attempts_planned=attempts,
+                        failure=response,
+                        emitted_output=deltas.emitted,
+                        started_at=started_at,
+                        latency_ms=(time.monotonic() - started_monotonic) * 1000.0,
+                    )
+                # The same rule the adapter enforces inside its own retry loop
+                # (provider.py: "a stream that has already emitted a delta is
+                # never retried: replaying would duplicate output"): once this
+                # attempt has streamed anything, the operator has seen it, so a
+                # retry would replay output rather than recover the turn. The two
+                # layers make the decision on the same fact - that this attempt
+                # emitted - so neither can retry what the other refuses to.
+                if response.retryable and not deltas.emitted:
                     continue
                 break
             if (
@@ -1489,14 +1612,14 @@ class AgentLoop:
                 pre_correction_epochs,
             ) as unchanged:
                 if not unchanged:
-                    raise RunExecutionError(
+                    raise ProviderCorrectionHalt(
                         "chat provider correction epoch changed during invocation"
                     )
                 post_correction_epochs = self._correction.snapshot(
                     session.task_id, session.run_id, "provider"
                 )
                 if post_correction_epochs != pre_correction_epochs:
-                    raise RunExecutionError(
+                    raise ProviderCorrectionHalt(
                         "chat provider correction epoch changed during invocation"
                     )
                 node_id = f"{turn_id.turn_id}-step-{step + 1}"
@@ -1526,6 +1649,55 @@ class AgentLoop:
         if last_failure is None:
             raise RunExecutionError("chat provider exhausted without a response")
         return last_failure
+
+    def _record_provider_attempt_failure(
+        self,
+        *,
+        session: ChatSession,
+        run: AgentRun,
+        turn_id: str,
+        node_id: str,
+        attempt_index: int,
+        attempts_planned: int,
+        failure: ProviderFailure,
+        emitted_output: bool,
+        started_at: datetime,
+        latency_ms: float,
+    ) -> None:
+        """Durably record one failed model call, or nothing at all.
+
+        A failure to record must never be worse than the failure being recorded:
+        the attempt is already over and the turn is about to stop on it, so every
+        error here is swallowed - the same rule the adapter's own operator log
+        follows. Nothing about a missing record is inferred later; the log simply
+        holds one fewer attempt.
+        """
+
+        try:
+            self._tasks.record_provider_attempt_failure(
+                session.task_id,
+                ProviderAttemptFailure(
+                    attempt_failure_id=failure.failure_id,
+                    request_id=failure.request_id,
+                    node_id=node_id,
+                    task_id=session.task_id,
+                    run_id=run.run_id,
+                    session_id=session.session_id,
+                    turn_id=turn_id,
+                    attempt_index=attempt_index,
+                    attempts_planned=attempts_planned,
+                    code=failure.code,
+                    retryable=failure.retryable,
+                    emitted_output=emitted_output,
+                    provider_profile_id=self._profile.profile_id,
+                    model_id=self._profile.model_id,
+                    safe_message=failure.safe_message,
+                    latency_ms=max(0.0, round(latency_ms, 3)),
+                    started_at=started_at,
+                ),
+            )
+        except Exception:  # noqa: BLE001 - evidence must not fail the turn
+            return
 
     def _record_tool_failure(
         self,
@@ -1695,8 +1867,14 @@ class AgentLoop:
                     proposal,
                     {"error": "user rejected the proposed action", "rejected": True},
                 )
+            # Recorded before the dispatch it authorizes, mirroring the denial
+            # above. Tier<3 is admitted by the kernel without an
+            # ApprovalDecision, so for it this record is authority evidence,
+            # never a new admission path.
+            confirmation = self._build_approval(action)
+            self._record_confirmation(session, action, confirmation)
             if gate.risk_tier >= 3:
-                approval = self._build_approval(action)
+                approval = confirmation
         else:
             self._actions.record_action_proposed(action)
             if gate.outcome is PermissionGateOutcome.MODE_AUTO_ALLOW:
@@ -1856,7 +2034,7 @@ class AgentLoop:
         )
 
     def _record_denial(self, session: ChatSession, action: ActionContract) -> None:
-        """Durably record that the principal declined this exact proposed action."""
+        """Durably record that the confirmation gate declined this exact action."""
         now = _session_now()
         denial = ApprovalDecision(
             approval_id=f"approval-{uuid4()}",
@@ -1866,7 +2044,7 @@ class AgentLoop:
             actor_id=self._principal.principal_id,
             actor_role=self._principal.role,
             disposition=ApprovalDisposition.REJECT,
-            reason="interactive terminal denial",
+            reason=f"confirmation denied by {self._gateway_authority()}",
             decided_at=now,
             expires_at=now + timedelta(minutes=5),
         )
@@ -1882,10 +2060,36 @@ class AgentLoop:
             actor_id=self._principal.principal_id,
             actor_role=self._principal.role,
             disposition=ApprovalDisposition.APPROVE,
-            reason="interactive terminal approval",
+            reason=f"confirmation approved by {self._gateway_authority()}",
             decided_at=now,
             expires_at=now + timedelta(minutes=5),
         )
+
+    def _record_confirmation(
+        self,
+        session: ChatSession,
+        action: ActionContract,
+        approval: ApprovalDecision,
+    ) -> None:
+        """Durably record the operator's confirmation of this exact action.
+
+        Without this write the confirmation is the one authority decision on
+        the interactive path with no durable trace: the refusal is recorded by
+        :meth:`_record_denial` and a deferred decision by the Surface approval
+        contract, but a synchronous confirmation would leave only an admitted
+        policy decision whose ``approval_id`` names no decision. The record is
+        appended before the dispatch it authorizes, so authority is always
+        reconstructable from the stream. A confirmation that does not bind the
+        exact proposed action fails closed before any effect.
+        """
+        if approval.action_digest != action.action_digest():
+            raise InvalidTransitionError(
+                "confirmation does not bind the exact proposed action"
+            )
+        self._tasks.record_approval(session.task_id, approval)
+
+    def _gateway_authority(self) -> str:
+        return gateway_authority_id(self._gateway)
 
     def _tool_message(self, proposal: Any, payload: dict[str, Any]) -> ProviderMessage:
         return ProviderMessage(

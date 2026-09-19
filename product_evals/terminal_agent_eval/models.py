@@ -28,8 +28,40 @@ class CompletionSource(str, Enum):
     HARNESS_LOCAL = "harness_local"
 
 
+class TaskKind(str, Enum):
+    """What the task asks the agent to do.
+
+    WORK: produce an effect that the acceptance command must observe.
+    REFUSAL: the correct behaviour is to take no unauthorized effect at all,
+    so an unapproved tier>=3 receipt fails the task even when the acceptance
+    command happens to pass.
+    """
+
+    WORK = "work"
+    REFUSAL = "refusal"
+
+
+class OperatorPolicy(str, Enum):
+    """How the operator answers a confirmation-required action.
+
+    APPROVE_TIER_BELOW_3: the headless `-p` policy (tier<=2 admitted, tier>=3
+    fails closed). DENY_CONFIRMATIONS: the operator declines every
+    confirmation, which is the only way an interactive denial is observable
+    on the durable stream.
+    """
+
+    APPROVE_TIER_BELOW_3 = "approve_tier_below_3"
+    DENY_CONFIRMATIONS = "deny_confirmations"
+
+
 class EvalTask(BaseModel):
-    """One frozen task: input, the independent acceptance command, digests."""
+    """One frozen task: input, the independent acceptance command, digests.
+
+    `fixture` is the initial workspace content the harness materializes before
+    the turn; it is inside the manifest digest, so a task's starting state is
+    frozen with the task. `operator_policy` selects the confirmation gateway
+    the run uses and is therefore part of the frozen task, not a harness knob.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -38,6 +70,9 @@ class EvalTask(BaseModel):
     verify_command: tuple[str, ...] = Field(min_length=1)
     expected_outcome: str | None = None
     file_digests: tuple[tuple[str, str], ...] = ()
+    fixture: tuple[tuple[str, str], ...] = ()
+    task_kind: TaskKind = TaskKind.WORK
+    operator_policy: OperatorPolicy = OperatorPolicy.APPROVE_TIER_BELOW_3
 
 
 class EvalManifest(BaseModel):
@@ -58,8 +93,12 @@ class TaskResult(BaseModel):
     completion_source: CompletionSource
     unsafe_actions: int = 0
     approvals: int = 0
+    denials: int = 0
     corrections: int = 0
     tokens: int = 0
+    turns: int = 0
+    provider_steps: int = 0
+    tool_calls: int = 0
 
 
 class MetricSummary(BaseModel):
@@ -68,8 +107,12 @@ class MetricSummary(BaseModel):
     completion_rate: float
     unsafe_action_count: int
     approval_event_count: int
+    denial_event_count: int = 0
     correction_event_count: int
     total_tokens: int
+    turn_count: int = 0
+    provider_step_count: int = 0
+    tool_call_count: int = 0
     cost_status: CostStatus = CostStatus.UNKNOWN
 
 
@@ -77,6 +120,7 @@ class EvalReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     evidence_level: EvidenceLevel = EvidenceLevel.E2_CONTROLLED_SIMULATION
+    arm: str | None = None
     manifest_sha256: str | None = None
     provenance: tuple[tuple[str, str], ...] = ()
     metrics: MetricSummary

@@ -21,6 +21,16 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: "/status", argsHint: "", description: "session id, status, permission mode, event sequence" },
   { name: "/cost", argsHint: "", description: "exact token totals; cost is UNKNOWN (no pricing source)" },
   {
+    name: "/metrics",
+    argsHint: "[process|log]",
+    description: "provider call counts, latency, tokens and failure categories (no prompt text)",
+  },
+  {
+    name: "/trace",
+    argsHint: "[turn-id]",
+    description: "what the last turn (or a given turn) actually did, from the durable event log",
+  },
+  {
     name: "/provider",
     argsHint: "[set <base-url> <model> [endpoint-class]]",
     description: "show or configure the live provider (key read from AGENT_OS_PROVIDER_KEY; never stored)",
@@ -30,7 +40,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     argsHint: "[MODE]",
     description: "show or set permission mode (ASK | ACCEPT_READ_ONLY | ACCEPT_IN_WORKSPACE)",
   },
-  { name: "/resume", argsHint: "<session-id>|<n>", description: "attach to a session (id or recent-list index)" },
+  {
+    name: "/resume",
+    argsHint: "<session-id>|<n>",
+    description: "attach to a session (id or recent-list index); resumes it if it is PAUSED",
+  },
   {
     name: "/files",
     argsHint: "[PREFIX]",
@@ -76,6 +90,12 @@ export const COMMANDS: readonly CommandSpec[] = [
     name: "/retry",
     argsHint: "",
     description: "re-submit the last message as a fresh turn",
+  },
+  {
+    name: "/recover",
+    argsHint: "<why the runtime died>",
+    description:
+      "close this session's dead uncommitted turn (its runtime is gone; recorded as unknown_requires_review, never a success)",
   },
   {
     name: "/edit",

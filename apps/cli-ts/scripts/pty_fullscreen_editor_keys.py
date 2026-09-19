@@ -39,6 +39,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -172,14 +173,14 @@ def crlf_case(fd: int, screen: Screen) -> bool:
     return inside[0] == "p" and inside[1] == "q"
 
 
-def main() -> None:
+def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="editor-keys-"))
     descriptor = tmp / "r.json"
     workspace = tmp / "ws"
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),
@@ -199,11 +200,16 @@ def main() -> None:
             case("CTRL_D_DELETES_FORWARD", descriptor, ctrl_d_case),
             case("PASTE_CRLF_IS_ONE_BREAK", descriptor, crlf_case),
         ]
-        print("EDITOR_KEYS_OK:", all(results))
+        ok = all(results)
+        print("EDITOR_KEYS_OK:", ok)
+        # The verdict is the EXIT STATUS, not the printed line: CI reads the exit
+        # code, so a printed-only boolean would leave all three behaviours
+        # unenforced while the script looked like it asserted them.
+        return 0 if ok else 1
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

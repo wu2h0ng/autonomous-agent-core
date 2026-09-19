@@ -58,6 +58,22 @@ test("ctrl-l clears the view; unrelated keys fall through", () => {
   assert.equal(handleGlobalKey(controller, "x", {}), false);
 });
 
+test("ctrl-x requests an operator stop and is consumed; plain x falls through", () => {
+  const { controller } = controllerWith("streaming");
+  const calls: string[] = [];
+  controller.stopTurn = async (source = "ctrl-x") => {
+    calls.push(source);
+    return "stopped";
+  };
+  assert.equal(handleGlobalKey(controller, "x", { ctrl: true }), true);
+  assert.deepEqual(calls, ["ctrl-x"], "ctrl-x must reach the stop path, not the composer");
+
+  // A plain `x` is composer text (and vim's delete-forward in normal mode):
+  // the stop key must never be reachable from a bare letter.
+  assert.equal(handleGlobalKey(controller, "x", {}), false);
+  assert.equal(calls.length, 1);
+});
+
 test("/clear: resets view and refuses mid-turn", async () => {
   const controller = new TuiController({} as never);
   const internals = controller as never as {

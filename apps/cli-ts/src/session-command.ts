@@ -6,13 +6,14 @@
  */
 import { SurfaceClient, SurfaceHttpError } from "./client.js";
 import { loadRuntimeDescriptor } from "./descriptor.js";
+import { openDurableTurnIds } from "./turns.js";
 
 export interface SessionCommandOptions {
   descriptorPath?: string | undefined;
   args: string[];
 }
 
-const SUBCOMMANDS = new Set(["show", "pause", "resume", "correct"]);
+const SUBCOMMANDS = new Set(["show", "pause", "resume", "correct", "recover", "close"]);
 
 /** Bounded refresh-and-resend budget for a stale-cursor rejection. */
 const CONTROL_RETRY_LIMIT = 2;
@@ -75,15 +76,161 @@ async function sendControlCommand(
   throw lastError;
 }
 
+/**
+ * The operator's reason text: everything after the session id, minus the CLI's
+ * own flags.
+ *
+ * The reason is durable evidence (`CORRECTION_WRITTEN.reason`), and the flags
+ * are not. Measured 2026-09-18: `noem session correct <id> "why" --descriptor
+ * /tmp/x.json` recorded the reason as `why --descriptor /tmp/x.json`, and
+ * `noem session pause <id> --descriptor /tmp/x.json` lost the default reason to
+ * the flag text entirely.
+ */
+function reasonFrom(args: readonly string[]): string {
+  const kept: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] as string;
+    if (arg === "--descriptor") {
+      index += 1; // the flag and its value are transport, never a reason
+      continue;
+    }
+    kept.push(arg);
+  }
+  return kept.join(" ").trim();
+}
+
+/**
+ * `noem session recover <session-id> <why the runtime died>`.
+ *
+ * Declares the session's open durable turn dead — the runtime that started it
+ * is gone, so nothing will ever complete it and every later turn is refused.
+ * The turn id is read from durable truth (the operator does not have to know
+ * it), and the kernel records the closure as `unknown_requires_review` with the
+ * operator's reason.
+ *
+ * Exit codes follow the same rule as `resume`: 0 only when the session really
+ * is usable afterwards (no uncommitted turn left). Nothing to recover is not a
+ * failure, but it is never reported as a repair either — the message says so.
+ */
+async function runRecover(
+  client: SurfaceClient,
+  sessionId: string,
+  reason: string,
+): Promise<number> {
+  if (!reason.trim()) {
+    process.stderr.write(
+      "usage: noem session recover <session-id> <why the runtime died>\n" +
+        "the reason is durable evidence of the operator's declaration\n",
+    );
+    return 1;
+  }
+  const snapshot = await client.getSession(sessionId);
+  const before = await client.events(snapshot.session.task_id, 0);
+  const open = openDurableTurnIds(before.events);
+  if (open.length === 0) {
+    process.stdout.write(
+      `${JSON.stringify({ session_id: sessionId, status: snapshot.status, recovered: false }, null, 2)}\n`,
+    );
+    process.stderr.write(
+      "noem session recover: this session has no uncommitted turn — nothing to recover\n",
+    );
+    return 0;
+  }
+  if (open.length > 1) {
+    process.stderr.write(
+      `noem session recover: ${open.length} uncommitted turns (${open.join(", ")}) — one turn per session is the invariant; this needs a human, not a guess\n`,
+    );
+    return 1;
+  }
+  const recovery = await client.recoverTurn(sessionId, open[0] as string, reason.trim());
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        session_id: sessionId,
+        status: recovery.snapshot.status,
+        recovered: true,
+        turn_id: recovery.recovery.turn_id,
+        stop_reason: "unknown_requires_review",
+        reason_code: recovery.recovery.reason_code,
+        owner_runtime_boot_id: recovery.recovery.owner_runtime_boot_id,
+        declared_by: recovery.recovery.declared_by,
+        notice: recovery.notice,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // Never claim success for a session that is still not usable: re-read the
+  // durable turn state and answer on it, not on the response we were handed.
+  const after = await client.events(recovery.snapshot.session.task_id, 0);
+  if (openDurableTurnIds(after.events).length > 0) {
+    process.stderr.write(
+      "noem session recover: the kernel still reports an uncommitted turn — the session is not usable\n",
+    );
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * `noem session close <session-id> <why>` — the operator's explicit close of a
+ * session (G10), distinct from a resumable pause. The kernel stops every
+ * in-flight child (named `stopped_by_operator`) and then closes the parent. The
+ * reason is durable evidence; it is required before anything is read.
+ */
+async function runClose(
+  client: SurfaceClient,
+  sessionId: string,
+  reason: string,
+): Promise<number> {
+  if (!reason.trim()) {
+    process.stderr.write(
+      "usage: noem session close <session-id> <why you are closing it>\n" +
+        "the reason is durable evidence of the operator's close (G10)\n",
+    );
+    return 1;
+  }
+  await client.getSession(sessionId);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= CONTROL_RETRY_LIMIT; attempt += 1) {
+    try {
+      const snapshot = await client.closeSession(
+        sessionId,
+        reason.trim(),
+        `cli-ts-session-close:${sessionId}:${Date.now()}`,
+      );
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            session_id: sessionId,
+            status: snapshot.status,
+            closed: true,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return snapshot.status === "CLOSED" ? 0 : 1;
+    } catch (cause) {
+      lastError = cause;
+      if (!isSequenceConflict(cause)) throw cause;
+      if (attempt < CONTROL_RETRY_LIMIT) {
+        await new Promise((resolve) => setTimeout(resolve, CONTROL_RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function runSessionCommand(
   options: SessionCommandOptions,
 ): Promise<number> {
   const sub = (options.args[0] ?? "show").toLowerCase();
   const sessionId = options.args[1];
-  const reason = options.args.slice(2).join(" ").trim();
+  const reason = reasonFrom(options.args.slice(2));
   if (!SUBCOMMANDS.has(sub)) {
     process.stderr.write(
-      `noem: unknown session subcommand ${sub} (show | pause | resume | correct)\n`,
+      `noem: unknown session subcommand ${sub} (show | pause | resume | correct | recover | close)\n`,
     );
     return 1;
   }
@@ -93,9 +240,25 @@ export async function runSessionCommand(
     );
     return 1;
   }
+  // The operator's declaration is the point of `recover`, so it is required
+  // before anything is read or sent — a missing reason must not reach the
+  // daemon (or the default descriptor on disk).
+  if ((sub === "recover" || sub === "close") && !reason.trim()) {
+    process.stderr.write(
+      "usage: noem session recover <session-id> <why the runtime died>\n" +
+        "the reason is durable evidence of the operator's declaration\n",
+    );
+    return 1;
+  }
   try {
     const descriptor = await loadRuntimeDescriptor(options.descriptorPath);
     const client = new SurfaceClient(descriptor);
+    if (sub === "recover") {
+      return await runRecover(client, sessionId, reason);
+    }
+    if (sub === "close") {
+      return await runClose(client, sessionId, reason);
+    }
     if (sub === "show") {
       const snapshot = await client.getSession(sessionId);
       process.stdout.write(
@@ -125,6 +288,21 @@ export async function runSessionCommand(
     process.stdout.write(
       `${JSON.stringify({ session_id: sessionId, status: snapshot.status }, null, 2)}\n`,
     );
+    // A resume that leaves the session unusable is not a success. Measured
+    // 2026-09-18 on a real daemon: `noem session resume` against a
+    // CORRECTION_HALTED session answered 200 with `{"status":
+    // "CORRECTION_HALTED"}` and exit 0, while every later turn was refused by
+    // the kernel — an exit-0 for an operation that changed nothing the operator
+    // can use.
+    if (action === "resume" && snapshot.status !== "ACTIVE") {
+      process.stderr.write(
+        `noem session resume: the kernel still reports ${snapshot.status} — this session cannot accept turns. ` +
+          (snapshot.status === "CORRECTION_HALTED"
+            ? "A correction halts the task and voids its sealed configuration; no terminal command restores it (start a new session).\n"
+            : "The Run is not runnable (resume the correction or the pause first).\n"),
+      );
+      return 1;
+    }
     return 0;
   } catch (cause) {
     // Non-zero exit and the reason on stderr: an operator scripting an emergency

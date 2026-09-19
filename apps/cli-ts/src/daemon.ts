@@ -36,6 +36,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   DEFAULT_RUNTIME_DESCRIPTOR,
+  SurfaceProtocolSkewError,
   loadRuntimeDescriptor,
   type RuntimeDescriptor,
 } from "./descriptor.js";
@@ -260,10 +261,21 @@ function declaresConsoleScript(toml: string, name: string): boolean {
   return false;
 }
 
+/**
+ * The descriptor, or `null` when there is no daemon to attach to.
+ *
+ * A protocol skew is NOT "no daemon" and is rethrown: the descriptor was written
+ * by another build that is probably still running, and its file is that daemon's
+ * only handle. Treating the skew as absence is what made an older client delete a
+ * live daemon's descriptor and then try to start a competing daemon over the same
+ * database, reporting "daemon did not become ready in time" instead of naming the
+ * version mismatch it actually hit.
+ */
 async function tryLoad(descriptorPath: string): Promise<RuntimeDescriptor | null> {
   try {
     return await loadRuntimeDescriptor(descriptorPath);
-  } catch {
+  } catch (error) {
+    if (error instanceof SurfaceProtocolSkewError) throw error;
     return null;
   }
 }

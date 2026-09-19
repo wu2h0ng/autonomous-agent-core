@@ -166,5 +166,17 @@ class WaitingForApproval(RunExecutionError):
     pass
 
 
+class ProviderCorrectionHalt(RunExecutionError):
+    """A correction landed while the provider invocation was in flight.
+
+    The answer cannot be bound to the correction epoch captured before the
+    invocation, so it is discarded: never recorded as a provider response,
+    never dispatched. The caller must still END the turn (as
+    ``correction_halted``) — raising out of the turn instead left the durable
+    turn open forever, so the session reported an uncommitted turn and every
+    later begin-turn was refused with ``SurfaceTurnInProgress``.
+    """
+
+
 class UnsupportedNodeError(RunExecutionError):
     pass

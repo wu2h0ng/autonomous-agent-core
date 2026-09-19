@@ -38,6 +38,7 @@ from agent_os_contracts import (
     PolicyDecision,
     PolicyVerdict,
     PrincipalRole,
+    ProviderAttemptFailure,
     ProviderMessage,
     ProviderMessageRole,
     ProviderToolProposal,
@@ -47,6 +48,11 @@ from agent_os_contracts import (
     content_digest,
 )
 
+from .dead_turn import (
+    DEAD_TURN_REASON_CODE,
+    DEAD_TURN_RECOVERY_FIELD,
+    DEAD_TURN_STOP_REASON,
+)
 from .errors import (
     CommitmentExpiredError,
     ConcurrentWriteError,
@@ -69,6 +75,7 @@ from .session_projection import (
     SessionLoopConfig,
     SessionProjectionError,
     SessionProjector,
+    has_unanswered_tool_calls,
 )
 from .task_aggregate import TaskAggregate
 
@@ -83,6 +90,7 @@ PROTECTED_TRUTH_EVENTS = frozenset(
         TaskEventType.ACTION_RECEIPT_RECORDED,
         TaskEventType.ARTIFACT_RECORDED,
         TaskEventType.OUTCOME_OBSERVED,
+        TaskEventType.PROVIDER_ATTEMPT_FAILED,
         TaskEventType.SESSION_APPROVAL_PENDING,
         TaskEventType.SESSION_APPROVAL_EXECUTION_CLAIMED,
         TaskEventType.SESSION_APPROVAL_RESOLVED,
@@ -585,6 +593,47 @@ class TaskService:
         )
         return self.get_task(task_id)
 
+    def record_provider_attempt_failure(
+        self,
+        task_id: str,
+        attempt: ProviderAttemptFailure,
+    ) -> TaskAggregate:
+        """Append one failed provider attempt through its typed writer.
+
+        The success counterpart of this record (``record_provider_response``)
+        attests an execution; this one attests that no execution produced a
+        response, and why. It carries no authority and changes no Run state: a
+        failed attempt is evidence about the turn, never a transition of it.
+        """
+
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise InvalidTransitionError(
+                "provider attempt failure requires an active Run"
+            )
+        if attempt.task_id != task_id or attempt.run_id != run.run_id:
+            raise InvalidTransitionError("provider attempt failure binding mismatch")
+        draft = TaskEventDraft.build(
+            event_id=self._id_factory("event"),
+            task_id=task_id,
+            event_type=TaskEventType.PROVIDER_ATTEMPT_FAILED,
+            payload={
+                "session_id": attempt.session_id,
+                "turn_id": attempt.turn_id,
+                "provider_attempt_failure": attempt.model_dump(mode="json"),
+            },
+            occurred_at=self._clock(),
+            correlation_id=run.run_id,
+            causation_id=aggregate.last_event_id,
+        )
+        self._event_store.append(
+            task_id,
+            expected_sequence=aggregate.sequence,
+            drafts=(draft,),
+        )
+        return self.get_task(task_id)
+
     def _append_event(
         self,
         task_id: str,
@@ -713,6 +762,45 @@ class TaskService:
             TaskEventType.CHILD_AGENT_RECONCILED,
             dict(payload),
             correlation_id=parent_run_id,
+            writer_token=self._runtime_writer_token,
+        )
+
+    def record_session_checkpoint(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        run_id: str,
+        turn_id: str | None,
+        label: str,
+        state_digest: str,
+    ) -> TaskAggregate:
+        """Append one operator-named, append-only session checkpoint marker.
+
+        This is the typed writer for ``SESSION_CHECKPOINT_RECORDED`` (it is in
+        ``PROTECTED_TRUTH_EVENTS``): it uses the runtime writer token internally,
+        so no caller can append a malformed checkpoint. The checkpoint is a
+        durable reference into the existing event stream (sequence + turn_id +
+        a digest of the projected state at this point), never a copied snapshot:
+        a crashed process reconstructs the session by re-projecting the stream
+        FORWARD from ``sequence``. It never deletes or rewrites prior events,
+        and it never carries prompt or completion text.
+        """
+
+        aggregate = self.get_task(task_id)
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_CHECKPOINT_RECORDED,
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "run_id": run_id,
+                "turn_id": turn_id,
+                "label": label,
+                "sequence": aggregate.sequence,
+                "state_digest": state_digest,
+            },
+            correlation_id=session_id,
             writer_token=self._runtime_writer_token,
         )
 
@@ -1481,6 +1569,115 @@ class TaskService:
             ),
             correlation_id=run.run_id,
         )
+
+    def close_dead_session_turn(
+        self,
+        task_id: str,
+        session_id: str,
+        *,
+        turn_id: str,
+        declared_by: str,
+        declared_at: datetime,
+        reason: str,
+        runtime_boot_id: str,
+        runtime_pid: int,
+    ) -> dict[str, object]:
+        """Close the session's open turn whose owning runtime process is gone.
+
+        The turn is closed as an unknown outcome - `stop_reason` is
+        `unknown_requires_review`, never `completed` - because nothing durable
+        says what it produced: its provider call died with the process that
+        started it. The written block (`dead_turn_recovery`) names the exact
+        start event it closes, the runtime generation that started the turn
+        (when that generation recorded itself), the generation that closed it,
+        and the operator declaration that makes this a decision rather than a
+        guess.
+
+        Refused unless the exact turn is the session's one open turn and the
+        projector will accept the completion this produces; appending an event
+        the projection rejects would make the session unreadable. A parked
+        approval and an unanswered tool call both stay open by refusal: only a
+        human APPROVE/REJECT may resolve those.
+        """
+
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        projected = SessionProjector(self._event_store).project(task_id, session_id)
+        started = next(
+            (
+                event
+                for event in self._event_store.read(task_id)
+                if event.event_type is TaskEventType.SESSION_TURN_STARTED
+                and event.decoded_payload().get("turn_id") == turn_id
+            ),
+            None,
+        )
+        if (
+            run is None
+            or projected.ref.run_id != run.run_id
+            or projected.resumable_turn_id != turn_id
+            or started is None
+        ):
+            raise InvalidTransitionError(
+                "dead turn recovery requires the session's one open durable turn"
+            )
+        if projected.pending_continuation is not None:
+            raise InvalidTransitionError(
+                "a pending approval owns this turn; decide the approval instead"
+            )
+        if has_unanswered_tool_calls(projected.history):
+            raise InvalidTransitionError(
+                "the turn has an unanswered tool call that needs a human decision"
+            )
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("dead turn recovery reason is required")
+        start_payload = started.decoded_payload()
+        owner_boot_id = start_payload.get("runtime_boot_id")
+        owner_pid = start_payload.get("runtime_pid")
+        block: dict[str, object] = {
+            "turn_id": turn_id,
+            "session_id": session_id,
+            "reason_code": DEAD_TURN_REASON_CODE,
+            "declared_by": declared_by,
+            "declared_at": declared_at,
+            "reason": normalized_reason,
+            "owner_runtime_boot_id": (
+                owner_boot_id
+                if isinstance(owner_boot_id, str) and owner_boot_id.strip()
+                else None
+            ),
+            "owner_runtime_pid": (
+                owner_pid
+                if isinstance(owner_pid, int)
+                and not isinstance(owner_pid, bool)
+                and owner_pid >= 1
+                else None
+            ),
+            "recovered_by_runtime_boot_id": runtime_boot_id,
+            "recovered_by_runtime_pid": runtime_pid,
+            "started_event_id": started.event_id,
+            "started_sequence": started.sequence,
+            "counters_recorded": False,
+        }
+        self.append_event(
+            task_id,
+            TaskEventType.SESSION_TURN_COMPLETED,
+            {
+                "turn_id": turn_id,
+                "session_id": session_id,
+                "stop_reason": DEAD_TURN_STOP_REASON,
+                "steps": 0,
+                "total_tokens": 0,
+                DEAD_TURN_RECOVERY_FIELD: block,
+            },
+            correlation_id=run.run_id,
+        )
+        # Post-condition: the completion just written must still project. A
+        # completion the projector rejects would leave the session unreadable,
+        # so this is asserted rather than assumed.
+        SessionProjector(self._event_store).project(task_id, session_id)
+        return block
 
     def _unknown_session_action(
         self,

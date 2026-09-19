@@ -91,6 +91,38 @@ test("frozen global keys win over palette/agents when no overlay is open", () =>
   assert.deepEqual(resolveViewKey(ctx({ name: "l", ctrl: true })), { layer: "global" });
 });
 
+test("ctrl-x (operator stop) is reachable from EVERY layer", () => {
+  // Stopping a run must not depend on what is on screen: an operator who is
+  // mid-search, mid-picker, parked on an approval or inside vim normal mode
+  // (whose bare `x` is delete-forward and would otherwise swallow it) must
+  // still be able to stop the turn. Every other layer keeps Esc.
+  const layers: Partial<ViewKeyContext>[] = [
+    {},
+    { vimNormal: true },
+    { vimInsertMode: true, vimNormal: false },
+    { selectorOpen: { kind: "theme", title: "theme", items: ["default"] } },
+    { searchOpen: true },
+    { awaitingApproval: true },
+    { paletteOpen: true },
+    { mentionOpen: true },
+    { activePanel: "agents" },
+  ];
+  for (const layer of layers) {
+    assert.deepEqual(
+      resolveViewKey(ctx({ ...layer, name: "x", ctrl: true, sequence: "\u0018" })),
+      { layer: "global" },
+      `ctrl-x must route to global from ${JSON.stringify(layer)}`,
+    );
+    // ... and a bare `x` must NOT: in vim normal mode it is delete-forward, and
+    // in insert mode it is composer text.
+    assert.notDeepEqual(
+      resolveViewKey(ctx({ ...layer, name: "x", ctrl: false, sequence: "x" })),
+      { layer: "global" },
+      `a bare x must not stop the run from ${JSON.stringify(layer)}`,
+    );
+  }
+});
+
 test("an open palette beats the agents panel and plain Enter", () => {
   assert.deepEqual(resolveViewKey(ctx({ paletteOpen: true, name: "up" })), {
     layer: "palette",
@@ -351,5 +383,30 @@ test("a selector still outranks an open search", () => {
   assert.deepEqual(
     resolveViewKey(ctx({ selectorOpen: true, searchOpen: true, name: "return" })),
     { layer: "selector" },
+  );
+});
+
+test("agents panel: plain x stops the highlighted child; ctrl-x stays global", () => {
+  const closed = false;
+  // Plain x while the agents panel is selected routes to per-child stop.
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "x", ctrl: false })),
+    { layer: "agents", action: "stop-child" },
+  );
+  // Ctrl-X is the frozen global "stop the run" regardless of panel.
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "x", ctrl: true })),
+    { layer: "global" },
+  );
+  // Plain x outside the agents panel belongs to the composer (ignore), so it
+  // can never stop a child while the user is typing in the transcript.
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "transcript", name: "x", ctrl: false })),
+    { layer: "ignore" },
+  );
+  // Arrows in the agents panel still move (the x binding did not shadow them).
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "down", ctrl: false })),
+    { layer: "agents", action: "move", delta: 1 },
   );
 });

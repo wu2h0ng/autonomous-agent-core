@@ -9,10 +9,12 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     ActionContract,
+    ActionReceipt,
     CapabilityGrant,
     ExpectedOutcome,
     PolicyVerdict,
     PrincipalIdentity,
+    ReceiptStatus,
     ResourceBudget,
     TaskEventType,
 )
@@ -350,11 +352,27 @@ class ActionPipeline:
                 execution_claim=execution_claim,
             )
 
-        result = (
-            effect_custody(action.node_id, action.action_digest(), invoke)
-            if effect_custody is not None
-            else invoke()
-        )
+        try:
+            result = (
+                effect_custody(action.node_id, action.action_digest(), invoke)
+                if effect_custody is not None
+                else invoke()
+            )
+        except CapabilityEffectUnknown as unknown:
+            # ADR-0059 / probe P12: a post-dispatch fault means the effect MAY
+            # have happened - a different state from a clean FAILED. When a
+            # reservation exists (dispatch was attempted), leave a typed
+            # UNKNOWN ActionReceipt on the task stream before the turn pauses,
+            # so the durable record can never be read as "it failed" or "it
+            # never ran". Pre-reservation denials carry no receipt identity and
+            # leave no receipt. The reservation-without-outcome still forbids
+            # an automatic resend; recording the uncertainty does not resolve
+            # it. Behavior is preserved (the unknown is re-raised) on both the
+            # chat seam and the reconciliation seam.
+            self._record_unknown_action_receipt(
+                action, decision, permit, unknown
+            )
+            raise
         if execution_fence is not None:
             execution_fence("before_tool_effect_commit")
         self._tasks._record_action_receipt(
@@ -400,6 +418,57 @@ class ActionPipeline:
                 action_id=action.action_id,
             )
         return result
+
+    def _record_unknown_action_receipt(
+        self,
+        action: ActionContract,
+        decision: Any,
+        permit: Any,
+        unknown: CapabilityEffectUnknown,
+    ) -> None:
+        """Record a typed UNKNOWN receipt for a post-dispatch uncertain effect.
+
+        Probe P12 / ADR-0059: once a capability has been reserved and
+        dispatched, a fault that prevents sealing a terminal outcome means the
+        effect *may* have happened. That is neither SUCCEEDED nor a clean
+        FAILED, and the task stream must say so: an
+        ``ACTION_RECEIPT_RECORDED`` carrying ``ReceiptStatus.UNKNOWN`` under
+        the reservation's own receipt identity. The reservation-without-
+        outcome in the idempotency store still forbids an automatic resend
+        (replay raises RESERVATION_WITHOUT_OUTCOME), so this records the
+        uncertainty exactly once and never resolves or retries it.
+
+        A pre-reservation denial carries no receipt identity: nothing was
+        dispatched, so it leaves no receipt, preserving the existing contract.
+        """
+
+        receipt_id = getattr(unknown, "receipt_id", None)
+        if not isinstance(receipt_id, str) or not receipt_id:
+            return
+        receipt = ActionReceipt(
+            receipt_id=receipt_id,
+            action_id=action.action_id,
+            action_digest=action.action_digest(),
+            permit_id=permit.permit_id,
+            tenant_id=action.tenant_id,
+            workspace_id=action.workspace_id,
+            connector_id=action.capability_id,
+            status=ReceiptStatus.UNKNOWN,
+            idempotency_key=action.idempotency_key,
+            attempt=1,
+            output_artifact_ids=(),
+            error_code=f"UNKNOWN:{unknown.reason_code}",
+            detail_ref="detail:none",
+            occurred_at=datetime.now(timezone.utc),
+        )
+        self._tasks._record_action_receipt(
+            action.task_id,
+            action=action,
+            decision=decision,
+            permit=permit,
+            receipt=receipt,
+            writer_token=self._tasks._runtime_writer_token,
+        )
 
     def execute_observed(
         self,
@@ -490,11 +559,27 @@ class ActionPipeline:
                 execution_claim=execution_claim,
             )
 
-        result = (
-            effect_custody(action.node_id, action.action_digest(), invoke)
-            if effect_custody is not None
-            else invoke()
-        )
+        try:
+            result = (
+                effect_custody(action.node_id, action.action_digest(), invoke)
+                if effect_custody is not None
+                else invoke()
+            )
+        except CapabilityEffectUnknown as unknown:
+            # ADR-0059 / probe P12: a post-dispatch fault means the effect MAY
+            # have happened - a different state from a clean FAILED. When a
+            # reservation exists (dispatch was attempted), leave a typed
+            # UNKNOWN ActionReceipt on the task stream before the turn pauses,
+            # so the durable record can never be read as "it failed" or "it
+            # never ran". Pre-reservation denials carry no receipt identity and
+            # leave no receipt. The reservation-without-outcome still forbids
+            # an automatic resend; recording the uncertainty does not resolve
+            # it. Behavior is preserved (the unknown is re-raised) on both the
+            # chat seam and the reconciliation seam.
+            self._record_unknown_action_receipt(
+                action, decision, permit, unknown
+            )
+            raise
         if execution_fence is not None:
             execution_fence("before_tool_effect_commit")
         self._tasks._record_action_receipt(

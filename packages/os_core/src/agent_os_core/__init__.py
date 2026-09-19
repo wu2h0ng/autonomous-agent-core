@@ -116,11 +116,35 @@ from .provider import (
     EnvCredentialBroker,
     OpenAICompatibleProvider,
     ProviderPort,
+    provider_log_path,
+)
+from .client_rate_limit import (
+    ClientRateLimitConfig,
+    LocalRateLimitRejection,
+    ProviderRateLimitGate,
+    ProviderRateLimitState,
+    client_rate_limit_config_from_env,
+    rate_limit_key,
+    reset_shared_rate_limit_state,
+    retry_after_cap_seconds,
+    shared_rate_limit_state,
+)
+from .provider_metrics import (
+    ProviderLogRecords,
+    ProviderMetricsLedger,
+    aggregate_provider_metrics,
+    read_provider_log,
+    reset_shared_provider_metrics_ledger,
+    shared_provider_metrics_ledger,
 )
 from .protocol_ingress import (
     EventEnvelopeAdapter,
     SQLiteProtocolIngressStore,
     WorkloadIdentityAdapter,
+)
+from .turn_trace import (
+    TurnTraceNotFoundError,
+    build_turn_trace,
 )
 from .session_projection import (
     ProjectedResolvedContinuation,
@@ -143,7 +167,14 @@ from .surface_runtime import (
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
     SurfaceTurnInProgress,
+    SurfaceTurnOwnedByLiveRuntime,
     command_digest,
+)
+from .dead_turn import (
+    DEAD_TURN_REASON_CODE,
+    DEAD_TURN_RECOVERY_FIELD,
+    DEAD_TURN_STOP_REASON,
+    dead_turn_recovery_notice,
 )
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
@@ -208,6 +239,30 @@ from ._action_outcome import (
     ExecutionLease,
     ExecutionLeaseConflict,
 )
+from .typed_hooks import (
+    DEFAULT_HOOK_TIMEOUT_SECONDS,
+    HOOKS_DISABLED_ENV,
+    HookConfigurationError,
+    HookDispatcher,
+    HookRegistry,
+    HookSnapshot,
+    hooks_globally_disabled,
+)
+from .mcp_client import (
+    McpCapabilityAdapter,
+    McpClientError,
+    McpStdioClient,
+    McpTierRequiresApproval,
+    build_restricted_env,
+    classify_tool_tier,
+)
+from .skills_registry import (
+    SKILLS_DISABLED_ENV,
+    SkillRegistry,
+    SkillRegistryError,
+    StubSkillRunner,
+    skills_globally_disabled,
+)
 from .agent_context import (
     AgentsMarkdownContext,
     agent_context_status_payload,
@@ -269,6 +324,7 @@ from .agent_loop import (
     NonInteractiveDenyGateway,
     TurnResult,
     chat_capability_ids,
+    gateway_authority_id,
 )
 from .child_agent import (
     CHILD_AGENTS_ENV_VAR,
@@ -315,7 +371,12 @@ from .execution import (
     DeterministicOutcomeEvaluator,
     RunCoordinator,
 )
-from .errors import RunExecutionError, UnsupportedNodeError, WorkerInterrupted
+from .errors import (
+    ProviderCorrectionHalt,
+    RunExecutionError,
+    UnsupportedNodeError,
+    WorkerInterrupted,
+)
 from .execution_profile import ExecutionProfileError, ExecutionProfilePort
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService, ValidatedTestReport
@@ -677,10 +738,12 @@ __all__ = [
     "ConfirmationGateway",
     "NonInteractiveDenyGateway",
     "TurnResult",
+    "gateway_authority_id",
     "DeterministicOutcomeEvaluator",
     "ExecutionProfileError",
     "ExecutionProfilePort",
     "RunCoordinator",
+    "ProviderCorrectionHalt",
     "RunExecutionError",
     "WorkerInterrupted",
     "UnsupportedNodeError",
@@ -713,6 +776,48 @@ __all__ = [
     "SurfaceSessionNotFound",
     "SurfaceStreamGone",
     "SurfaceTurnInProgress",
+    "SurfaceTurnOwnedByLiveRuntime",
+    "DEAD_TURN_REASON_CODE",
+    "DEAD_TURN_RECOVERY_FIELD",
+    "DEAD_TURN_STOP_REASON",
+    "dead_turn_recovery_notice",
     "command_digest",
+    "ClientRateLimitConfig",
+    "LocalRateLimitRejection",
+    "ProviderRateLimitGate",
+    "ProviderRateLimitState",
+    "client_rate_limit_config_from_env",
+    "rate_limit_key",
+    "reset_shared_rate_limit_state",
+    "retry_after_cap_seconds",
+    "shared_rate_limit_state",
+    "ProviderLogRecords",
+    "ProviderMetricsLedger",
+    "aggregate_provider_metrics",
+    "read_provider_log",
+    "reset_shared_provider_metrics_ledger",
+    "shared_provider_metrics_ledger",
+    "provider_log_path",
+    "TurnTraceNotFoundError",
+    "build_turn_trace",
+    "DEFAULT_HOOK_TIMEOUT_SECONDS",
+    "HOOKS_DISABLED_ENV",
+    "HookConfigurationError",
+    "HookDispatcher",
+    "HookRegistry",
+    "HookSnapshot",
+    "hooks_globally_disabled",
+    "McpCapabilityAdapter",
+    "McpClientError",
+    "McpStdioClient",
+    "McpTierRequiresApproval",
+    "build_restricted_env",
+    "classify_tool_tier",
+    "SKILLS_DISABLED_ENV",
+    "SkillRegistry",
+    "SkillRegistryError",
+    "StubSkillRunner",
+    "skills_globally_disabled",
+
 
 ]

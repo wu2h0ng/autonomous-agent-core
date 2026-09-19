@@ -14,18 +14,23 @@
  */
 
 import type { SurfaceClient } from "./client.js";
-import { SurfaceStreamStaleError } from "./client.js";
+import { SurfaceHttpError, SurfaceStreamStaleError } from "./client.js";
 import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
+import { latestDeadTurnClosure, openDurableTurnIds } from "./turns.js";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type {
   PermissionMode,
+ProviderMetricsSnapshot,
+RecoveredUnknownTurn,
   SurfaceFileEntry,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
   TaskEvent,
+  TraceSpan,
+  TurnTrace,
 } from "./contracts.js";
 
 export const STALL_DEFAULT_MS = 30_000;
@@ -59,12 +64,217 @@ export function isSequenceConflict(cause: unknown): boolean {
  * Every receipt carries it; it must never render as an error. */
 export const NO_ERROR_CODE = "error:none";
 
+/**
+ * What the kernel's own `CORRECTION_HALTED` status means for the operator.
+ *
+ * Not a guess: measured on a real daemon (2026-09-18) - once a correction has
+ * landed on a surface session, every further turn is refused
+ * ("configuration correction epochs changed after seal"), `noem session resume`
+ * answers CORRECTION_HALTED, and even an out-of-band external
+ * `correction/resume` does not restore the sealed configuration. The session
+ * cannot be continued; only a new session can.
+ */
+export const HALT_NOTICE =
+  "this session is CORRECTION_HALTED — a correction halts the task and voids " +
+  "its sealed configuration, so the kernel refuses every further turn in this " +
+  "session. No command in this terminal restores it: start a new session " +
+  "(restart noem) and use /resume only to look at this one.";
+
+/**
+ * The kernel's seal refusal, named.
+ *
+ * A correction advances the correction epochs; the session's configuration was
+ * sealed against the ORIGINAL epochs, so the seal check
+ * (`task_configuration._require_original_correction_epochs`) refuses every turn
+ * from then on with the bare internal string
+ * "configuration correction epochs changed after seal". Lifting the halt out of
+ * band (`POST /v1/tasks/{id}/correction/resume`) flips the kernel's status back
+ * to ACTIVE while this check still refuses — measured 2026-09-19 on a real
+ * daemon: `noem session show` says ACTIVE, the turn fails with that string, and
+ * `noem session resume` exits 0 because the status is ACTIVE. Nothing in the
+ * terminal re-seals a corrected configuration (the seal exists to refuse
+ * exactly that), so the only continuation is a new session.
+ */
+export const SEALED_CONFIGURATION_NOTICE =
+  "this session's sealed configuration predates a correction, so the kernel " +
+  "refuses every turn in it (its own words: \"configuration correction epochs " +
+  "changed after seal\"). Re-sealing a corrected configuration is exactly what " +
+  "the seal forbids, so no command here restores this session: start a new one " +
+  "(restart noem) and use /resume to read this one.";
+
+/** Whether a rejection is the kernel's stale-configuration-seal refusal. */
+export function isSealedConfigurationRefusal(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.includes("configuration correction epochs changed after seal");
+}
+
+/**
+ * What the operator can actually DO about a stall.
+ *
+ * It used to say "try /retry": while the controller is stalled,
+ * `canStartTurn()` is false, so `/retry` (and every other message) is QUEUED,
+ * and the queue is only drained when the turn or approval resolves
+ * (`maybeDrain` runs from `runTurn`'s finally, `decide` and `interrupt`) — so
+ * the advice could not work, and the queue gave the operator a "will send when
+ * the current turn ends" promise for a turn that was never going to end.
+ * Esc is the way out: it issues the correction that clears the stalled state
+ * and then drains the queue.
+ */
+export const STALL_ADVICE =
+  "press Esc to leave the stalled state (a correction; the queued message runs " +
+  "once the stall clears), or check /status — /retry only queues here";
+
+/** Durable truth about a turn this session cannot finish: `SESSION_TURN_STARTED`
+ * without its `SESSION_TURN_COMPLETED`.
+ *
+ * The runtime that started the turn is gone (killed, crashed, restarted), so
+ * its provider call died with it and nothing will ever complete the turn — and
+ * an uncommitted turn refuses every later turn in the session. Only the
+ * operator can close it: the kernel deliberately will not close a turn its own
+ * runtime still owns (that would kill a live turn), and closing it is a
+ * declaration about an outcome nobody observed, so it is an operator decision
+ * recorded durably, never an automatic one. */
+export function deadTurnNotice(turnId: string): string {
+  return (
+    `uncommitted turn ${turnId}: the runtime that started it never finished it ` +
+    `(its process is gone), so this session refuses every further turn and ` +
+    `reports no reason for it. If that runtime is really gone, say so — /recover ` +
+    `<why it died>. The turn is then closed as unknown_requires_review (not a ` +
+    `success: its outcome was never observed), with your reason recorded durably.`
+  );
+}
+
+/** What the durable record says about a turn that was closed by /recover.
+ *
+ * Rendered from the event payload, so reattaching to the session shows it
+ * again: the notice is the durable record, not a session-memory line. */
+export function deadTurnClosureNotice(block: {
+  turn_id: string;
+  reason: string;
+  declared_by: string;
+  declared_at: string;
+  owner_runtime_boot_id?: string | null | undefined;
+  owner_runtime_pid?: number | null | undefined;
+  recovered_by_runtime_boot_id: string;
+  recovered_by_runtime_pid: number;
+  counters_recorded?: boolean | undefined;
+}): string {
+  const owner = block.owner_runtime_boot_id
+    ? `${block.owner_runtime_boot_id}${block.owner_runtime_pid ? ` (pid ${block.owner_runtime_pid})` : ""}`
+    : "a runtime that recorded no generation";
+  const counters = block.counters_recorded
+    ? "its recorded counters survived"
+    : "its step and token counts were never recorded";
+  return (
+    `turn ${block.turn_id} was closed as an unknown outcome: it was started by ` +
+    `${owner} and closed by ${block.recovered_by_runtime_boot_id} ` +
+    `(pid ${block.recovered_by_runtime_pid}) after that runtime was gone. ` +
+    `Durable stop_reason is unknown_requires_review — not a successful ` +
+    `completion — and ${counters}. Declared dead by ${block.declared_by} at ` +
+    `${block.declared_at}: ${block.reason}`
+  );
+}
+
+/** Whether a rejection is the kernel refusing a turn because the session still
+ * has an uncommitted one (`surface_runtime.SurfaceTurnInProgress`, a 409: the
+ * request conflicts with durable session state; it is not a stale cursor). */
+export function isUncommittedTurnRefusal(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.includes("still uncommitted for this session");
+}
+
 export type ControllerStatus =
   | "idle"
   | "streaming"
   | "awaiting_approval"
   | "stalled"
   | "closed";
+
+/** What an operator stop request (Ctrl-X) actually did.
+ *
+ * `stopped`  the kernel accepted the pause and its own returned session
+ *            snapshot says so; the turn still ends on the kernel's schedule.
+ * `no-turn`  nothing was in flight, so nothing was sent.
+ * `failed`   the pause was sent and REJECTED — named by the kernel, never
+ *            rendered as a stop.
+ */
+export type StopOutcome = "stopped" | "no-turn" | "failed";
+
+/** Operator-facing reason a stop was rejected, with the kernel's own wording.
+ *
+ * The surface overloads HTTP 409, so `isSequenceConflict` claims the retryable
+ * half and everything else reaches the operator. A rejected transition
+ * (`cannot move run from X to PAUSED`, `task_service.update_run_status`) is the
+ * one case where "not stopped" would itself be a lie: the run is already PAUSED,
+ * or it is terminal and there is nothing left to stop. Say which. */
+export function stopFailureText(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const status =
+    cause instanceof SurfaceHttpError ? `HTTP ${cause.statusCode}` : "no HTTP status";
+  const transition = /cannot move run from (\w+) to (\w+)/.exec(message);
+  if (transition) {
+    return (
+      `${status}: ${message} — the stop was NOT applied; the run is ${transition[1]}` +
+      (transition[1] === "PAUSED"
+        ? " (already stopped)"
+        : " (a PAUSED run is already stopped; a SUCCEEDED/CANCELLED/FAILED run has nothing left to stop)")
+    );
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 403) {
+    return `${status}: ${message} — the stop was NOT applied (this client is outside the session's scope)`;
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 409) {
+    return `${status}: ${message} — the stop was NOT applied (a stale event cursor survived the bounded refresh-and-resend)`;
+  }
+  return `${status}: ${message} — the stop was NOT applied`;
+}
+
+/** What an operator resume (`/resume` on a session whose Run is PAUSED)
+ * actually did.
+ *
+ * `not-paused` the kernel's own snapshot says the Run is not PAUSED, so
+ *              attaching was the whole job and nothing was sent.
+ * `resumed`    `POST .../resume` was accepted and the kernel's returned
+ *              snapshot no longer reports PAUSED.
+ * `failed`     the resume was sent and REJECTED — named by the kernel, never
+ *              rendered as a resume.
+ */
+export type ResumeOutcome = "not-paused" | "resumed" | "failed";
+
+/** Operator-facing reason a resume was rejected, with the kernel's own wording.
+ *
+ * The mirror of `stopFailureText`, for the same reason: the surface overloads
+ * HTTP 409, so a rejected `PAUSED -> RUNNING` transition is the one case where
+ * "not resumed" alone is misleading — a terminal Run can never be resumed, and
+ * a reconciliation hold (`UNKNOWN_REQUIRES_REVIEW`) is not an operator stop and
+ * must not be silently un-paused. */
+export function resumeFailureText(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const status =
+    cause instanceof SurfaceHttpError ? `HTTP ${cause.statusCode}` : "no HTTP status";
+  const transition = /cannot move run from (\w+) to (\w+)/.exec(message);
+  if (transition) {
+    return (
+      `${status}: ${message} — the resume was NOT applied; the run is ${transition[1]}` +
+      (transition[1] === "SUCCEEDED" || transition[1] === "CANCELLED"
+        ? " (a terminal run has nothing left to resume — start a new session)"
+        : " (the kernel refused this transition; /status shows the durable state)")
+    );
+  }
+  if (message.includes("UNKNOWN_REQUIRES_REVIEW")) {
+    return (
+      `${status}: ${message} — the resume was NOT applied (this pause is a ` +
+      "reconciliation hold, not an operator stop; resolve it before resuming)"
+    );
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 403) {
+    return `${status}: ${message} — the resume was NOT applied (this client is outside the session's scope)`;
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 409) {
+    return `${status}: ${message} — the resume was NOT applied (a stale event cursor survived the bounded refresh-and-resend)`;
+  }
+  return `${status}: ${message} — the resume was NOT applied`;
+}
 
 export interface ToolCall {
   actionId: string;
@@ -165,6 +375,117 @@ export function parseTodoItems(argsJson: string): TodoItem[] | null {
 export interface MessagePanel {
   title: string;
   lines: string[];
+}
+
+function formatMilliseconds(value: number | null | undefined): string {
+  return value === null || value === undefined ? "n/a" : `${value.toFixed(1)}ms`;
+}
+
+/**
+ * `/metrics` card: the aggregated provider boundary.
+ *
+ * Counts and codes only — the payload has no prompt or completion text, so
+ * there is nothing here to redact. A window with no timed attempt says so
+ * instead of printing a zero latency (`0.0ms` would be a made-up measurement).
+ */
+export function metricsPanel(metrics: ProviderMetricsSnapshot): MessagePanel {
+  const lines = [
+    `source   ${metrics.source} (${metrics.window_records} attempts in the window)`,
+    `calls    ${metrics.calls} (${metrics.attempts} attempts, ${metrics.retries} retried)`,
+    `outcome  ${metrics.responses} responses, ${metrics.failures} failures`,
+  ];
+  if (metrics.latency.samples > 0) {
+    lines.push(
+      `latency  p50 ${formatMilliseconds(metrics.latency.p50_ms)}  p90 ${formatMilliseconds(
+        metrics.latency.p90_ms,
+      )}  max ${formatMilliseconds(metrics.latency.max_ms)}`,
+      `tokens   ${metrics.tokens.total_tokens} (in ${metrics.tokens.input_tokens} / out ${metrics.tokens.output_tokens})`,
+    );
+  } else {
+    lines.push(
+      "latency  no timed attempt in the window",
+      `tokens   ${metrics.tokens.total_tokens} (no usage reported yet)`,
+    );
+  }
+  const rate = metrics.rate_limit;
+  lines.push(
+    `rate     server 429s ${rate.rate_limited_attempts}` +
+      (rate.max_retry_after_seconds === null || rate.max_retry_after_seconds === undefined
+        ? ""
+        : ` (max Retry-After ${rate.max_retry_after_seconds}s)`) +
+      `; local waits ${rate.local_waits} (${rate.local_wait_ms_total.toFixed(0)}ms); local refusals ${rate.local_rejections}`,
+  );
+  for (const category of metrics.failure_categories) {
+    lines.push(`failure  ${category.code} x${category.count}`);
+  }
+  if (metrics.window_truncated) {
+    lines.push("window   truncated: older attempts were dropped from the window");
+  }
+  if ((metrics.ignored_lines ?? 0) > 0) {
+    lines.push(`window   ${metrics.ignored_lines} unusable log line(s) ignored`);
+  }
+  return { title: "provider metrics", lines };
+}
+
+/** How many span/gap rows a trace card prints before it says how many it left
+ * out. A panel is not a dump: the full record is the trace route's JSON. */
+const MAX_TRACE_ROWS = 40;
+
+/** The durable id that identifies a span to an operator, never its content. */
+function traceSpanSubject(span: TraceSpan): string {
+  const parts: string[] = [];
+  if (span.capability_id) parts.push(span.capability_id);
+  else if (span.node_id) parts.push(span.node_id);
+  if (span.verdict) parts.push(span.verdict);
+  if (span.disposition) parts.push(span.disposition);
+  if (span.effect_state) parts.push(span.effect_state);
+  if (span.basis) parts.push(`basis=${span.basis}`);
+  if (span.link === "SEQUENCE_WINDOW") parts.push("(positional)");
+  return parts.length > 0 ? `  ${parts.join(" ")}` : "";
+}
+
+/**
+ * `/trace` card: the durable event log of one turn, as spans.
+ *
+ * Structure and causation only — the projection carries no prompt, completion,
+ * argument payload or approval preview, so there is nothing to redact here. An
+ * `OPEN` state and every gap are rendered as such: a turn the log never closed,
+ * a dispatch with no terminal record and an undetermined effect must read as
+ * missing evidence, never as a complete-looking timeline.
+ */
+export function tracePanel(trace: TurnTrace): MessagePanel {
+  const lines = [
+    `turn     ${trace.turn_id}  ${trace.state}`,
+    `stop     ${trace.stop_reason ?? "unknown (no SESSION_TURN_COMPLETED in the log)"}`,
+    `window   records ${trace.first_sequence}..${trace.last_sequence} (${trace.records_scanned} scanned, ${trace.spans.length} span(s), ${trace.gaps.length} gap(s))`,
+  ];
+  const positional = trace.spans.filter((span) => span.link === "SEQUENCE_WINDOW").length;
+  for (const span of trace.spans.slice(0, MAX_TRACE_ROWS)) {
+    lines.push(
+      `span     #${span.started_sequence} ${span.kind} ${span.status}${traceSpanSubject(span)}`,
+    );
+  }
+  if (trace.spans.length > MAX_TRACE_ROWS) {
+    lines.push(
+      `span     … ${trace.spans.length - MAX_TRACE_ROWS} more span(s) not shown (the trace route returns the full projection)`,
+    );
+  }
+  for (const gap of trace.gaps.slice(0, MAX_TRACE_ROWS)) {
+    const anchor = gap.sequence === null || gap.sequence === undefined ? "" : ` @${gap.sequence}`;
+    lines.push(
+      `gap      ${gap.kind}${anchor}  ${gap.detail}` +
+        (gap.subject === null || gap.subject === undefined ? "" : ` [${gap.subject}]`),
+    );
+  }
+  if (trace.gaps.length > MAX_TRACE_ROWS) {
+    lines.push(`gap      … ${trace.gaps.length - MAX_TRACE_ROWS} more gap(s) not shown`);
+  }
+  if (positional > 0) {
+    lines.push(
+      `note     ${positional} span(s) placed by sequence window only: no durable id joins them to this turn`,
+    );
+  }
+  return { title: "turn trace", lines };
 }
 
 export interface SearchHit {
@@ -354,6 +675,13 @@ export class TuiController {
    * never part of the assistant message). Reset at the start of each turn. */
   reasoningText = "";
   lastError: string | null = null;
+  /** A stop has been REQUESTED and the turn has not ended yet. The view renders
+   * its own "stopping…" state from this, so an accepted pause is never shown as
+   * a finished stop: the surface pause is only answered once an in-flight
+   * capability dispatch has finished, and the turn ends at the kernel's next
+   * safe point, not when this client's POST returns. Cleared when the turn ends
+   * (the durable record is the only thing that can end it). */
+  stopRequested = false;
 
   private sessionId: string | null = null;
   private taskId: string | null = null;
@@ -417,6 +745,20 @@ export class TuiController {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Report a failure with no better channel to the operator's transcript.
+   *
+   * Used by the process-level unhandled-rejection backstop in `cli.tsx`: the
+   * view drives several controller entry points fire-and-forget, and a rejected
+   * promise nobody awaited is an unhandled rejection — on the shipped runtime
+   * that prints a stack into the TUI's alternate screen and can exit the
+   * process, losing the operator's session. Reporting it here keeps both the
+   * session and the frame.
+   */
+  notify(text: string): void {
+    this.push({ role: "system", content: text });
   }
 
   private emit(): void {
@@ -510,6 +852,12 @@ export class TuiController {
       case "/cost":
         this.push({ role: "system", content: "", panel: this.costPanel() });
         return true;
+      case "/metrics":
+        await this.metricsCommand(rest);
+        return true;
+      case "/trace":
+        await this.traceCommand(rest);
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -547,6 +895,9 @@ export class TuiController {
         return true;
       case "/retry":
         await this.retryCommand();
+        return true;
+      case "/recover":
+        await this.recoverCommand(rest.join(" ").trim());
         return true;
       case "/find":
         this.findCommand(rest.join(" ").trim());
@@ -587,6 +938,49 @@ export class TuiController {
         `turns    ${this.turns}`,
       ],
     };
+  }
+
+  /** `/metrics` — the aggregated provider boundary (read-only). `log` reads the
+   * operator's own provider log on the daemon (AGENT_OS_PROVIDER_LOG) instead of
+   * the running process's window; an unavailable source is reported as such
+   * rather than rendered as an empty panel. */
+  private async metricsCommand(rest: string[]): Promise<void> {
+    const source = (rest[0] ?? "process").toLowerCase();
+    if (source !== "process" && source !== "log") {
+      this.push({ role: "system", content: "usage: /metrics [process|log]" });
+      return;
+    }
+    try {
+      const metrics = await this.client.providerMetrics(source);
+      this.push({ role: "system", content: "", panel: metricsPanel(metrics) });
+    } catch (error) {
+      this.push({
+        role: "system",
+        content: `metrics unavailable: ${(error as Error).message}`,
+      });
+    }
+  }
+
+  /** `/trace` — the durable record of one turn, as spans (read-only).
+   *
+   * Without an argument it traces the session's most recently started turn, so
+   * "what did the turn that just ran actually do" needs no id. An unknown turn
+   * is reported as unavailable rather than rendered as an empty timeline. */
+  private async traceCommand(rest: string[]): Promise<void> {
+    if (!this.sessionId) {
+      this.push({ role: "system", content: "no session: /trace needs an open session" });
+      return;
+    }
+    const turnId = rest[0];
+    try {
+      const trace = await this.client.turnTrace(this.sessionId, turnId);
+      this.push({ role: "system", content: "", panel: tracePanel(trace) });
+    } catch (error) {
+      this.push({
+        role: "system",
+        content: `trace unavailable: ${(error as Error).message}`,
+      });
+    }
   }
 
   /** `/cost` card. Tokens are cumulative session usage; the provider does not
@@ -764,16 +1158,27 @@ export class TuiController {
     }
   }
 
-  /** `/keys` card — one place with the keymap (discoverability). */
+  /** `/keys` card — one place with the keymap (discoverability).
+   *
+   * Corrected 2026-09-18 (operator dead-end sweep): the card advertised
+   * "ctrl-p/ctrl-n history" for the composer, but `resolveViewKey` routes
+   * ctrl+p/ctrl+n to the agents panel only — measured in a real pty, Ctrl-P on
+   * a one-line draft recalled nothing while Ctrl-A/Ctrl-E did work (the textarea
+   * handles those). The card must describe the keymap that exists.
+   */
   private keysPanel(): MessagePanel {
     return {
       title: "keyboard",
       lines: [
         "enter submit · ctrl-j newline · ctrl-g $EDITOR",
         "backspace/delete delete backward · ctrl-d delete forward",
-        "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
+        "↑/↓ history · ctrl-r reverse search (ctrl-p/ctrl-n: agents panel)",
+        "agents panel: ↑/↓ move · enter resume · x stop running child",
         "ctrl-a/ctrl-e line start/end",
-        "esc correction · ctrl-c exit · ctrl-l clear view",
+        "ctrl-x stop the running turn (pauses the session) · esc correction (halts the session)",
+        "/resume <id> reattach — and un-pause a session ctrl-x stopped",
+        "ctrl-c exit · ctrl-l clear view",
+
         "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
       ],
     };
@@ -805,6 +1210,104 @@ export class TuiController {
       return;
     }
     await this.enqueueOrRun(this.lastUserText);
+  }
+
+  /** `/recover <why the runtime died>` — declare this session's open durable
+   * turn dead, so the session can be used again.
+   *
+   * The operator makes the decision and states the reason; the client only
+   * names the exact turn (read from durable truth, never remembered) and
+   * carries the declaration. The kernel refuses a turn its own runtime still
+   * owns, so a live turn is never closed from under itself.
+   */
+  private async recoverCommand(reason: string): Promise<void> {
+    if (!this.sessionId || !this.taskId) {
+      this.push({ role: "system", content: "no session yet; send a message first" });
+      return;
+    }
+    if (!reason) {
+      this.push({
+        role: "system",
+        content:
+          "usage: /recover <why the runtime died> — the reason is recorded durably " +
+          "as the operator's declaration; it closes the turn as " +
+          "unknown_requires_review (never as a success)",
+      });
+      return;
+    }
+    let openTurnIds: string[];
+    try {
+      openTurnIds = await this.openDurableTurnIds();
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `recover failed: durable turn state could not be read (${(cause as Error).message})`,
+      });
+      return;
+    }
+    if (openTurnIds.length === 0) {
+      this.push({
+        role: "system",
+        content: "no uncommitted turn in this session: nothing to recover",
+      });
+      return;
+    }
+    if (openTurnIds.length > 1) {
+      // More than one open turn means durable truth is not the shape this
+      // session is supposed to have; closing the wrong one would be a guess.
+      this.push({
+        role: "system",
+        content: `recover refused: ${openTurnIds.length} uncommitted turns (${openTurnIds.join(", ")}) — one turn per session is the invariant, so this needs a human, not a guess`,
+      });
+      return;
+    }
+    try {
+      const recovery = await this.controlWithRetry(this.sessionId, () =>
+        this.client.recoverTurn(this.sessionId as string, openTurnIds[0] as string, reason),
+      );
+      this.adoptSnapshot(recovery.snapshot);
+      this.push({ role: "system", content: deadTurnClosureNotice(recovery.recovery) });
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `recover failed: ${(cause as Error).message}`,
+      });
+    }
+    this.emit();
+  }
+
+  /** The session's open durable turns: `SESSION_TURN_STARTED` minus
+   * `SESSION_TURN_COMPLETED`, read from the durable event stream. */
+  private async openDurableTurnIds(): Promise<string[]> {
+    return openDurableTurnIds(await this.durableTasks());
+  }
+
+  private async durableTasks(): Promise<readonly TaskEvent[]> {
+    if (!this.taskId) return [];
+    const batch = await this.client.events(this.taskId, 0);
+    return batch.events;
+  }
+
+  /** Report, from durable truth alone, what a reattach must not hide: a turn
+   * that can never finish (naming the way out), and the newest dead turn the
+   * operator already closed (what happened to it). Both live in the event
+   * stream, so they survive a restart and re-render on every attach. */
+  private async reportUncommittedTurn(): Promise<void> {
+    if (!this.taskId) return;
+    let events: readonly TaskEvent[];
+    try {
+      events = await this.durableTasks();
+    } catch {
+      return; // an unreadable stream is reported by the caller's own path
+    }
+    const closed = latestDeadTurnClosure(events);
+    if (closed) {
+      this.push({ role: "system", content: deadTurnClosureNotice(closed) });
+    }
+    const open = openDurableTurnIds(events);
+    if (open.length > 0) {
+      this.push({ role: "system", content: deadTurnNotice(open[0] as string) });
+    }
   }
 
   /** `/edit` — load the last operator message into the composer for editing. */
@@ -956,12 +1459,109 @@ export class TuiController {
       });
       return;
     }
-    const snapshot = await this.client.getSession(target);
+    let snapshot: SurfaceSessionSnapshot;
+    try {
+      snapshot = await this.client.getSession(target);
+    } catch (cause) {
+      // `/resume` is the recovery command the durable stop record names, so a
+      // failed attach must land on the transcript. An unhandled rejection here
+      // would leave the operator believing they are on a session they never
+      // reached, and no resume is sent for a session this client could not read.
+      const detail =
+        cause instanceof SurfaceHttpError
+          ? `HTTP ${cause.statusCode}: ${cause.message}`
+          : cause instanceof Error
+            ? cause.message
+            : String(cause);
+      this.push({
+        role: "system",
+        content:
+          `cannot attach to ${target} (${detail}) — ` +
+          "nothing was attached and no resume was sent",
+      });
+      this.emit();
+      return;
+    }
     this.adoptSnapshot(snapshot);
     this.push({
       role: "system",
       content: `resumed session ${snapshot.session.session_id} (status ${snapshot.status}, mode ${snapshot.permission_mode})`,
     });
+    // A reattach must not hide a turn that can never finish (the runtime that
+    // owned it is gone) — the status line says ACTIVE, which is exactly the
+    // state that used to leave the operator with no way out.
+    await this.reportUncommittedTurn();
+    this.emit();
+    // Attaching is not resuming. A stop (Ctrl-X, `noem session pause`) leaves
+    // the Run PAUSED on purpose, and the kernel then refuses every new turn
+    // ("run_turn requires a runnable Run"), so attaching alone would leave the
+    // operator exactly where the stop put them. The snapshot above is the
+    // kernel's own answer, so this is a governed control command, not a guess.
+    await this.resumePausedRun(snapshot.session.session_id, snapshot);
+  }
+
+  /**
+   * Un-pause a Run the kernel reports PAUSED: `POST /v1/surface/sessions/
+   * {session_id}/resume`, the same command `noem session resume <session-id>`
+   * sends, through the existing `SurfaceClient`.
+   *
+   * `observed` is a snapshot the CALLER just read from the kernel — never a
+   * local flag and never an inferred state — so a bare resume is only sent when
+   * the kernel itself says PAUSED. It can approve nothing, deny nothing, widen
+   * no grant and write no C7 state: the command only re-permits work the
+   * operator had already authorised (`PAUSED -> RUNNING` in
+   * `task_service.update_run_status`).
+   *
+   * Honesty rules, each pinned by a test:
+   *
+   *  - the accepted status is the kernel's own returned snapshot status,
+   *    verbatim, and a snapshot that still says PAUSED is reported as NOT
+   *    resumed rather than optimistically rendered;
+   *  - every rejection is rendered with its HTTP status, the kernel's wording
+   *    and an explicit "the resume was NOT applied" (`resumeFailureText`) — a
+   *    rejection is never swallowed, and never rendered as a resume.
+   */
+  private async resumePausedRun(
+    sessionId: string,
+    observed: SurfaceSessionSnapshot,
+  ): Promise<ResumeOutcome> {
+    if (observed.status !== "PAUSED") return "not-paused";
+    this.push({
+      role: "system",
+      content:
+        "the kernel reports this Run PAUSED — resuming it " +
+        "(POST /v1/surface/sessions/{id}/resume; nothing is approved, denied or widened)",
+    });
+    this.emit();
+    // One key for the operator's single intent, reused across the bounded
+    // refresh-and-resend: if a resume did land and its response we never saw,
+    // the kernel answers from its idempotency record instead of applying it twice.
+    const idempotencyKey = `cli-ts-resume:${randomUUID()}`;
+    try {
+      const snapshot = await this.controlWithRetry(sessionId, () =>
+        this.client.correct(
+          sessionId,
+          "operator resume (tui /resume)",
+          "resume",
+          idempotencyKey,
+        ),
+      );
+      this.snapshot = snapshot;
+      const applied = snapshot.status !== "PAUSED";
+      this.push({
+        role: "system",
+        content: applied
+          ? `resume applied: session status ${snapshot.status} (durable, read back from the kernel) — new turns are accepted again`
+          : `resume answered, but the kernel still reports ${snapshot.status} — the session is STILL PAUSED`,
+      });
+      this.emit();
+      return applied ? "resumed" : "failed";
+    } catch (cause) {
+      this.push({ role: "system", content: `resume FAILED — ${resumeFailureText(cause)}` });
+      this.emit();
+      return "failed";
+    }
+
   }
 
   /** Bounded workspace file list, fetched once per session and cached for
@@ -984,13 +1584,27 @@ export class TuiController {
   }
 
   /** Bounded workspace listing (server-side depth/noise bounded; client caps
-   * the display at 30 entries and always reports the true total). */
+   * the display at 30 entries and always reports the true total).
+   *
+   * A failed read is REPORTED, never thrown: the view submits commands
+   * fire-and-forget, so a rejection here is an unhandled rejection, which on
+   * the shipped runtime prints a stack into the TUI's alternate screen and
+   * tears the frame apart (measured with the daemon killed mid-session). */
   private async filesCommand(prefix: string | undefined): Promise<void> {
     if (!this.taskId) {
       this.push({ role: "system", content: "no session yet; send a message first" });
       return;
     }
-    const files = await this.client.files(this.taskId);
+    let files: Awaited<ReturnType<SurfaceClient["files"]>>;
+    try {
+      files = await this.client.files(this.taskId);
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `files unavailable: ${(cause as Error).message} (nothing was read)`,
+      });
+      return;
+    }
     const filtered = prefix ? files.filter((f) => f.path.startsWith(prefix)) : files;
     const shown = filtered.slice(0, 30);
     this.push({
@@ -1008,7 +1622,16 @@ export class TuiController {
       this.push({ role: "system", content: "no session yet; send a message first" });
       return;
     }
-    const overview = await this.client.overview(this.taskId);
+    let overview: Awaited<ReturnType<SurfaceClient["overview"]>>;
+    try {
+      overview = await this.client.overview(this.taskId);
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content: `task overview unavailable: ${(cause as Error).message} (no status is being guessed)`,
+      });
+      return;
+    }
     this.push({
       role: "system",
       content:
@@ -1182,6 +1805,25 @@ export class TuiController {
     try {
       await this.ensureSession();
       const sessionId = this.sessionId!;
+      // A halted session refuses every turn, and the kernel's refusal
+      // ("configuration correction epochs changed after seal") names neither
+      // the correction nor what to do about it. Re-read durable truth first —
+      // an external authority can lift a halt out of band, so this is a read of
+      // the kernel's state, never a remembered flag — and if the halt still
+      // stands, say so and send nothing.
+      if (this.snapshot?.status === "CORRECTION_HALTED") {
+        const fresh = await this.client.getSession(sessionId);
+        this.snapshot = fresh;
+        if (fresh.status === "CORRECTION_HALTED") {
+          // The turn is never sent, so this is not a successful empty turn:
+          // name it as the refusal it is (headless must not exit 0 for a turn
+          // that did not happen).
+          this.lastError = "the session is CORRECTION_HALTED; the turn was not sent";
+          this.push({ role: "system", content: HALT_NOTICE });
+          this.emit();
+          return;
+        }
+      }
       if (!this.stream) {
         const subscription = await this.client.subscribeStream(sessionId);
         this.stream = {
@@ -1229,8 +1871,22 @@ export class TuiController {
         }
         this.status = "idle";
       } else {
-        this.lastError = (cause as Error).message;
+        const message = (cause as Error).message;
+        this.lastError = message;
         this.status = "idle";
+        // The kernel's frozen refusal for a Run that cannot run
+        // (`agent_loop.run_turn`): the session was stopped and never resumed,
+        // so "start a new session" is the wrong advice and a bare error leaves
+        // the operator in a state the terminal cannot get out of. Name the way
+        // out of THIS state, in this terminal.
+        if (message.includes("run_turn requires a runnable Run")) {
+          this.push({
+            role: "system",
+            content:
+              `the turn was refused: ${message} — resume this session with ` +
+              `\`/resume ${this.sessionId ?? "<session-id>"}\``,
+          });
+        }
         // A turn-level failure is often itself a stale cursor (the kernel
         // rejected begin-turn/some command for an event sequence the client had
         // not seen). Re-read durable truth before the next command, otherwise
@@ -1243,10 +1899,29 @@ export class TuiController {
             /* the turn error above stays the reported one */
           }
         }
+        // A turn refused for an uncommitted turn is the one rejection the
+        // operator cannot act on from the kernel's message alone: name the
+        // exact turn and the only route that closes it. Read from durable
+        // truth, never from the error text.
+        if (isUncommittedTurnRefusal(cause)) {
+          await this.reportUncommittedTurn();
+        }
+        // Same for the stale configuration seal: the kernel's string names no
+        // cause and no route, and the session can look ACTIVE while it refuses
+        // every turn (a halt lifted out of band).
+        if (isSealedConfigurationRefusal(cause)) {
+          this.push({ role: "system", content: SEALED_CONFIGURATION_NOTICE });
+        }
       }
       this.emit();
     } finally {
       this.busy = false;
+      // The turn is over (resolved, stalled or failed): whatever the stop did,
+      // "stopping…" is no longer a state the client may claim.
+      if (this.stopRequested) {
+        this.stopRequested = false;
+        this.emit();
+      }
       this.maybeDrain();
     }
   }
@@ -1278,8 +1953,8 @@ export class TuiController {
           role: "system",
           content:
             this.lastDurableError === null
-              ? `no durable resolution within ${this.stallMs}ms — the daemon has not reported this turn's outcome yet, so the result is unknown (try /retry or /status)`
-              : `durable event drain failed: ${this.lastDurableError} — the cursor stays at ${this.durableCursor} so nothing is skipped, but this turn's outcome is unknown (try /retry or /status)`,
+              ? `no durable resolution within ${this.stallMs}ms — the daemon has not reported this turn's outcome yet, so the result is unknown (${STALL_ADVICE})`
+              : `durable event drain failed: ${this.lastDurableError} — the cursor stays at ${this.durableCursor} so nothing is skipped, but this turn's outcome is unknown (${STALL_ADVICE})`,
         });
         this.finalizeAll();
         return;
@@ -1343,7 +2018,19 @@ export class TuiController {
           const steps = Number(payload["steps"] ?? 0);
           this.push({
             role: "system",
-            content: `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
+            content:
+              this.lastStopReason === "stopped_by_operator"
+                ? // The kernel's own semantics for this reason (frozen in
+                  // SurfaceTurnResponse): the operator durably paused the
+                  // session, the turn ended before its next provider call or
+                  // capability dispatch, and the Run STAYS PAUSED until an
+                  // explicit resume. Ending the turn is not the same as being
+                  // runnable again, so name the recovery step.
+                  `turn stopped by the operator (${steps} steps, tokens counted) — the session is PAUSED ` +
+                  "and the turn ended before its next step; resume it here with " +
+                  `\`/resume ${this.sessionId ?? "<session-id>"}\` (or \`noem session resume ` +
+                  `${this.sessionId ?? "<session-id>"}\` from a shell)`
+                : `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
           });
         }
         this.status = "idle";
@@ -1613,18 +2300,79 @@ export class TuiController {
     await this.decide("REJECT");
   }
 
+  /**
+   * Answer the pending approval.
+   *
+   * Nothing here may reject: the view calls `approve()`/`reject()` from a
+   * `void ...` inside a key handler, and the y/n layer is chosen from render
+   * state, so a second press — or a press that arrives while the first decision
+   * is still in flight — reaches this method with nothing left to decide. That
+   * used to be an exception thrown into a void, i.e. an unhandled rejection
+   * that tore the TUI's frame apart on the shipped runtime. A decision that did
+   * not reach the kernel is now said out loud instead, and the controller stays
+   * on the approval so the operator can press again.
+   */
   private async decide(disposition: "APPROVE" | "REJECT"): Promise<void> {
-    if (this.status !== "awaiting_approval") throw new Error("no pending approval");
-    if (!this.sessionId) throw new Error("no session");
-    const snapshot = await this.client.getSession(this.sessionId);
+    if (this.status !== "awaiting_approval") {
+      this.push({
+        role: "system",
+        content: `no approval is pending — ${disposition} ignored (nothing was sent)`,
+      });
+      return;
+    }
+    if (!this.sessionId) {
+      this.push({
+        role: "system",
+        content: `no session — ${disposition} ignored (nothing was sent)`,
+      });
+      return;
+    }
+    const sessionId = this.sessionId;
+    let snapshot: SurfaceSessionSnapshot;
+    try {
+      snapshot = await this.client.getSession(sessionId);
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content:
+          `${disposition} FAILED (${(cause as Error).message}) — the kernel did not record it; ` +
+          "the approval is still pending (press again, or check /status)",
+      });
+      return;
+    }
     const pending = snapshot.pending_approval;
-    if (!pending) throw new Error("pending approval vanished");
-    const turn = await this.client.decideApproval(
-      this.sessionId,
-      pending.action_digest,
-      disposition,
-      `${disposition.toLowerCase()} via cli-ts`,
-    );
+    if (!pending) {
+      // The kernel has no pending approval for this session any more (it was
+      // decided elsewhere, or the turn resolved). Keep the operator's screen in
+      // step with durable truth instead of leaving the card up forever.
+      this.snapshot = snapshot;
+      this.status = snapshot.status === "WAITING_APPROVAL" ? "awaiting_approval" : "idle";
+      this.pendingPreview = snapshot.pending_approval?.preview ?? null;
+      this.push({
+        role: "system",
+        content: `the kernel reports no pending approval — ${disposition} was NOT recorded`,
+      });
+      this.finalizeAll();
+      this.maybeDrain();
+      return;
+    }
+    let turn: Awaited<ReturnType<SurfaceClient["decideApproval"]>>;
+    try {
+      turn = await this.client.decideApproval(
+        sessionId,
+        pending.action_digest,
+        disposition,
+        `${disposition.toLowerCase()} via cli-ts`,
+      );
+    } catch (cause) {
+      this.push({
+        role: "system",
+        content:
+          `${disposition} FAILED (${(cause as Error).message}) — the kernel did not record it; ` +
+          "the approval is still pending (press again, or check /status)",
+      });
+      return;
+    }
     this.snapshot = turn.snapshot;
     this.push({ role: "system", content: `${disposition}: ${pending.capability_id}` });
     if (turn.text.trim()) this.push({ role: "assistant", content: turn.text });
@@ -1690,8 +2438,9 @@ export class TuiController {
       // never saw, the kernel answers from its idempotency record (or refuses a
       // digest mismatch) instead of applying it a second time.
       const idempotencyKey = `cli-ts-correction:${randomUUID()}`;
+      let corrected: SurfaceSessionSnapshot;
       try {
-        await this.controlWithRetry(sessionId, () =>
+        corrected = await this.controlWithRetry(sessionId, () =>
           this.client.correct(
             sessionId,
             `operator interrupt (${source})`,
@@ -1712,7 +2461,18 @@ export class TuiController {
         this.emit();
         throw cause;
       }
+      this.snapshot = corrected;
       this.push({ role: "system", content: "correction issued (operator interrupt)" });
+      // A correction is not a benign interrupt: it halts the task, and the
+      // kernel then refuses every further turn in this session (measured
+      // 2026-09-18: the sealed configuration binds the correction epoch, so the
+      // next turn is refused with "configuration correction epochs changed after
+      // seal"; no command in this terminal restores it). The kernel's own
+      // response says so - render it, instead of letting the operator discover
+      // it as a bare error on the next message.
+      if (corrected.status === "CORRECTION_HALTED") {
+        this.push({ role: "system", content: HALT_NOTICE });
+      }
       this.status = "idle";
       this.finalizeAll();
       this.maybeDrain();
@@ -1721,5 +2481,91 @@ export class TuiController {
     this.status = "closed";
     this.emit();
     return "closed";
+  }
+
+  /**
+   * Operator stop (Ctrl-X): pause this session's Run through the surface
+   * protocol, `POST /v1/surface/sessions/{session_id}/pause`.
+   *
+   * It is the same command `noem session pause <session-id>` sends, through the
+   * existing `SurfaceClient`: a real governed control command, not a local flag
+   * and not a client-side "cancelled" render. The kernel moves the Run to
+   * PAUSED, the loop ends the turn at its next safe point with
+   * `stop_reason=stopped_by_operator`, and a capability that was already
+   * dispatched is not aborted. This method can approve nothing, reject nothing,
+   * widen no grant and write no C7 state — a stop only ever removes work.
+   *
+   * Honesty rules, each of which a unit test pins:
+   *
+   *  - "requested" is stated before the POST is sent, and `stopRequested` is
+   *    kept until the DURABLE turn record ends the turn. The pause is answered
+   *    only once an in-flight capability dispatch has finished (#77), so a
+   *    resolved promise is not a stopped turn and must never be rendered as one.
+   *  - on acceptance the reported status is the kernel's own returned snapshot
+   *    status, verbatim — never an inferred "stopped".
+   *  - every rejection is rendered with its HTTP status, the kernel's wording
+   *    and an explicit "the stop was NOT applied" (`stopFailureText`), and a
+   *    rejection that means "the run is already PAUSED / terminal" says that
+   *    instead of claiming a failed stop.
+   */
+  async stopTurn(source: "ctrl-x" | "command" = "ctrl-x"): Promise<StopOutcome> {
+    if (!this.sessionId || (this.status !== "streaming" && this.status !== "stalled")) {
+      // Deliberately NOT a blind pause: pausing an idle session leaves it PAUSED
+      // and refusing new turns (kernel-enforced), which is a trap for a key
+      // pressed with nothing running. `noem session pause <id>` still does it on
+      // purpose from a shell.
+      this.push({
+        role: "system",
+        content:
+          `stop: no turn in flight (status ${this.status}) — nothing was sent. ` +
+          "Pausing an idle session would leave it PAUSED and refuse the next turn.",
+      });
+      this.emit();
+      return "no-turn";
+    }
+    const sessionId = this.sessionId;
+    const queued = this.queue.length;
+    this.stopRequested = true;
+    this.push({
+      role: "system",
+      content:
+        "stop requested — pausing the session (the turn ends at its next safe point; " +
+        "a capability already dispatched is not aborted)",
+    });
+    this.emit();
+    // One key for the operator's single intent, reused across the bounded
+    // refresh-and-resend: if a pause did land and its response we never saw, the
+    // kernel answers from its idempotency record instead of applying it twice.
+    const idempotencyKey = `cli-ts-pause:${randomUUID()}`;
+    try {
+      const snapshot = await this.controlWithRetry(sessionId, () =>
+        this.client.correct(
+          sessionId,
+          `operator stop (${source})`,
+          "pause",
+          idempotencyKey,
+        ),
+      );
+      this.snapshot = snapshot;
+      this.push({
+        role: "system",
+        content:
+          `stop applied: session status ${snapshot.status} (durable, read back from the kernel) — ` +
+          "the terminal state arrives with the durable turn record" +
+          (queued > 0
+            ? `; ${queued} queued message(s) cannot run while the session is PAUSED`
+            : ""),
+      });
+      this.emit();
+      return "stopped";
+    } catch (cause) {
+      this.stopRequested = false;
+      this.push({
+        role: "system",
+        content: `stop FAILED — ${stopFailureText(cause)}`,
+      });
+      this.emit();
+      return "failed";
+    }
   }
 }
