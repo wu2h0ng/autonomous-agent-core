@@ -108,6 +108,53 @@ export function stopFailureText(cause: unknown): string {
   return `${status}: ${message} — the stop was NOT applied`;
 }
 
+/** What an operator resume (`/resume` on a session whose Run is PAUSED)
+ * actually did.
+ *
+ * `not-paused` the kernel's own snapshot says the Run is not PAUSED, so
+ *              attaching was the whole job and nothing was sent.
+ * `resumed`    `POST .../resume` was accepted and the kernel's returned
+ *              snapshot no longer reports PAUSED.
+ * `failed`     the resume was sent and REJECTED — named by the kernel, never
+ *              rendered as a resume.
+ */
+export type ResumeOutcome = "not-paused" | "resumed" | "failed";
+
+/** Operator-facing reason a resume was rejected, with the kernel's own wording.
+ *
+ * The mirror of `stopFailureText`, for the same reason: the surface overloads
+ * HTTP 409, so a rejected `PAUSED -> RUNNING` transition is the one case where
+ * "not resumed" alone is misleading — a terminal Run can never be resumed, and
+ * a reconciliation hold (`UNKNOWN_REQUIRES_REVIEW`) is not an operator stop and
+ * must not be silently un-paused. */
+export function resumeFailureText(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const status =
+    cause instanceof SurfaceHttpError ? `HTTP ${cause.statusCode}` : "no HTTP status";
+  const transition = /cannot move run from (\w+) to (\w+)/.exec(message);
+  if (transition) {
+    return (
+      `${status}: ${message} — the resume was NOT applied; the run is ${transition[1]}` +
+      (transition[1] === "SUCCEEDED" || transition[1] === "CANCELLED"
+        ? " (a terminal run has nothing left to resume — start a new session)"
+        : " (the kernel refused this transition; /status shows the durable state)")
+    );
+  }
+  if (message.includes("UNKNOWN_REQUIRES_REVIEW")) {
+    return (
+      `${status}: ${message} — the resume was NOT applied (this pause is a ` +
+      "reconciliation hold, not an operator stop; resolve it before resuming)"
+    );
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 403) {
+    return `${status}: ${message} — the resume was NOT applied (this client is outside the session's scope)`;
+  }
+  if (cause instanceof SurfaceHttpError && cause.statusCode === 409) {
+    return `${status}: ${message} — the resume was NOT applied (a stale event cursor survived the bounded refresh-and-resend)`;
+  }
+  return `${status}: ${message} — the resume was NOT applied`;
+}
+
 export interface ToolCall {
   actionId: string;
   capabilityId: string;
@@ -983,6 +1030,7 @@ export class TuiController {
         "↑/↓ or ctrl-p/ctrl-n history · ctrl-r reverse search",
         "ctrl-a/ctrl-e line start/end",
         "ctrl-x stop the running turn (pauses the session) · esc correction",
+        "/resume <id> reattach — and un-pause a session ctrl-x stopped",
         "ctrl-c exit · ctrl-l clear view",
         "/ palette · @ file mention · /vim vim keymap (dd/dw/cw)",
       ],
@@ -1166,12 +1214,103 @@ export class TuiController {
       });
       return;
     }
-    const snapshot = await this.client.getSession(target);
+    let snapshot: SurfaceSessionSnapshot;
+    try {
+      snapshot = await this.client.getSession(target);
+    } catch (cause) {
+      // `/resume` is the recovery command the durable stop record names, so a
+      // failed attach must land on the transcript. An unhandled rejection here
+      // would leave the operator believing they are on a session they never
+      // reached, and no resume is sent for a session this client could not read.
+      const detail =
+        cause instanceof SurfaceHttpError
+          ? `HTTP ${cause.statusCode}: ${cause.message}`
+          : cause instanceof Error
+            ? cause.message
+            : String(cause);
+      this.push({
+        role: "system",
+        content:
+          `cannot attach to ${target} (${detail}) — ` +
+          "nothing was attached and no resume was sent",
+      });
+      this.emit();
+      return;
+    }
     this.adoptSnapshot(snapshot);
     this.push({
       role: "system",
       content: `resumed session ${snapshot.session.session_id} (status ${snapshot.status}, mode ${snapshot.permission_mode})`,
     });
+    // Attaching is not resuming. A stop (Ctrl-X, `noem session pause`) leaves
+    // the Run PAUSED on purpose, and the kernel then refuses every new turn
+    // ("run_turn requires a runnable Run"), so attaching alone would leave the
+    // operator exactly where the stop put them. The snapshot above is the
+    // kernel's own answer, so this is a governed control command, not a guess.
+    await this.resumePausedRun(snapshot.session.session_id, snapshot);
+  }
+
+  /**
+   * Un-pause a Run the kernel reports PAUSED: `POST /v1/surface/sessions/
+   * {session_id}/resume`, the same command `noem session resume <session-id>`
+   * sends, through the existing `SurfaceClient`.
+   *
+   * `observed` is a snapshot the CALLER just read from the kernel — never a
+   * local flag and never an inferred state — so a bare resume is only sent when
+   * the kernel itself says PAUSED. It can approve nothing, deny nothing, widen
+   * no grant and write no C7 state: the command only re-permits work the
+   * operator had already authorised (`PAUSED -> RUNNING` in
+   * `task_service.update_run_status`).
+   *
+   * Honesty rules, each pinned by a test:
+   *
+   *  - the accepted status is the kernel's own returned snapshot status,
+   *    verbatim, and a snapshot that still says PAUSED is reported as NOT
+   *    resumed rather than optimistically rendered;
+   *  - every rejection is rendered with its HTTP status, the kernel's wording
+   *    and an explicit "the resume was NOT applied" (`resumeFailureText`) — a
+   *    rejection is never swallowed, and never rendered as a resume.
+   */
+  private async resumePausedRun(
+    sessionId: string,
+    observed: SurfaceSessionSnapshot,
+  ): Promise<ResumeOutcome> {
+    if (observed.status !== "PAUSED") return "not-paused";
+    this.push({
+      role: "system",
+      content:
+        "the kernel reports this Run PAUSED — resuming it " +
+        "(POST /v1/surface/sessions/{id}/resume; nothing is approved, denied or widened)",
+    });
+    this.emit();
+    // One key for the operator's single intent, reused across the bounded
+    // refresh-and-resend: if a resume did land and its response we never saw,
+    // the kernel answers from its idempotency record instead of applying it twice.
+    const idempotencyKey = `cli-ts-resume:${randomUUID()}`;
+    try {
+      const snapshot = await this.controlWithRetry(sessionId, () =>
+        this.client.correct(
+          sessionId,
+          "operator resume (tui /resume)",
+          "resume",
+          idempotencyKey,
+        ),
+      );
+      this.snapshot = snapshot;
+      const applied = snapshot.status !== "PAUSED";
+      this.push({
+        role: "system",
+        content: applied
+          ? `resume applied: session status ${snapshot.status} (durable, read back from the kernel) — new turns are accepted again`
+          : `resume answered, but the kernel still reports ${snapshot.status} — the session is STILL PAUSED`,
+      });
+      this.emit();
+      return applied ? "resumed" : "failed";
+    } catch (cause) {
+      this.push({ role: "system", content: `resume FAILED — ${resumeFailureText(cause)}` });
+      this.emit();
+      return "failed";
+    }
   }
 
   /** Bounded workspace file list, fetched once per session and cached for
@@ -1439,8 +1578,22 @@ export class TuiController {
         }
         this.status = "idle";
       } else {
-        this.lastError = (cause as Error).message;
+        const message = (cause as Error).message;
+        this.lastError = message;
         this.status = "idle";
+        // The kernel's frozen refusal for a Run that cannot run
+        // (`agent_loop.run_turn`): the session was stopped and never resumed,
+        // so "start a new session" is the wrong advice and a bare error leaves
+        // the operator in a state the terminal cannot get out of. Name the way
+        // out of THIS state, in this terminal.
+        if (message.includes("run_turn requires a runnable Run")) {
+          this.push({
+            role: "system",
+            content:
+              `the turn was refused: ${message} — resume this session with ` +
+              `\`/resume ${this.sessionId ?? "<session-id>"}\``,
+          });
+        }
         // A turn-level failure is often itself a stale cursor (the kernel
         // rejected begin-turn/some command for an event sequence the client had
         // not seen). Re-read durable truth before the next command, otherwise
@@ -1568,8 +1721,9 @@ export class TuiController {
                   // explicit resume. Ending the turn is not the same as being
                   // runnable again, so name the recovery step.
                   `turn stopped by the operator (${steps} steps, tokens counted) — the session is PAUSED ` +
-                  "and the turn ended before its next step; resume with " +
-                  `\`noem session resume ${this.sessionId ?? "<session-id>"}\``
+                  "and the turn ended before its next step; resume it here with " +
+                  `\`/resume ${this.sessionId ?? "<session-id>"}\` (or \`noem session resume ` +
+                  `${this.sessionId ?? "<session-id>"}\` from a shell)`
                 : `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
           });
         }

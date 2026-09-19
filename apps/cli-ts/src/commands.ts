@@ -40,7 +40,11 @@ export const COMMANDS: readonly CommandSpec[] = [
     argsHint: "[MODE]",
     description: "show or set permission mode (ASK | ACCEPT_READ_ONLY | ACCEPT_IN_WORKSPACE)",
   },
-  { name: "/resume", argsHint: "<session-id>|<n>", description: "attach to a session (id or recent-list index)" },
+  {
+    name: "/resume",
+    argsHint: "<session-id>|<n>",
+    description: "attach to a session (id or recent-list index); resumes it if it is PAUSED",
+  },
   {
     name: "/files",
     argsHint: "[PREFIX]",

@@ -54,7 +54,13 @@ and prefixed onto every subsequent turn); `/goal clear` unsets it. `/theme`,
 (↑/↓ move, Enter select, 1-9 quick pick, Esc cancel); `/doctor` runs the
 read-only self-check in the transcript; `/retry` re-sends the last message
 and `/edit` loads it into the composer. `@` completes workspace file paths
-(Tab inserts).
+(Tab inserts). **`/resume <session-id>|<n>` attaches to a session and, when the
+kernel reports that session's Run `PAUSED`, resumes it** — it sends the real
+`POST /v1/surface/sessions/{id}/resume` (the same command as
+`noem session resume <session-id>`), then renders the status the kernel reads
+back; a rejected resume is reported as `resume FAILED` and is never shown as
+applied. It cannot approve, deny, widen a policy ceiling or write C7 state: a
+resume only re-permits work the operator had already authorised.
 Typing `/`
 opens a filterable command palette (↑/↓ select, Tab complete, Enter run,
 Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it.
@@ -63,7 +69,10 @@ Esc dismiss); ↑/↓ recall input history, Ctrl-R reverse-searches it.
 pause (`POST /v1/surface/sessions/{id}/pause`, the same command as
 `noem session pause <session-id>`), reports "stop requested", shows its own
 `stopping…` state until the durable turn record ends the turn, and leaves the
-session PAUSED (resume it with `noem session resume <session-id>`);
+session PAUSED — while the Run is PAUSED the kernel refuses every new turn, so
+the stop is not a dead end: resume it in this terminal with
+`/resume <session-id>` (or `noem session resume <session-id>` from a shell),
+and the durable turn record names both;
 Ctrl-L clears the view. `/vim`
 enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
 and `dd`/`dw`/`cw` operators). Tab switches the focused panel and PgUp/PgDn
@@ -105,6 +114,7 @@ npm run check:home       # the home panel owns the first frame
 npm run check:search     # Ctrl-R reverse search + multiline composer
 npm run check:highlight  # fenced-code colouring (headless + pty)
 npm run check:stop       # Ctrl-X stops a mid-turn run (real pause; honest stopping state)
+npm run check:resume     # the stop is not a dead end: /resume un-pauses it in-session
 npm run check:deny       # a rule DENY renders as its own card in a real frame
 ```
 
@@ -193,12 +203,16 @@ npm run live:pty                    # real provider multi-turn in a real pty
 - `scripts/stop_daemon.py` — the same, with the first provider call held open so a
   mid-turn stop is reachable from a terminal (no default descriptor path: it can
   never write the operator's `~/.agent-os`)
+- `scripts/resume_daemon.py` — the same hold-open daemon with a second scripted
+  turn, so `pty_resume_check.py` can prove a REAL turn runs after the resume
+  (not merely that a status string changed)
 - `scripts/deny_daemon.py` — the same, with a durable operator DENY rule seeded
   before the session opens, so one scripted turn produces a rule refusal and an
   ordinary tool failure in the same transcript
 - `scripts/smoke.ts` — headless end-to-end walk of the frozen order (exit 1 on violation)
 - `scripts/pty_*.py` — real-pty checks: render/typing/Enter/narrow+resize/approval,
-  theme, highlighting, home frame, search, unified entry, Ctrl-X stop, DENY card
+  theme, highlighting, home frame, search, unified entry, Ctrl-X stop, Ctrl-X
+  stop → in-session `/resume`, DENY card
 - `scripts/frame_reader.py` — terminal emulator used by every pty check to
   reconstruct the screen (assert what a human sees, not stripped bytes)
 - `scripts/compile.ts` — `bun build --compile` wrapper (bakes the version in)
