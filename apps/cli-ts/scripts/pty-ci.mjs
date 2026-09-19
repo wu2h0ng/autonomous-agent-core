@@ -358,6 +358,16 @@ function run(file, timeoutMs) {
     }, timeoutMs);
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
+      // BUG 2026-09-19: the check script exits but the hermetic daemon it
+      // started (`uv run agent-os-runtime` + its python child) keeps running in
+      // the same process group. Killing only the wrapper left ~40 orphaned
+      // daemons (some alive >1 day). Reap the WHOLE group now that the wrapper
+      // is gone: negative pid signals the process group created by detached:true.
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // Group already reaped by the timeout path above, or no members left.
+      }
       resolve({ file, code: code ?? 1, timedOut: false, signal: signal ?? null });
     });
   });

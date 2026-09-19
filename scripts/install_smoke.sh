@@ -45,6 +45,32 @@ TMP="$(mktemp -d "$TMP_BASE/e-py-install-smoke.XXXXXX")" || {
 TOOL_DIR="$TMP/uv-tools"
 export UV_TOOL_DIR="$TOOL_DIR"
 export UV_CACHE_DIR="$TMP/uv-cache"
+# CRITICAL (bug found 2026-09-19): uv writes the command SHIMS (agent-os-runtime,
+# agent-os-work) to UV_TOOL_BIN_DIR, which DEFAULTED to ~/.local/bin. Isolating
+# UV_TOOL_DIR was not enough -- the shims still landed in the operator's real
+# ~/.local/bin as symlinks into $TMP/uv-tools, and once cleanup removed $TMP
+# they became DANGLING symlinks. noem's PATH launcher then spawned a dangling
+# link (ENOENT), fell back to `uv run` with no project context, and died. Pin
+# the shim dir to the temp tree AND prepend it to PATH so the run below resolves
+# the temp shim, never the global one.
+UV_TOOL_BIN_DIR="$TMP/uv-bin"
+mkdir -p "$UV_TOOL_BIN_DIR"
+export UV_TOOL_BIN_DIR
+PATH="$UV_TOOL_BIN_DIR:$PATH"
+
+# Snapshot the operator's global shims BEFORE install so we can prove at the end
+# that ~/.local/bin was not polluted with a link into $TMP.
+GLOBAL_BIN="${HOME}/.local/bin"
+shim_snapshot() {
+  if [ -d "$GLOBAL_BIN" ]; then
+    for f in "$GLOBAL_BIN"/agent-os-*; do
+      [ -e "$f" ] || [ -L "$f" ] || continue
+      printf '%s -> ' "$f"
+      readlink "$f" 2>/dev/null || echo "(not a symlink)"
+    done
+  fi
+}
+SHIMS_BEFORE="$(shim_snapshot)"
 
 DB_DIR="$TMP/db"
 WORK_DIR="$TMP/work"
@@ -189,5 +215,25 @@ if [ "$gone" != "1" ]; then
 else
   echo "install-smoke: daemon stopped cleanly on SIGTERM"
 fi
+# --- 5b. regression: prove the operator global bin was NOT polluted -----------
+# UV_TOOL_BIN_DIR must have caught every shim. If any agent-os-* link now points
+# into $TMP (or a new one appeared), the bug this isolates is back -> fail.
+SHIMS_AFTER="$(shim_snapshot)"
+if [ "$SHIMS_BEFORE" != "$SHIMS_AFTER" ]; then
+  echo "install-smoke: FAIL: ~/.local/bin agent-os-* shims changed across the run:" >&2
+  diff <(printf '%s\n' "$SHIMS_BEFORE") <(printf '%s\n' "$SHIMS_AFTER") >&2 || true
+  exit 1
+fi
+# And none of the global shims may be a DANGLING link into our temp tree.
+if [ -d "$GLOBAL_BIN" ]; then
+  for f in "$GLOBAL_BIN"/agent-os-*; do
+    [ -L "$f" ] || continue
+    tgt="$(readlink "$f" 2>/dev/null || true)"
+    case "$tgt" in
+      "$TMP"/*) echo "install-smoke: FAIL: dangling shim $f -> $tgt" >&2; exit 1;;
+    esac
+  done
+fi
+echo "install-smoke: PASS: ~/.local/bin agent-os-* shims unchanged (no pollution)"
 echo "install-smoke: PASS — installed Python tool starts and answers a hermetic turn."
 echo "install-smoke: DONE. (scaffolding; no publish/release/tag)"
