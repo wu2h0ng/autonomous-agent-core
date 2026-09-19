@@ -220,6 +220,37 @@ def _parse(value: str) -> datetime:
     return datetime.fromisoformat(value).astimezone(timezone.utc)
 
 
+def _compute_active_operator_seconds(
+    event_rows: list[sqlite3.Row],
+    idle_cutoff_seconds: int,
+) -> float | None:
+    """Derive active operator seconds from durable event timestamps.
+
+    Events are ordered by occurred_at. Consecutive events closer than
+    idle_cutoff_seconds belong to one continuous activity interval; a gap
+    larger than the cutoff closes the interval and starts a new one. Each
+    interval contributes (last - first) seconds. A single event yields 0.0
+    seconds (honest: no duration can be inferred from one timestamp).
+
+    Returns None only when there are no events at all — the caller must
+    distinguish "not measurable" from "measured zero".
+    """
+    if not event_rows:
+        return None
+    timestamps = [_parse(str(row["occurred_at"])) for row in event_rows]
+    if idle_cutoff_seconds <= 0:
+        return (timestamps[-1] - timestamps[0]).total_seconds()
+    interval_start = timestamps[0]
+    total = 0.0
+    for previous, current in zip(timestamps, timestamps[1:]):
+        gap = (current - previous).total_seconds()
+        if gap > idle_cutoff_seconds:
+            total += (previous - interval_start).total_seconds()
+            interval_start = current
+    total += (timestamps[-1] - interval_start).total_seconds()
+    return total
+
+
 class SQLiteResponsibilityLoopStore:
     """Durable lease, effect-fence, checkpoint and HCW truth for one Work loop."""
 
@@ -2304,8 +2335,9 @@ class SQLiteResponsibilityLoopStore:
                     str(matching_existing[0][1]["measured_at"])
                 )
             rows = connection.execute(
-                "SELECT kind FROM operator_work_events "
-                "WHERE binding_digest=? AND cycle_id=?",
+                "SELECT kind, occurred_at FROM operator_work_events "
+                "WHERE binding_digest=? AND cycle_id=? "
+                "ORDER BY occurred_at ASC",
                 (binding.digest, cycle_id),
             ).fetchall()
             kinds = [OperatorWorkEventKind(str(row["kind"])) for row in rows]
@@ -2322,9 +2354,14 @@ class SQLiteResponsibilityLoopStore:
                 kind is OperatorWorkEventKind.HELP_RESPONSE for kind in kinds
             )
             accepted = self._accepted_outcomes(connection, binding, cycle_id)
-            active_seconds = None
+            active_seconds = _compute_active_operator_seconds(
+                rows, root.idle_cutoff_seconds
+            )
             status = HcwMeasurementStatus.HCW_INSUFFICIENT_DATA
             per_outcome = None
+            if active_seconds is not None and accepted > 0:
+                status = HcwMeasurementStatus.MEASURED
+                per_outcome = (active_seconds / 60.0) / accepted
             payload = {
                 "binding_digest": binding.digest,
                 "cycle_id": cycle_id,

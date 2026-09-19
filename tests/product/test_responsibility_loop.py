@@ -210,6 +210,51 @@ def _insert_verified_settlement(
     return record_digest
 
 
+def _setup_cycle_with_accepted_outcome(
+    store: SQLiteResponsibilityLoopStore,
+    database: Path,
+    binding: ResponsibilityLoopBinding,
+    *,
+    cycle_id: str,
+    task_id: str,
+    run_id: str,
+    settlement_id: str,
+) -> None:
+    """Create a sealed cycle with one verified SETTLED_MET outcome bound to it."""
+    lease = store.acquire_lease(
+        binding, process_instance_id="process:A", now=NOW
+    )
+    checkpoint = store.write_checkpoint(
+        binding,
+        lease,
+        state=ResponsibilityCycleState.RUNNING,
+        active_task_id=task_id,
+        active_run_id=run_id,
+        last_event_sequence=1,
+        next_transition="SETTLE",
+        recorded_at=NOW,
+    )
+    cycle_receipt = store.seal_cycle_receipt(
+        binding,
+        lease,
+        cycle_id=cycle_id,
+        task_id=task_id,
+        run_id=run_id,
+        checkpoint_digest=checkpoint.checkpoint_digest,
+    )
+    digest = _insert_verified_settlement(
+        database, binding, settlement_id=settlement_id, task_id=task_id
+    )
+    store.bind_cycle_settlement(
+        binding,
+        cycle_id=cycle_id,
+        task_id=task_id,
+        settlement_id=settlement_id,
+        expected_settlement_digest=digest,
+        cycle_receipt_digest=cycle_receipt.receipt_digest,
+    )
+
+
 def _wall_clock() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -1267,7 +1312,7 @@ def test_hcw_receipt_uses_durable_events_and_accepted_outcome_denominator(
     assert receipt.operator_intervention_count == 2
     assert receipt.help_response_count == 1
     assert receipt.status is HcwMeasurementStatus.HCW_INSUFFICIENT_DATA
-    assert receipt.active_operator_seconds is None
+    assert receipt.active_operator_seconds == 30.0
     assert receipt.accepted_outcome_count == 0
     assert receipt.operator_minutes_per_accepted_outcome is None
     assert receipt.measurement_policy_digest == evaluator.measurement_policy_digest
@@ -1363,6 +1408,143 @@ def test_hcw_counts_only_explicitly_bound_canonical_cycle_settlement(
         measured_at=NOW,
     )
     assert receipt.accepted_outcome_count == 1
+
+
+def test_hcw_measurement_measured_when_active_seconds_and_accepted_outcome(
+    tmp_path: Path,
+) -> None:
+    """Durable timestamps + verified denominator lift status from INSUFFICIENT_DATA to MEASURED."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    store.append_operator_work_event(
+        binding, event_id="e:1", kind=OperatorWorkEventKind.USER_INPUT,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1", occurred_at=NOW,
+    )
+    store.append_operator_work_event(
+        binding, event_id="e:2", kind=OperatorWorkEventKind.HELP_RESPONSE,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1",
+        occurred_at=NOW + timedelta(seconds=30),
+    )
+    _setup_cycle_with_accepted_outcome(
+        store, database, binding,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1",
+        settlement_id="settlement:1",
+    )
+
+    receipt = store.measure_hcw(
+        binding, cycle_id="cycle:1",
+        evaluator_root_id=evaluator.evaluator_root_id, measured_at=NOW,
+    )
+    assert receipt.status is HcwMeasurementStatus.MEASURED
+    assert receipt.active_operator_seconds == 30.0
+    assert receipt.accepted_outcome_count == 1
+    assert receipt.operator_minutes_per_accepted_outcome == 0.5
+
+
+def test_hcw_measurement_idle_cutoff_splits_active_intervals(
+    tmp_path: Path,
+) -> None:
+    """Gaps beyond idle_cutoff close the current interval; only contiguous spans count."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    for event_id, offset in [("e:1", 0), ("e:2", 30), ("e:3", 200), ("e:4", 230)]:
+        store.append_operator_work_event(
+            binding, event_id=event_id, kind=OperatorWorkEventKind.USER_INPUT,
+            cycle_id="cycle:1", task_id="task:1", run_id="run:1",
+            occurred_at=NOW + timedelta(seconds=offset),
+        )
+    _setup_cycle_with_accepted_outcome(
+        store, database, binding,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1",
+        settlement_id="settlement:1",
+    )
+
+    receipt = store.measure_hcw(
+        binding, cycle_id="cycle:1",
+        evaluator_root_id=evaluator.evaluator_root_id, measured_at=NOW,
+    )
+    assert receipt.active_operator_seconds == 60.0
+    assert receipt.status is HcwMeasurementStatus.MEASURED
+    assert receipt.operator_minutes_per_accepted_outcome == 1.0
+
+
+def test_hcw_measurement_no_events_yields_none_active_seconds(
+    tmp_path: Path,
+) -> None:
+    """Without operator work events there is nothing to measure; status stays INSUFFICIENT_DATA."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    _setup_cycle_with_accepted_outcome(
+        store, database, binding,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1",
+        settlement_id="settlement:1",
+    )
+
+    receipt = store.measure_hcw(
+        binding, cycle_id="cycle:1",
+        evaluator_root_id=evaluator.evaluator_root_id, measured_at=NOW,
+    )
+    assert receipt.active_operator_seconds is None
+    assert receipt.status is HcwMeasurementStatus.HCW_INSUFFICIENT_DATA
+    assert receipt.operator_minutes_per_accepted_outcome is None
+    assert receipt.accepted_outcome_count == 1
+
+
+def test_hcw_measurement_single_event_yields_zero_active_seconds(
+    tmp_path: Path,
+) -> None:
+    """A single timestamp has no interval duration; active_seconds is an honest 0.0, not None."""
+    database = tmp_path / "agent-os.sqlite3"
+    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+    store.append_operator_work_event(
+        binding, event_id="e:1", kind=OperatorWorkEventKind.USER_INPUT,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1", occurred_at=NOW,
+    )
+    _setup_cycle_with_accepted_outcome(
+        store, database, binding,
+        cycle_id="cycle:1", task_id="task:1", run_id="run:1",
+        settlement_id="settlement:1",
+    )
+
+    receipt = store.measure_hcw(
+        binding, cycle_id="cycle:1",
+        evaluator_root_id=evaluator.evaluator_root_id, measured_at=NOW,
+    )
+    assert receipt.active_operator_seconds == 0.0
+    assert receipt.status is HcwMeasurementStatus.MEASURED
+    assert receipt.operator_minutes_per_accepted_outcome == 0.0
 
 
 @pytest.mark.parametrize(
