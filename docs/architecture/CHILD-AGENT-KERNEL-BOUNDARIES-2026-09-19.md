@@ -98,6 +98,41 @@ So: **no claim of the form "spawning does not record the prompt" is permitted.**
 The rule is about three event types and one projection, and the tests assert
 exactly that (`test_attribution_includes_children_without_copying_their_text`).
 
+## 5. Registration and risk tier (ADR-0061 §5.8)
+
+`agent.spawn` is registered in three places and none of them grants anything on its
+own:
+
+| Where | Value | What it decides |
+|---|---|---|
+| `permission_gate.ACTION_RISK_TIERS` | 2 | the frozen E2 matrix; **absent ⇒ `DENY_OUT_OF_ALLOWLIST` in every mode, never approvable** |
+| `agent_loop.CHAT_GRANT_MAX_RISK_TIERS` | 2 | the ceiling the chat composition may grant |
+| `DeveloperWorkspaceAdapter.specs()` | 2 | the `CapabilitySpec` the broker looks up (`capability.py:_lookup_spec`) |
+| `domain_packs/developer_agent` manifest | listed | the pack that declares the capability (the kernel stays domain-free) |
+
+**Tier 2 is the decision, and it is deliberate.** Deriving a child
+session/task/run is consequential but reversible, and it is the *only* thing this
+capability does: the child's own actions each need their own grant, decision,
+permit, approval (tier >= 3) and receipt, so the spawn itself does not move any
+other action's tier. Tier 3 would make every spawn a human approval, which the
+frozen design does not ask for.
+
+**The cost, stated rather than hidden (review A6):** at tier 2, the frozen matrix
+returns `MODE_AUTO_ALLOW` under `ACCEPT_IN_WORKSPACE`, so an operator who has put
+the session in that mode gets a spawn with no per-spawn confirmation card, while
+the default mode (`ASK`) gives one. Registration is also fail-closed by
+construction - an unregistered capability is denied in every mode - so forgetting
+to register can only make the capability *unavailable*, never ungoverned.
+
+**None of this makes it reachable.** The spec exists only when the composition
+root enabled child agents (`AGENT_OS_CHILD_AGENTS`, default OFF), and the grant is
+derived from the spec, so the three independent switches of ADR-0061 §8.1
+(`AGENT_OS_MAX_CHILD_AGENTS=0`, grant withdrawal, removal from the E2 table) all
+still apply. `scripts/agent_spawn_probe_harness.py --selftest` asserts the off
+state directly: with the feature off there is no spec, no grant, no advertised
+tool, and a spawn proposal leaves a durable `POLICY_VERDICT_RECORDED(DENY,
+basis=out_of_allowlist)`.
+
 ## Related statements that follow from the same review
 
 - **C7 cascade** (requirement 1): a child's halt check consults its durable
