@@ -51,6 +51,34 @@ async function withDescriptorServer(
   }
 }
 
+/**
+ * Write a VALID runtime descriptor to a TEMP file (never ~/.agent-os) so the
+ * hermetic tests never touch the user's real daemon handle. The port names a
+ * surface we do not actually reach on the no-key path.
+ */
+async function withFakeDescriptor(run: (descriptorPath: string) => Promise<void>): Promise<void> {
+  const path = join(tmpdir(), `agent-os-fake-desc-${Date.now()}-${Math.random()}.json`);
+  await writeFile(
+    path,
+    JSON.stringify({
+      protocol_version: "1.1",
+      pid: 1,
+      boot_id: "boot:fake",
+      host: "127.0.0.1",
+      port: 1,
+      bearer_token: "fake-token",
+      database_path: "/tmp/db",
+      workspace_path: "/tmp/ws",
+      created_at: new Date().toISOString(),
+    }),
+  );
+  try {
+    await run(path);
+  } finally {
+    await rm(path, { force: true });
+  }
+}
+
 function capture<T>(run: () => Promise<T>): Promise<{ result: T; out: string; err: string }> {
   const outWrite = process.stdout.write.bind(process.stdout);
   const errWrite = process.stderr.write.bind(process.stderr);
@@ -92,14 +120,17 @@ test("provider set without AGENT_OS_PROVIDER_KEY never echoes a key", async () =
   const previous = process.env.AGENT_OS_PROVIDER_KEY;
   delete process.env.AGENT_OS_PROVIDER_KEY;
   try {
-    const { result, out, err } = await capture(() =>
-      runProviderCommand({
-        args: ["set", "--base-url", "https://api.example.com/v1", "--model", "m"],
-      }),
-    );
-    assert.equal(result, 1);
-    assert.match(err, /no provider key available|key-stdin/);
-    assert.ok(!out.includes("sk-") && !err.includes("sk-"));
+    await withFakeDescriptor(async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runProviderCommand({
+          descriptorPath,
+          args: ["set", "--base-url", "https://api.example.com/v1", "--model", "m"],
+        }),
+      );
+      assert.equal(result, 1);
+      assert.match(err, /no provider key available|key-stdin/);
+      assert.ok(!out.includes("sk-") && !err.includes("sk-"));
+    });
   } finally {
     if (previous !== undefined) process.env.AGENT_OS_PROVIDER_KEY = previous;
   }
