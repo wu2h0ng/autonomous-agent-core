@@ -147,6 +147,10 @@ const GATES = [
   // no unhandled-rejection stack smeared over the frame, the surface keeps
   // answering (a second failed command is reported the same way).
   "scripts/pty_runtime_lost_check.py",
+  // P5: the interactive `/provider` wizard masks the key (bullets, never the
+  // plaintext on the wire), submits to a loopback stub, and persists only
+  // non-secret fields to provider.json.
+  "scripts/pty_provider_config.py",
 ];
 
 // Checks that print frames and booleans with NO failing exit path. They run in

@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { SyntaxStyle, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
-import type { ChatMessage, TuiController } from "../controller.js";
+import type { ChatMessage, ProviderModalState, TuiController } from "../controller.js";
 import { toolState } from "../controller.js";
 import type { ComposerState } from "../composer.js";
 import { handleGlobalKey } from "../keys.js";
@@ -29,6 +29,16 @@ import {
   numberedChoice,
 } from "../selector.js";
 import { overlayRows, sliceWindow } from "./overlays.js";
+import {
+  endpointClassLabel,
+  FORM_HINT,
+  formFieldsFor,
+  maskSecretDisplay,
+  presetById,
+  PROVIDER_PRESETS,
+  renderReadonlyCard,
+  SETUP_HINT,
+} from "../provider-config.js";
 import { resolveViewKey } from "./viewkeys.js";
 import { viewTheme } from "./theme-colors.js";
 import { codeBlockRenderNode, highlightStyleTable } from "./code-highlight.js";
@@ -105,6 +115,50 @@ function OverlayRow({ text, fg }: { text: string; fg?: string | undefined }) {
       {text}
     </text>
   );
+}
+
+/**
+ * P5 provider modal rows (pure). The api_key value is NEVER rendered: only a
+ * bullet mask derived from the draft length. Fixed `label  value` columns keep
+ * the card aligned regardless of value width.
+ */
+function providerRows(
+  modal: ProviderModalState,
+  keyDraft: string,
+  theme: ThemeColors,
+): { text: string; fg?: string | undefined }[] {
+  if (modal.phase === "view") {
+    return renderReadonlyCard(modal.status).map((text) => ({ text }));
+  }
+  if (modal.phase === "preset") {
+    const rows: { text: string; fg?: string | undefined }[] = PROVIDER_PRESETS.map((preset, index) => ({
+      text: `${index === modal.index ? "▌ " : "  "}${preset.label}`,
+      fg: index === modal.index ? theme.paletteSelected : undefined,
+    }));
+    rows.push({ text: SETUP_HINT, fg: theme.accent });
+    return rows;
+  }
+  if (modal.phase !== "form") return [];
+  const preset = presetById(modal.presetId) ?? PROVIDER_PRESETS[0];
+  const fields = formFieldsFor(preset!);
+  const row = (label: string, value: string, selected: boolean, isSecret: boolean): { text: string; fg?: string | undefined } => {
+    const prefix = selected ? "▌ " : "  ";
+    const shown = isSecret
+      ? maskSecretDisplay(keyDraft.length, modal.hasExistingKey && keyDraft.length === 0)
+      : value;
+    return { text: `${prefix}${label.padEnd(11)} ${shown}`, fg: selected ? theme.paletteSelected : undefined };
+  };
+  const rows: { text: string; fg?: string | undefined }[] = [
+    row("base_url", modal.baseUrl, fields[modal.fieldIndex] === "baseUrl", false),
+    row("model", modal.model, fields[modal.fieldIndex] === "model", false),
+  ];
+  if (fields.includes("endpointClass")) {
+    rows.push(row("endpoint", endpointClassLabel(modal.endpointClass), fields[modal.fieldIndex] === "endpointClass", false));
+  }
+  rows.push(row("api_key", keyDraft, fields[modal.fieldIndex] === "apiKey", true));
+  if (modal.error) rows.push({ text: `error: ${modal.error}`, fg: theme.toolFailed });
+  rows.push({ text: FORM_HINT, fg: theme.accent });
+  return rows;
 }
 
 function line(message: ChatMessage): string {
@@ -292,6 +346,14 @@ export function App({
   const mentionMatches = mention ? filterMentions(files, mention.query) : [];
 
   const selector = controller.pendingSelector;
+  // P5: provider modal. The api_key draft is LOCAL React state only (never
+  // controller state, never history/transcript); it renders as bullets.
+  const providerModal = controller.pendingProvider;
+  const [providerKeyDraft, setProviderKeyDraft] = useState("");
+  const providerOverlayRows =
+    providerModal.phase === "closed"
+      ? []
+      : providerRows(providerModal, providerKeyDraft, theme);
   const selectorItems = selector
     ? filterSelectorItems(selector.items, selectorQuery)
     : [];
@@ -361,7 +423,17 @@ export function App({
   agentsPanelRef.current = !awaiting && panels.includes(selected) && selected === "agents";
   // `selector` is `null` (not `undefined`) when closed (controller.pendingSelector);
   // test `!== null`, otherwise this is always true and the composer can never submit.
-  overlayOwnsEnterRef.current = awaiting || selector !== null || palette.length > 0 || searchOpen;
+  overlayOwnsEnterRef.current = awaiting || selector !== null || providerModal.phase !== "closed" || palette.length > 0 || searchOpen;
+  // P5: while the provider modal is open the composer must not own focus, so a
+  // stray key can never land in the composer draft (the masked key is otherwise
+  // one opentui focus state away from leaking into the buffer).
+  useEffect(() => {
+    if (controller.pendingProvider.phase !== "closed") {
+      composerRef.current?.blur();
+    } else if (!awaiting && !vimNormal) {
+      composerRef.current?.focus();
+    }
+  }, [controller.pendingProvider.phase, awaiting, vimNormal]);
   searchOpenRef.current = searchOpen;
   const activePanel: PanelId = awaiting
     ? "transcript"
@@ -467,6 +539,7 @@ export function App({
     const sequence = key.sequence ?? "";
     const owner = resolveViewKey({
       selectorOpen: selector,
+      providerOpen: providerModal.phase !== "closed",
       searchOpen: searchOpenRef.current,
       awaitingApproval: awaiting,
       paletteOpen: palette.length > 0,
@@ -514,6 +587,50 @@ export function App({
         if (/^[\x20-\x7e]$/.test(sequence)) {
           setSelectorQuery((q) => q + sequence);
           setSelectorIndex(0);
+          return;
+        }
+        return;
+      }
+      case "provider": {
+        // P5 interactive provider modal. Every key is owned here; the api_key
+        // value lives ONLY in the local providerKeyDraft and is rendered as
+        // bullets, so it never reaches the composer, history or transcript.
+        const modal = providerModal;
+        if (modal.phase === "view") {
+          if (name === "escape") { controller.providerViewAction("close"); return; }
+          if (name === "return") { controller.providerViewAction("edit"); return; }
+          if (name === "c") { controller.providerViewAction("clear"); return; }
+          return;
+        }
+        if (modal.phase === "preset") {
+          if (name === "escape") { controller.providerCancel(); setProviderKeyDraft(""); return; }
+          if (name === "up") { controller.providerPresetMove(-1); return; }
+          if (name === "down") { controller.providerPresetMove(1); return; }
+          if (name === "return") { setProviderKeyDraft(""); controller.providerPresetChoose(); return; }
+          return;
+        }
+        if (modal.phase === "form") {
+          const fields = controller.providerFormFields();
+          const field = fields[modal.fieldIndex];
+          if (name === "escape") { controller.providerCancel(); setProviderKeyDraft(""); return; }
+          if (name === "tab") { controller.providerFormMoveField(1); return; }
+          if (name === "return") {
+            void controller.providerFormSubmit(providerKeyDraft);
+            setProviderKeyDraft("");
+            return;
+          }
+          if (name === "backspace") {
+            if (field === "apiKey") setProviderKeyDraft((k) => k.slice(0, -1));
+            else controller.providerFormBackspace();
+            return;
+          }
+          // Printable text (including a bracketed paste, which may arrive as one
+          // multi-char sequence): into the masked key draft or the current field.
+          if (/^[\x20-\x7e]+$/.test(sequence)) {
+            if (field === "apiKey") setProviderKeyDraft((k) => k + sequence);
+            else controller.providerFormType(sequence);
+            return;
+          }
           return;
         }
         return;
@@ -954,6 +1071,21 @@ export function App({
             </box>
           );
         })()
+      ) : null}
+      {providerModal.phase !== "closed" ? (
+        <box
+          border
+          title="provider"
+          style={{
+            flexDirection: "column",
+            paddingLeft: 1,
+            height: overlayRows(providerOverlayRows.length),
+          }}
+        >
+          {providerOverlayRows.map((row, index) => (
+            <OverlayRow key={`pv${index}`} text={row.text} fg={row.fg} />
+          ))}
+        </box>
       ) : null}
       {palette.length > 0 ? (
         (() => {
