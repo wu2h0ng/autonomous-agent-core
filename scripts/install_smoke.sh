@@ -105,7 +105,7 @@ echo "install-smoke: installed agent-os-runtime --help exits 0"
 # composes AgentOSApplication (from the installed distribution) with a
 # scripted DeterministicProvider.
 echo "install-smoke: starting hermetic daemon on INSTALLED packages (stub provider)"
-env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" \
+env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" \
     AGENT_OS_PROVIDER_CONFIG="$TMP/no-such-provider.json" \
     AGENT_OS_PRICING_FILE="$TMP/no-such-pricing.json" \
     AGENT_OS_CLI_STATE="$TMP/cli-state" \
