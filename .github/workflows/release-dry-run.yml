@@ -1,0 +1,97 @@
+# Dry-run / gated release workflow — L4 ADR 输入素材（非正式 ADR）
+#
+# PURPOSE: prove the release pipeline builds and self-checks WITHOUT releasing.
+# This workflow NEVER tags, pushes, publishes (twine/npm/brew), or deploys.
+# The step that promotes dry-run -> real publish is a separate, founder-gated
+# workflow (environment protection / manual gate) that does not exist yet and
+# is intentionally NOT wired here.
+#
+# TRIGGER: manual only (workflow_dispatch). Never automatic.
+#   Inputs:
+#     version      the candidate semver (e.g. 1.0.0-rc.1); only used to NAME
+#                  the build, NOT to create a git tag.
+
+name: release-dry-run
+
+run-name: release dry-run (no publish) ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Candidate semver to name the build (NO tag is created)"
+        required: true
+        type: string
+
+# No concurrency cancellation: a dry-run must not be interrupted mid-build.
+concurrency:
+  group: release-dry-run-${{ inputs.version }}
+  cancel-in-progress: false
+
+# Deliberately NO jobs that call twine / npm publish / brew bump-formula-pr /
+# gh release create. The "promote to real release" job is a placeholder that
+# refuses to run, to make the gate explicit.
+
+jobs:
+  build-and-check:
+    name: build artifacts + verify checksums (dry-run, no publish)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Build Python wheel + sdist
+        run: uv build
+
+      - name: Verify version consistency (pyproject == npm)
+        run: |
+          set -euo pipefail
+          PY_VER="$(uv run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          NPM_VER="$(node -p "require('./apps/cli-ts/package.json').version")"
+          echo "pyproject=$PY_VER  npm=$NPM_VER"
+          test "$PY_VER" = "$NPM_VER"
+
+      - name: Generate checksums (artifacts only; nothing is uploaded)
+        run: |
+          set -euo pipefail
+          mkdir -p dist/checksums
+          cd dist
+          sha256sum *.whl *.tar.gz > checksums/SHA256SUMS.txt
+          cat checksums/SHA256SUMS.txt
+
+      - name: TS single-file binary build (dry-run)
+        working-directory: apps/cli-ts
+        run: npm ci && npm run build:single-file
+
+      - name: Upload build log as a workflow artifact (NOT a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-build-${{ inputs.version }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/checksums/SHA256SUMS.txt
+          retention-days: 7
+
+  promote-refused:
+    name: promote to real release (gated — intentionally does nothing)
+    runs-on: ubuntu-latest
+    needs: build-and-check
+    # This job documents the gate. It requires a protected environment that does
+    # not yet exist; once L4 wires a real publish workflow, point it there.
+    environment:
+      name: release-promotion
+    steps:
+      - name: Refuse to publish (dry-run only)
+        run: |
+          echo "This is the dry-run workflow. No tag, no twine, no npm publish,"
+          echo "no brew PR, no gh release. Real promotion is a separate gated"
+          echo "workflow owned by L4 after the signing/version ADR lands."
+          exit 0

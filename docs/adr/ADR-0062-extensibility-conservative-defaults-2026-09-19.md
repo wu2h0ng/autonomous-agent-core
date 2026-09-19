@@ -1,6 +1,6 @@
 # ADR-0062: 可扩展性面（typed hooks / MCP / skills）的保守安全默认
 
-- Status: **Draft — 待 founder 追认（PENDING FOUNDER RATIFICATION）**
+- Status: **Decided — 已决定默认（同模型产出、fail-closed、可逆配置）**（founder 2026-09-19 裁决 3：六条安全默认全部 fail-closed，定为决定项；仍为可逆配置）
 - Date: 2026-09-19
 - Deciders: founder（安全边界追认）；架构判断由 agent 起草，**评审等级为同模型 subagent 工作，非独立 provider 批准**（同 ADR-0061 §9 的限制，此为豁免不是满足）
 - Track: Product Track（产品能力）；不得由研究证据或工程流程证据回填
@@ -63,12 +63,20 @@
 - skills 只有注册/发现 + stub 调用；真实 skill 执行路径未接线。
 - 同模型 subagent 工作是**豁免不是满足**：`builder_id != reviewed_by`、无独立 provider 批准，依据是 founder 2026-09-18 接受过该等级。
 
-## 5. 仍需 founder 追认的决策项
+## 5. 决定项的威胁模型与可逆性（founder 裁决 3，2026-09-19）
 
-1. hooks 隔离进程（而非同进程 operator-trusted）是否最终形态。
-2. MCP 是否仅本机 stdio（本 ADR 选 stdio）；env 白名单是否即最终策略。
-3. MCP 工具 tier 上限（本 ADR 选 tier≤2 默认、tier≥3 必审批）。
-4. hooks/skills 默认关是否即为发布默认。
+六条安全默认全部 **fail-closed** 并**定为决定项**（不再是待追认 draft）。每条给威胁模型与可逆性；它们都是**可逆配置**（默认关、env/allowlist 显式开），不是永久架构死锁。
+
+| # | 决定（默认） | 威胁模型（fail-closed 防什么） | 可逆性 |
+|---|---|---|---|
+| 1 | 仓/工作区内 hook 源**默认禁**；hook 只从工作区之外、运行期不可变的专用用户目录 + 显式 allowlist 加载；仓内 hook 需逐仓显式信任并留证据，默认关 | 工作区可被 agent 自改 ⇒ 仓内 hook = agent 自我提权（agent 写一个 hook 即改变自己的执行环境） | 逐仓显式 `trust` 记录证据后可开；env kill-switch `AGENT_OS_HOOKS_DISABLED=1` 全局关 |
+| 2 | hook 一律隔离子进程、最小 env、超时、不继承 provider key；**不保留任何 in-process hook 执行路径** | 同进程无沙箱执行 ⇒ hook 代码即 daemon 权限，可偷 provider key、读任意状态 | 子进程边界可配超时/env；无 in-process 路径可"开"（移除即回到默认） |
+| 3 | MCP 仅本机 stdio；remote/SSE/HTTP MCP 默认关（留给未来带 auth/TLS 的独立 ADR）；stdio 强制 env 白名单，daemon env（含 provider key）绝不继承 | remote MCP = 出站连接到攻击者控制的 server；继承 daemon env = 把 provider key 传给 MCP server | transport 锁死 stdio；未来 remote 走新 ADR，不在本决定内打开 |
+| 4 | MCP 工具默认 tier≤2；映射到 tier≥3 的工具每次调用走与内建工具**完全相同**的审批/证据路径，可声明但不得整体免审、不得自动提权 | MCP server 自报"安全"即可绕过人工审批 ⇒ 外部工具获得未授权副作用 | server 自报等级只能升、不能降我们的 tier；tier≥3 复用既有 permit/ApprovalDecision 门 |
+| 5 | hook 不得充当 MCP/skills 载体（扩展平面分离，各有独立信任路径） | 一个被攻陷的扩展平面借另一个平面的信任路径提权 | 三平面各自独立 allowlist/kill-switch |
+| 6 | skills 只从显式用户目录/allowlist、opt-in 加载，不做工作区自动加载 | 仓内 `skills/` 自动加载 = 与 #1 同源的自我提权 | 显式 `enabled=True`；env kill-switch `AGENT_OS_SKILLS_DISABLED=1` |
+
+**不可逆项（诚实记录）**：无。六条都是可逆配置。唯一非配置性事实是 #3 中"remote MCP 不在本决定内打开"——它要打开需要**新 ADR**，不能靠改 env 绕过（这是有意的，不是 bug）。
 
 ## 6. 声明分级
 

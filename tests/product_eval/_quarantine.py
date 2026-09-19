@@ -1,110 +1,67 @@
-"""Quarantine manifest for tests/product_eval (shard D, 2026-09-19).
+"""Quarantine manifest for tests/product_eval (P3 shard, 2026-09-19).
 
 Each entry pairs a bucket reason with the exact test nodeids that cannot run in this
-repo's CI because they depend on an asset this repo does not materialize (or are a
-DESIGN_ONLY research candidate whose binding drifted and needs a re-freeze).
+repo's offline CI because they depend on an asset this repo does not materialize (or
+are a DESIGN_ONLY research candidate whose binding has drifted and needs a re-freeze).
 
 The conftest hook applies the `quarantine` mark (carrying the reason) to every nodeid
 listed here, turning it into a skip that always prints its reason. This is a single,
-reviewable list -- never a silent skip. Nodeids were enumerated from the red baseline at
-e9175de9 (120 failed); the one offline green fix (horizon surface 7->8) is NOT here.
+reviewable list -- never a silent skip.
+
+Quarantine hygiene (founder ruling 6, 2026-09-19): every bucket now carries
+  * ``reason``    -- what asset is missing and why it cannot run offline;
+  * ``owner``     -- the team/role responsible for lifting it;
+  * ``review_by`` -- an ISO date by which the quarantine must be re-adjudicated
+                     (lifted, re-hermeticized, or re-dated). A quarantine with no
+                     expiry is a silent permanent skip and is rejected.
+
+LIFTED in this shard: the former 83-item ``cross_repo`` runner-contract bucket was
+hermeticized -- the pinned sibling runner contract surface is vendored at
+``tests/product_eval/fixtures/hermetic_runner/`` (closed TeamEvent schema, public
+record builder, and the init/permission/team-event CLI writing the same
+``.agent_runs`` ledger layout), wrapped in a clean git repo on the pinned branch
+name and wired via the conftest ``hermetic_runner`` fixture. Only the 3 nodeids that
+hard-code the *real* sibling repo identity (its ``.git`` common-dir path and a
+receipt baked at the exact pinned SHA) remain quarantined -- a hermetic substitute
+cannot be that exact external repo.
 """
 
+from __future__ import annotations
+
 QUARANTINE_BUCKETS: dict[str, dict[str, object]] = {
-    "cross_repo": {
+    # 3 nodeids that assert the runner IS the real pinned sibling repo by its exact
+    # on-disk identity (common_dir == <sibling>/.git, and a receipt baked at
+    # 50eb4d27...). A hermetic fixture cannot reproduce that external identity.
+    "cross_repo_identity": {
         "reason": (
-            "cross-repo runner contract: needs sibling worktree ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713 pinned at commit 50eb4d27b17688f0943f80207dddb702983afd51 (already SHA-pinned, not tag/branch). That worktree is not materialized in this repo's CI or a fresh clone, so the live schema/runner qualification cannot run here. Lift only when the sibling worktree is checked out at that exact SHA with its runner venv present."
+            "cross-repo runner identity: this node asserts the runner is the exact "
+            "sibling worktree ai-agent-engineering-workflow/.worktrees/team-event-"
+            "contract-v1-20260713 pinned at 50eb4d27... by its .git common-dir path "
+            "and/or a receipt baked at that SHA. The vendored hermetic_runner fixture "
+            "reproduces the runner CONTRACT (schema, record builder, ledger layout) "
+            "but cannot be that exact external repo. The consumer-side qualification "
+            "logic it guards is covered by the other hermeticized mutation tests. "
+            "Lift only when the real pinned worktree is checked out at the exact SHA."
         ),
+        "owner": "agent-os/runtime",
+        "review_by": "2026-10-19",
         "nodeids": [
-            "tests/product_eval/test_json_schema_contract.py::test_canonical_schema_sha256_is_order_independent_and_mutation_sensitive",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_accepts_conformant_governed_event",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_invalid_event_mutations[empty-approval-id]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_invalid_event_mutations[extra-field]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_invalid_event_mutations[missing-schema-version]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_invalid_event_mutations[mutated-schema-version]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_invalid_event_mutations[non-string-evidence-item]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_invalid_event_mutations[unknown-event-type]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_slash_in_source_binding[source_decision_id]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_slash_in_source_binding[source_decision_type]",
-            "tests/product_eval/test_json_schema_contract.py::test_live_schema_rejects_slash_in_source_binding[source_goal_id]",
-            "tests/product_eval/test_json_schema_contract.py::test_normalization_deep_isolates_nested_evidence_lists",
-            "tests/product_eval/test_json_schema_contract.py::test_normalization_rejects_non_string_source_evidence_item",
-            "tests/product_eval/test_json_schema_contract.py::test_normalization_removes_only_timestamp_and_retains_authority_lineage",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[missing-closed-root-declaration]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[negative-min-length]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[non-string-pattern]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[non-string-type-member]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[open-root]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[schema-valued-additional-properties]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_malformed_or_open_schema_keyword_values[string-enum]",
-            "tests/product_eval/test_json_schema_contract.py::test_validator_rejects_unsupported_schema_keyword",
-            "tests/product_eval/test_runner_contract_qualification.py::test_authority_exactness_rejects_permission_action_drift",
-            "tests/product_eval/test_runner_contract_qualification.py::test_authority_semantic_scope_mutation_fails_qualification[action]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_authority_semantic_scope_mutation_fails_qualification[decision]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_authority_semantic_scope_mutation_fails_qualification[evidence]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_authority_semantic_scope_mutation_fails_qualification[path]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_authority_semantic_scope_mutation_fails_qualification[source]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_malformed_runner_schema_uses_qualification_error",
-            "tests/product_eval/test_runner_contract_qualification.py::test_qualification_never_returns_a_receipt_with_a_false_check",
-            "tests/product_eval/test_runner_contract_qualification.py::test_qualification_rechecks_runner_identity_after_real_canary",
-            "tests/product_eval/test_runner_contract_qualification.py::test_qualification_rejects_dirty_runner_worktree",
-            "tests/product_eval/test_runner_contract_qualification.py::test_qualification_rejects_reused_scratch_without_appending",
             "tests/product_eval/test_runner_contract_qualification.py::test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[None-authority_semantic_sha256]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[None-emitted_fixture_sha256]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[runner-branch]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[runner-head]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[runner-import_path]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[runner-interpreter]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[schema-canonical_sha256]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[schema-raw_sha256]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[source_sha256-authority_binding.py]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[source_sha256-json_schema_contract.py]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_receipt_reverification_rejects_every_bound_mutation[source_sha256-runner_contract_qualification.py]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_reverification_reads_but_never_rewrites_the_schema_snapshot",
-            "tests/product_eval/test_runner_contract_qualification.py::test_reverification_rejects_consumer_source_drift",
-            "tests/product_eval/test_runner_contract_qualification.py::test_reverification_rejects_non_pinned_interpreter",
-            "tests/product_eval/test_runner_contract_qualification.py::test_schema_snapshot_mutation_invalidates_reverification",
-            "tests/product_eval/test_runner_contract_qualification.py::test_source_evidence_refs_remains_optional_and_out_of_scope_for_pinned_cli",
-            "tests/product_eval/test_runner_contract_qualification.py::test_stable_authority_projection_changes_for_bound_semantic_mutation[approval_requests.jsonl-note-mutated request note]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_stable_authority_projection_changes_for_bound_semantic_mutation[approvals.jsonl-decided_by-independent-reviewer]",
-            "tests/product_eval/test_runner_contract_qualification.py::test_stable_authority_projection_changes_for_bound_semantic_mutation[approvals.jsonl-note-mutated approval note]",
             "tests/product_eval/test_spine_e2e_4_assets.py::test_combined_receipt_binds_identity_provider_and_runner_contract",
             "tests/product_eval/test_spine_e2e_4_assets.py::test_runner_schema_snapshot_is_exact_live_export_not_a_handwritten_projection",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_combined_receipt_is_canonical_stable_and_write_once",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_reexecutes_both_canaries_and_exact_compares",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_authority_semantic_drift_not_present_in_event[_CANARY_DECIDER-independent-founder-delegate]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_authority_semantic_drift_not_present_in_event[_CANARY_DECISION_NOTE-drifted approval note]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_authority_semantic_drift_not_present_in_event[_CANARY_REQUEST_NOTE-drifted request note]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[authority-source]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[bank]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[bearer]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[consumer-source]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[runner]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[schema]",
-            "tests/product_eval/test_spine_e2e_4_combined_qualification.py::test_reverification_rejects_every_bound_input_drift[template]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_anchor_fixture_is_built_by_the_pinned_runner_public_builder",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[agent]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[approval]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[artifact]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[duplicate]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[evidence]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[extra]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[missing-source]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[permission-action]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[source-decision]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[source-goal]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[source-type]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[summary]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event[type]",
-            "tests/product_eval/test_spine_e2e_4_scratch_cli.py::test_phase_anchor_invokes_closed_schema_consumer_and_typed_authority",
-            "tests/product_eval/test_spine_protocol.py::test_real_single_case_prepare_interrupt_and_immediate_probe",
         ],
     },
     "docker": {
         "reason": (
-            "needs a Docker daemon plus the SRL falsifier's allowed immutable worker image, neither of which ships in this offline repo/CI host. The test asserts real-container isolation (pid/mem/tmpfs caps, no-network, host-env absence) and fails closed when the image is unavailable. Lift only in an environment with Docker + the pinned image."
+            "needs a Docker daemon plus the SRL falsifier's allowed immutable worker "
+            "image, neither of which ships in this offline repo/CI host. The test "
+            "asserts real-container isolation (pid/mem/tmpfs caps, no-network, host-env "
+            "absence) and fails closed when the image is unavailable. Lift only in an "
+            "environment with Docker + the pinned image, or after the container "
+            "isolation surface is hermeticized behind a fake docker subprocess."
         ),
+        "owner": "agent-os/srl",
+        "review_by": "2026-10-19",
         "nodeids": [
             "tests/product_eval/test_srl_docker_exec.py::test_cleanup_failure_cannot_return_success",
             "tests/product_eval/test_srl_docker_exec.py::test_container_name_change_cannot_redirect_id_lifecycle",
@@ -137,17 +94,34 @@ QUARANTINE_BUCKETS: dict[str, dict[str, object]] = {
     },
     "live_provider": {
         "reason": (
-            "needs a bound live provider configuration snapshot (AGENT_OS_PROVIDER_PROFILE + _BASE_URL/_MODEL/_API_KEY) to hit the frozen wire. This repo has no live key; the test asserts the real provider arm matches a frozen wire. Lift only with a provisioned, billable provider profile."
+            "needs a bound live provider configuration snapshot (AGENT_OS_PROVIDER_"
+            "PROFILE + _BASE_URL/_MODEL/_API_KEY) to hit the frozen wire. This repo "
+            "has no live key; the test asserts the real provider arm matches a frozen "
+            "wire. The offline gating eval arm is the recorded/replay (cassette) arm "
+            "in test_terminal_coding_eval_replay.py; this live arm is explicitly "
+            "optional and never enters the CI gate. Lift only with a provisioned, "
+            "billable provider profile."
         ),
+        "owner": "agent-os/provider",
+        "review_by": "2026-10-19",
         "nodeids": [
             "tests/product_eval/test_provider_bank.py::test_real_application_provider_wire_matches_frozen_single_case",
             "tests/product_eval/test_provider_bank.py::test_real_openai_compatible_provider_hits_frozen_wire",
+            "tests/product_eval/test_spine_protocol.py::test_real_single_case_prepare_interrupt_and_immediate_probe",
         ],
     },
     "drift_research_candidate": {
         "reason": (
-            "offline deterministic but a DESIGN_ONLY / CANDIDATE (not accepted, not frozen, not run-authority) research artifact whose binding has drifted from product evolution on the child-agent frame-gates branch (WorkflowGraph now emits dag_v1 and the candidate assumes conditional edges the dag_v1 model still rejects; fixed_baseline lifecycle + source-byte hash bindings also moved). Re-bending the literal here would falsify the frozen research anchor. Lift only after an explicit D1-E/D1-F re-freeze and re-adjudication."
+            "offline deterministic but a DESIGN_ONLY / CANDIDATE (not accepted, not "
+            "frozen, not run-authority) research artifact whose binding has drifted "
+            "from product evolution on the child-agent frame-gates branch (WorkflowGraph "
+            "now emits dag_v1 and the candidate assumes conditional edges the dag_v1 "
+            "model still rejects; fixed_baseline lifecycle + source-byte hash bindings "
+            "also moved). Re-bending the literal here would falsify the frozen research "
+            "anchor. Lift only after an explicit D1-E/D1-F re-freeze and re-adjudication."
         ),
+        "owner": "agent-os/research",
+        "review_by": "2026-11-19",
         "nodeids": [
             "tests/product_eval/test_lh1a_combined_d1.py::test_source_bindings_match_current_in_repo_bytes",
             "tests/product_eval/test_lh1a_design.py::test_candidate_initial_and_regime_templates_freeze_only_the_suffix",

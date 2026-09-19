@@ -310,6 +310,7 @@ jobs:
           PYTHONPATH=src:packages/contracts/src:packages/os_core/src \
             python -m pytest tests/product_eval/test_terminal_coding_eval.py \
                             tests/product_eval/test_terminal_coding_eval_live.py \
+                            tests/product_eval/test_terminal_coding_eval_replay.py \
                             tests/product_eval/test_terminal_coding_horizon.py -q
 
       # --- Install smoke (PYTHON tool path): `uv tool install .` -> start -> hermetic turn --
