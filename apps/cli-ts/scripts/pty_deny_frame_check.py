@@ -138,7 +138,10 @@ def start_daemon(tmp: Path) -> tuple[subprocess.Popen, Path, dict]:
     }
     proc = subprocess.Popen(
         [
-            "uv", "run", "python",
+            # sys.executable, not "uv run python": the cli-ts CI job has no uv
+            # (it pip-installs the daemon pins); the interpreter running this
+            # check is the one the daemon must share (same conversion pty_smoke made).
+            sys.executable,
             str(HERE / "deny_daemon.py"),
             "--descriptor", str(desc),
             "--database", str(tmp / "deny.sqlite3"),

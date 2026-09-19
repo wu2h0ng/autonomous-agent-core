@@ -69,7 +69,10 @@ def start_daemon(tmp: Path, env: dict[str, str], descriptor: Path) -> subprocess
     log = open(tmp / "daemon.log", "ab")  # noqa: SIM115 - closed with the process
     proc = subprocess.Popen(
         [
-            "uv", "run", "--extra", "product-test", "python",
+            # sys.executable, not "uv run --extra product-test python": the cli-ts CI
+            # job has no uv and pip-installs only the daemon pins; dev_daemon.py
+            # puts the workspace packages on sys.path itself (same as pty_smoke).
+            sys.executable,
             str(HERE / "dev_daemon.py"),
             "--descriptor", str(descriptor),
             "--database", str(tmp / "agent-os.sqlite3"),

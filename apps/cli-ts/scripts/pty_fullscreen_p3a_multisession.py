@@ -32,7 +32,20 @@ import time
 import urllib.request
 from pathlib import Path
 
-from agent_os_contracts import SURFACE_PROTOCOL_VERSION
+# CI runs this gate with only the runtime's three pinned wheels and no
+# `pip install -e .`; the frame-check step itself sets no PYTHONPATH. The
+# workspace packages are reached exactly the way the hermetic daemon this
+# script spawns reaches them (see dev_daemon.py), not via an ambient path.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+for _p in (
+    _REPO_ROOT,
+    _REPO_ROOT / "packages" / "contracts" / "src",
+    _REPO_ROOT / "packages" / "os_core" / "src",
+):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from agent_os_contracts import SURFACE_PROTOCOL_VERSION  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 CLI = ROOT / "apps" / "cli-ts"

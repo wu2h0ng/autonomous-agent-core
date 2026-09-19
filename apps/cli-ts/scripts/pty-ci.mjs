@@ -63,14 +63,14 @@ const SCRIPTS_DIR = join(PACKAGE_ROOT, "scripts");
 // and what it is killed and reported as) and a suite budget (the wall clock the
 // whole loop shares).
 //
-// Measured on this tree (2026-09-19, macOS, the 11 CI checks, the slowest first):
-// a full sequential pass takes ~390 s, of which the longest checks are
-// pty_fullscreen_vim.py (~139 s) and pty_search_check.py (~51 s). Those
-// numbers are dominated by fixed `sleep`s inside the checks -- the TUI has to be
-// given time to paint -- so a slower runner scales them far less than it scales
-// CPU-bound work. 240 s per check is ~1.7x the slowest, and the 720 s budget is
-// ~1.8x the measured pass. (The full 15-check set `check:frames --all` runs is
-// ~552 s on the same machine, also inside the budget.)
+// Measured on this tree (2026-09-19, macOS): the 15 CI gates below run a full
+// sequential pass in ~507 s end to end. The time is dominated by fixed `sleep`s
+// inside the checks -- the TUI has to be given time to paint -- so a slower
+// runner scales it far less than it scales CPU-bound work; pty_fullscreen_vim.py
+// is the longest single check. 240 s per check stays ~1.7x the slowest, and the
+// 720 s budget is ~1.4x the measured pass. 19 pty_*.py files exist on disk: the
+// 15 gates here plus 4 evidence-only captures (see EVIDENCE_ONLY) that print
+// frames/booleans with no non-zero exit path; `check:frames --all` runs all 19.
 //
 // The budget is what has to fit the cli-ts job's own `timeout-minutes` alongside
 // everything else in that job (install, the node:test suite's own 720 s budget,
@@ -128,6 +128,25 @@ const GATES = [
   "scripts/pty_fullscreen_editor_keys.py",
   // Slice B: @mention completion, input history and the markdown render path.
   "scripts/pty_fullscreen_parity_b.py",
+  // The operator control surface, landed from the stop/resume/deny-visibility
+  // branches (the workflow's frame-check step pre-listed these as GATES to add
+  // in the same PR that lands the files). Each drives the shipped Bun TUI in a
+  // real pty against a hermetic sys.executable daemon and exits non-zero on the
+  // first unobserved assertion.
+  // Ctrl-X mid-turn durably PAUSES the held turn: no dispatch, no second
+  // provider call, composer untouched, session left PAUSED.
+  "scripts/pty_stop_key_check.py",
+  // `/resume <id>` after Ctrl-X reactivates the session (RUN_RESUMED) and a new
+  // turn runs; nothing held-open is dispatched while stopped.
+  "scripts/pty_resume_check.py",
+  // A rule DENY renders as its own failed card distinct from an ordinary tool
+  // failure and the model's false "done" claim; durable DENY, no receipt, file
+  // untouched.
+  "scripts/pty_deny_frame_check.py",
+  // Killing the runtime mid-session is reported on the transcript, never fatal:
+  // no unhandled-rejection stack smeared over the frame, the surface keeps
+  // answering (a second failed command is reported the same way).
+  "scripts/pty_runtime_lost_check.py",
 ];
 
 // Checks that print frames and booleans with NO failing exit path. They run in
@@ -307,12 +326,12 @@ const childEnv = {
   AGENT_OS_PROVIDER_CONFIG: join(sandbox, "provider.json"),
   AGENT_OS_PRICING_FILE: join(sandbox, "pricing.json"),
   // Every check emulates a terminal by hand (it opens a pty and sets the window
-  // size with TIOCSWINSZ), and 14 of the 15 also pin TERM=xterm-256color for the
-  // TUI they start. Pinning it here as well covers the one that only inherits it
-  // (pty_smoke.py uses `os.environ.get("TERM", "xterm-256color")`), so whether a
-  // colour assertion can hold does not depend on the caller's shell -- a runner
-  // with TERM=dumb or unset is not a different renderer, it is the same renderer
-  // asked to advertise less.
+  // size with TIOCSWINSZ). Some checks hard-pin TERM=xterm-256color for the TUI
+  // they start; others (pty_smoke.py and the operator-surface checks) take the
+  // inherited value through `os.environ.get("TERM", "xterm-256color")`. Pinning
+  // it here covers the latter too, so whether a colour assertion can hold does
+  // not depend on the caller's shell -- a runner with TERM=dumb or unset is not a
+  // different renderer, it is the same renderer asked to advertise less.
   TERM: "xterm-256color",
 };
 delete childEnv.AGENT_OS_RUNTIME_DESCRIPTOR;

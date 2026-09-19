@@ -433,14 +433,14 @@ jobs:
       # `PTY_CHECK_TIMEOUT_MS` / `PTY_SUITE_BUDGET_MS` overrides outside the enforced range are
       # REJECTED, not clamped.
       #
-      # It runs the checks that can actually FAIL: 11 of the 15 on disk. The other four
+      # It runs the checks that can actually FAIL: 15 of the 19 on disk. The other four
       # (`pty_fullscreen_p2/p3a/parity_a/parity_c`) print frames and booleans and have no non-zero
       # exit path -- a step that cannot go red is not a gate, and saying so is better than adding
-      # one that looks enforced -- so they stay in the local `npm run check:frames` set (all 15,
+      # one that looks enforced -- so they stay in the local `npm run check:frames` set (all 19,
       # `--all`) and are listed with that reason in scripts/pty-ci.mjs. The runner fails on any
       # unclassified scripts/pty_*.py, so a new check cannot silently stay out of both sets.
       #
-      # Measured cost on this tree (2026-09-19, macOS): the 11 checks are ~390 s of wall clock,
+      # Measured cost on this tree (2026-09-19, macOS): the 15 gates are ~507 s of wall clock,
       # dominated by fixed sleeps INSIDE the checks (the TUI has to be given time to paint), which
       # is why a slower runner scales them far less than CPU-bound work. The job's bound below was
       # raised 20 -> 30 minutes to hold that next to the existing steps; it is still a hang
@@ -453,13 +453,14 @@ jobs:
       # AGENT_OS_PRICING_FILE into a temp dir of its own, ambient AGENT_OS_RUNTIME_* dropped -- so
       # the runner behaves the same on a clean machine as on a developer's.
       #
-      # COMING, and deliberately NOT covered by this step yet: three more frame checks live on
-      # unmerged branches -- a stop-key check (codex/tui-stop-key-20260918), a resume check
-      # (codex/tui-resume-20260918) and a permission-denial frame check (codex/deny-visibility-20260918).
-      # They are not in the on-disk set this step's classifier sees. Whoever lands them adds each
-      # file to `GATES` (if it exits non-zero on a failed assertion) or to `EVIDENCE_ONLY` with its
-      # reason, in the same PR -- scripts/pty-ci.mjs fails on an unclassified scripts/pty_*.py, so
-      # this coverage cannot silently stay partial.
+      # The operator-control surface is enforced here as well: the Ctrl-X stop-key, `/resume`
+      # after a stop, the rule-DENY frame, and the runtime-lost (daemon killed mid-session) checks
+      # are all GATES. Each drives the shipped Bun TUI in a real pty and starts its hermetic daemon
+      # with `sys.executable` (no `uv`); pty_fullscreen_p3a_multisession.py also puts the workspace
+      # packages on its own sys.path, because this frame step -- unlike install smoke below -- sets
+      # no PYTHONPATH. Whoever adds a further check classifies it into `GATES` (if it exits non-zero
+      # on a failed assertion) or `EVIDENCE_ONLY` with its reason, in the same PR: pty-ci.mjs fails
+      # on an unclassified scripts/pty_*.py, so this coverage cannot silently stay partial.
       - name: Frame checks (TUI in a real pty)
         working-directory: apps/cli-ts
         # No `uv`: the checks now start their hermetic daemon with `sys.executable` -- the
