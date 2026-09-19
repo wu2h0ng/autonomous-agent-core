@@ -590,6 +590,11 @@ def _strict_project(
                 # advances; the checkpoint's own replay reads the raw stream.
                 continue
 
+            if event.event_type is TaskEventType.SESSION_FORKED_FROM_CHECKPOINT:
+                # Append-only fork lineage marker: provenance of a new epoch, not a
+                # session state transition.
+                continue
+
             raise SessionProjectionError(
                 f"unsupported session event: {event.event_type.value}"
             )

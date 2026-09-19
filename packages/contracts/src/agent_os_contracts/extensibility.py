@@ -4,7 +4,7 @@ This module freezes the *shape* of the three extensibility surfaces the
 terminal agent CLI grows on top of the governed capability spine. It is a
 pure contract layer: it carries no runtime behavior, no authority, and no
 execution path. The conservative, fail-closed defaults these types encode
-are enforced in ``agent_os_core`` (runtime) and pinned in ADR-0062 (pending
+are enforced in ``agent_os_core`` (runtime) and pinned in ADR-0067 (pending
 founder ratification).
 
 Design sources (design-only GC cards, NOT implementation authority):

@@ -1,4 +1,4 @@
-"""Hermetic tests for the typed hooks framework (shard B / ADR-0062).
+"""Hermetic tests for the typed hooks framework (shard B / ADR-0067).
 
 Proves the fail-closed defaults in CODE:
 - hooks are off by default (empty registry / kill-switch => nothing runs);

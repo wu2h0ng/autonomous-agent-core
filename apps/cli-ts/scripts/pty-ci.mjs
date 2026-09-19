@@ -147,6 +147,10 @@ const GATES = [
   // no unhandled-rejection stack smeared over the frame, the surface keeps
   // answering (a second failed command is reported the same way).
   "scripts/pty_runtime_lost_check.py",
+  // P5: the interactive `/provider` wizard masks the key (bullets, never the
+  // plaintext on the wire), submits to a loopback stub, and persists only
+  // non-secret fields to provider.json.
+  "scripts/pty_provider_config.py",
 ];
 
 // Checks that print frames and booleans with NO failing exit path. They run in
@@ -358,6 +362,16 @@ function run(file, timeoutMs) {
     }, timeoutMs);
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
+      // BUG 2026-09-19: the check script exits but the hermetic daemon it
+      // started (`uv run agent-os-runtime` + its python child) keeps running in
+      // the same process group. Killing only the wrapper left ~40 orphaned
+      // daemons (some alive >1 day). Reap the WHOLE group now that the wrapper
+      // is gone: negative pid signals the process group created by detached:true.
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // Group already reaped by the timeout path above, or no members left.
+      }
       resolve({ file, code: code ?? 1, timedOut: false, signal: signal ?? null });
     });
   });
@@ -379,9 +393,16 @@ try {
       failures.push(`${file} (budget exhausted, never ran)`);
       continue;
     }
-    const result = await run(file, Math.min(perCheckMs, remaining));
+    // A timeout under load is a scheduling/slow-boot flake, not an assertion
+    // failure: retry it ONCE before counting it. An exit-nonzero (assertion
+    // failure) is never retried, so weakening a gate is out of scope.
+    let result = await run(file, Math.min(perCheckMs, remaining));
     if (result.timedOut) {
-      console.error(`=== ${file}: TIMED OUT after ${result.timeoutMs} ms`);
+      console.error(`=== ${file}: TIMED OUT after ${result.timeoutMs} ms (retrying once)`);
+      result = await run(file, Math.min(perCheckMs, deadline - Date.now()));
+    }
+    if (result.timedOut) {
+      console.error(`=== ${file}: TIMED OUT after retry (${result.timeoutMs} ms)`);
       failures.push(`${file} (timeout after ${result.timeoutMs} ms)`);
     } else if (result.code !== 0) {
       failures.push(

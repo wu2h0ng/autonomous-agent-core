@@ -33,6 +33,30 @@ export UV_TOOL_DIR="$TOOL_DIR"
 # Also keep the uv cache inside the temp tree so --no-cache plus an isolated
 # cache dir cannot reach the operator's shared build cache at all.
 export UV_CACHE_DIR="$TMP/uv-cache"
+# CRITICAL (bug found 2026-09-19): uv writes the command SHIMS to UV_TOOL_BIN_DIR,
+# which DEFAULTED to ~/.local/bin. Isolating UV_TOOL_DIR was not enough -- the
+# shims still landed in the operator's real ~/.local/bin as symlinks into
+# $TMP/uv-tools, and once cleanup removed $TMP they became DANGLING symlinks
+# that broke the noem PATH launcher. Pin the shim dir to the temp tree and
+# prepend it to PATH.
+UV_TOOL_BIN_DIR="$TMP/uv-bin"
+mkdir -p "$UV_TOOL_BIN_DIR"
+export UV_TOOL_BIN_DIR
+PATH="$UV_TOOL_BIN_DIR:$PATH"
+
+# Snapshot the operator's global shims BEFORE install; prove at the end that
+# ~/.local/bin was not polluted with a link into $TMP.
+GLOBAL_BIN="${HOME}/.local/bin"
+shim_snapshot() {
+  if [ -d "$GLOBAL_BIN" ]; then
+    for f in "$GLOBAL_BIN"/agent-os-*; do
+      [ -e "$f" ] || [ -L "$f" ] || continue
+      printf '%s -> ' "$f"
+      readlink "$f" 2>/dev/null || echo "(not a symlink)"
+    done
+  fi
+}
+SHIMS_BEFORE="$(shim_snapshot)"
 
 cleanup() {
   trap - EXIT
@@ -90,5 +114,22 @@ echo "install_local: PASS: installed agent-os-runtime --help exits 0"
 
 # Step 4: sanity — the installed package is the one in THIS tree (entry point
 # resolves inside the temp tool dir, not ~/.local).
+# Step 5: regression -- the operator global bin must be untouched.
+SHIMS_AFTER="$(shim_snapshot)"
+if [ "$SHIMS_BEFORE" != "$SHIMS_AFTER" ]; then
+  echo "install_local: FAIL: ~/.local/bin agent-os-* shims changed across the run:" >&2
+  diff <(printf '%s\n' "$SHIMS_BEFORE") <(printf '%s\n' "$SHIMS_AFTER") >&2 || true
+  exit 1
+fi
+if [ -d "$GLOBAL_BIN" ]; then
+  for f in "$GLOBAL_BIN"/agent-os-*; do
+    [ -L "$f" ] || continue
+    tgt="$(readlink "$f" 2>/dev/null || true)"
+    case "$tgt" in
+      "$TMP"/*) echo "install_local: FAIL: dangling shim $f -> $tgt" >&2; exit 1;;
+    esac
+  done
+fi
+echo "install_local: PASS: ~/.local/bin agent-os-* shims unchanged (no pollution)"
 echo "install_local: PASS: install verified under hermetic UV_TOOL_DIR=$UV_TOOL_DIR"
 echo "install_local: DONE. (This is scaffolding; no publish/release/tag happened.)"

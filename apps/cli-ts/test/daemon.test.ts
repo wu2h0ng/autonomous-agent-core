@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -20,6 +21,8 @@ import test from "node:test";
 import type { ChildProcess } from "node:child_process";
 import {
   daemonHealthy,
+  danglingShimRepairHint,
+  detectDanglingPathShim,
   ensureDaemon,
   findCheckoutRoot,
   resolveDaemonCandidates,
@@ -748,6 +751,58 @@ test("ensureDaemon keeps AGENT_OS_RUNTIME_CMD above the whole fallback chain", a
   } finally {
     if (previous === undefined) delete process.env.AGENT_OS_RUNTIME_CMD;
     else process.env.AGENT_OS_RUNTIME_CMD = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+// --- Bug 2026-09-19: dangling PATH shim detection ---------------------------
+// A `uv tool install` whose shims landed in ~/.local/bin while UV_TOOL_DIR pointed
+// at a temp dir leaves a symlink whose target vanishes after cleanup. The launcher
+// must distinguish that from "nothing on PATH" and surface an actionable repair.
+
+test("detectDanglingPathShim reports a broken symlink on PATH, null otherwise", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dangling-shim-"));
+  try {
+    // A working (real) executable named agent-os-runtime: not dangling.
+    mkdirSync(join(dir, "goodbin"));
+    writeFileSync(join(dir, "goodbin", "agent-os-runtime"), "#!/bin/sh\ntrue\n");
+    // A broken symlink pointing at a deleted target.
+    mkdirSync(join(dir, "badbin"));
+    symlinkSync(join(dir, "deleted-target"), join(dir, "badbin", "agent-os-runtime"));
+
+    const pathWithDangling = join(dir, "badbin") + ":" + join(dir, "goodbin");
+    const found = detectDanglingPathShim("agent-os-runtime", pathWithDangling);
+    assert.ok(found, "should detect the dangling shim");
+    assert.equal(found!.shim, join(dir, "badbin", "agent-os-runtime"));
+    assert.equal(found!.target, join(dir, "deleted-target"));
+
+    // Only a working shim: nothing dangling.
+    assert.equal(
+      detectDanglingPathShim("agent-os-runtime", join(dir, "goodbin")),
+      null,
+    );
+    // No such entry at all: null.
+    assert.equal(detectDanglingPathShim("does-not-exist", join(dir, "goodbin")), null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("danglingShimRepairHint gives the reinstall command, null when healthy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dangling-hint-"));
+  try {
+    mkdirSync(join(dir, "bin"));
+    symlinkSync(join(dir, "gone"), join(dir, "bin", "agent-os-runtime"));
+    const hint = danglingShimRepairHint("agent-os-runtime", join(dir, "bin"));
+    assert.ok(hint && hint.includes("uv tool install . --force --reinstall"));
+    assert.ok(hint!.includes("broken symlink"));
+
+    // Healthy (real) entry: no hint.
+    rmSync(join(dir, "bin", "agent-os-runtime"));
+    writeFileSync(join(dir, "bin", "agent-os-runtime"), "x");
+    assert.equal(danglingShimRepairHint("agent-os-runtime", join(dir, "bin")), null);
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -2,7 +2,7 @@
 
 A skill here is a small, typed descriptor the agent can DISCOVER and QUERY
 — it is metadata, not executable code inside the daemon process. Conservative
-defaults (ADR-0062, pending founder ratification):
+defaults (ADR-0067, pending founder ratification):
 
 1. **Opt-in.** A skill must be explicitly declared and enabled; an undeclared
    skill is never loaded and never advertised.
