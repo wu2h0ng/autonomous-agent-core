@@ -1175,6 +1175,7 @@ class OpenAICompatibleProvider(ProviderPort):
         usage_payload: dict[str, Any] = {}
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
+        saw_end_of_turn = False
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1192,6 +1193,7 @@ class OpenAICompatibleProvider(ProviderPort):
             else:
                 data = line
             if data == "[DONE]":
+                saw_end_of_turn = True
                 break
             try:
                 payload = json.loads(data)
@@ -1212,7 +1214,12 @@ class OpenAICompatibleProvider(ProviderPort):
             if not choices:
                 continue
             choice = choices[0]
-            finish_reason = str(choice.get("finish_reason") or finish_reason)
+            # A non-null finish_reason is this dialect's own statement that the
+            # model stopped, and the last chunk of a complete stream carries it.
+            raw_finish = choice.get("finish_reason")
+            if raw_finish:
+                finish_reason = str(raw_finish)
+                saw_end_of_turn = True
             delta = choice.get("delta") or {}
             content = delta.get("content")
             if content:
@@ -1257,6 +1264,8 @@ class OpenAICompatibleProvider(ProviderPort):
                 "provider reported a content filter"
             )
             return self._refusal(request, refusal_text)
+        if not saw_end_of_turn:
+            return self._incomplete_stream(request)
         input_tokens = int(usage_payload.get("prompt_tokens") or 0)
         output_tokens = int(usage_payload.get("completion_tokens") or 0)
         total_tokens = int(usage_payload.get("total_tokens") or 0)
@@ -1315,6 +1324,43 @@ class OpenAICompatibleProvider(ProviderPort):
             ProviderErrorCode.REFUSED,
             f"provider refused: {sanitized}",
             False,
+        )
+
+    def _incomplete_stream(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+    ) -> ProviderFailure:
+        """The one shape for a stream that ended without its end-of-turn marker.
+
+        Measured on this client: a connection that dies mid-response is invisible
+        at the transport layer. For a body whose Content-Length is larger than what
+        arrived, and for a chunked body cut before its own terminator, ``readline``
+        returns ``b""`` at EOF and raises nothing, so from the transport alone the
+        adapter cannot tell "the provider finished" from "the connection died".
+        The only evidence is the dialect's end-of-turn marker: the final chunk's
+        ``finish_reason`` or the ``[DONE]`` sentinel for OpenAI-compatible chat
+        completions, the Messages ``message_delta.stop_reason`` (or
+        ``message_stop``), the candidate ``finishReason`` for Gemini.
+
+        That marker is deliberately the test rather than ``[DONE]`` alone: the
+        reference client treats a missing ``[DONE]`` as an ordinary end of
+        iteration, so a sentinel-only rule would fail streams that are complete. A
+        stream carrying none of these has said nothing about why it stopped, and
+        the alternative - what this used to do - is to hand the operator a
+        half-written answer recorded as a completed turn.
+
+        The same class as a transport failure, so UNAVAILABLE and retryable: safe
+        to fetch again while nothing has been streamed, and refused once a delta
+        has been emitted (the adapter's own ``emitted`` flag and AgentLoop's
+        per-attempt sink both stop the replay).
+        """
+
+        return self._failure(
+            request,
+            ProviderErrorCode.UNAVAILABLE,
+            "provider stream ended before the response was complete "
+            "(the provider never signalled the end of the turn)",
+            True,
         )
 
     @staticmethod
@@ -1652,6 +1698,9 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         (text_delta + input_json_delta) / message_delta. Text deltas are streamed
         to ``on_text_delta``; tool inputs are accumulated and normalized. A
         message_delta carrying stop_reason="refusal" ends as a REFUSED failure.
+        A stream that ends without this dialect's end-of-turn event (the
+        message_delta carrying stop_reason, or message_stop) ends as an incomplete
+        stream failure rather than as a completed turn.
         """
 
         text_parts: list[str] = []
@@ -1660,6 +1709,7 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
         stop_details: dict[str, Any] | None = None
+        saw_end_of_turn = False
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -1724,13 +1774,18 @@ class AnthropicMessagesProvider(OpenAICompatibleProvider):
                 delta = payload.get("delta") or {}
                 if delta.get("stop_reason"):
                     finish_reason = str(delta["stop_reason"])
+                    saw_end_of_turn = True
                 if isinstance(delta.get("stop_details"), dict):
                     stop_details = delta["stop_details"]
                 delta_usage = payload.get("usage")
                 if isinstance(delta_usage, dict):
                     usage.update(delta_usage)
+            elif event_type == "message_stop":
+                saw_end_of_turn = True
         if finish_reason == "refusal":
             return self._refusal(request, _anthropic_refusal_detail(stop_details))
+        if not saw_end_of_turn:
+            return self._incomplete_stream(request)
         proposals = tuple(
             ProviderToolProposal(
                 proposal_id=item["id"] or f"proposal-{uuid4()}",
@@ -1996,7 +2051,9 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         text parts are streamed, functionCalls are mapped, usageMetadata is
         accumulated and the model's finishReason is taken from the last chunk. A
         chunk carrying promptFeedback or a blocking finishReason ends as a
-        REFUSED failure.
+        REFUSED failure. A stream that ends with no candidate finishReason (this
+        dialect's end-of-turn statement) and no ``[DONE]`` ends as an incomplete
+        stream failure rather than as a completed turn.
         """
 
         text_parts: list[str] = []
@@ -2005,6 +2062,7 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         response_id = f"response-{uuid4()}"
         finish_reason = "stop"
         prompt_feedback: dict[str, Any] | None = None
+        saw_end_of_turn = False
         readline = getattr(response, "readline", None)
         while True:
             raw_line = readline() if callable(readline) else b""
@@ -2018,7 +2076,10 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
             if not line or not line.startswith("data:"):
                 continue
             data = line[5:].strip()
-            if not data or data == "[DONE]":
+            if not data:
+                continue
+            if data == "[DONE]":
+                saw_end_of_turn = True
                 continue
             try:
                 payload = json.loads(data)
@@ -2046,6 +2107,7 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
                 continue
             if candidate.get("finishReason"):
                 finish_reason = str(candidate["finishReason"]).lower()
+                saw_end_of_turn = True
             content = candidate.get("content") or {}
             parts = content.get("parts") if isinstance(content, dict) else None
             for part in parts or []:
@@ -2080,6 +2142,8 @@ class GeminiGenerativeProvider(OpenAICompatibleProvider):
         ) or _gemini_finish_reason_detail(finish_reason)
         if refusal_detail is not None:
             return self._refusal(request, refusal_detail)
+        if not saw_end_of_turn:
+            return self._incomplete_stream(request)
         input_tokens = int(usage.get("promptTokenCount") or 0)
         output_tokens = int(usage.get("candidatesTokenCount") or 0)
         return ProviderResponse(

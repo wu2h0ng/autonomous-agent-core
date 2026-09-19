@@ -1538,7 +1538,14 @@ class AgentLoop:
                         started_at=started_at,
                         latency_ms=(time.monotonic() - started_monotonic) * 1000.0,
                     )
-                if response.retryable:
+                # The same rule the adapter enforces inside its own retry loop
+                # (provider.py: "a stream that has already emitted a delta is
+                # never retried: replaying would duplicate output"): once this
+                # attempt has streamed anything, the operator has seen it, so a
+                # retry would replay output rather than recover the turn. The two
+                # layers make the decision on the same fact - that this attempt
+                # emitted - so neither can retry what the other refuses to.
+                if response.retryable and not deltas.emitted:
                     continue
                 break
             if (
