@@ -26,6 +26,7 @@ class CapabilityEffectUnknown(CapabilityDenied):
         reason_code: str,
         detail: str,
         reservation_id: str | None = None,
+        receipt_id: str | None = None,
     ) -> None:
         self.action = action
         self.action_id = action.action_id
@@ -34,6 +35,12 @@ class CapabilityEffectUnknown(CapabilityDenied):
         self.reason_code = reason_code
         self.detail = detail
         self.reservation_id = reservation_id
+        # The reservation's sealed receipt identity (ADR-0059 R3), present when
+        # the effect was reserved (dispatch was attempted) but no terminal
+        # outcome could be sealed. It lets the caller record a typed UNKNOWN
+        # receipt on the task stream under the same identity. Pre-reservation
+        # denials leave this None and must leave no receipt.
+        self.receipt_id = receipt_id
         super().__init__(
             f"UNKNOWN_REQUIRES_REVIEW [{reason_code}]: {detail}"
         )
@@ -315,6 +322,11 @@ class DurableActionOutcomeRepository:
             if isinstance(reservation, dict)
             else None
         )
+        receipt_id = (
+            reservation.get("receipt_id")
+            if isinstance(reservation, dict)
+            else None
+        )
         return CapabilityEffectUnknown(
             action,
             reason_code=reason_code,
@@ -322,6 +334,7 @@ class DurableActionOutcomeRepository:
             reservation_id=(
                 reservation_id if isinstance(reservation_id, str) else None
             ),
+            receipt_id=(receipt_id if isinstance(receipt_id, str) else None),
         )
 
     def _load_outcome(

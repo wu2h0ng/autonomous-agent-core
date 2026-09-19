@@ -644,4 +644,12 @@ def test_shared_action_pipeline_records_unknown_receipt_without_forcing_resend(
         for event in app.store.read(task.task_id)
         if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
     ]
-    assert len(receipt_events) == 0
+    # P12: an undetermined post-dispatch outcome is still given a durable
+    # receipt with status UNKNOWN so the failure is visible and attributable,
+    # while the reservation stays RESERVED: exactly one attempt, one UNKNOWN
+    # receipt, never a silent resend and never a compensation.
+    assert len(receipt_events) == 1
+    unknown_receipt = receipt_events[0].decoded_payload()["receipt"]
+    assert unknown_receipt["status"] == "UNKNOWN"
+    assert unknown_receipt["idempotency_key"] == action.idempotency_key
+    assert unknown_receipt["connector_id"] == DATA_QUERY_CAPABILITY_ID
