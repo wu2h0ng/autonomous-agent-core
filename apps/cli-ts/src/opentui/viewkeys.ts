@@ -6,6 +6,9 @@
  * earlier revision wired the palette branches inside the selector branch, which
  * made them dead code and was not caught by tests because the routing lived in
  * the component. Resolving the owner here makes the precedence testable.
+ *
+ * One key outranks all of them: Ctrl-X (operator stop) is resolved before every
+ * layer, so stopping a running turn never depends on what is on screen.
  */
 export type ViewKeyOwner =
   | { layer: "selector" }
@@ -58,6 +61,16 @@ export interface ViewKeyContext {
 
 export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   const { name, ctrl, sequence } = ctx;
+
+  // -1. Ctrl-X is the operator STOP and outranks every layer. A stop must not
+  //     depend on which overlay happens to be open (or on vim normal mode,
+  //     whose `x` is delete-forward and would otherwise swallow Ctrl-X as a
+  //     plain `x`): the operator watching a run go wrong should not have to
+  //     work out what is on screen first. Every other layer still owns Esc —
+  //     that invariant is what keeps a leftover press from rejecting an
+  //     approval. Measured with opentui's own parser: 0x18 → name="x",
+  //     ctrl=true, sequence="\u0018".
+  if (ctrl && name === "x") return { layer: "global" };
 
   // 0a. Insert mode + Esc leaves vim editing for normal mode (unless a turn is
   //     streaming, where Esc must stay the frozen global correction, or the

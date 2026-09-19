@@ -12,6 +12,12 @@
  *          exits the process first (a pty check asserts exit code 0), so Esc is
  *          the live correction key; this branch is retained for callers that
  *          disable that and is covered by keys.test.
+ *   Ctrl-X streaming/stalled → stopTurn() (the real durable session PAUSE).
+ *          Distinct from Esc on purpose: Esc writes a correction epoch, Ctrl-X
+ *          moves the Run to PAUSED so the turn ENDS (`stopped_by_operator`) and
+ *          stays stopped until an explicit resume. Routed here from every layer
+ *          by `resolveViewKey`, so an operator who is mid-search, mid-picker or
+ *          inside vim normal mode can still stop the run.
  *   Ctrl-L clear the local view (same semantics as /clear)
  */
 import type { TuiController } from "./controller.js";
@@ -27,6 +33,13 @@ export function handleGlobalKey(
   input: string,
   key: KeyLike,
 ): boolean {
+  if (key.ctrl && input === "x") {
+    // Fire-and-forget, like Esc: stopTurn reports every outcome on the
+    // transcript itself (including a rejection), so the handler only has to
+    // keep a rejection from becoming an unhandled promise.
+    void controller.stopTurn().catch(() => undefined);
+    return true;
+  }
   if (key.ctrl && input === "c") {
     void controller.interrupt().catch(() => undefined);
     return true;
