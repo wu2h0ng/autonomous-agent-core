@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 import hashlib
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from apps.api_server.app import AgentOSApplication
 
@@ -86,6 +87,12 @@ def write_case_fixture(workspace: Path, case: Mapping[str, Any]) -> None:
 
 
 def configure_provider_environment(base_url: str) -> None:
+    """Apply the frozen provider environment process-wide, with no undo.
+
+    Only a caller whose process *is* the arm may use this directly (the SPINE
+    CLIs). Anything that shares its process -- above all a test -- must use
+    ``provider_environment``, which restores the caller's environment on exit.
+    """
     if not base_url.startswith("http://127.0.0.1:") or not base_url.endswith("/v1"):
         raise ValueError("provider must be the frozen loopback /v1 endpoint")
     for name in _PROVIDER_VARIABLES:
@@ -101,6 +108,39 @@ def configure_provider_environment(base_url: str) -> None:
     )
 
 
+def _provider_variable_state() -> dict[str, str | None]:
+    return {name: os.environ.get(name) for name in _PROVIDER_VARIABLES}
+
+
+def _restore_provider_variables(saved: Mapping[str, str | None]) -> None:
+    for name, value in saved.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+@contextmanager
+def provider_environment(base_url: str) -> Iterator[None]:
+    """Apply the frozen provider environment to one scope, then undo it.
+
+    The application reads its provider configuration from the process
+    environment, so the frozen values have to be visible process-wide while an
+    application is constructed. They must not outlive that construction: a
+    caller that shares its process with anything else -- in particular any
+    pytest session -- leaves every later arm configured against a loopback
+    endpoint that has already been closed, which turns "offline" into "reaching
+    somewhere else". Snapshotting and restoring the exact prior values is what
+    makes the result independent of what ran before.
+    """
+    saved = _provider_variable_state()
+    configure_provider_environment(base_url)
+    try:
+        yield
+    finally:
+        _restore_provider_variables(saved)
+
+
 def open_application(database: Path, workspace: Path) -> AgentOSApplication:
     if str(database) == ":memory:":
         raise ValueError("SPINE requires an explicit file database")
@@ -112,6 +152,7 @@ def open_application(database: Path, workspace: Path) -> AgentOSApplication:
         "configured": True,
         "provider_id": "openai-compatible",
         "model_id": "spine-e2e-1-frozen",
+        "model_revision_digest": None,
         "endpoint_class": "openai-compatible",
         "credential_ref_id": "credential:default",
     }:
@@ -190,23 +231,40 @@ def prepare_case(
     from product_evals.spine_e2e_1.protocol import prepare
 
     bindings: dict[str, tuple[CaseArmPaths, AgentOSApplication]] = {}
-    for arm in ("uninterrupted", "interrupted"):
-        paths = case_arm_paths(run_root, str(case["case_id"]), arm)
-        write_case_fixture(paths.workspace, case)
+    saved = _provider_variable_state()
+    try:
+        for arm in ("uninterrupted", "interrupted"):
+            paths = case_arm_paths(run_root, str(case["case_id"]), arm)
+            write_case_fixture(paths.workspace, case)
+            # Each arm builds its application inside its own scope: the frozen
+            # configuration has to be process-wide while the application reads
+            # it, and it must not be what the next arm starts from.
+            with provider_environment(base_url):
+                bindings[arm] = (
+                    paths,
+                    open_application(paths.database, paths.workspace),
+                )
+        # The rest of the flow keeps the view it had before the arms were
+        # scoped, and the finally below hands the caller back its own
+        # environment.
         configure_provider_environment(base_url)
-        bindings[arm] = (paths, open_application(paths.database, paths.workspace))
-    result = prepare(bindings["uninterrupted"][1], bindings["interrupted"][1], case)
-    result["paths"] = {
-        arm: {"workspace": str(value[0].workspace), "database": str(value[0].database)}
-        for arm, value in bindings.items()
-    }
-    result["public_evidence"] = {
-        arm: public_evidence(
-            bindings[arm][1],
-            result["task_ids"][arm],
-            bindings[arm][0].workspace,
-            provider_ledger,
-        )
-        for arm in bindings
-    }
+        result = prepare(bindings["uninterrupted"][1], bindings["interrupted"][1], case)
+        result["paths"] = {
+            arm: {
+                "workspace": str(value[0].workspace),
+                "database": str(value[0].database),
+            }
+            for arm, value in bindings.items()
+        }
+        result["public_evidence"] = {
+            arm: public_evidence(
+                bindings[arm][1],
+                result["task_ids"][arm],
+                bindings[arm][0].workspace,
+                provider_ledger,
+            )
+            for arm in bindings
+        }
+    finally:
+        _restore_provider_variables(saved)
     return result

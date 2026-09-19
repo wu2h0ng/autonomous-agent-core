@@ -284,16 +284,50 @@ def test_provider_environment_is_cleared_then_set_exactly(
     surface = _module("product_evals.common.public_surface")
     for name in FORBIDDEN_PROVIDER_ENV:
         monkeypatch.setenv(name, "ambient-drift")
-    surface.configure_provider_environment("http://127.0.0.1:12345/v1")
+    with surface.provider_environment("http://127.0.0.1:12345/v1"):
+        assert {
+            name: __import__("os").environ.get(name) for name in PROVIDER_ENV
+        } == PROVIDER_ENV
+        assert (
+            __import__("os").environ["AGENT_OS_PROVIDER_BASE_URL"]
+            == "http://127.0.0.1:12345/v1"
+        )
+        assert "OPENAI_API_KEY" not in __import__("os").environ
+        assert "AGENT_OS_RUNTIME_PROVIDER_KEY" not in __import__("os").environ
     assert {
-        name: __import__("os").environ.get(name) for name in PROVIDER_ENV
-    } == PROVIDER_ENV
-    assert (
-        __import__("os").environ["AGENT_OS_PROVIDER_BASE_URL"]
-        == "http://127.0.0.1:12345/v1"
-    )
-    assert "OPENAI_API_KEY" not in __import__("os").environ
-    assert "AGENT_OS_RUNTIME_PROVIDER_KEY" not in __import__("os").environ
+        name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV
+    } == {name: "ambient-drift" for name in FORBIDDEN_PROVIDER_ENV}
+
+
+def test_provider_environment_leaves_no_configuration_behind_for_the_next_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two arms in one process: the second one must start from a clean environment.
+
+    ``configure_provider_environment`` writes the frozen configuration into the
+    process environment because that is where the application reads it. When the
+    write outlives the arm that needed it, every later arm in the same pytest
+    process is silently pointed at a loopback endpoint the earlier arm has
+    already closed -- which is why the suite's result used to depend on the order
+    the files happened to be collected in.
+    """
+    surface = _module("product_evals.common.public_surface")
+    for name in FORBIDDEN_PROVIDER_ENV:
+        monkeypatch.delenv(name, raising=False)
+    baseline = {
+        name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV
+    }
+
+    with surface.provider_environment("http://127.0.0.1:12345/v1"):
+        first_arm = {
+            name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV
+        }
+    second_arm_entry = {
+        name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV
+    }
+
+    assert first_arm["AGENT_OS_PROVIDER_BASE_URL"] == "http://127.0.0.1:12345/v1"
+    assert second_arm_entry == baseline
 
 
 def test_public_application_construction_verifies_provider_status(
@@ -499,6 +533,94 @@ def test_prepare_case_opens_independent_file_backed_arms(
         assert (workspace / case["target_path"]).read_text() == case["initial_content"]
 
 
+def test_prepare_case_scopes_the_provider_environment_to_its_own_arms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both arms of one ``prepare_case`` run, and neither leaves configuration behind.
+
+    The frozen arms are configured through the process environment, so
+    ``prepare_case`` has to restore it on the way out; otherwise the arms of the
+    *next* case -- and every unrelated test collected after this module -- start
+    from this case's dead loopback endpoint.
+    """
+    surface = _module("product_evals.common.public_surface")
+    case = json.loads(CASES.read_text(encoding="utf-8"))["cases"][0]
+    opened: list[tuple[Path, Path]] = []
+
+    def fake_open(database: Path, workspace: Path) -> _ScriptedPublicApp:
+        opened.append((database, workspace))
+        script = (
+            [_status("WAITING_APPROVAL"), _status("VERIFIED")]
+            if len(opened) == 1
+            else [_status("WAITING_APPROVAL")]
+        )
+        return _ScriptedPublicApp(f"task:{len(opened)}", script)
+
+    monkeypatch.setattr(surface, "open_application", fake_open)
+    for name in FORBIDDEN_PROVIDER_ENV:
+        monkeypatch.delenv(name, raising=False)
+    baseline = {
+        name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV
+    }
+    arm_entry_states: list[dict[str, str | None]] = []
+    configure = surface.configure_provider_environment
+
+    def observing_configure(base_url: str) -> None:
+        arm_entry_states.append(
+            {name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV}
+        )
+        configure(base_url)
+
+    monkeypatch.setattr(surface, "configure_provider_environment", observing_configure)
+    surface.prepare_case(
+        tmp_path, case, "http://127.0.0.1:12345/v1", tmp_path / "provider.jsonl"
+    )
+
+    # Two arms in one process, then the flow's own re-apply: every one of them
+    # starts from the environment its caller had, never from the previous arm's
+    # leftovers.
+    assert len(arm_entry_states) == 3
+    assert arm_entry_states == [baseline, baseline, baseline]
+    assert {
+        name: __import__("os").environ.get(name) for name in FORBIDDEN_PROVIDER_ENV
+    } == baseline
+
+
+def test_open_application_accepts_the_frozen_provider_status(tmp_path: Path) -> None:
+    """The frozen status check must describe every field the product reports.
+
+    ``AgentOSApplication.provider_status`` gained ``model_revision_digest`` after
+    this instrument was frozen; a status comparison that names only the five
+    older fields never matches, so ``open_application`` refused every correctly
+    configured application.
+    """
+    surface = _module("product_evals.common.public_surface")
+    with surface.provider_environment("http://127.0.0.1:12345/v1"):
+        application = surface.open_application(
+            tmp_path / "state" / "agent-os.sqlite3", tmp_path / "workspace"
+        )
+    assert application.provider_status() == {
+        "configured": True,
+        "provider_id": "openai-compatible",
+        "model_id": "spine-e2e-1-frozen",
+        "model_revision_digest": None,
+        "endpoint_class": "openai-compatible",
+        "credential_ref_id": "credential:default",
+    }
+
+
+def test_open_application_still_fails_closed_on_a_revision_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    surface = _module("product_evals.common.public_surface")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST", "b" * 64)
+    with surface.provider_environment("http://127.0.0.1:12345/v1"):
+        with pytest.raises(RuntimeError, match="frozen provider status mismatch"):
+            surface.open_application(
+                tmp_path / "state" / "agent-os.sqlite3", tmp_path / "workspace"
+            )
+
+
 def test_real_single_case_prepare_interrupt_and_immediate_probe(tmp_path: Path) -> None:
     surface = _module("product_evals.common.public_surface")
     protocol = _module("product_evals.spine_e2e_1.protocol")
@@ -522,22 +644,20 @@ def test_real_single_case_prepare_interrupt_and_immediate_probe(tmp_path: Path) 
             case, contract_time
         )
         paths = surface.case_arm_paths(tmp_path, case["case_id"], "interrupted")
-        surface.configure_provider_environment(server.base_url)
-        interrupted = surface.open_application(paths.database, paths.workspace)
 
         def evidence(application: object, task_id: str) -> dict[str, object]:
-            return surface.public_evidence(
-                application, task_id, paths.workspace, ledger
-            )
+            return surface.public_evidence(application, task_id, paths.workspace, ledger)
 
-        protocol.interrupt_batch(
-            interrupted, (prepared["task_ids"]["interrupted"],), evidence
-        )
-        surface.configure_provider_environment(server.base_url)
-        probe = surface.open_application(paths.database, paths.workspace)
-        protocol.probe_active_lease(
-            probe, (prepared["task_ids"]["interrupted"],), evidence
-        )
+        with surface.provider_environment(server.base_url):
+            interrupted = surface.open_application(paths.database, paths.workspace)
+            protocol.interrupt_batch(
+                interrupted, (prepared["task_ids"]["interrupted"],), evidence
+            )
+        with surface.provider_environment(server.base_url):
+            probe = surface.open_application(paths.database, paths.workspace)
+            protocol.probe_active_lease(
+                probe, (prepared["task_ids"]["interrupted"],), evidence
+            )
     finally:
         server.close(validate_counts=False)
     records = [json.loads(line) for line in ledger.read_text().splitlines()]
