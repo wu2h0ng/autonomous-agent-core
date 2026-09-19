@@ -205,16 +205,32 @@ def serve_foreground(config: RuntimeConfig) -> int:
     _require_loopback(config.host)
     running = start_runtime(config)
 
+    # Signal handlers must stay async-signal-safe: CPython delivers them to the
+    # main thread at an arbitrary bytecode boundary, and calling
+    # ``server.shutdown()`` there -- it takes socketserver's internal locks and
+    # pokes its wakeup pipe -- is what made the daemon hang on macOS. When the
+    # signal landed while the main thread was blocked in ``thread.join()``, the
+    # shutdown raced the serve thread and the 20 s ``wait()`` in the supervisor
+    # tests expired (TimeoutExpired on SIGTERM). The handler now only raises a
+    # flag; the main thread observes it below and performs the shutdown from a
+    # normal (non-handler) context, where the cross-thread
+    # ``shutdown()`` <-> ``serve_forever()`` contract holds deterministically.
+    stop_requested = threading.Event()
+
     def _shutdown(signum: int, frame: object) -> None:
-        try:
-            running.server.shutdown()
-        except Exception:
-            pass
+        stop_requested.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
     try:
-        running.thread.join()
+        # Poll rather than an unbounded join so a delivered SIGTERM/SIGINT
+        # wakes this thread promptly (the 0.25 s ceiling bounds the worst-case
+        # latency regardless of whether the signal interrupts the wait) and we
+        # then shut the server down from this clean context.
+        while not stop_requested.is_set():
+            stop_requested.wait(timeout=0.25)
+        running.server.shutdown()
+        running.thread.join(timeout=15)
     finally:
         stop_runtime(running)
     return 0

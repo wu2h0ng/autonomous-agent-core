@@ -206,6 +206,13 @@ export function App({
   const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
   const [childStopNote, setChildStopNote] = useState<string | null>(null);
   const childStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Child elapsed: the roll-up carries no clock, so the terminal records the
+  // first time it OBSERVES a child in flight and renders `now - firstSeen`.
+  // Keyed by child_session_id; pruned when a child leaves the tree.
+  const childFirstSeenRef = useRef(new Map<string, number>());
+  // Bumped once a second only while the agents panel is up, so a live child's
+  // elapsed ticks without re-rendering the whole app on a bare transcript.
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [cursor, setCursor] = useState(0);
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
@@ -372,6 +379,7 @@ export function App({
   useEffect(() => {
     if (!showAgentsPanel) {
       setTree(EMPTY_TREE);
+      childFirstSeenRef.current.clear();
       return;
     }
     let cancelled = false;
@@ -382,6 +390,22 @@ export function App({
       const next = await fetchAgentTree(client);
       inFlight = false;
       if (!cancelled) {
+        // Book first-seen for every child currently observed in flight, and
+        // prune entries whose child has left the tree (so a restarted child
+        // starts its clock fresh rather than inheriting a stale timestamp).
+        const seen = new Set(
+          next.rows.filter((row) => row.kind === "child").map((row) => row.id),
+        );
+        const clock = Date.now();
+        for (const row of next.rows) {
+          if (row.kind === "child" && row.inFlight === true
+              && !childFirstSeenRef.current.has(row.id)) {
+            childFirstSeenRef.current.set(row.id, clock);
+          }
+        }
+        for (const id of [...childFirstSeenRef.current.keys()]) {
+          if (!seen.has(id)) childFirstSeenRef.current.delete(id);
+        }
         setTree(next);
         // Keep the same ROW highlighted across refreshes (index can shift).
         setCursor((current) =>
@@ -396,6 +420,15 @@ export function App({
       clearInterval(timer);
     };
   }, [client, showAgentsPanel]);
+
+  // One-second tick while the agents panel is shown: drives the live child
+  // elapsed clock. Cheap (a single state bump) and gated on the panel so a
+  // bare transcript never re-renders once a second.
+  useEffect(() => {
+    if (!showAgentsPanel) return;
+    const ticker = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(ticker);
+  }, [showAgentsPanel]);
 
   /** Per-child stop (Form B G10): stop only the highlighted live child. The
    * kernel is idempotent and fail-closed; a non-live/non-child row is a no-op.
@@ -486,8 +519,23 @@ export function App({
         return;
       }
       case "approval": {
-        if (owner.action === "approve") void controller.approve();
-        else if (owner.action === "reject") void controller.reject();
+        // 瑕疵1: approving/rejecting moves the session out of
+        // WAITING_APPROVAL, but the agents panel tree is a separate state
+        // refreshed only every 5 s. Refresh it immediately so the session row
+        // flips back to ACTIVE without waiting for the next poll.
+        const refreshAgentsTree = (): void => {
+          void fetchAgentTree(client).then((next) => {
+            setTree(next);
+            setCursor((current) =>
+              repositionCursor(next.rows, cursorKeyRef.current, current),
+            );
+          });
+        };
+        if (owner.action === "approve") {
+          void controller.approve().then(refreshAgentsTree);
+        } else if (owner.action === "reject") {
+          void controller.reject().then(refreshAgentsTree);
+        }
         return;
       }
       case "search": {
@@ -763,6 +811,16 @@ export function App({
     </scrollbox>
   );
 
+  // Enrich child rows with the client-side elapsed clock (first-seen → now).
+  // Non-child rows and children not yet observed in flight pass through with
+  // no elapsedMs, so agentRowLine omits the label honestly.
+  const displayRows = tree.rows.map((row) => {
+    if (row.kind !== "child" || row.inFlight !== true) return row;
+    const started = childFirstSeenRef.current.get(row.id);
+    if (started === undefined) return row;
+    return { ...row, elapsedMs: Math.max(0, nowMs - started) };
+  });
+
   const sidebar = (
     <box style={{ flexDirection: "column", width: 40 }}>
       {panels.includes("agents") ? (
@@ -772,9 +830,9 @@ export function App({
         title={`agents${activePanel === "agents" ? " · selected" : ""}`}
       >
         <box style={{ flexDirection: "column", paddingLeft: 1 }}>
-          {(tree.rows.length > 0
-            ? tree.rows.map((row, index) =>
-                index === clampCursor(cursor, tree.rows.length)
+          {(displayRows.length > 0
+            ? displayRows.map((row, index) =>
+                index === clampCursor(cursor, displayRows.length)
                   ? `▌ ${agentRowLine(row)}`
                   : `  ${agentRowLine(row)}`,
               )

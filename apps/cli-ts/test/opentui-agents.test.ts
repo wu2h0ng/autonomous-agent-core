@@ -10,6 +10,7 @@ import {
   buildAgentTree,
   clampCursor,
   cursorKey,
+  formatElapsed,
   moveCursor,
   planEnter,
   repositionCursor,
@@ -263,6 +264,42 @@ test("agentRowLine renders live marker, counters and stop reason", () => {
   });
   assert.match(stopped, /stopped_by_operator/);
   assert.doesNotMatch(stopped, /!running/);
+});
+
+test("formatElapsed rounds to whole seconds and escalates minutes/hours", () => {
+  assert.equal(formatElapsed(0), "0s");
+  assert.equal(formatElapsed(999), "0s", "sub-second rounds down to 0s");
+  assert.equal(formatElapsed(12_000), "12s");
+  assert.equal(formatElapsed(59_999), "59s", "59.999s stays 59s, not 1m");
+  assert.equal(formatElapsed(60_000), "1m00s");
+  assert.equal(formatElapsed(65_000), "1m05s");
+  assert.equal(formatElapsed(3_600_000), "1h00m");
+  assert.equal(formatElapsed(3_725_000), "1h02m");
+  assert.equal(formatElapsed(-5_000), "0s", "negative (clock skew) clamps to 0s");
+});
+
+test("elapsed renders only for an in-flight child this terminal has observed", () => {
+  // Observed in flight: elapsed label appears.
+  const withElapsed = agentRowLine({
+    depth: 3, kind: "child", id: "c-live", status: "running",
+    parentSessionId: "s-1", inFlight: true, steps: 1, tokens: 5,
+    elapsedMs: 12_500,
+  });
+  assert.match(withElapsed, / 12s/);
+  // A live child we have not yet clocked (elapsedMs omitted) must NOT print 0s.
+  const unclocked = agentRowLine({
+    depth: 3, kind: "child", id: "c-live", status: "running",
+    parentSessionId: "s-1", inFlight: true, steps: 1, tokens: 5,
+  });
+  assert.doesNotMatch(unclocked, /0s/);
+  // A terminal child keeps its stop reason, never an elapsed label.
+  const done = agentRowLine({
+    depth: 3, kind: "child", id: "c-done", status: "stopped",
+    parentSessionId: "s-1", inFlight: false, steps: 1, tokens: 5,
+    stopReason: "stopped_by_operator", elapsedMs: 90_000,
+  });
+  assert.doesNotMatch(done, /90s/);
+  assert.match(done, /stopped_by_operator/);
 });
 
 test("cursorKey distinguishes a child from a same-id session row", () => {

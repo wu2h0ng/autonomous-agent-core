@@ -52,6 +52,10 @@ export interface AgentRow {
   steps?: number;
   tokens?: number;
   stopReason?: string | null;
+  /** Child rows only: wall-clock ms this child has been observed in flight.
+   * Populated by the TUI (client-side first-seen), never by the roll-up; a
+   * child that has not been observed yet omits it rather than showing 0. */
+  elapsedMs?: number;
 }
 
 export interface AgentTree {
@@ -189,10 +193,30 @@ export function agentRowLine(row: AgentRow): string {
         : "";
     const reason =
       !row.inFlight && row.stopReason ? `  (${row.stopReason})` : "";
-    return `${indent}${marker} ${row.id}  ${row.status}${counters}${reason}${live}`;
+    // Elapsed is shown only for a child this terminal has OBSERVED in flight
+    // (the roll-up carries no clock). A child we have not yet seen running
+    // omits it rather than lying with "0s".
+    const elapsed =
+      row.inFlight === true && typeof row.elapsedMs === "number"
+        ? `  ${formatElapsed(row.elapsedMs)}`
+        : "";
+    return `${indent}${marker} ${row.id}  ${row.status}${counters}${reason}${elapsed}${live}`;
   }
   const status = row.status === "" ? "" : `  ${row.status}`;
   return `${indent}${marker} ${row.id}${status}${flag}`;
+}
+
+/** Compact elapsed label: "12s" / "1m05s" / "1h02m". Rounds DOWN to whole
+ * seconds so the label does not flicker between "59s" and "1m00s" mid-second. */
+export function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return `${minutes}m${String(seconds).padStart(2, "0")}s`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return `${hours}h${String(restMinutes).padStart(2, "0")}m`;
 }
 
 /** Clamp a row cursor to the current tree (rows change on every refresh). */
