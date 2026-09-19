@@ -584,6 +584,12 @@ def _strict_project(
                 permission_mode_event_id = event.event_id
                 continue
 
+            if event.event_type is TaskEventType.SESSION_CHECKPOINT_RECORDED:
+                # Append-only checkpoint marker: a durable reference into the
+                # stream, never a session state transition. The projection only
+                # advances; the checkpoint's own replay reads the raw stream.
+                continue
+
             raise SessionProjectionError(
                 f"unsupported session event: {event.event_type.value}"
             )

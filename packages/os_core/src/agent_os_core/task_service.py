@@ -765,6 +765,45 @@ class TaskService:
             writer_token=self._runtime_writer_token,
         )
 
+    def record_session_checkpoint(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        run_id: str,
+        turn_id: str | None,
+        label: str,
+        state_digest: str,
+    ) -> TaskAggregate:
+        """Append one operator-named, append-only session checkpoint marker.
+
+        This is the typed writer for ``SESSION_CHECKPOINT_RECORDED`` (it is in
+        ``PROTECTED_TRUTH_EVENTS``): it uses the runtime writer token internally,
+        so no caller can append a malformed checkpoint. The checkpoint is a
+        durable reference into the existing event stream (sequence + turn_id +
+        a digest of the projected state at this point), never a copied snapshot:
+        a crashed process reconstructs the session by re-projecting the stream
+        FORWARD from ``sequence``. It never deletes or rewrites prior events,
+        and it never carries prompt or completion text.
+        """
+
+        aggregate = self.get_task(task_id)
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_CHECKPOINT_RECORDED,
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "run_id": run_id,
+                "turn_id": turn_id,
+                "label": label,
+                "sequence": aggregate.sequence,
+                "state_digest": state_digest,
+            },
+            correlation_id=session_id,
+            writer_token=self._runtime_writer_token,
+        )
+
     def record_session_message(
         self,
         task_id: str,

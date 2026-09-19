@@ -13,7 +13,7 @@ export interface SessionCommandOptions {
   args: string[];
 }
 
-const SUBCOMMANDS = new Set(["show", "pause", "resume", "correct", "recover"]);
+const SUBCOMMANDS = new Set(["show", "pause", "resume", "correct", "recover", "close"]);
 
 /** Bounded refresh-and-resend budget for a stale-cursor rejection. */
 const CONTROL_RETRY_LIMIT = 2;
@@ -172,6 +172,56 @@ async function runRecover(
   return 0;
 }
 
+/**
+ * `noem session close <session-id> <why>` — the operator's explicit close of a
+ * session (G10), distinct from a resumable pause. The kernel stops every
+ * in-flight child (named `stopped_by_operator`) and then closes the parent. The
+ * reason is durable evidence; it is required before anything is read.
+ */
+async function runClose(
+  client: SurfaceClient,
+  sessionId: string,
+  reason: string,
+): Promise<number> {
+  if (!reason.trim()) {
+    process.stderr.write(
+      "usage: noem session close <session-id> <why you are closing it>\n" +
+        "the reason is durable evidence of the operator's close (G10)\n",
+    );
+    return 1;
+  }
+  await client.getSession(sessionId);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= CONTROL_RETRY_LIMIT; attempt += 1) {
+    try {
+      const snapshot = await client.closeSession(
+        sessionId,
+        reason.trim(),
+        `cli-ts-session-close:${sessionId}:${Date.now()}`,
+      );
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            session_id: sessionId,
+            status: snapshot.status,
+            closed: true,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return snapshot.status === "CLOSED" ? 0 : 1;
+    } catch (cause) {
+      lastError = cause;
+      if (!isSequenceConflict(cause)) throw cause;
+      if (attempt < CONTROL_RETRY_LIMIT) {
+        await new Promise((resolve) => setTimeout(resolve, CONTROL_RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function runSessionCommand(
   options: SessionCommandOptions,
 ): Promise<number> {
@@ -180,7 +230,7 @@ export async function runSessionCommand(
   const reason = reasonFrom(options.args.slice(2));
   if (!SUBCOMMANDS.has(sub)) {
     process.stderr.write(
-      `noem: unknown session subcommand ${sub} (show | pause | resume | correct | recover)\n`,
+      `noem: unknown session subcommand ${sub} (show | pause | resume | correct | recover | close)\n`,
     );
     return 1;
   }
@@ -193,7 +243,7 @@ export async function runSessionCommand(
   // The operator's declaration is the point of `recover`, so it is required
   // before anything is read or sent — a missing reason must not reach the
   // daemon (or the default descriptor on disk).
-  if (sub === "recover" && !reason.trim()) {
+  if ((sub === "recover" || sub === "close") && !reason.trim()) {
     process.stderr.write(
       "usage: noem session recover <session-id> <why the runtime died>\n" +
         "the reason is durable evidence of the operator's declaration\n",
@@ -205,6 +255,9 @@ export async function runSessionCommand(
     const client = new SurfaceClient(descriptor);
     if (sub === "recover") {
       return await runRecover(client, sessionId, reason);
+    }
+    if (sub === "close") {
+      return await runClose(client, sessionId, reason);
     }
     if (sub === "show") {
       const snapshot = await client.getSession(sessionId);

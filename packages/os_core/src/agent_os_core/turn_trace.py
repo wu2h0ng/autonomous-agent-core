@@ -849,16 +849,39 @@ def build_turn_trace(
             sequences.add(ended_event.sequence)
             effect_state = _text(receipt_payload.get("status"))
             if effect_state in _UNDETERMINED_EFFECT_STATES:
+                # A durable receipt that states the effect as UNKNOWN is not a
+                # determined outcome: the receipt exists, but whether the effect
+                # actually happened is undetermined and needs external
+                # reconciliation. Project it as an undetermined dispatch - the
+                # same shape as a dispatch that faulted after the reservation
+                # left no receipt at all - rather than as a closed
+                # ``EFFECT_RECEIPT_RECORDED``. The literal UNKNOWN status stays
+                # visible in ``effect_state``, and the reconciliation gap names
+                # the exact receipt sequence.
                 status = TraceSpanStatus.UNDETERMINED
+                ended_by = TraceSpanBasis.EFFECT_UNDETERMINED
+                gaps.append(
+                    TraceGap(
+                        kind=TraceGapKind.EFFECT_UNDETERMINED,
+                        sequence=ended_event.sequence,
+                        subject=action.action_id,
+                        detail=(
+                            "the durable receipt records the effect as UNKNOWN"
+                            " and requires external reconciliation; the action"
+                            " is not auto-retried"
+                        ),
+                    )
+                )
             elif effect_state == ReceiptStatus.SUCCEEDED.value:
                 status = TraceSpanStatus.COMPLETED
+                ended_by = TraceSpanBasis.EFFECT_RECEIPT_RECORDED
             else:
                 # Every other durable receipt status (FAILED, CANCELLED,
                 # DISPATCHED, ACKNOWLEDGED, COMPENSATED) is the system's own "the
                 # dispatch did not succeed" - the loop raises on all of them. The
                 # literal status stays visible in effect_state.
                 status = TraceSpanStatus.FAILED
-            ended_by = TraceSpanBasis.EFFECT_RECEIPT_RECORDED
+                ended_by = TraceSpanBasis.EFFECT_RECEIPT_RECORDED
         elif node is not None:
             ended_event, node_type, node_payload = node
             sequences.add(ended_event.sequence)

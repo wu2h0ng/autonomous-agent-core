@@ -42,6 +42,7 @@ from agent_os_contracts import (
     ProviderToolProposal,
     SurfaceBeginTurnCommand,
     SurfaceChildAgentReconcileCommand,
+    SurfaceCorrectionCommand,
     SurfaceClientRef,
     SurfaceStreamBinding,
     TaskEventType,
@@ -467,6 +468,115 @@ def test_parent_closure_stops_in_flight_children(tmp_path: Path) -> None:
     finishes = payloads(app, session.task_id, TaskEventType.CHILD_AGENT_FINISHED)
     assert finishes[-1]["spawn_id"] == child.spawn_id
     assert finishes[-1]["stop_reason"] == "parent_session_closed"
+    closures = payloads(app, session.task_id, TaskEventType.SESSION_CLOSED)
+    assert closures and closures[-1]["session_id"] == session.session_id
+
+
+# ---------------------------------------------------------------------------
+# G10: the operator's explicit close cascades to every in-flight child, and a
+# per-child stop never touches its sibling. Two concurrent in-flight children
+# are built by letting the parent spawn child A (which parks on a tier-2 edit),
+# then continue and spawn child B (which also parks). Both are open, in-flight
+# child records on the parent stream.
+# ---------------------------------------------------------------------------
+
+
+def _two_parked_children(tmp_path: Path):
+    """Drive a parent that spawns two children, each parked on an approval."""
+
+    app = app_for(
+        tmp_path,
+        spawn_script(call_id="call-spawn-a")
+        + park_script("call-edit-a")
+        + spawn_script(call_id="call-spawn-b")
+        + park_script("call-edit-b")
+        + (("parent finished", ()),),
+    )
+    session, loop = app.open_chat_session("parent work", AutoApproveGateway())
+    loop.run_turn(session, "spawn two children")
+    children = ChildAgentIndex(app.store).children(session.task_id)
+    assert len(children) == 2, f"expected two in-flight children, got {len(children)}"
+    return app, session, children
+
+
+def _close_command(session_id: str, reason: str) -> SurfaceCorrectionCommand:
+    from datetime import datetime, timezone
+
+    return SurfaceCorrectionCommand(
+        protocol_version=SURFACE_PROTOCOL_VERSION,
+        client=client_ref(),
+        session_id=session_id,
+        reason=reason,
+        expected_event_sequence=0,
+        idempotency_key=f"test-close:{session_id}",
+        requested_at=datetime.now(timezone.utc),
+    )
+
+
+def test_g10_single_child_stop_leaves_its_sibling_in_flight(
+    tmp_path: Path,
+) -> None:
+    """SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED.
+
+    Two concurrent in-flight children; stopping one sibling must not stop the
+    other, and must not pause/halt the parent.
+    """
+
+    app, session, children = _two_parked_children(tmp_path)
+    child_a, child_b = children[0], children[1]
+    finishes_before = payloads(app, session.task_id, TaskEventType.CHILD_AGENT_FINISHED)
+
+    app.stop_child_agent(child_a.child_session_id, reason="operator stops child A")
+
+    finishes = payloads(app, session.task_id, TaskEventType.CHILD_AGENT_FINISHED)
+    # Child A received exactly one NEW terminal record: the operator stop.
+    new_for_a = [
+        f for f in finishes
+        if f["spawn_id"] == child_a.spawn_id
+        and f not in finishes_before
+    ]
+    assert len(new_for_a) == 1, new_for_a
+    assert new_for_a[-1]["stop_reason"] == STOP_REASON_STOPPED_BY_OPERATOR
+    # The sibling is untouched: it received NO new terminal record when A was
+    # stopped, its own latest record is still the park (awaiting_approval), and
+    # the parent run was not paused/halted.
+    new_for_b = [
+        f for f in finishes
+        if f["spawn_id"] == child_b.spawn_id
+        and f not in finishes_before
+    ]
+    assert new_for_b == [], new_for_b
+    child_b_finishes = [f for f in finishes if f["spawn_id"] == child_b.spawn_id]
+    assert child_b_finishes[-1]["stop_reason"] == "awaiting_approval"
+    assert app.tasks.get_task(session.task_id).run.status.value != "PAUSED"
+    sibling = app.surface_session_snapshot(child_b.child_session_id)
+    assert sibling.status.value == "WAITING_APPROVAL"
+
+
+def test_g10_operator_close_stops_every_in_flight_child_durably(
+    tmp_path: Path,
+) -> None:
+    """PARENT_STOPPED_CHILDREN_DURABLY.
+
+    The operator's explicit close of the parent stops every in-flight child,
+    each named ``stopped_by_operator`` (G10's named observation), and closes the
+    parent.
+    """
+
+    app, session, children = _two_parked_children(tmp_path)
+    spawn_ids = {child.spawn_id for child in children}
+
+    snapshot = app.surface_close_session(
+        _close_command(session.session_id, "operator closes the session")
+    )
+
+    assert snapshot.status.value == "CLOSED"
+    finishes = payloads(app, session.task_id, TaskEventType.CHILD_AGENT_FINISHED)
+    finished = {f["spawn_id"] for f in finishes}
+    assert spawn_ids <= finished, f"children not stopped: {spawn_ids - finished}"
+    for spawn_id in spawn_ids:
+        record = [f for f in finishes if f["spawn_id"] == spawn_id][-1]
+        assert record["stop_reason"] == STOP_REASON_STOPPED_BY_OPERATOR, record
     closures = payloads(app, session.task_id, TaskEventType.SESSION_CLOSED)
     assert closures and closures[-1]["session_id"] == session.session_id
 

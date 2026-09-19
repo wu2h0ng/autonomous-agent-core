@@ -86,7 +86,12 @@ TERMINAL_CODING_EVAL_GATE = "terminal coding eval gate"
 # `tests/product` and `unittest discover -s tests` cannot collect these modules either. So while
 # nothing asserted the step, the whole corpus could stop running in CI with every check green.
 TERMINAL_CODING_EVAL_ROOT = "tests/product_eval"
-TERMINAL_CODING_EVAL_MODULE = re.compile(r"test_terminal_coding_eval[A-Za-z0-9_]*\.py")
+# The corpus gained a third module on 2026-09-18: test_terminal_coding_horizon.py
+# (the MCP-precondition measurement). It shares the step with the two `_eval*`
+# modules, so the on-disk set the gate compares against must recognise both the
+# `_eval*` family and the `_horizon` member - otherwise the step enumerates a
+# module the gate does not count and the gate compares two unequal sets.
+TERMINAL_CODING_EVAL_MODULE = re.compile(r"test_terminal_coding_(?:eval|horizon)[A-Za-z0-9_]*\.py")
 
 # A gate stops gating when its command can no longer fail. Each entry is
 # (human label, regex over the comment-stripped run block).

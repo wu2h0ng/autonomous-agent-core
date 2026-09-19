@@ -240,6 +240,12 @@ class SurfaceRoutes:
                 if task_id is not None:
                     self._get_overview(handler, task_id)
                     return
+                # No GET leaf matched (a trailing-slash session path, an unknown
+                # surface read, or a mistyped task route): answer a typed 404
+                # rather than fall through without a response, which the client
+                # reads as a dropped connection. Reads are 404s, never silent
+                # closes.
+                self._respond(handler, 404, {"error": "surface_route_not_found"})
             if method == "POST" and parsed.path == "/v1/surface/provider":
                 self._post_provider(handler)
                 return
@@ -282,6 +288,10 @@ class SurfaceRoutes:
                 session_id = _match_surface_session_leaf(handler.path, "correction")
                 if session_id is not None:
                     self._post_correction(handler, session_id)
+                    return
+                session_id = _match_surface_session_leaf(handler.path, "close")
+                if session_id is not None:
+                    self._post_close(handler, session_id)
                     return
                 session_id = _match_surface_session_leaf(
                     handler.path, "children/reconcile"
@@ -632,6 +642,25 @@ class SurfaceRoutes:
         self._respond(
             handler,
             200, {"snapshot": self._runtime.correct(command).model_dump(mode="json")}
+        )
+
+    def _post_close(self, handler: Any, session_id: str) -> None:
+        """Operator-explicit close of a session, cascading to its children.
+
+        Distinct from pause/correction: this ends the session and stops every
+        in-flight child (named ``stopped_by_operator``). The returned snapshot
+        shows the session CLOSED.
+        """
+        body = handler._body()
+        command = SurfaceCorrectionCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        self._respond(
+            handler,
+            200, {"snapshot": self._runtime.close(command).model_dump(mode="json")}
         )
 
     def _get_overview(self, handler: Any, task_id: str) -> None:

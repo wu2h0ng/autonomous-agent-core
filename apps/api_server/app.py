@@ -2795,7 +2795,23 @@ class AgentOSApplication:
     def surface_resume_session(
         self, command: SurfaceCorrectionCommand
     ) -> SurfaceSessionSnapshot:
+        # P1: the terminal must not hand the operator back a corrected/voided
+        # session. A correction halts a new epoch that seals the task; pretending
+        # to resume it (setting the run back to RUNNING) would return a session
+        # that refuses every turn - the dead end the terminal used to fall into.
+        # Refuse HERE, at the terminal-facing surface, with a typed "start a new
+        # session" answer. The internal recovery path (resume_task) is left
+        # alone: C7 recovery un-halts the task to drive compensation, and that
+        # is a different caller, not the terminal.
         task_id = self.surface_task_for_session(command.session_id)
+        task = self.tasks.get_task(task_id)
+        if task.run is not None and self.correction.halted(
+            task_id, task.run.run_id, "provider"
+        ):
+            raise InvalidTransitionError(
+                "this session was corrected and is permanently voided; "
+                "no resume restores it - start a new session"
+            )
         self.resume_task(task_id)
         return self.surface_session_snapshot(command.session_id)
 
@@ -3956,14 +3972,27 @@ class AgentOSApplication:
         )
         return child
 
-    def close_session_and_stop_children(self, session_id: str) -> None:
+    def close_session_and_stop_children(
+        self,
+        session_id: str,
+        *,
+        stop_reason: str = CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
+        reason: str | None = None,
+    ) -> None:
         """Close a session and make sure no child outlives that closure.
 
         Every in-flight child is stopped first (the operator's own C7
         correction on the child's task, which the broker and the child's loop
-        both honour), recorded as ``parent_session_closed``, and its child
-        session closed when it has no pending approval. The parent session is
-        closed last, so the closure never leaves a running child behind it.
+        both honour), recorded with ``stop_reason``, and its child session
+        closed when it has no pending approval. The parent session is closed
+        last, so the closure never leaves a running child behind it.
+
+        ``stop_reason`` selects why the durable child terminal record names the
+        stop. The internal, non-operator closure of a session (daemon teardown)
+        uses :data:`CHILD_AGENT_STOP_REASON_PARENT_CLOSED`; the operator's
+        explicit "close session" action (G10) uses the operator-named
+        :data:`STOP_REASON_STOPPED_BY_OPERATOR`, because a human deliberately
+        closed the parent.
         """
 
         actor = self.principal
@@ -3971,11 +4000,12 @@ class AgentOSApplication:
             raise PermissionError("closing a session requires principal authority")
         task_id = self.surface_task_for_session(session_id)
         index = self.child_agent_index()
+        cascade_reason = reason or f"parent session {session_id} was closed"
         for child in index.in_flight_children(task_id):
             self.stop_child_agent(
                 child.child_session_id,
-                reason=f"parent session {session_id} was closed",
-                stop_reason=CHILD_AGENT_STOP_REASON_PARENT_CLOSED,
+                reason=cascade_reason,
+                stop_reason=stop_reason,
             )
             try:
                 self.tasks.close_session(child.child_task_id, child.child_session_id)
@@ -3984,6 +4014,109 @@ class AgentOSApplication:
                 # only a human APPROVE/REJECT may resolve it.
                 pass
         self.tasks.close_session(task_id, session_id)
+
+    def surface_close_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        """Operator-explicit close of a session, cascading to its children.
+
+        This is the operator's durable "close this session" action (G10): it is
+        distinct from a resumable pause/Ctrl-X, and it closes the parent only
+        after every in-flight child has been stopped. Each child's durable
+        terminal record is named ``stopped_by_operator`` - the operator
+        deliberately closed the parent that owned them - never
+        ``parent_session_closed`` (that reason names a non-operator teardown).
+
+        It never approves, widens or retries anything; a parked child approval
+        stays open on purpose (only a human APPROVE/REJECT resolves it), and
+        the parent session close refuses if the parent itself holds a pending
+        approval.
+        """
+
+        self.close_session_and_stop_children(
+            command.session_id,
+            stop_reason=STOP_REASON_STOPPED_BY_OPERATOR,
+            reason=command.reason,
+        )
+        return self.surface_session_snapshot(command.session_id)
+
+    # ------------------------------------------------------------------
+    # Append-only session checkpoints (P0 forward form): write a named marker,
+    # then recover by re-projecting the stream FORWARD from it. No history is
+    # deleted or rewritten.
+    # ------------------------------------------------------------------
+
+    def _checkpoint_state(self, task_id: str, session_id: str):
+        aggregate = self.tasks.get_task(task_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        events = self.store.read(task_id)
+        last_type = events[-1].event_type.value if events else None
+        return aggregate, projected, last_type
+
+    def surface_write_checkpoint(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot:
+        """Write an operator-named, append-only checkpoint marker.
+
+        The marker references the current durable sequence and a digest of the
+        projected state. It never copies state and never rewrites history.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("writing a checkpoint requires principal authority")
+        task_id = self.surface_task_for_session(command.session_id)
+        aggregate, projected, last_type = self._checkpoint_state(
+            task_id, command.session_id
+        )
+        from agent_os_core.session_checkpoint import project_state_digest
+
+        digest = project_state_digest(projected.next_message_index, last_type)
+        open_turn = self.surface_open_turn_id(command.session_id)
+        self.tasks.record_session_checkpoint(
+            task_id,
+            session_id=command.session_id,
+            run_id=aggregate.run.run_id,
+            turn_id=open_turn,
+            label=command.reason,
+            state_digest=digest,
+        )
+        return self.surface_session_snapshot(command.session_id)
+
+    def surface_list_checkpoints(self, session_id: str) -> list[dict[str, object]]:
+        task_id = self.surface_task_for_session(session_id)
+        from agent_os_core.session_checkpoint import list_checkpoints
+
+        return [
+            {
+                "sequence": cp.sequence,
+                "turn_id": cp.turn_id,
+                "label": cp.label,
+                "state_digest": cp.state_digest,
+            }
+            for cp in list_checkpoints(self.store, task_id)
+        ]
+
+    def surface_replay_checkpoint(
+        self, session_id: str, from_sequence: int
+    ) -> dict[str, object]:
+        """Re-project the stream FORWARD from ``from_sequence`` (crash recovery).
+
+        This reconstructs the session state purely from durable events, which is
+        what a fresh process does after a crash: it never rewinds or deletes.
+        """
+
+        task_id = self.surface_task_for_session(session_id)
+        from agent_os_core.session_checkpoint import replay_forward
+
+        replay = replay_forward(self.store, task_id, from_sequence)
+        return {
+            "from_sequence": replay.from_sequence,
+            "event_count": replay.event_count,
+            "message_count": replay.message_count,
+            "last_event_type": replay.last_event_type,
+            "turn_ids_seen": list(replay.turn_ids_seen),
+        }
 
     def _child_agents_response(
         self,

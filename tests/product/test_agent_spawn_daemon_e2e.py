@@ -958,3 +958,120 @@ def test_daemon_operator_can_stop_one_in_flight_child_over_surface(
         if daemon is not None:
             daemon.stop()
         provider.close()
+
+
+# ---------------------------------------------------------------------------
+# Scenario 6 (G10): the operator's explicit "close session" over the HTTP
+# surface stops the in-flight child durably as stopped_by_operator and closes
+# the parent. Distinct from a resumable pause.
+# ---------------------------------------------------------------------------
+
+
+def test_daemon_operator_close_cascades_to_in_flight_child(tmp_path: Path) -> None:
+    root = workspace(tmp_path)
+    provider = ProviderStub()
+    daemon: Daemon | None = None
+    try:
+        daemon = start_daemon(
+            tmp_path,
+            root,
+            provider,
+            [
+                {
+                    "text": "",
+                    "tool_calls": [
+                        spawn_call(
+                            {
+                                "prompt": "edit the fixture",
+                                "description": "child that needs a write",
+                                "agent_type": "general",
+                            }
+                        )
+                    ],
+                },
+                {
+                    "text": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-edit",
+                            "name": "workspace__edit",
+                            "arguments": {
+                                "path": "fixture.txt",
+                                "old_string": "stable\n",
+                                "new_string": "changed\n",
+                            },
+                        }
+                    ],
+                },
+                {"text": "parent finished"},
+            ],
+            index=6,
+        )
+        client = SurfaceClient(load_runtime_descriptor(daemon.descriptor_path))
+        opened = client.open_session("parent statement")
+        parent_id = opened.session.session_id
+        set_accept_in_workspace(daemon, client, parent_id)
+        turn = client.run_turn(parent_id, "spawn a child that edits")
+        assert turn.stop_reason == "completed", turn.text
+
+        database = tmp_path / "agent-os.sqlite3"
+        spawns = child_spawn_records(database, opened.session.task_id)
+        assert len(spawns) == 1
+        child_session_id = spawns[0]["child_session_id"]
+        # The child parks on its own approval prompt: it is in-flight.
+        assert client.get_session(child_session_id).status is SurfaceSessionStatus.WAITING_APPROVAL
+
+        # The operator explicitly closes the parent over the surface route. The
+        # control command binds the exact durable sequence, so read it first (the
+        # run already appended many events) rather than guessing 0.
+        current = client.get_session(parent_id)
+        close = post_json(
+            daemon,
+            f"/v1/surface/sessions/{parent_id}/close",
+            {
+                "protocol_version": "1.1",
+                "client": {
+                    "client_id": "tui-1",
+                    "client_type": "CLI",
+                    "principal_id": "user:local",
+                    "tenant_id": "tenant:local",
+                    "workspace_id": "workspace:local",
+                    "device_id": "device:local",
+                },
+                "session_id": parent_id,
+                "reason": "operator closes the session",
+                "expected_event_sequence": current.event_sequence,
+                "idempotency_key": "idem:close:1",
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        assert close["snapshot"]["status"] == "CLOSED"
+
+        # The in-flight child durably finished as stopped_by_operator, and the
+        # parent wrote SESSION_CLOSED.
+        def child_stopped() -> bool:
+            finishes = [
+                payload
+                for event_type, payload in durable_events(
+                    database, opened.session.task_id
+                )
+                if event_type == "CHILD_AGENT_FINISHED"
+            ]
+            return bool(
+                finishes
+                and finishes[-1]["spawn_id"] == spawns[0]["spawn_id"]
+                and finishes[-1]["status"] == "stopped"
+                and finishes[-1]["stop_reason"] == "stopped_by_operator"
+            )
+
+        assert wait_for(child_stopped, timeout=10.0), (
+            "the in-flight child did not finish as stopped_by_operator"
+        )
+        parent_events = durable_events(database, opened.session.task_id)
+        assert any(
+            event_type == "SESSION_CLOSED" for event_type, _ in parent_events
+        )
+    finally:
+        if daemon is not None:
+            daemon.stop()
+        provider.close()

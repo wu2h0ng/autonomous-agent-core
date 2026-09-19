@@ -463,6 +463,9 @@ class TaskAggregate:
             TaskEventType.CHILD_AGENT_SPAWNED,
             TaskEventType.CHILD_AGENT_FINISHED,
             TaskEventType.CHILD_AGENT_RECONCILED,
+            # Append-only session checkpoint marker: a durable reference into the
+            # stream, not a parent state transition.
+            TaskEventType.SESSION_CHECKPOINT_RECORDED,
         }:
             # Chat-turn audit markers carry no aggregate state transition.
             return replace(

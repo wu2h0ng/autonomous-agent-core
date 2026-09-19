@@ -133,6 +133,10 @@ class SurfaceApplicationPort(Protocol):
         self, command: SurfaceCorrectionCommand
     ) -> SurfaceSessionSnapshot: ...
 
+    def surface_close_session(
+        self, command: SurfaceCorrectionCommand
+    ) -> SurfaceSessionSnapshot: ...
+
     def surface_set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand
     ) -> SurfaceSessionSnapshot: ...
@@ -379,6 +383,21 @@ class SurfaceRuntime:
             command,
             f"surface:correct:{command.session_id}",
             self._application.surface_correct_session,
+        )
+
+    def close(self, command: SurfaceCorrectionCommand) -> SurfaceSessionSnapshot:
+        """Operator-explicit close of a session, cascading to its children.
+
+        Distinct from a resumable pause/Ctrl-X: this closes the parent only
+        after every in-flight child is stopped, and the children's durable
+        terminal records are named ``stopped_by_operator``. Idempotent gates
+        are the same as every other control command (protocol, principal
+        scope, exact durable sequence, open session).
+        """
+        return self._control_command(
+            command,
+            f"surface:close:{command.session_id}",
+            self._application.surface_close_session,
         )
 
     def child_agents(self, session_id: str) -> SurfaceChildAgentsResponse:
