@@ -239,6 +239,30 @@ from ._action_outcome import (
     ExecutionLease,
     ExecutionLeaseConflict,
 )
+from .typed_hooks import (
+    DEFAULT_HOOK_TIMEOUT_SECONDS,
+    HOOKS_DISABLED_ENV,
+    HookConfigurationError,
+    HookDispatcher,
+    HookRegistry,
+    HookSnapshot,
+    hooks_globally_disabled,
+)
+from .mcp_client import (
+    McpCapabilityAdapter,
+    McpClientError,
+    McpStdioClient,
+    McpTierRequiresApproval,
+    build_restricted_env,
+    classify_tool_tier,
+)
+from .skills_registry import (
+    SKILLS_DISABLED_ENV,
+    SkillRegistry,
+    SkillRegistryError,
+    StubSkillRunner,
+    skills_globally_disabled,
+)
 from .agent_context import (
     AgentsMarkdownContext,
     agent_context_status_payload,
@@ -776,6 +800,24 @@ __all__ = [
     "provider_log_path",
     "TurnTraceNotFoundError",
     "build_turn_trace",
+    "DEFAULT_HOOK_TIMEOUT_SECONDS",
+    "HOOKS_DISABLED_ENV",
+    "HookConfigurationError",
+    "HookDispatcher",
+    "HookRegistry",
+    "HookSnapshot",
+    "hooks_globally_disabled",
+    "McpCapabilityAdapter",
+    "McpClientError",
+    "McpStdioClient",
+    "McpTierRequiresApproval",
+    "build_restricted_env",
+    "classify_tool_tier",
+    "SKILLS_DISABLED_ENV",
+    "SkillRegistry",
+    "SkillRegistryError",
+    "StubSkillRunner",
+    "skills_globally_disabled",
 
 
 ]
