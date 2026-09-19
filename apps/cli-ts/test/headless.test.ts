@@ -52,6 +52,12 @@ class StubClient {
    * `sequence > after_sequence`, so this is the session history the client
    * replays into its transcript. */
   history: StubEvent[] = [];
+  /** Whether a turn has actually begun. The kernel only emits this turn's
+   * durable records (denials + SESSION_TURN_COMPLETED) once a turn is underway;
+   * an attach (/resume) drains history BEFORE any turn runs, so its pre-read
+   * must see only the pre-existing history. Emitting the current turn's records
+   * on that pre-read spent them before the real drainDurable could apply them. */
+  private turnBegan = false;
 
   /** Highest durable sequence already written (the snapshot's
    * `event_sequence` on a live daemon is the task aggregate's sequence). A
@@ -97,6 +103,7 @@ class StubClient {
     return { protocol_version: "1.1", runtime_boot_id: "boot:1", stream_id: "stream:1" };
   }
   async beginTurn() {
+    this.turnBegan = true;
     return { protocol_version: "1.1", turn_id: "turn:1", stream_id: "stream:1" };
   }
   async *followStream(): AsyncIterable<SurfaceStreamFrame> {
@@ -145,7 +152,7 @@ class StubClient {
         occurred_at: new Date().toISOString(),
         sequence: seq,
       });
-    } else if (this.tokens > 0) {
+    } else if (this.turnBegan && this.tokens > 0) {
       const tokens = this.tokens;
       this.tokens = 0;
       // A refusal is recorded durably BEFORE the turn completes (the kernel

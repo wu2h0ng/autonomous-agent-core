@@ -308,6 +308,15 @@ class SurfaceRoutes:
                 self._respond(
                     handler, 404, {"error": "surface_route_not_found"}
                 )
+                return
+            # Any method/path none of the leaf matchers above accepted --
+            # including a GET with a trailing slash like
+            # ``/v1/surface/sessions/{id}/trace/`` -- must end in a well-formed
+            # 404. Falling out of the try block without responding drops the
+            # connection (an empty status line / RemoteDisconnected) instead.
+            self._respond(
+                handler, 404, {"error": "surface_route_not_found"}
+            )
 
         except Exception as exc:
             self._respond(

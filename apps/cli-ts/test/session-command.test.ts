@@ -389,7 +389,7 @@ test("session recover names the durable turn and closes it as an unknown outcome
         status: 200,
         json: {
           recovery: {
-            protocol_version: "1.1",
+            protocol_version: "1.2",
             snapshot: snapshot("s:1"),
             recovery: {
               turn_id: "turn:dead",
