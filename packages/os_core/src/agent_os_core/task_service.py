@@ -2355,7 +2355,11 @@ class TaskService:
                 break
         allowed: dict[RunStatus, set[RunStatus]] = {
             RunStatus.CREATED: {RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLED},
-            RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.QUEUED: {
+                RunStatus.RUNNING,
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            },
             RunStatus.RUNNING: {RunStatus.RUNNING, RunStatus.WAITING_APPROVAL, RunStatus.WAITING_EVENT, RunStatus.PAUSED, RunStatus.VERIFYING, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED},
             RunStatus.WAITING_APPROVAL: {RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.CANCELLED, RunStatus.FAILED},
             RunStatus.WAITING_EVENT: {RunStatus.PAUSED, RunStatus.CANCELLED, RunStatus.FAILED},

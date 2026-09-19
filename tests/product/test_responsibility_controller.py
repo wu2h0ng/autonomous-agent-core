@@ -1756,6 +1756,65 @@ def test_precise_selfdev_provider_failure_after_edit_fails_and_compensates(
     assert owner.tasks.current_outcome(task_id) is None
 
 
+def test_precise_selfdev_provider_failure_before_first_edit_fails_queued_run(
+    tmp_path: Path,
+) -> None:
+    isolated, branch, head = _linked_worktree(tmp_path)
+    relative = "packages/os_core/src/agent_os_core/selfdev_fixture.py"
+    spec = SelfDevelopmentWorkSpec(
+        repository_head=head,
+        isolated_branch=branch,
+        target_path=relative,
+        edit_mode="agent_loop_precise",
+        verifier_command="pytest",
+    )
+    database, owner, admin, task_id, _ = _verified_responsibility(
+        isolated,
+        workflow=_selfdev_agent_loop_workflow(),
+        work_route=ResponsibilityWorkRoute.SELFDEV,
+        selfdev_spec=spec,
+    )
+    owner.provider = DeterministicProvider(
+        invocation_binding=owner.provider.invocation_binding,
+    )
+
+    def fail_first_request(request):
+        return ProviderFailure(
+            failure_id="failure:before-first-edit",
+            request_id=request.request_id,
+            code=ProviderErrorCode.AUTHENTICATION_FAILED,
+            retryable=False,
+            safe_message="provider authentication failed",
+            occurred_at=NOW,
+        )
+
+    owner.provider.complete = fail_first_request  # type: ignore[method-assign]
+    attach_mandate(
+        workspace=isolated,
+        database=database,
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-report:v1",
+        principal_id=owner.principal.principal_id,
+        tenant_id=owner.principal.tenant_id,
+        workspace_id=owner.principal.workspace_id,
+        evaluated_at=NOW,
+    )
+
+    run_responsibility_work(
+        app=admin,
+        execution_app=owner,
+        workspace=isolated,
+        database=database,
+        inputs={},
+        resume=False,
+    )
+
+    aggregate = owner.tasks.get_task(task_id)
+    assert aggregate.run is not None
+    assert aggregate.run.status is RunStatus.FAILED
+    assert owner.tasks.current_outcome(task_id) is None
+
+
 def test_selfdev_verifier_cannot_write_original_operational_state(
     tmp_path: Path,
 ) -> None:
