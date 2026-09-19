@@ -57,7 +57,11 @@ def test_surface_and_dispatchable_sets_are_read_from_the_product(
     measurement: HorizonMeasurement,
 ) -> None:
     assert measurement.surface == tuple(CHAT_CAPABILITY_IDS)
-    assert len(measurement.surface) == 7
+    # Re-based 7 -> 8 on the child-agent frame-gates branch: ``agent.spawn`` was added to
+    # CHAT_CAPABILITY_IDS (it is advertised only when AGENT_OS_CHILD_AGENTS is on; an
+    # unadvertised proposal still fails closed as out_of_allowlist). The count is a tripwire,
+    # so a legitimate widening is recorded here rather than left stale.
+    assert len(measurement.surface) == 8
     # A registered, dispatchable capability that chat turns may not propose:
     # this is the gap the probes measure against.
     assert OFF_SURFACE_REGISTERED_PROBE in measurement.dispatchable
