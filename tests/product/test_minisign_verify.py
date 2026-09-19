@@ -22,6 +22,23 @@ from agent_os_core.distribution.minisign_verify import (
     SignatureVerificationError,
 )
 
+# cryptography is an optional test-time extra (product-test). The verifier
+# imports it lazily inside methods, so the import above always succeeds. Probe
+# it directly and skip the whole module via pytestmark when absent. NOT
+# pytest.importorskip (which would hide the module from --collect-only and
+# trip the governed file-set gate). Same pattern as
+# tests/product/test_signature_verify_scaffold.py.
+try:
+    import cryptography  # noqa: F401
+    _HAS_CRYPTOGRAPHY = True
+except ImportError:
+    _HAS_CRYPTOGRAPHY = False
+
+pytestmark = pytest.mark.skipif(
+    not _HAS_CRYPTOGRAPHY,
+    reason="cryptography not installed (optional test-time extra; minisign verifier only)",
+)
+
 
 # Frozen known-answer vector (DEVELOPMENT ONLY; seed = bytes(range(32))).
 _FROZEN_PUB_B64 = "RWRURVNUS0VZMAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4"
