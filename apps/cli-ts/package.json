@@ -43,6 +43,8 @@
     "check:stop": "uv run python scripts/pty_stop_key_check.py",
     "check:resume": "uv run python scripts/pty_resume_check.py",
     "check:deny": "uv run python scripts/pty_deny_frame_check.py",
+    "check:frames": "node scripts/pty-ci.mjs --all",
+    "check:frames:ci": "node scripts/pty-ci.mjs",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
   },

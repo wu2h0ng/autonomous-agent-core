@@ -17,6 +17,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -85,7 +86,7 @@ def kill(pid: int) -> None:
         pass
 
 
-def main() -> None:
+def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="parity-b-"))
     descriptor = tmp / "r.json"
     workspace = tmp / "ws"
@@ -98,7 +99,7 @@ def main() -> None:
 
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),
@@ -172,16 +173,21 @@ def main() -> None:
         # the markdown path. It does NOT verify markdown formatting itself.
         md_ok = "deterministicreply" in flat_alpha("".join(frames))
         print("MARKDOWN_RENDER_PATH_OK (smoke, not a formatting test):", md_ok)
-        print("SLICE_B_ALL_SIGNALS_VERIFIED:", mention_ok and hist_ok and md_ok)
+        ok = mention_ok and hist_ok and md_ok
+        print("SLICE_B_ALL_SIGNALS_VERIFIED:", ok)
         # Evidence methodology note: observing a COMPOSER change is unreliable
         # under cell diffing; observing NEW transcript content (a submitted
         # message, a reply) is reliable. This script only asserts the latter.
-        if not (mention_ok and hist_ok and md_ok):
+        # The verdict is also the EXIT STATUS: "do not claim verification" in a
+        # log line is not a gate, and CI reads the exit code.
+        if not ok:
             print("NOT ALL SLICE-B SIGNALS OBSERVED - do not claim verification.")
+            return 1
+        return 0
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

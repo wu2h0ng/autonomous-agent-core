@@ -34,6 +34,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
@@ -108,7 +109,7 @@ def main() -> int:
     workspace.mkdir()
     daemon = subprocess.Popen(
         [
-            "uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+            sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
             "--descriptor", str(descriptor),
             "--database", str(tmp / "a.sqlite3"),
             "--workspace", str(workspace),
@@ -228,7 +229,14 @@ def main() -> int:
         signals["VIM_SHIFT_I_AT_LINE_START"] = "phello" in shift_i
         print("VIM_SHIFT_I_AT_LINE_START:", signals["VIM_SHIFT_I_AT_LINE_START"])
 
-        # Ctrl-C in normal mode must still exit the process.
+        # Ctrl-C in normal mode must still exit the process. Measured on the
+        # PROCESS (waitpid), not on a write to the pty master. "The write now
+        # raises EIO" is a driver-level side effect, not the claim, and it is
+        # where this signal was first measured False: on the Linux runner the
+        # pty accepted the writes after Ctrl-C. Whether that means the process
+        # stayed alive or only that the driver kept accepting writes cannot be
+        # told from a proxy, so the process itself is what decides -- that is
+        # both the stronger and the portable measurement.
         pid3, fd3 = spawn(descriptor)
         read(fd3, 4)
         wait_ready(fd3)
@@ -242,17 +250,24 @@ def main() -> int:
         time.sleep(0.8)
         read(fd3, 0.5)
         exited = False
-        try:
-            os.write(fd3, b"\x03")
-            time.sleep(1.5)
-            os.write(fd3, b"x")        # EIO once the process is gone
-            time.sleep(0.4)
-            os.write(fd3, b"y")
-        except OSError:
-            exited = True
+        os.write(fd3, b"\x03")
+        deadline = time.time() + 6.0
+        while time.time() < deadline:
+            waited, _status = os.waitpid(pid3, os.WNOHANG)
+            if waited == pid3:
+                exited = True
+                break
+            time.sleep(0.2)
         signals["CTRL_C_EXITS_IN_NORMAL_MODE"] = exited
         print("CTRL_C_EXITS_IN_NORMAL_MODE:", exited)
         kill(pid3)
+        # Reap a child that was still alive: kill() only sends the signal, and an
+        # unreaped child would be collected by whichever waitpid runs next.
+        if not exited:
+            try:
+                os.waitpid(pid3, 0)
+            except ChildProcessError:
+                pass
     finally:
         daemon.terminate()
         shutil.rmtree(tmp, ignore_errors=True)

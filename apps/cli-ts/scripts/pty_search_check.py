@@ -30,7 +30,10 @@ import termios
 import time
 from pathlib import Path
 
-HERE = Path("/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/os-sandbox/apps/cli-ts/scripts")
+# Located, not hard-coded: the absolute path into the author's `os-sandbox`
+# worktree that used to be here made this check drive THAT tree from any other
+# checkout and made it unrunnable anywhere else (CI included).
+HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from frame_reader import Screen  # noqa: E402
 
@@ -43,7 +46,7 @@ desc = tmp / "r.json"
 ws = tmp / "ws"
 ws.mkdir()
 daemon = subprocess.Popen(
-    ["uv", "run", "python", "apps/cli-ts/scripts/dev_daemon.py",
+    [sys.executable, "apps/cli-ts/scripts/dev_daemon.py",
      "--descriptor", str(desc), "--database", str(tmp / "a.sqlite3"), "--workspace", str(ws)],
     cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 for _ in range(60):

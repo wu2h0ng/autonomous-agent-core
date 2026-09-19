@@ -59,7 +59,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-HERE = Path("/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/os-sandbox/apps/cli-ts/scripts")
+# Located, not hard-coded: the absolute path into the author's `os-sandbox`
+# worktree that used to be here made this check drive THAT tree from any other
+# checkout and made it unrunnable anywhere else (CI included).
+HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from frame_reader import Screen  # noqa: E402
 
@@ -169,7 +172,7 @@ class Daemon:
         self._log = open(self.log_path, "wb")  # noqa: SIM115 - closed in stop()
         self.proc = subprocess.Popen(
             [
-                "uv", "run", "python",
+                sys.executable,
                 str(REPO_ROOT / "apps" / "cli-ts" / "scripts" / "dev_daemon.py"),
                 "--descriptor", str(self.desc),
                 "--database", str(tmp / f"{name}.sqlite3"),

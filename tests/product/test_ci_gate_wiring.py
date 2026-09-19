@@ -46,6 +46,15 @@ own wall clock. Finally, the product gate's own breadth can shrink without
 failing it: skipped tests are still *collected*, so neither the floor nor the
 file-set gate notices them, and the run was ``-q`` with no ``-rs``, so the skip
 reasons never reached the log. The skip count and its bound are asserted below.
+
+The same four questions are asked of the newest gate in the cli-ts job, the TUI
+frame checks (``npm run check:frames:ci`` -> ``scripts/pty-ci.mjs`` -> one bounded
+process per ``scripts/pty_*.py``), because that gate has one more failure mode
+than the others: it runs a SUBSET of the checks on disk by design (the ones that
+can fail), so "is it wired", "is the script it names real", "does the subset cover
+what it says" and "does its budget fit the job" are four different questions, and
+each is asserted separately below -- including the invariant that a check is only
+allowed to be a CI gate while it can actually exit non-zero.
 """
 
 from __future__ import annotations
@@ -540,6 +549,7 @@ def test_ci_gate_steps_are_not_softened() -> None:
         or _runs_cli_ts_tests(step)
         or _runs_cli_ts_typecheck(step)
         or _runs_cli_ts_install_smoke(step)
+        or _runs_cli_ts_frame_checks(step)
     ]
     assert gated, (
         f"CI gate MISSING: no gate step at all was found in {WORKFLOW_PATH} "
@@ -1505,5 +1515,414 @@ def test_cli_ts_entry_point_rejects_an_unbounded_deadline_override() -> None:
             f"(exit 0). An unbounded per-file deadline is how a hang turns into an anonymously "
             f"cancelled job, and a bound that any environment variable can move is not a "
             f"bound: the value must be rejected, not clamped. stdout: "
+            f"{result.stdout[-500:]!r} stderr: {result.stderr[-500:]!r}"
+        )
+
+
+# --- the cli-ts frame-check gate ----------------------------------------------------------------
+# The cli-ts job's node:test suite never opens a pty. The TUI's terminal-level claims -- key
+# handling, modal layers, the theme actually repainting, the composer invariants, the home panel,
+# search, syntax highlighting -- are established by scripts/pty_*.py, and until this gate was wired
+# NONE of those scripts ran in CI: the typecheck only reads types, the two render tests in the
+# node:test suite write into a pipe, and the install smoke drives the entry headlessly
+# (`--output-format json`). A rendering or key-handling regression could therefore ship with every
+# step green.
+#
+# The wiring is one hop longer again than test:ci's -- ci.yml -> package.json
+# `scripts["check:frames:ci"]` -> scripts/pty-ci.mjs -> one bounded process per check -- so each hop
+# is judged separately, and so is the CLASSIFICATION that keeps the coverage honest. The entry point
+# runs only the checks that can fail (each exits non-zero on a failed assertion) and must reject any
+# `scripts/pty_*.py` that nobody classified, so a new frame check cannot silently stay out of both
+# the CI set and the local `check:frames` set.
+FRAME_SCRIPTS_DIR = CLI_TS_ROOT / "scripts"
+FRAME_ENTRY_SCRIPT = "scripts/pty-ci.mjs"
+FRAME_CI_SCRIPT = "check:frames:ci"
+FRAME_LOCAL_SCRIPT = "check:frames"
+# What those two npm scripts must resolve to: the gate set, and the whole on-disk set.
+FRAME_CI_SCRIPT_VALUE = f"node {FRAME_ENTRY_SCRIPT}"
+FRAME_LOCAL_SCRIPT_VALUE = f"node {FRAME_ENTRY_SCRIPT} --all"
+# The step's own command. Env assignments in front are allowed (a deliberate budget change is a
+# review decision), but the invocation itself must be exactly this: `--all`, an extra `--` argument,
+# a `-k`-style filter, a file list or a different script would all change WHICH checks CI runs while
+# the step still looks present.
+_FRAME_CI_INVOCATION = re.compile(r"^(?:[A-Za-z_]\w*=\S*\s+)*npm\s+run\s+check:frames:ci$")
+# A path that can end the process non-zero: the property that separates a gate from a frame dump.
+_FRAME_EXIT_PATH = re.compile(r"\b(?:sys\.exit|SystemExit)\b")
+# The floor on the number of CI gates. Measured 11 gates / 15 checks on disk (2026-09-19) and the
+# largest single check is one file, so this notices a collapse rather than a deliberate retirement;
+# the disk/classification comparison and the exit-path invariant below are what notice the smaller
+# movements. Like FLOOR_MINIMUM above, it is a round bound and must not be re-tightened to the
+# measured count.
+FRAME_GATES_FLOOR = 10
+MAX_PTY_PER_CHECK_MS = 300_000
+
+
+def _runs_cli_ts_frame_checks(step: Step) -> bool:
+    """The TUI frame checks: the pty checks driven through scripts/pty-ci.mjs."""
+    if not _is_cli_ts_scoped(step):
+        return False
+    return bool(
+        re.search(r"\bnpm\s+run\s+check:frames:ci\b", step.command)
+        or re.search(r"\bpty-ci\.mjs\b", step.command)
+    )
+
+
+def _pty_checks_on_disk() -> list[str]:
+    """Every scripts/pty_*.py under apps/cli-ts/scripts, at any depth."""
+    return sorted(
+        f"scripts/{path.relative_to(FRAME_SCRIPTS_DIR).as_posix()}"
+        for path in FRAME_SCRIPTS_DIR.rglob("pty_*.py")
+        if path.is_file()
+    )
+
+
+def _frame_script_value(name: str) -> str:
+    value = _cli_ts_scripts().get(name)
+    assert isinstance(value, str) and value.strip(), (
+        f"CLI-TS FRAME GATE MISSING: {CLI_TS_PACKAGE} has no non-empty `scripts.{name}`. That "
+        f"script is the join between ci.yml and the entry point the assertions below judge, so "
+        f"without it the step runs nothing -- or, with --if-present, silently succeeds."
+    )
+    return value
+
+
+def _frame_entry_argv(name: str = FRAME_CI_SCRIPT) -> list[str]:
+    return shlex.split(_frame_script_value(name))
+
+
+def _frame_entry_plan(
+    name: str = FRAME_CI_SCRIPT,
+    *extra: str,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the frame-check entry point in `--list` mode: the real plan, without running checks."""
+    return subprocess.run(
+        [*_frame_entry_argv(name), *extra, "--list"],
+        cwd=CLI_TS_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, **(env or {})},
+    )
+
+
+def _frame_plan(
+    name: str = FRAME_CI_SCRIPT,
+    *extra: str,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    result = _frame_entry_plan(name, *extra, env=env)
+    assert result.returncode == 0, (
+        f"CLI-TS FRAME ENTRY POINT FAILED: `{_frame_entry_argv(name) + list(extra)} --list` exited "
+        f"{result.returncode}. stdout: {result.stdout[-2000:]!r} stderr: {result.stderr[-2000:]!r}"
+    )
+    return json.loads(result.stdout)
+
+
+def test_ci_workflow_still_runs_the_cli_ts_frame_checks() -> None:
+    """The pty frame checks must be a CI step, and the step must run the whole CI set."""
+    steps = _all_steps()
+    _assert_gate_runs(
+        steps,
+        f"{CLI_TS_GATE} (TUI frame checks)",
+        _runs_cli_ts_frame_checks,
+        "a step in the apps/cli-ts scope running `npm run check:frames:ci` "
+        "(`node scripts/pty-ci.mjs`, one bounded process per pty check). Without it the TUI's "
+        "only frame-level evidence -- key handling, modal layers, the theme repainting, the "
+        "composer invariants, the home panel, search, syntax highlighting -- is unenforced: no "
+        "other CI step opens a pty at all",
+    )
+    matches = [step for step in steps if _runs_cli_ts_frame_checks(step)]
+    assert len(matches) == 1, (
+        f"CI FRAME GATE DUPLICATED: {len(matches)} steps in {WORKFLOW_PATH} drive "
+        f"{FRAME_ENTRY_SCRIPT}: {[step.summary for step in matches]}. The suite has one budget "
+        f"and one set of deadlines; two steps would run the checks twice and each would still "
+        f"look normal."
+    )
+    step = matches[0]
+    lines = [line.strip() for line in step.command.splitlines() if line.strip()]
+    assert lines and _FRAME_CI_INVOCATION.fullmatch(lines[-1]), (
+        f"CI FRAME GATE NARROWED: {step.label} ends with "
+        f"{lines[-1] if lines else '<no command>'!r}, not "
+        f"`npm run check:frames:ci`. The step must run the checks the entry point's own CI set "
+        f"names -- not a subset, a single file or a second runner -- because the deadlines, the "
+        f"budget and the on-disk cross-check all belong to that entry point."
+    )
+
+
+def test_cli_ts_frame_check_scripts_are_wired_to_the_entry_point() -> None:
+    """Both frame-check scripts must point at the entry point, one CI set and one whole set."""
+    for name, expected in (
+        (FRAME_CI_SCRIPT, FRAME_CI_SCRIPT_VALUE),
+        (FRAME_LOCAL_SCRIPT, FRAME_LOCAL_SCRIPT_VALUE),
+    ):
+        value = _frame_script_value(name)
+        verbs = [
+            words[0].strip("\"'")
+            for statement in re.split(r"[;&|\n]+", value)
+            if (words := statement.strip().split())
+        ]
+        assert any(verb not in SILENT_VERBS for verb in verbs), (
+            f"CLI-TS FRAME GATE SILENT: `{name}` is {value!r}, built only out of "
+            f"{sorted(set(verbs))} -- commands that report success without running a check. "
+            f"`{FRAME_LOCAL_SCRIPT}` is how a developer runs the whole set and "
+            f"`{FRAME_CI_SCRIPT}` is what the cli-ts job runs; either one being a no-op leaves "
+            f"the frame layer unenforced while the step stays green."
+        )
+        assert value.strip() == expected, (
+            f"CLI-TS FRAME GATE MISWIRED: `{name}` is {value!r}, not {expected!r}. "
+            f"`{FRAME_LOCAL_SCRIPT}` must run the WHOLE on-disk set (`--all`) and "
+            f"`{FRAME_CI_SCRIPT}` must run the gate set: swapping them or adding arguments "
+            f"changes which checks CI executes without changing the step that looks present."
+        )
+    assert (CLI_TS_ROOT / FRAME_ENTRY_SCRIPT).is_file(), (
+        f"CLI-TS FRAME GATE DANGLING: both scripts run `{FRAME_ENTRY_SCRIPT}`, which does not "
+        f"exist under {CLI_TS_ROOT}."
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the frame-check entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_frame_checks_cover_every_check_on_disk() -> None:
+    """Every scripts/pty_*.py must be in the CI set or be a documented non-gate.
+
+    This is the assertion that keeps the coverage from staying partial: a check that lands on
+    disk unclassified (or classified and then deleted) is a frame claim nobody runs, and the
+    entry point refuses to run at all in that state.
+    """
+    ci = _frame_plan()
+    everything = _frame_plan(FRAME_CI_SCRIPT, "--all")
+    on_disk = _pty_checks_on_disk()
+    assert on_disk, (
+        f"CLI-TS FRAME DISK SCAN BROKEN: no scripts/pty_*.py found under {FRAME_SCRIPTS_DIR}, so "
+        f"the comparison below would be vacuous."
+    )
+    for plan, label in ((ci, FRAME_CI_SCRIPT), (everything, FRAME_LOCAL_SCRIPT)):
+        assert list(plan["allChecks"]) == on_disk, (
+            f"CLI-TS FRAME COVERAGE MISMATCH: `{label}` reports "
+            f"{len(list(plan['allChecks']))} checks where {len(on_disk)} scripts/pty_*.py exist. "
+            f"Only on disk: {sorted(set(on_disk) - set(plan['allChecks']))} | only in the plan: "
+            f"{sorted(set(plan['allChecks']) - set(on_disk))}."
+        )
+    assert everything["mode"] == "all" and list(everything["files"]) == on_disk, (
+        f"CLI-TS FRAME LOCAL SET INCOMPLETE: `npm run {FRAME_LOCAL_SCRIPT}` would run "
+        f"{list(everything['files'])} (mode {everything['mode']!r}) where the full set on disk is "
+        f"{on_disk}. The local entry point is the whole set by definition: it is where a check "
+        f"that cannot be a gate is still exercised."
+    )
+    assert ci["mode"] == "ci", (
+        f"CLI-TS FRAME CI SET UNMARKED: the CI plan reports mode {ci['mode']!r}, so the plan "
+        f"cannot be told apart from a whole-set run."
+    )
+    gates = list(ci["ciChecks"])
+    assert sorted(gates) == sorted(ci["files"]), (
+        f"CLI-TS FRAME CI SET DIVERGES: the step would run {sorted(ci['files'])} where the "
+        f"declared gate set is {sorted(gates)}."
+    )
+    evidence = list(ci["evidenceOnly"])
+    reasons = {entry["file"]: entry["why"] for entry in evidence}
+    assert len(reasons) == len(evidence), (
+        f"CLI-TS FRAME CLASSIFICATION REPEATED: {len(evidence)} entries but {len(reasons)} "
+        f"distinct files: {[entry['file'] for entry in evidence]}."
+    )
+    assert not (set(gates) & set(reasons)), (
+        f"CLI-TS FRAME CLASSIFICATION CONTRADICTORY: {sorted(set(gates) & set(reasons))} is "
+        f"listed both as a CI gate and as an evidence-only check."
+    )
+    assert sorted(set(gates) | set(reasons)) == on_disk, (
+        f"CLI-TS FRAME CLASSIFICATION INCOMPLETE: gates + evidence-only = "
+        f"{sorted(set(gates) | set(reasons))} where the checks on disk are {on_disk}. A check in "
+        f"neither list is run by no entry point (`check:frames` is the whole set); a check in "
+        f"both would have to be a gate and not a gate."
+    )
+    for file, why in reasons.items():
+        assert file in on_disk, (
+            f"CLI-TS FRAME CLASSIFICATION DANGLING: {file} is classified as evidence-only but is "
+            f"not a script on disk."
+        )
+        assert isinstance(why, str) and len(why.split()) >= 8, (
+            f"CLI-TS FRAME EXCLUSION UNREASONED: {file} is kept out of CI with {why!r}. The "
+            f"reason is the record that says why this TUI claim is not enforced; write what the "
+            f"check prints and what it lacks (a verdict, an exit path, env-gated instrumentation)."
+        )
+    assert ci["fileCount"] == len(gates) == len(list(ci["files"])) >= FRAME_GATES_FLOOR, (
+        f"CLI-TS FRAME GATE SET TOO SMALL: the CI set is {len(gates)} checks "
+        f"(fileCount {ci['fileCount']}), below the floor of {FRAME_GATES_FLOOR}. Measured 11 "
+        f"gates / 15 checks on disk (2026-09-19); the largest single check is one file, so a set "
+        f"this small means checks were deleted or downgraded rather than retired in review."
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the frame-check entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_frame_check_classification_matches_its_exit_path() -> None:
+    """A gate must be able to fail; an evidence-only check must not be able to.
+
+    The classification above is only worth something while it says something true about the
+    scripts. A check listed as a gate that has no `sys.exit`/`SystemExit` path cannot go red, so
+    the step looks enforced while the claim is not -- and the mirror case is a check filed as
+    evidence-only which HAS gained a verdict, i.e. a gate kept out of CI for no reason.
+    """
+    plan = _frame_plan()
+    gates = list(plan["ciChecks"])
+    evidence = list(plan["evidenceOnly"])
+    assert gates and evidence, (
+        f"CLI-TS FRAME CLASSIFICATION VACUOUS: {len(gates)} gates and {len(evidence)} "
+        f"evidence-only checks, so the invariant below would only be half-checked."
+    )
+    for file in gates:
+        path = CLI_TS_ROOT / file
+        assert path.is_file(), f"CLI-TS FRAME GATE DANGLING: {file} is not a file under {CLI_TS_ROOT}."
+        source = path.read_text(encoding="utf-8")
+        assert _FRAME_EXIT_PATH.search(source), (
+            f"FRAME GATE CANNOT FAIL: {file} is in the CI gate set but has no `sys.exit`/"
+            f"`SystemExit` path, so the cli-ts step stays green through the very regression this "
+            f"check is supposed to catch. Give it a verdict that changes the exit status, or move "
+            f"it to the evidence-only list with its reason."
+        )
+    for entry in evidence:
+        file = entry["file"]
+        path = CLI_TS_ROOT / file
+        assert path.is_file(), (
+            f"CLI-TS FRAME CLASSIFICATION DANGLING: {file} is not a file under {CLI_TS_ROOT}."
+        )
+        source = path.read_text(encoding="utf-8")
+        assert not _FRAME_EXIT_PATH.search(source), (
+            f"FRAME CHECK MISCLASSIFIED: {file} is listed as evidence-only ({entry['why']!r}) but "
+            f"its source has an exit path, so it CAN fail a run. Move it into the CI gate set and "
+            f"drop the reason: leaving a working check out of CI is how the frame layer stays "
+            f"partly unenforced after someone takes the trouble to fix it."
+        )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the frame-check entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_frame_check_deadlines_stay_inside_the_job() -> None:
+    """The frame suite's worst case, plus test:ci's, must fit the cli-ts job with a reserve.
+
+    The frame checks are the third thing in this job that can hang, after the node:test suite and
+    the install smoke. Their deadlines decide how long the runner is busy, so they have to fit
+    inside the bound that is supposed to end the job -- with room left for the install, the
+    typecheck and the install smoke, which is the reserve test:ci's own budget is already held to.
+    """
+    job_minutes = _assert_job_timeout(
+        "cli-ts",
+        30,
+        "It runs the frame-check suite through per-check deadlines, so this job's bound is the "
+        "wall clock those deadlines have to fit inside, next to test:ci's own budget.",
+    )
+    job_ms = job_minutes * 60_000
+    test_ci_budget = int(json.loads(_cli_ts_entry_plan().stdout)["suiteBudgetMs"])
+    plan = _frame_plan()
+    file_count = int(plan["fileCount"])
+    per_check = int(plan["perCheckTimeoutMs"])
+    budget = int(plan["suiteBudgetMs"])
+    worst_case = int(plan["worstCaseSuiteMs"])
+
+    assert file_count == len(list(plan["files"])) > 0, (
+        f"CLI-TS FRAME PLAN INCONSISTENT: the entry point reports fileCount={file_count} for "
+        f"{len(list(plan['files']))} checks."
+    )
+    assert 0 < per_check <= MAX_PTY_PER_CHECK_MS, (
+        f"CLI-TS FRAME PER-CHECK DEADLINE UNBOUNDED: the entry point would give each frame check "
+        f"{per_check} ms, above the {MAX_PTY_PER_CHECK_MS} ms this guard allows. Every check that "
+        f"hangs is given that long, so the deadline bounds how long a broken run may take before "
+        f"the suite budget stops it."
+    )
+    assert per_check <= budget, (
+        f"CLI-TS FRAME PER-CHECK DEADLINE OUTLIVES THE SUITE: one check may run for {per_check} ms "
+        f"inside a {budget} ms suite budget, so a single hanging check consumes the whole suite's "
+        f"allowance and no other check's failure can be attributed."
+    )
+    assert worst_case == min(file_count * per_check, budget), (
+        f"CLI-TS FRAME PLAN INCONSISTENT: the entry point reports a worst case of {worst_case} ms "
+        f"for {file_count} checks x {per_check} ms inside a {budget} ms budget. The worst case is "
+        f"what this guard compares against the job, so it must be the product of the two, capped "
+        f"by the budget the run actually enforces."
+    )
+    assert worst_case <= budget < job_ms, (
+        f"CLI-TS FRAME DEADLINES OUTGROW THE JOB: the frame suite's worst case is {worst_case} ms "
+        f"inside a {budget} ms budget and the cli-ts job's own bound is {job_ms} ms "
+        f"(timeout-minutes: {job_minutes}). Hung checks would still end as an anonymous "
+        f"cancellation at the job limit."
+    )
+    assert budget + test_ci_budget + CLI_TS_JOB_RESERVE_MS <= job_ms, (
+        f"CLI-TS FRAME SUITE BUDGET OUTGROWS THE JOB: the frame suite budgets {budget} ms and "
+        f"test:ci already claims {test_ci_budget} ms inside the cli-ts job's {job_ms} ms "
+        f"(timeout-minutes: {job_minutes}), leaving {job_ms - budget - test_ci_budget} ms for the "
+        f"install, typecheck and install-smoke steps. Those need at least {CLI_TS_JOB_RESERVE_MS} "
+        f"ms; lower a suite budget or raise the job's timeout-minutes deliberately, in review."
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the frame-check entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_frame_check_suite_budget_is_enforced_and_reported() -> None:
+    """The frame budget must be ENFORCED, and a check that never ran must not count as a pass.
+
+    Everything above judges the numbers the entry point reports about itself; this one drives it.
+    With a 1 ms budget the loop has no time left before its first check, so a correct entry point
+    runs nothing, names every check as never-run, and exits non-zero -- there is no way to report
+    success for a suite it did not run.
+    """
+    result = subprocess.run(
+        _frame_entry_argv(),
+        cwd=CLI_TS_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "PTY_SUITE_BUDGET_MS": "1"},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, (
+        f"CLI-TS FRAME BUDGET IGNORED: the frame entry point exited 0 with a 1 ms suite budget, so "
+        f"the budget does not stop the run -- or a suite that ran out of budget is reported as "
+        f"success. Output: {output[-1500:]!r}"
+    )
+    assert "NOT RUN" in output, (
+        f"CLI-TS FRAME BUDGET UNREPORTED: the entry point burned through its 1 ms budget without "
+        f"naming the checks it never reached, so a truncated run is indistinguishable from a full "
+        f"one to whoever reads the log. Output: {output[-1500:]!r}"
+    )
+    assert "all frame checks passed" not in output, (
+        f"CLI-TS FRAME BUDGET IGNORED: the entry point printed 'all frame checks passed' with a "
+        f"1 ms budget and checks it never ran. Output: {output[-1500:]!r}"
+    )
+
+
+@pytest.mark.skipif(
+    _NODE is None,
+    reason="needs node to execute the frame-check entry point; the cli-ts job runs the same script",
+)
+def test_cli_ts_frame_check_entry_point_rejects_an_unbounded_deadline() -> None:
+    """PTY_CHECK_TIMEOUT_MS / PTY_SUITE_BUDGET_MS must be rejected, not clamped.
+
+    The same rule as test:ci's knobs, and one more case: a budget above the ceiling the job can
+    afford (the reserve the assertion above computes) must be rejected too, or an environment
+    variable could move the bound the wiring test just proved.
+    """
+    for name, value in (
+        ("PTY_CHECK_TIMEOUT_MS", "999999999"),
+        ("PTY_CHECK_TIMEOUT_MS", "0"),
+        ("PTY_CHECK_TIMEOUT_MS", "-1"),
+        ("PTY_CHECK_TIMEOUT_MS", "not-a-number"),
+        ("PTY_SUITE_BUDGET_MS", "999999999"),
+        ("PTY_SUITE_BUDGET_MS", "0"),
+        ("PTY_SUITE_BUDGET_MS", "720001"),
+    ):
+        result = _frame_entry_plan(FRAME_CI_SCRIPT, env={name: value})
+        assert result.returncode != 0, (
+            f"CLI-TS FRAME DEADLINE OVERRIDE UNCHECKED: the frame entry point accepted "
+            f"{name}={value!r} (exit 0). An unbounded per-check deadline is how a hang turns into "
+            f"an anonymously cancelled job, and a suite budget that any environment variable can "
+            f"raise is not a bound: the value must be rejected, not clamped. stdout: "
             f"{result.stdout[-500:]!r} stderr: {result.stderr[-500:]!r}"
         )

@@ -305,14 +305,17 @@ jobs:
     runs-on: ubuntu-latest
     # Wall-clock bound, because this job has none of its own and CI's default is 360 minutes.
     # It is the only job that installs a full node + bun toolchain, builds the client, packs the
-    # tarball and starts a hermetic daemon, so it is the slowest and the one that can HANG: the
-    # render tests spawn Bun (which can block on a renderer that never exits) and the install
-    # smoke spawns a daemon (which can block on a socket that never answers). Measured here, a
-    # healthy run is far inside this bound (the node:test suite itself: 205 cases / 0 fail in
-    # ~1.6 s; the build/pack/start hops dominate), so 20 minutes is a hang detector, not a
-    # performance gate -- it turns "the turn never finishes" into a 20-minute attributable
-    # failure instead of six hours of runner time.
-    timeout-minutes: 20
+    # tarball, starts a hermetic daemon and now drives that client through a real pty, so it is the
+    # slowest and the one that can HANG: the render tests spawn Bun (which can block on a renderer
+    # that never exits), the install smoke spawns a daemon (which can block on a socket that never
+    # answers) and the frame checks spawn both. Raised 20 -> 30 minutes on 2026-09-19 to hold the
+    # frame-check step added below (~390 s measured, budget-bounded at 720 s) next to the rest, and
+    # it is still a hang detector rather than a performance gate: each of the two suites that can
+    # hang is bounded by its OWN budget (scripts/test-ci.mjs 720 s, scripts/pty-ci.mjs 720 s) and
+    # tests/product/test_ci_gate_wiring.py asserts both fit inside this bound with a 300 s reserve
+    # left for install/typecheck/install-smoke. A hung child therefore turns into an attributable
+    # failure well before this number.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       # Node is only the test DRIVER: scripts.test is `node --import tsx --test <files>`, and no
@@ -400,6 +403,59 @@ jobs:
           python-version: "3.12"
       - name: Python runtime for the hermetic daemon
         run: pip install "sqlglot==30.13.0" "pydantic>=2.13,<3" "pyyaml>=6,<7"
+      # --- TUI frame checks: the terminal-level claims, enforced -----------------------------------
+      # Why this step exists: every claim that can only be established by looking at a REAL
+      # terminal frame -- key handling, modal layers, the theme actually repainting, the composer
+      # invariants, the home panel, search, syntax highlighting -- is checked by scripts/pty_*.py,
+      # and until this step existed NONE of those scripts ran in CI. The node:test suite never opens
+      # a pty, the typecheck only reads types, and the install smoke drives the entry headlessly
+      # (`--output-format json`), so the whole frame layer was unenforced: a rendering or
+      # key-handling regression was caught only if someone remembered to run the scripts by hand.
+      # This is the same class of gap the governed product suite and the eval suite each had once,
+      # and it is closed the same way.
+      #
+      # The entry point is `scripts/pty-ci.mjs` -- the same shape as `scripts/test-ci.mjs`: one
+      # bounded process per check with its own deadline (240 s) inside a SUITE budget (720 s), each
+      # check's name printed before it runs, and the checks a spent budget never reached reported as
+      # FAILURES rather than skipped. So a hang on the runner is attributable ("this check timed
+      # out") instead of an anonymous cancellation, and a truncated run cannot report success.
+      # `PTY_CHECK_TIMEOUT_MS` / `PTY_SUITE_BUDGET_MS` overrides outside the enforced range are
+      # REJECTED, not clamped.
+      #
+      # It runs the checks that can actually FAIL: 11 of the 15 on disk. The other four
+      # (`pty_fullscreen_p2/p3a/parity_a/parity_c`) print frames and booleans and have no non-zero
+      # exit path -- a step that cannot go red is not a gate, and saying so is better than adding
+      # one that looks enforced -- so they stay in the local `npm run check:frames` set (all 15,
+      # `--all`) and are listed with that reason in scripts/pty-ci.mjs. The runner fails on any
+      # unclassified scripts/pty_*.py, so a new check cannot silently stay out of both sets.
+      #
+      # Measured cost on this tree (2026-09-19, macOS): the 11 checks are ~390 s of wall clock,
+      # dominated by fixed sleeps INSIDE the checks (the TUI has to be given time to paint), which
+      # is why a slower runner scales them far less than CPU-bound work. The job's bound below was
+      # raised 20 -> 30 minutes to hold that next to the existing steps; it is still a hang
+      # detector, because the worst case is bounded by PTY_SUITE_BUDGET_MS and the wiring test
+      # asserts that budget leaves the job's other steps their reserve.
+      #
+      # The checks are hermetic (their own temp descriptor/database/workspace, the scripted
+      # DeterministicProvider, no credentials, no network) and the runner additionally points every
+      # child away from any operator store -- AGENT_OS_CLI_STATE / AGENT_OS_PROVIDER_CONFIG /
+      # AGENT_OS_PRICING_FILE into a temp dir of its own, ambient AGENT_OS_RUNTIME_* dropped -- so
+      # the runner behaves the same on a clean machine as on a developer's.
+      #
+      # COMING, and deliberately NOT covered by this step yet: three more frame checks live on
+      # unmerged branches -- a stop-key check (codex/tui-stop-key-20260918), a resume check
+      # (codex/tui-resume-20260918) and a permission-denial frame check (codex/deny-visibility-20260918).
+      # They are not in the on-disk set this step's classifier sees. Whoever lands them adds each
+      # file to `GATES` (if it exits non-zero on a failed assertion) or to `EVIDENCE_ONLY` with its
+      # reason, in the same PR -- scripts/pty-ci.mjs fails on an unclassified scripts/pty_*.py, so
+      # this coverage cannot silently stay partial.
+      - name: Frame checks (TUI in a real pty)
+        working-directory: apps/cli-ts
+        # No `uv`: the checks now start their hermetic daemon with `sys.executable` -- the
+        # interpreter running the check -- so the python3 the step above just installed into is the
+        # only one needed. (install_smoke.sh makes the same choice for the same reason: "no `uv`,
+        # which CI need not have".)
+        run: npm run check:frames:ci
       - name: Install smoke (build -> pack -> start -> answer)
         working-directory: apps/cli-ts
         env:
