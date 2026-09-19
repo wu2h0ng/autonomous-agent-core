@@ -820,3 +820,62 @@ def test_an_uncommitted_turn_is_still_never_consumed_by_a_retry(
     assert app.provider.requests == []
     assert _event_count(app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED) == 0
     assert app.surface_has_uncommitted_turn(session.session_id) is True
+
+
+# ---------------------------------------------------------------------------
+# P1: a corrected/voided session is permanently dead. Resuming it must be
+# refused with a typed "start a new session" answer, and the voided session must
+# not block opening a brand-new session.
+# ---------------------------------------------------------------------------
+
+
+def test_corrected_session_cannot_be_resumed_and_new_session_still_opens(
+    tmp_path: Path,
+) -> None:
+    app = chat_app(tmp_path)
+    session, _ = app.open_chat_session("do not stop me", DeferredApprovalGateway())
+    assert app.surface.get_session(session.session_id).status is (
+        SurfaceSessionStatus.ACTIVE
+    )
+
+    corrected = app.surface.correct(
+        SurfaceCorrectionCommand(
+            protocol_version=SURFACE_PROTOCOL_VERSION,
+            client=_client_ref(),
+            session_id=session.session_id,
+            reason="operator corrected the session",
+            expected_event_sequence=app.surface_current_sequence(
+                app.surface_task_for_session(session.session_id)
+            ),
+            idempotency_key="idem:correct:1",
+            requested_at=datetime.now(timezone.utc),
+        )
+    )
+    assert corrected.status is SurfaceSessionStatus.CORRECTION_HALTED
+
+    # The voided session cannot be resumed: the kernel refuses with a typed,
+    # "start a new session" answer rather than a 200 that is actually unusable.
+    with pytest.raises(InvalidTransitionError, match="start a new session"):
+        app.surface.resume(
+            SurfaceCorrectionCommand(
+                protocol_version=SURFACE_PROTOCOL_VERSION,
+                client=_client_ref(),
+                session_id=session.session_id,
+                reason="operator tries to resume the voided session",
+                expected_event_sequence=app.surface_current_sequence(
+                    app.surface_task_for_session(session.session_id)
+                ),
+                idempotency_key="idem:resume:1",
+                requested_at=datetime.now(timezone.utc),
+            )
+        )
+    # It stays voided: the failed resume changed nothing.
+    assert app.surface.get_session(session.session_id).status is (
+        SurfaceSessionStatus.CORRECTION_HALTED
+    )
+
+    # The voided session does not block a brand-new session on the same app.
+    fresh, _ = app.open_chat_session("a clean start", DeferredApprovalGateway())
+    assert app.surface.get_session(fresh.session_id).status is (
+        SurfaceSessionStatus.ACTIVE
+    )

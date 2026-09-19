@@ -457,3 +457,13 @@ founder 的指示是"按主流做法做"。本节给出来源与差异，并**�
   2. 把该操作者路径接线到遍历 `in_flight_children` 并复用现有非阻塞 `stop_child_agent`（在飞走 `RUN_PAUSED` 由子循环自收尾，parked/orphan 同步终态），为每个在飞子写 durable 终态。
   3. 用**至少两个并发在飞子**的 pty/等价 e2e，按具名观测落地：停父→两个子都 `CHILD_AGENT_FINISHED(stopped_by_operator)`（`PARENT_STOPPED_CHILDREN_DURABLY`）；停一个→被停子终止、**兄弟继续派发、父保持 ACTIVE**（`SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED`，同时补上 15.1 的加强项）。
 - 不变的既有保留项：Form B 默认**关**、三条 fail-closed 关断开关仍在；本线所有评审仍是**同模型 subagent** 工作，`builder_id != reviewed_by` **不满足**、无独立 provider 批准——这是 founder 接受过的**豁免**，不是满足；本节不构成 release/publish 授权。
+
+### 15.4 第二次重裁（2026-09-19，分片 A，基于真实跑到的 e2e/探针证据）
+
+§15.3 列出的三个剩余切片已在本分支（`feat/a-lifecycle-20260919`）落地，且两具名观测都有 hermetic 测试/真实 daemon e2e。按合取判据重裁：
+
+- **语义决策（§15.3.1，已定）**：操作者级联用一个**独立的"关闭会话"动作**，而不是可 resume 的 Ctrl-X/pause。终态原因取 G10 具名的 `STOP_REASON_STOPPED_BY_OPERATOR`（不是旧助手的 `parent_session_closed`）。接线入口：headless `noem session close <id> <reason>` ⇄ `POST /v1/surface/sessions/{id}/close`（`_post_close` → `surface_close_session`）；TUI 全局键因 `keys.ts` 冻结且归分片 C 未改，故本切片只交付 headless/HTTP 入口，不冒进改全局键绑定。
+- **操作者路径级联（§15.3.2，已接线）**：`close_session_and_stop_children(..., stop_reason=STOP_REASON_STOPPED_BY_OPERATOR, reason=...)` 遍历 `in_flight_children` 复用既有非阻塞 `stop_child_agent`（在飞走 `RUN_PAUSED` 由子循环自收尾，parked/orphan 同步终态），为每个在飞子写 durable `CHILD_AGENT_FINISHED(stop_reason=stopped_by_operator)`。
+- **`PARENT_STOPPED_CHILDREN_DURABLY`（句 A，已观测）**：`tests/product/test_agent_spawn_kernel.py::test_g10_operator_close_stops_every_in_flight_child_durably`（两个并发在飞子，停父后两子均 durable 终态、reason=`stopped_by_operator`，PASS）；真实 daemon 走 HTTP close 路由的 `tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_operator_close_cascades_to_in_flight_child`（先 `GET` 读 `current.event_sequence` 再发，避免 409，PASS）。
+- **`SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED`（句 B 加强项，已观测）**：`tests/product/test_agent_spawn_kernel.py::test_g10_single_child_stop_leaves_its_sibling_in_flight`（两个并发在飞子，停一个兄弟：被停子 durable 终止，**兄弟继续在飞/不受影响**，父仍 ACTIVE，PASS）。注意 parked 子的 `is_in_flight()`（child_agent.py）与 `.in_flight` property 语义不同，断言用 before/after diff 排除 park 时已有的 awaiting_approval 记录。
+- **G10 重裁为 `MET`（仅本 hermetic 切片，窄）**：两具名合取同时有证据。保留边界：Form B 默认仍**关**、三条 fail-closed 关断不变；证据全为 hermetic 单进程/本地 daemon，**无 live provider**；同模型 subagent 评审 `builder_id != reviewed_by` 仍不满足、无独立 provider 批准；本裁决**不**构成 release/publish/自主主张。探针 P6（崩溃/重启 orphan 回收）PASS、P12（UNKNOWN receipt 经操作者停不变）PASS、P13 BLOCKED（5 分钟 lease TTL 不可注入，需真实墙钟 `--allow-slow`，缺前提非回归）。

@@ -430,6 +430,37 @@ export class SurfaceClient {
     return snapshot;
   }
 
+  /**
+   * Operator-explicit close of a session (G10), cascading to its children.
+   *
+   * Distinct from a resumable pause/Ctrl-X: this ends the session and stops
+   * every in-flight child, whose durable terminal record is named
+   * `stopped_by_operator`. The returned snapshot shows the session CLOSED.
+   */
+  async closeSession(
+    sessionId: string,
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<SurfaceSessionSnapshot> {
+    if (!reason.trim()) throw new Error("close reason must be non-empty");
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/close`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        reason,
+        expected_event_sequence: this.sequence(sessionId),
+        idempotency_key: idempotencyKey ?? `cli-ts-close:${sessionId}:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const snapshot = this.unwrap(response, "snapshot", SurfaceSessionSnapshotSchema);
+    this.track(snapshot);
+    return snapshot;
+  }
+
   /** Declare the session's open durable turn dead and close it as unknown.
    *
    * The turn's owning process is gone, so nothing will ever complete it; the

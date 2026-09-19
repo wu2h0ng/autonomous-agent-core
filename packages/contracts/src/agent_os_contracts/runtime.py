@@ -104,6 +104,13 @@ class TaskEventType(str, Enum):
     # block (reason_code/declared_by/outcome) plus the exact durable fields the
     # declaration binds; it never carries prompt or completion text.
     CHILD_AGENT_RECONCILED = "CHILD_AGENT_RECONCILED"
+    # Additive (2026-09-19, checkpoint P0 forward form): an append-only,
+    # operator-named durable marker in the session event stream. It records a
+    # replayable reference to (sequence, turn_id, state_digest) so a crashed
+    # process can reconstruct the session state by re-projecting the stream
+    # FORWARD from this point. It never deletes or rewrites history, and it
+    # never carries prompt or completion text.
+    SESSION_CHECKPOINT_RECORDED = "SESSION_CHECKPOINT_RECORDED"
 
 
 class WaitCondition(ContractModel):
