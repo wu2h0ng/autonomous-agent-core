@@ -13,19 +13,28 @@ import os
 
 import pytest
 
-# cryptography is an optional test-time extra (product-test). Skip the whole
-# module gracefully if it is not installed, so the governed file-set gate still
-# collects this module (as skipped) rather than failing at import time.
-pytest.importorskip("cryptography")
+# cryptography is an optional test-time extra (product-test). The distribution
+# subpackage imports it at module level, so we must catch that ImportError and
+# mark the whole module skipped via pytestmark (NOT pytest.importorskip, which
+# prevents the module from appearing in --collect-only and trips the governed
+# file-set gate). When cryptography IS installed these tests run normally.
+try:
+    from agent_os_core.distribution import (
+        Ed25519Verifier,
+        SignatureVerificationError,
+        ed25519_public_bytes,
+        ed25519_public_key_fingerprint,
+        ed25519_public_key_from_hex,
+        ed25519_sign,
+        ed25519_signature_from_hex,
+    )
+    _HAS_CRYPTOGRAPHY = True
+except ImportError:
+    _HAS_CRYPTOGRAPHY = False
 
-from agent_os_core.distribution import (
-    Ed25519Verifier,
-    SignatureVerificationError,
-    ed25519_public_bytes,
-    ed25519_public_key_fingerprint,
-    ed25519_public_key_from_hex,
-    ed25519_sign,
-    ed25519_signature_from_hex,
+pytestmark = pytest.mark.skipif(
+    not _HAS_CRYPTOGRAPHY,
+    reason="cryptography not installed (optional test-time extra; scaffold only)",
 )
 
 
