@@ -68,8 +68,8 @@ const SCRIPTS_DIR = join(PACKAGE_ROOT, "scripts");
 // inside the checks -- the TUI has to be given time to paint -- so a slower
 // runner scales it far less than it scales CPU-bound work; pty_fullscreen_vim.py
 // is the longest single check. 240 s per check stays ~1.7x the slowest, and the
-// 720 s budget is ~1.4x the measured pass. 19 pty_*.py files exist on disk: the
-// 15 gates here plus 4 evidence-only captures (see EVIDENCE_ONLY) that print
+// 720 s budget is ~1.4x the measured pass. 20 pty_*.py files exist on disk: the
+// 16 gates here plus 4 evidence-only captures (see EVIDENCE_ONLY) that print
 // frames/booleans with no non-zero exit path; `check:frames --all` runs all 19.
 //
 // The budget is what has to fit the cli-ts job's own `timeout-minutes` alongside
@@ -147,6 +147,9 @@ const GATES = [
   // no unhandled-rejection stack smeared over the frame, the surface keeps
   // answering (a second failed command is reported the same way).
   "scripts/pty_runtime_lost_check.py",
+  // P6: child rows appear in the agents panel WHILE the parent turn runs.
+  // Regression for the CorrectionAuthority lock blocking GET /sessions mid-turn.
+  "scripts/pty_children_during_turn.py",
 ];
 
 // Checks that print frames and booleans with NO failing exit path. They run in

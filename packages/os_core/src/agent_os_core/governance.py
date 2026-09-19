@@ -59,6 +59,18 @@ class CorrectionReadPort(Protocol):
 
     def halted(self, task_id: str, run_id: str, capability_id: str) -> bool: ...
 
+    def halted_racy(self, task_id: str, run_id: str, capability_id: str) -> bool:
+        """Lock-free best-effort halted read for hot listing paths.
+
+        Reads only the in-memory epoch cache; never falls through to the
+        store and never acquires ``self._lock``. A scope whose epoch has never
+        been observed by this process defaults to ``not halted``. Acceptable
+        for read-only projections (session listings, child roll-ups) where a
+        stale ``not halted`` is a display-only degradation, not a governance
+        decision.
+        """
+        ...
+
     def guard_unchanged(
         self,
         task_id: str,
@@ -136,6 +148,22 @@ class CorrectionAuthority:
                     ("capability", capability_id),
                 )
             )
+
+    def halted_racy(self, task_id: str, run_id: str, capability_id: str) -> bool:
+        """Lock-free best-effort halted read from the in-memory epoch cache.
+
+        Never acquires ``self._lock`` and never falls through to the store.
+        A scope whose epoch has never been cached defaults to not halted.
+        """
+        for scope, value in (
+            ("task", task_id),
+            ("run", run_id),
+            ("capability", capability_id),
+        ):
+            entry = self._epochs.get((scope, value))
+            if entry is not None and entry[1]:
+                return True
+        return False
 
     @contextmanager
     def guard_unchanged(
@@ -273,6 +301,9 @@ class CorrectionSnapshotView:
 
     def halted(self, task_id: str, run_id: str, capability_id: str) -> bool:
         return self._authority.halted(task_id, run_id, capability_id)
+
+    def halted_racy(self, task_id: str, run_id: str, capability_id: str) -> bool:
+        return self._authority.halted_racy(task_id, run_id, capability_id)
 
     def guard_unchanged(
         self,

@@ -1075,3 +1075,187 @@ def test_daemon_operator_close_cascades_to_in_flight_child(tmp_path: Path) -> No
         if daemon is not None:
             daemon.stop()
         provider.close()
+
+
+# ---------------------------------------------------------------------------
+# P6: GET /children and GET /sessions must NOT block during a parent turn
+# ---------------------------------------------------------------------------
+
+
+def test_list_sessions_and_children_do_not_block_during_inflight_child(
+    tmp_path: Path,
+) -> None:
+    """P6: the agents panel must see child rows WHILE the parent turn runs.
+
+    Root cause (fixed): ``surface_sessions_listing`` called
+    ``correction.halted()`` which acquires the CorrectionAuthority lock. The
+    parent turn holds that lock via ``guard_unchanged`` for the entire duration
+    of an inline child spawn. The TUI's ``fetchAgentTree`` calls
+    ``listSessions`` BEFORE ``GET /children``, so the whole panel refresh hung
+    until the turn ended.
+
+    Fix: ``surface_sessions_listing`` uses ``halted_racy()`` (lock-free cache
+    read) instead of ``halted()`` (blocking lock acquisition).
+    """
+    root = workspace(tmp_path)
+    provider = ProviderStub()
+    daemon: Daemon | None = None
+    try:
+        daemon = start_daemon(
+            tmp_path,
+            root,
+            provider,
+            [
+                # Entry 0: parent calls spawn tool
+                {
+                    "text": "",
+                    "tool_calls": [
+                        spawn_call(
+                            {
+                                "prompt": "read the fixture and report",
+                                "description": "read-only recon",
+                                "agent_type": "explore",
+                            }
+                        )
+                    ],
+                },
+                # Entry 1: child's first provider call -- DELAYED 5s to
+                # create a window during which the parent turn is still running.
+                # The delay is on the tool-call response so the child loop stays
+                # alive (an empty text-only response would end the child immediately).
+                {
+                    "text": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-read",
+                            "name": "workspace__read",
+                            "arguments": {"path": "fixture.txt"},
+                        }
+                    ],
+                    "delay_seconds": 5.0,
+                },
+                # Entry 2: child finishes
+                {"text": "CHILD-READ-finished"},
+                # Entry 3: parent finishes
+                {"text": "parent finished"},
+            ],
+            index=7,
+        )
+        client = SurfaceClient(load_runtime_descriptor(daemon.descriptor_path))
+        opened = client.open_session("parent statement")
+        set_accept_in_workspace(daemon, client, opened.session.session_id)
+
+        # Begin the turn asynchronously (like the TUI does).
+        subscription = client.subscribe_stream(opened.session.session_id)
+        from agent_os_contracts import SurfaceStreamBinding
+
+        client.submit_turn(
+            opened.session.session_id,
+            "spawn an explore child",
+            SurfaceStreamBinding(
+                runtime_boot_id=subscription.runtime_boot_id,
+                stream_id=subscription.stream_id,
+            ),
+        )
+
+        # Wait for the child spawn record to appear (the child is now running
+        # inline on the parent's thread, parked on the 5s provider delay).
+        def child_spawned() -> bool:
+            spawns = child_spawn_records(
+                tmp_path / "agent-os.sqlite3", opened.session.task_id
+            )
+            return len(spawns) >= 1
+
+        assert wait_for(child_spawned, timeout=10.0), (
+            "the child was never spawned"
+        )
+
+        # Now, WHILE the parent turn is still running (child is on the 5s
+        # delay), measure GET /sessions and GET /children response times.
+        # Both must return in well under 1 second.
+        import time as _time
+
+        deadline = _time.monotonic() + 8.0
+        measured_list_sessions_ms: float | None = None
+        measured_children_ms: float | None = None
+
+        while _time.monotonic() < deadline:
+            t0 = _time.monotonic()
+            get_json(
+                daemon, "/v1/surface/sessions?limit=50"
+            )
+            t1 = _time.monotonic()
+            measured_list_sessions_ms = (t1 - t0) * 1000.0
+
+            t0 = _time.monotonic()
+            children = get_json(
+                daemon,
+                f"/v1/surface/sessions/{opened.session.session_id}/children",
+            )
+            t1 = _time.monotonic()
+            measured_children_ms = (t1 - t0) * 1000.0
+
+            # If we see the child in the roll-up, we've proven the panel
+            # can see it mid-turn.
+            rows = [
+                row
+                for turn_row in children.get("turns", [])
+                for row in turn_row.get("children", [])
+            ]
+            if rows:
+                break
+            _time.sleep(0.1)
+
+        assert measured_list_sessions_ms is not None
+        assert measured_children_ms is not None
+        # Both endpoints must respond in under 1 second while the turn runs.
+        # Before the fix, listSessions blocked for the full 5s delay.
+        assert measured_list_sessions_ms < 1000.0, (
+            f"GET /sessions blocked for {measured_list_sessions_ms:.0f} ms "
+            "during an in-flight parent turn"
+        )
+        assert measured_children_ms < 1000.0, (
+            f"GET /children blocked for {measured_children_ms:.0f} ms "
+            "during an in-flight parent turn"
+        )
+
+        # The child row must be visible in the roll-up while the turn runs.
+        rows = [
+            row
+            for turn_row in children.get("turns", [])
+            for row in turn_row.get("children", [])
+        ]
+        assert rows, (
+            "no child rows visible in GET /children while the parent turn runs"
+        )
+
+        # Wait for the parent turn to complete by checking durable events.
+        def parent_turn_completed() -> bool:
+            events = durable_events(
+                tmp_path / "agent-os.sqlite3", opened.session.task_id
+            )
+            return any(
+                event_type == "SESSION_TURN_COMPLETED"
+                for event_type, _ in events
+            )
+
+        assert wait_for(parent_turn_completed, timeout=20.0), (
+            "the parent turn never completed"
+        )
+
+        # After completion, the child should be completed.
+        children_after = get_json(
+            daemon,
+            f"/v1/surface/sessions/{opened.session.session_id}/children",
+        )
+        rows_after = [
+            row
+            for turn_row in children_after.get("turns", [])
+            for row in turn_row.get("children", [])
+        ]
+        assert rows_after
+        assert rows_after[0]["status"] == "completed"
+    finally:
+        if daemon is not None:
+            daemon.stop()
+        provider.close()
