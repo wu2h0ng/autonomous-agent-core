@@ -35,9 +35,17 @@ npm run dev
 ```
 
 Inside the TUI: type a message and press Enter to stream a turn; `/help`
-lists commands (`/mode`, `/files`, `/task`, `/goal`, `/theme`, `/vim`,
+lists commands (`/mode`, `/files`, `/task`, `/trace`, `/goal`, `/theme`, `/vim`,
 `/keys`, `/find`, `/export`, `/queue`, `/doctor`, `/retry`, `/edit`, `/clear`,
 `/resume`).
+`/trace [turn-id]` projects the durable event log of the last turn (or of the
+turn named) as spans: the turn, each recorded model call, each policy verdict and
+decision, each approval and each capability dispatch, with the record kind that
+opened and closed it and the id that links it to the turn. It carries no prompt,
+completion or tool argument text, and a turn the log never closed — or any other
+hole in the evidence — is printed as a `gap` line instead of being closed up. The
+same projection is served as JSON by
+`GET /v1/surface/sessions/{session_id}/trace`.
 Messages sent while a turn is in flight are queued (shown in the footer) and
 run automatically when the turn ends; `/queue clear` discards them.
 `/goal <objective>` sets a persistent session objective (shown in the footer

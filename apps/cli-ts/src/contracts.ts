@@ -352,6 +352,114 @@ export const ProviderMetricsSnapshotSchema = z.object({
 });
 export type ProviderMetricsSnapshot = z.infer<typeof ProviderMetricsSnapshotSchema>;
 
+/**
+ * Trace of one governed turn (`GET /v1/surface/sessions/{id}/trace`).
+ *
+ * A derived, read-only projection of the durable Task event stream: the sequence
+ * of what actually happened, with the durable record kind that opened and closed
+ * each span (`started_by`/`ended_by`), the ids that link it to the turn (`link`)
+ * and the exact records it was built from (`event_sequences`). It carries no
+ * prompt, completion, argument payload, approval preview or credential — only
+ * ids, enums, sequences and timestamps.
+ *
+ * `state: "OPEN"` means the durable log holds no `SESSION_TURN_COMPLETED` for the
+ * turn; `gaps` states every hole the projection found instead of closing it up.
+ * Optional fields degrade rather than fail the panel on an older daemon.
+ */
+export const TraceSpanSchema = z.object({
+  span_id: NonEmptyStr,
+  kind: z.enum([
+    "TURN",
+    "MODEL_CALL",
+    "POLICY_VERDICT",
+    "POLICY_DECISION",
+    "APPROVAL",
+    "CAPABILITY_DISPATCH",
+  ]),
+  status: z.enum([
+    "COMPLETED",
+    "FAILED",
+    "ALLOWED",
+    "DENIED",
+    "APPROVED",
+    "REJECTED",
+    "UNDETERMINED",
+    "OPEN",
+  ]),
+  started_by: NonEmptyStr,
+  started_sequence: z.number().int().positive(),
+  started_at: z.string(),
+  ended_by: NonEmptyStr.nullable().optional(),
+  ended_sequence: z.number().int().positive().nullable().optional(),
+  ended_at: z.string().nullable().optional(),
+  link: z.enum([
+    "ROOT",
+    "TURN_ID",
+    "NODE_ID_TURN_PREFIX",
+    "ACTION_ID",
+    "ACTION_DIGEST",
+    "SEQUENCE_WINDOW",
+  ]),
+  parent_span_id: NonEmptyStr,
+  session_id: NonEmptyStr,
+  turn_id: NonEmptyStr,
+  run_id: NonEmptyStr.nullable().optional(),
+  action_id: NonEmptyStr.nullable().optional(),
+  action_digest: NonEmptyStr.nullable().optional(),
+  node_id: NonEmptyStr.nullable().optional(),
+  capability_id: NonEmptyStr.nullable().optional(),
+  provider_tool_call_id: NonEmptyStr.nullable().optional(),
+  request_id: NonEmptyStr.nullable().optional(),
+  response_id: NonEmptyStr.nullable().optional(),
+  decision_id: NonEmptyStr.nullable().optional(),
+  permit_id: NonEmptyStr.nullable().optional(),
+  approval_id: NonEmptyStr.nullable().optional(),
+  rule_id: NonEmptyStr.nullable().optional(),
+  verdict: NonEmptyStr.nullable().optional(),
+  basis: NonEmptyStr.nullable().optional(),
+  reason_codes: z.array(NonEmptyStr).default([]),
+  disposition: NonEmptyStr.nullable().optional(),
+  effect_state: NonEmptyStr.nullable().optional(),
+  stop_reason: NonEmptyStr.nullable().optional(),
+  event_sequences: z.array(z.number().int().positive()).min(1),
+});
+export type TraceSpan = z.infer<typeof TraceSpanSchema>;
+
+export const TraceGapSchema = z.object({
+  kind: z.enum([
+    "TURN_OPEN",
+    "DISPATCH_UNRESOLVED",
+    "EFFECT_UNDETERMINED",
+    "APPROVAL_UNRESOLVED",
+    "MODEL_CALL_NOT_RECORDED",
+    "MALFORMED_EVENT",
+    "SEQUENCE_GAP",
+  ]),
+  sequence: z.number().int().positive().nullable().optional(),
+  subject: NonEmptyStr.nullable().optional(),
+  detail: NonEmptyStr,
+});
+export type TraceGap = z.infer<typeof TraceGapSchema>;
+
+export const TurnTraceSchema = z.object({
+  schema_version: z.literal("1.0").optional(),
+  task_id: NonEmptyStr,
+  session_id: NonEmptyStr,
+  turn_id: NonEmptyStr,
+  state: z.enum(["COMPLETE", "OPEN"]),
+  stop_reason: NonEmptyStr.nullable().optional(),
+  started_sequence: z.number().int().positive(),
+  started_at: z.string(),
+  ended_sequence: z.number().int().positive().nullable().optional(),
+  ended_at: z.string().nullable().optional(),
+  records_scanned: z.number().int().positive(),
+  first_sequence: z.number().int().positive(),
+  last_sequence: z.number().int().positive(),
+  spans: z.array(TraceSpanSchema).default([]),
+  gaps: z.array(TraceGapSchema).default([]),
+});
+export type TurnTrace = z.infer<typeof TurnTraceSchema>;
+
 export interface SurfaceProviderClearCommand {
   protocol_version: typeof SURFACE_PROTOCOL_VERSION;
   client: SurfaceClientRef;

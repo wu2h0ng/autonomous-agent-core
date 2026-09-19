@@ -27,6 +27,8 @@ import type {
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
   TaskEvent,
+  TraceSpan,
+  TurnTrace,
 } from "./contracts.js";
 
 export const STALL_DEFAULT_MS = 30_000;
@@ -216,6 +218,67 @@ export function metricsPanel(metrics: ProviderMetricsSnapshot): MessagePanel {
     lines.push(`window   ${metrics.ignored_lines} unusable log line(s) ignored`);
   }
   return { title: "provider metrics", lines };
+}
+
+/** How many span/gap rows a trace card prints before it says how many it left
+ * out. A panel is not a dump: the full record is the trace route's JSON. */
+const MAX_TRACE_ROWS = 40;
+
+/** The durable id that identifies a span to an operator, never its content. */
+function traceSpanSubject(span: TraceSpan): string {
+  const parts: string[] = [];
+  if (span.capability_id) parts.push(span.capability_id);
+  else if (span.node_id) parts.push(span.node_id);
+  if (span.verdict) parts.push(span.verdict);
+  if (span.disposition) parts.push(span.disposition);
+  if (span.effect_state) parts.push(span.effect_state);
+  if (span.basis) parts.push(`basis=${span.basis}`);
+  if (span.link === "SEQUENCE_WINDOW") parts.push("(positional)");
+  return parts.length > 0 ? `  ${parts.join(" ")}` : "";
+}
+
+/**
+ * `/trace` card: the durable event log of one turn, as spans.
+ *
+ * Structure and causation only — the projection carries no prompt, completion,
+ * argument payload or approval preview, so there is nothing to redact here. An
+ * `OPEN` state and every gap are rendered as such: a turn the log never closed,
+ * a dispatch with no terminal record and an undetermined effect must read as
+ * missing evidence, never as a complete-looking timeline.
+ */
+export function tracePanel(trace: TurnTrace): MessagePanel {
+  const lines = [
+    `turn     ${trace.turn_id}  ${trace.state}`,
+    `stop     ${trace.stop_reason ?? "unknown (no SESSION_TURN_COMPLETED in the log)"}`,
+    `window   records ${trace.first_sequence}..${trace.last_sequence} (${trace.records_scanned} scanned, ${trace.spans.length} span(s), ${trace.gaps.length} gap(s))`,
+  ];
+  const positional = trace.spans.filter((span) => span.link === "SEQUENCE_WINDOW").length;
+  for (const span of trace.spans.slice(0, MAX_TRACE_ROWS)) {
+    lines.push(
+      `span     #${span.started_sequence} ${span.kind} ${span.status}${traceSpanSubject(span)}`,
+    );
+  }
+  if (trace.spans.length > MAX_TRACE_ROWS) {
+    lines.push(
+      `span     … ${trace.spans.length - MAX_TRACE_ROWS} more span(s) not shown (the trace route returns the full projection)`,
+    );
+  }
+  for (const gap of trace.gaps.slice(0, MAX_TRACE_ROWS)) {
+    const anchor = gap.sequence === null || gap.sequence === undefined ? "" : ` @${gap.sequence}`;
+    lines.push(
+      `gap      ${gap.kind}${anchor}  ${gap.detail}` +
+        (gap.subject === null || gap.subject === undefined ? "" : ` [${gap.subject}]`),
+    );
+  }
+  if (trace.gaps.length > MAX_TRACE_ROWS) {
+    lines.push(`gap      … ${trace.gaps.length - MAX_TRACE_ROWS} more gap(s) not shown`);
+  }
+  if (positional > 0) {
+    lines.push(
+      `note     ${positional} span(s) placed by sequence window only: no durable id joins them to this turn`,
+    );
+  }
+  return { title: "turn trace", lines };
 }
 
 export interface SearchHit {
@@ -564,6 +627,9 @@ export class TuiController {
       case "/metrics":
         await this.metricsCommand(rest);
         return true;
+      case "/trace":
+        await this.traceCommand(rest);
+        return true;
       case "/provider":
         await this.providerCommand(rest);
         return true;
@@ -660,6 +726,28 @@ export class TuiController {
       this.push({
         role: "system",
         content: `metrics unavailable: ${(error as Error).message}`,
+      });
+    }
+  }
+
+  /** `/trace` — the durable record of one turn, as spans (read-only).
+   *
+   * Without an argument it traces the session's most recently started turn, so
+   * "what did the turn that just ran actually do" needs no id. An unknown turn
+   * is reported as unavailable rather than rendered as an empty timeline. */
+  private async traceCommand(rest: string[]): Promise<void> {
+    if (!this.sessionId) {
+      this.push({ role: "system", content: "no session: /trace needs an open session" });
+      return;
+    }
+    const turnId = rest[0];
+    try {
+      const trace = await this.client.turnTrace(this.sessionId, turnId);
+      this.push({ role: "system", content: "", panel: tracePanel(trace) });
+    } catch (error) {
+      this.push({
+        role: "system",
+        content: `trace unavailable: ${(error as Error).message}`,
       });
     }
   }

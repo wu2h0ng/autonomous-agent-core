@@ -79,6 +79,7 @@ from agent_os_contracts import (
     TaskDraftProposal,
     TaskStatus,
     TrajectoryProjection,
+    TurnTrace,
     WorkflowGraph,
     SessionRef,
     SURFACE_PROTOCOL_VERSION,
@@ -212,6 +213,7 @@ from agent_os_core.action_pipeline import ActionPipeline
 from agent_os_core.execution import EffectCustodyPort
 from agent_os_core.session_projection import SessionLoopConfig
 from agent_os_core.trajectory import TrajectoryProjector
+from agent_os_core.turn_trace import build_turn_trace
 from domain_packs.developer_agent import (
     EXECUTION_ISOLATION_TRUSTED_WORKSPACE,
     DeveloperRepositoryPatchProfile,
@@ -2958,6 +2960,31 @@ class AgentOSApplication:
         if len(matches) != 1:
             raise SurfaceSessionNotFound("duplicate durable session identity")
         return matches[0]
+
+    def surface_turn_trace(
+        self,
+        session_id: str,
+        turn_id: str | None = None,
+    ) -> TurnTrace:
+        """Read-only trace of one governed turn, projected from durable records.
+
+        The whole read path is a pure function over the task's own event stream
+        (``agent_os_core.turn_trace.build_turn_trace``): nothing is appended, no
+        authority is consulted and no state changes, so asking for a trace can
+        never alter what happened. The session resolves to its task through the
+        same durable ``SESSION_OPENED`` lookup every other session route uses.
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        self.tasks.get_task(task_id)
+        return build_turn_trace(
+            tuple(self.store.read(task_id)),
+            session_id=session_id,
+            turn_id=turn_id,
+            task_id=task_id,
+        )
 
     def surface_task_overview(self, task_id: str) -> dict[str, object]:
         """Closed read-only task projection for the Plan and Tasks panel."""

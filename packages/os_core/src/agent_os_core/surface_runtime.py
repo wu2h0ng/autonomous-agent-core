@@ -36,6 +36,7 @@ from agent_os_contracts import (
     SurfaceStreamBatch,
     SurfaceTurnCommand,
     SurfaceTurnResponse,
+    TurnTrace,
     canonical_json,
 )
 
@@ -143,6 +144,10 @@ class SurfaceApplicationPort(Protocol):
     def surface_files_listing(self, task_id: str) -> list[dict[str, Any]]: ...
 
     def surface_task_overview(self, task_id: str) -> dict[str, Any]: ...
+
+    def surface_turn_trace(
+        self, session_id: str, turn_id: str | None = None
+    ) -> TurnTrace: ...
 
     def surface_task_for_session(self, session_id: str) -> str: ...
 
@@ -409,6 +414,21 @@ class SurfaceRuntime:
         if isinstance(after_sequence, bool) or after_sequence < 0:
             raise ValueError("after_sequence must be a non-negative integer")
         return self._application.surface_event_batch(task_id, after_sequence)
+
+    def turn_trace(self, session_id: str, turn_id: str | None = None) -> TurnTrace:
+        """Read-only trace of one governed turn.
+
+        A projection read, not a command: it holds no session lock, writes no
+        idempotency record and changes no state, because a read that could change
+        behaviour is not a read. ``turn_id=None`` asks the application for the
+        session's most recently started turn.
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        if turn_id is not None and not turn_id.strip():
+            raise ValueError("turn_id must be non-empty when provided")
+        return self._application.surface_turn_trace(session_id, turn_id)
 
     def conflict_projection(self, session_id: str) -> Any | None:
         if not session_id.strip():

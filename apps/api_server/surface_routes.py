@@ -42,6 +42,7 @@ from agent_os_core import (
     SurfaceSessionNotFound,
     SurfaceStreamGone,
     TaskNotFoundError,
+    TurnTraceNotFoundError,
     aggregate_provider_metrics,
     provider_log_path,
     read_provider_log,
@@ -61,7 +62,10 @@ def _surface_error_status(exc: BaseException) -> int:
         return 410
     if isinstance(exc, (SurfaceScopeError, PermissionError)):
         return 403
-    if isinstance(exc, (SurfaceSessionNotFound, TaskNotFoundError)):
+    if isinstance(
+        exc,
+        (SurfaceSessionNotFound, TaskNotFoundError, TurnTraceNotFoundError),
+    ):
         return 404
     if isinstance(
         exc,
@@ -192,6 +196,12 @@ class SurfaceRoutes:
                 session_id = _match_surface_session_leaf(handler.path, "conflict")
                 if session_id is not None:
                     self._get_conflict(handler, session_id)
+                    return
+                session_id = _match_surface_session_leaf(
+                    handler.path, "trace", allow_query=True
+                )
+                if session_id is not None:
+                    self._get_trace(handler, session_id)
                     return
                 session_id = _match_surface_session_leaf(handler.path, "")
                 if session_id is not None:
@@ -391,6 +401,29 @@ class SurfaceRoutes:
             else projection
         )
         handler._json(200, {"conflict": payload})
+
+    def _get_trace(self, handler: Any, session_id: str) -> None:
+        """Read-only trace of one governed turn, content-free by construction.
+
+        ``turn_id`` is optional: without it the session's most recently started
+        turn is traced, so an operator can ask about "the turn that just ran".
+        A turn id that the session's durable log does not hold is a typed 404 -
+        never an empty trace, which would read as "nothing happened".
+
+        Note (PR #76, unmerged): this route writes its body through
+        ``handler._json`` exactly like its neighbours; it should move onto the
+        single projection exit for surface responses once that lands.
+        """
+
+        from urllib.parse import parse_qs
+
+        query = parse_qs(urlparse(handler.path).query)
+        turn_values = query.get("turn_id", [])
+        if len(turn_values) > 1:
+            raise ValueError("turn_id must be provided at most once")
+        turn_id = turn_values[0] if turn_values else None
+        trace = self._runtime.turn_trace(session_id, turn_id)
+        handler._json(200, {"trace": trace.model_dump(mode="json")})
 
     def _post_turn(self, handler: Any, session_id: str) -> None:
         body = handler._body()

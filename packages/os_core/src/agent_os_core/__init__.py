@@ -142,6 +142,10 @@ from .protocol_ingress import (
     SQLiteProtocolIngressStore,
     WorkloadIdentityAdapter,
 )
+from .turn_trace import (
+    TurnTraceNotFoundError,
+    build_turn_trace,
+)
 from .session_projection import (
     ProjectedResolvedContinuation,
     ProjectedSession,
@@ -750,5 +754,7 @@ __all__ = [
     "reset_shared_provider_metrics_ledger",
     "shared_provider_metrics_ledger",
     "provider_log_path",
+    "TurnTraceNotFoundError",
+    "build_turn_trace",
 
 ]
