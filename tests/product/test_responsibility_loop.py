@@ -219,8 +219,13 @@ def _setup_cycle_with_accepted_outcome(
     task_id: str,
     run_id: str,
     settlement_id: str,
-) -> None:
-    """Create a sealed cycle with one verified SETTLED_MET outcome bound to it."""
+    expected_prior_digest: str | None = None,
+) -> ResponsibilityLoopCheckpoint:
+    """Create a sealed cycle with one verified SETTLED_MET outcome bound to it.
+
+    Returns the checkpoint so callers can chain multiple cycles on the same
+    binding by passing its digest as ``expected_prior_digest``.
+    """
     lease = store.acquire_lease(
         binding, process_instance_id="process:A", now=NOW
     )
@@ -233,6 +238,7 @@ def _setup_cycle_with_accepted_outcome(
         last_event_sequence=1,
         next_transition="SETTLE",
         recorded_at=NOW,
+        expected_prior_digest=expected_prior_digest,
     )
     cycle_receipt = store.seal_cycle_receipt(
         binding,
@@ -253,6 +259,7 @@ def _setup_cycle_with_accepted_outcome(
         expected_settlement_digest=digest,
         cycle_receipt_digest=cycle_receipt.receipt_digest,
     )
+    return checkpoint
 
 
 def _wall_clock() -> datetime:
@@ -749,7 +756,8 @@ def test_applied_effect_replay_rejects_ledger_identity_tampering(
 ) -> None:
     """A self-consistent receipt cannot authenticate a mutated effect ledger row."""
     database = tmp_path / "agent-os.sqlite3"
-    store = SQLiteResponsibilityLoopStore(database, clock=MutableClock(NOW))
+    clock = MutableClock(NOW)
+    store = SQLiteResponsibilityLoopStore(database, clock=clock)
     binding = _binding(tmp_path)
     lease = store.acquire_lease(binding, process_instance_id="process:A", now=NOW)
     store.execute_effect(
@@ -1954,3 +1962,119 @@ def test_one_canonical_settlement_cannot_inflate_multiple_cycle_denominators(
             expected_settlement_digest=settlement_digest,
             cycle_receipt_digest=second_cycle.receipt_digest,
         )
+
+def test_hcw_baseline_comparison_selfdev_vs_ordinary_same_constraints(
+    tmp_path: Path,
+) -> None:
+    """Same Mandate/permission/budget binding; compare operator minutes per outcome.
+
+    Comparison-framework test (not a live-performance claim): under identical
+    binding constraints, the HCW measurement correctly reflects different
+    operator involvement profiles:
+
+    - SELFDEV profile: one short approval interval — the atomic chain handles
+      propose/exact-digest-approval/execute/verify/rollback, so the operator
+      only spends one short window reviewing and approving.
+    - ORDINARY baseline profile: multiple longer intervention intervals — without
+      the selfdev atomic chain, the operator must manually guide, correct, and
+      verify across several sessions.
+
+    Both produce one verified accepted outcome. The metric
+    operator_minutes_per_accepted_outcome is lower for the selfdev profile,
+    and both receipts share the same binding_digest (same Mandate, same
+    permission scope, same budget).
+    """
+    database = tmp_path / "agent-os.sqlite3"
+    clock = MutableClock(NOW)
+    store = SQLiteResponsibilityLoopStore(database, clock=clock)
+    binding = _binding(tmp_path)
+    evaluator = HcwEvaluatorRoot(
+        evaluator_root_id="hcw-evaluator:v1",
+        measurement_policy_digest="c" * 64,
+        capture_surface="agent-cli",
+        idle_cutoff_seconds=60,
+    )
+    store.ensure_hcw_evaluator_root(evaluator)
+
+    # --- SELFDEV profile: one 30-second approval interval ---
+    checkpoint_selfdev = _setup_cycle_with_accepted_outcome(
+        store, database, binding,
+        cycle_id="cycle:selfdev", task_id="task:selfdev",
+        run_id="run:selfdev", settlement_id="settlement:selfdev",
+    )
+    store.append_operator_work_event(
+        binding, event_id="sd:1", kind=OperatorWorkEventKind.USER_INPUT,
+        cycle_id="cycle:selfdev", task_id="task:selfdev",
+        run_id="run:selfdev", occurred_at=NOW,
+    )
+    store.append_operator_work_event(
+        binding, event_id="sd:2", kind=OperatorWorkEventKind.HELP_RESPONSE,
+        cycle_id="cycle:selfdev", task_id="task:selfdev",
+        run_id="run:selfdev", occurred_at=NOW + timedelta(seconds=30),
+    )
+    receipt_selfdev = store.measure_hcw(
+        binding, cycle_id="cycle:selfdev",
+        evaluator_root_id=evaluator.evaluator_root_id, measured_at=NOW,
+    )
+
+    # --- ORDINARY baseline profile: two 30-second intervals (60s total) ---
+    # Without the selfdev atomic chain, the operator must manually guide,
+    # correct, and verify across separate sessions. Each session has events
+    # spaced within idle_cutoff (30s gaps), sessions are separated by >60s.
+    # Expire the first cycle's lease (ttl=30s) so the second cycle can acquire.
+    clock.now = NOW + timedelta(seconds=31)
+    _setup_cycle_with_accepted_outcome(
+        store, database, binding,
+        cycle_id="cycle:baseline", task_id="task:baseline",
+        run_id="run:baseline", settlement_id="settlement:baseline",
+        expected_prior_digest=checkpoint_selfdev.checkpoint_digest,
+    )
+    # Interval 1: 0s-30s (manual guidance + correction, 30s gap <= cutoff)
+    store.append_operator_work_event(
+        binding, event_id="base:1", kind=OperatorWorkEventKind.USER_INPUT,
+        cycle_id="cycle:baseline", task_id="task:baseline",
+        run_id="run:baseline", occurred_at=NOW,
+    )
+    store.append_operator_work_event(
+        binding, event_id="base:2", kind=OperatorWorkEventKind.CORRECTION,
+        cycle_id="cycle:baseline", task_id="task:baseline",
+        run_id="run:baseline", occurred_at=NOW + timedelta(seconds=30),
+    )
+    # Gap 270s > idle_cutoff 60s -> new interval. Interval 2: 300s-330s.
+    store.append_operator_work_event(
+        binding, event_id="base:3", kind=OperatorWorkEventKind.USER_INPUT,
+        cycle_id="cycle:baseline", task_id="task:baseline",
+        run_id="run:baseline", occurred_at=NOW + timedelta(seconds=300),
+    )
+    store.append_operator_work_event(
+        binding, event_id="base:4", kind=OperatorWorkEventKind.HELP_RESPONSE,
+        cycle_id="cycle:baseline", task_id="task:baseline",
+        run_id="run:baseline", occurred_at=NOW + timedelta(seconds=330),
+    )
+    receipt_baseline = store.measure_hcw(
+        binding, cycle_id="cycle:baseline",
+        evaluator_root_id=evaluator.evaluator_root_id, measured_at=NOW,
+    )
+
+    # --- Both measurable, same denominator ---
+    assert receipt_selfdev.status is HcwMeasurementStatus.MEASURED
+    assert receipt_baseline.status is HcwMeasurementStatus.MEASURED
+    assert receipt_selfdev.accepted_outcome_count == 1
+    assert receipt_baseline.accepted_outcome_count == 1
+
+    # --- Same binding constraints (Mandate + permission scope + budget) ---
+    assert receipt_selfdev.binding_digest == receipt_baseline.binding_digest
+
+    # --- Selfdev profile: 30s = 0.5 min per accepted outcome ---
+    assert receipt_selfdev.active_operator_seconds == 30.0
+    assert receipt_selfdev.operator_minutes_per_accepted_outcome == 0.5
+
+    # --- Baseline profile: 30s + 30s = 60s = 1.0 min per accepted outcome ---
+    assert receipt_baseline.active_operator_seconds == 60.0
+    assert receipt_baseline.operator_minutes_per_accepted_outcome == 1.0
+
+    # --- Selfdev lowers operator cognitive labor per accepted outcome ---
+    assert (
+        receipt_selfdev.operator_minutes_per_accepted_outcome
+        < receipt_baseline.operator_minutes_per_accepted_outcome
+    )
