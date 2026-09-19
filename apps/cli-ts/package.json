@@ -46,6 +46,7 @@
     "check:deny": "uv run python scripts/pty_deny_frame_check.py",
     "check:frames": "node scripts/pty-ci.mjs --all",
     "check:frames:ci": "node scripts/pty-ci.mjs",
+"check:runtime-lost": "uv run python scripts/pty_runtime_lost_check.py",
     "spike:fullscreen": "bun run spike/fullscreen.tsx",
     "p1:fullscreen": "bun run src/opentui/main.tsx"
   },

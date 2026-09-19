@@ -74,11 +74,17 @@ the stop is not a dead end: resume it in this terminal with
 `/resume <session-id>` (or `noem session resume <session-id>` from a shell),
 and the durable turn record names both;
 Ctrl-L clears the view. `/vim`
+
 enables a vim keymap (Esc → normal; `i`/`a` insert; `h j k l 0 $ w b e x`,
 and `dd`/`dw`/`cw` operators). Tab switches the focused panel and PgUp/PgDn
 scroll it. Ctrl-X outranks every layer (vim normal mode, an open picker,
 Ctrl-R, an open palette, a pending approval), so a stop never depends on what
 is on screen.
+
+If the local runtime goes away mid-session, the read commands (`/task`,
+`/files`, `/doctor`) report the failure on the transcript and the app keeps
+running; a restarted runtime is not re-attached automatically (the descriptor
+carries a new port and token), so restart `noem` to talk to it.
 
 The key/command surface above is asserted where it can be: unit tests for the
 key resolver (`test/opentui-viewkeys.test.ts`, `test/opentui-vim.test.ts`) and
@@ -116,6 +122,7 @@ npm run check:highlight  # fenced-code colouring (headless + pty)
 npm run check:stop       # Ctrl-X stops a mid-turn run (real pause; honest stopping state)
 npm run check:resume     # the stop is not a dead end: /resume un-pauses it in-session
 npm run check:deny       # a rule DENY renders as its own card in a real frame
+npm run check:runtime-lost  # the runtime dying mid-session is reported, not fatal
 ```
 
 ## Upgrade path (`noem self-update`)

@@ -237,3 +237,75 @@ test("a control command the kernel keeps rejecting exits non-zero and says so", 
     },
   );
 });
+
+test("a resume that leaves the session halted exits non-zero and names the state", async () => {
+  // Measured on a real daemon (2026-09-18): `noem session resume` against a
+  // CORRECTION_HALTED session answered 200 with status CORRECTION_HALTED and
+  // exit 0, while every following turn was refused by the kernel. An operator
+  // scripting recovery from the shell could not tell that from a success.
+  await withServer(
+    (path, method) => {
+      if (method === "GET") {
+        return { status: 200, json: snapshot("s:1", { status: "CORRECTION_HALTED" }) };
+      }
+      assert.equal(path, "/v1/surface/sessions/s:1/resume");
+      return { status: 200, json: { snapshot: snapshot("s:1", { status: "CORRECTION_HALTED" }) } };
+    },
+    async (descriptorPath) => {
+      const { result, out, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["resume", "s:1"] }),
+      );
+      assert.equal(result, 1, "a resume that cannot make the session usable is not a success");
+      // The kernel's own status is still reported (it is durable truth, not a
+      // failure to read).
+      assert.equal(JSON.parse(out).status, "CORRECTION_HALTED");
+      assert.match(err, /still reports CORRECTION_HALTED/);
+      assert.match(err, /cannot accept turns/);
+    },
+  );
+});
+
+test("a successful resume still exits zero", async () => {
+  await withServer(
+    (path, method) => {
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      assert.equal(path, "/v1/surface/sessions/s:1/resume");
+      return { status: 200, json: { snapshot: snapshot("s:1", { status: "ACTIVE" }) } };
+    },
+    async (descriptorPath) => {
+      const { result, err } = await capture(() =>
+        runSessionCommand({ descriptorPath, args: ["resume", "s:1"] }),
+      );
+      assert.equal(result, 0);
+      assert.equal(err, "");
+    },
+  );
+});
+
+test("CLI flags never become part of the durable correction reason", async () => {
+  // The reason lands in `CORRECTION_WRITTEN.reason` (durable evidence), so the
+  // transport flags must not be smuggled into it.
+  const reasons: string[] = [];
+  await withServer(
+    (path, method, body) => {
+      if (method === "GET") return { status: 200, json: snapshot("s:1") };
+      reasons.push((body as { reason?: string }).reason ?? "");
+      return { status: 200, json: { snapshot: snapshot("s:1") } };
+    },
+    async (descriptorPath) => {
+      await capture(() =>
+        runSessionCommand({
+          descriptorPath,
+          args: ["correct", "s:1", "operator", "interrupt", "--descriptor", descriptorPath],
+        }),
+      );
+      await capture(() =>
+        runSessionCommand({
+          descriptorPath,
+          args: ["pause", "s:1", "--descriptor", descriptorPath],
+        }),
+      );
+    },
+  );
+  assert.deepEqual(reasons, ["operator interrupt", "paused by user"]);
+});

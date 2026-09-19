@@ -1989,4 +1989,220 @@ test("the post-stop line tells the operator to resume from this terminal", async
   // ...and the shell equivalent is still named, so a script or another
   // terminal is not left guessing either.
   assert.match(said, /`noem session resume s:1` from a shell/);
+// ---------------------------------------------------------------------------
+// Operator dead-end sweep (2026-09-18): the failures that used to leave the
+// operator with nothing — or with a destroyed screen.
+// ---------------------------------------------------------------------------
+
+test("a failing read command is reported, never thrown into a void", async () => {
+  // Measured on the shipped TUI: with the daemon killed under a live session,
+  // `/task` rejected out of `submit`, which the view calls as `void ...`. On the
+  // shipped runtime an unhandled rejection prints its stack INTO the alternate
+  // screen and, with an otherwise idle loop, exits the process — the operator
+  // lost the frame and the session.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { taskId: string | null }).taskId = "task:1";
+  client.overview = async () => {
+    throw new Error("cannot reach the local runtime");
+  };
+
+  await controller.submit("/task");
+
+  const overview = controller.messages.at(-1)?.content ?? "";
+  assert.match(overview, /task overview unavailable: cannot reach the local runtime/);
+  assert.match(overview, /no status is being guessed/);
+
+  client.files = async () => {
+    throw new Error("cannot reach the local runtime");
+  };
+  await controller.submit("/files");
+
+  const files = controller.messages.at(-1)?.content ?? "";
+  assert.match(files, /files unavailable: cannot reach the local runtime/);
+  assert.match(files, /nothing was read/);
+});
+
+test("answering an approval with nothing pending reports instead of rejecting", async () => {
+  // The y/n layer is chosen from render state, so a second press (or one that
+  // lands while the first decision is still in flight) reaches this with
+  // nothing left to decide. That used to throw into a `void`.
+  const controller = new TuiController(new FakeClient() as never);
+
+  await assert.doesNotReject(() => controller.approve());
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /no approval is pending — APPROVE ignored/,
+  );
+
+  await assert.doesNotReject(() => controller.reject());
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /no approval is pending — REJECT ignored/,
+  );
+});
+
+test("an approval the kernel refuses to record is reported and stays pending", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("edit it");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "awaiting_approval");
+
+  client.decideApproval = async () => {
+    throw new Error("cannot reach the local runtime");
+  };
+
+  await assert.doesNotReject(() => controller.approve());
+
+  assert.equal(
+    controller.status,
+    "awaiting_approval",
+    "a decision that never reached the kernel must leave the approval resolvable",
+  );
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /APPROVE FAILED \(cannot reach the local runtime\)/,
+  );
+  assert.deepEqual(client.approvals, [], "nothing was recorded");
+});
+
+test("an approval resolved elsewhere does not leave the card up forever", async () => {
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.approvalPending = true;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  await controller.submit("edit it");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(controller.status, "awaiting_approval");
+
+  // Decided out of band (another client / the API): the kernel no longer has a
+  // pending approval, so this client must stop showing one.
+  client.approvalPending = false;
+  await controller.approve();
+
+  assert.equal(controller.status, "idle");
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /the kernel reports no pending approval — APPROVE was NOT recorded/,
+  );
+});
+
+test("a correction reports the halt it caused (CORRECTION_HALTED)", async () => {
+  // A correction is not a benign interrupt: the kernel halts the task and then
+  // refuses every further turn of that session. The kernel's own response says
+  // so; rendering it here is what stops the operator from finding out only as a
+  // bare error on their next message.
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  const internals = controller as never as {
+    status: string;
+    sessionId: string | null;
+  };
+  internals.status = "streaming";
+  internals.sessionId = "s:1";
+
+  assert.equal(await controller.interrupt("escape"), "corrected");
+
+  const transcript = controller.messages.map((message) => message.content).join("\n");
+  assert.match(transcript, /correction issued \(operator interrupt\)/);
+  assert.match(transcript, /CORRECTION_HALTED/);
+  assert.match(transcript, /refuses every further turn/);
+});
+
+test("a turn on a halted session is named and not sent", async () => {
+  const client = new FakeClient();
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { taskId: string | null }).taskId = "task:1";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+  (controller as never as { snapshot: unknown }).snapshot = snapshot({
+    status: "CORRECTION_HALTED",
+  });
+  client.getSession = async () => snapshot({ status: "CORRECTION_HALTED" });
+
+  await controller.submit("keep working");
+
+  assert.match(
+    controller.messages.at(-1)?.content ?? "",
+    /CORRECTION_HALTED/,
+  );
+  assert.deepEqual(
+    client.beginTexts,
+    [],
+    "no turn may be sent to a session the kernel will refuse",
+  );
+});
+
+test("a halt lifted out of band does not block the next turn", async () => {
+  // The guard reads durable truth before refusing, so an external authority
+  // lifting the correction is honoured rather than remembered as a client flag.
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  client.completedTokens = 5;
+  const controller = new TuiController(client as never, { pollMs: 1 });
+  (controller as never as { taskId: string | null }).taskId = "task:1";
+  (controller as never as { sessionId: string | null }).sessionId = "s:1";
+  (controller as never as { snapshot: unknown }).snapshot = snapshot({
+    status: "CORRECTION_HALTED",
+  });
+
+  await controller.submit("keep working");
+
+  assert.deepEqual(client.beginTexts, ["keep working"]);
+});
+
+test("the stall notice names a way out that works, and /retry's queue is explained", async () => {
+  // Measured in a real pty 2026-09-18 (pty_correction_probe): while stalled,
+  // `canStartTurn()` is false, so `/retry` and every other message are QUEUED
+  // and the queue is only drained by the correction (`maybeDrain` runs from
+  // runTurn's finally / decide / interrupt). Advice to "try /retry" therefore
+  // could not work — and the queue answered "will send when the current turn
+  // ends" for a turn that never would.
+  const client = new FakeClient();
+  client.streamScript = [frame(1, "turn:1", "STREAM_END")];
+  const controller = new TuiController(client as never, { pollMs: 1, stallMs: 5 });
+  await controller.submit("stall please");
+  assert.equal(controller.status, "stalled");
+
+  const stallNotice = controller.messages
+    .map((message) => message.content)
+    .filter((text) => text.includes("no durable resolution within"))
+    .join("\n");
+  assert.match(stallNotice, /press Esc to leave the stalled state/);
+  assert.ok(
+    !/\(try \/retry or \/status\)/.test(stallNotice),
+    "the notice must not send the operator to a command that cannot run here",
+  );
+
+  // `/retry` here really does only queue, and nothing drains it until the
+  // stalled state is left — so the notice has to say that.
+  await controller.submit("/retry");
+  assert.equal(controller.queuedCount, 1);
+  const texts = client.beginTexts;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(client.beginTexts, texts, "no turn may start while stalled");
+});
+
+test("the /keys card describes the keymap that exists", async () => {
+  // Ctrl-P/Ctrl-N are the agents panel's movement keys, not composer history
+  // (resolveViewKey); the card used to claim otherwise. Ctrl-A/Ctrl-E do work
+  // (the textarea handles them — measured in a real pty).
+  const controller = new TuiController(new FakeClient() as never);
+  await controller.submit("/keys");
+  const card = controller.messages
+    .map((message) =>
+      message.panel ? [message.panel.title, ...message.panel.lines].join("\n") : "",
+    )
+    .join("\n");
+  assert.match(card, /↑\/↓ history/);
+  assert.match(card, /ctrl-p\/ctrl-n: agents panel/);
+  assert.match(card, /ctrl-a\/ctrl-e line start\/end/);
+  assert.match(card, /esc correction \(halts the session\)/);
+  assert.ok(
+    !/ctrl-p\/ctrl-n history/.test(card),
+    "the card must not advertise a binding that is not wired",
+  );
+
 });

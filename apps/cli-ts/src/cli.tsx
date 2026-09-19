@@ -25,6 +25,26 @@ for (const stream of [process.stdout, process.stderr]) {
   });
 }
 
+/**
+ * A rejected promise nobody awaited used to be terminal on the shipped runtime:
+ * Bun prints the stack INTO the alternate screen (smearing the TUI's own frame)
+ * and, with nothing else on the event loop, exits the process with code 1 —
+ * taking the operator's session with it. Measured 2026-09-18 by killing the
+ * daemon under a running TUI and typing `/task`; the same shape was reachable
+ * from `/files`, `/task`, `y`/`n` and a resume-selector pick.
+ *
+ * The command paths now report their own failures; this is the backstop that
+ * keeps an unknown future one from destroying the surface. It is deliberately
+ * loud (the operator sees it in the transcript) and never silent.
+ */
+let unhandledNotice: ((text: string) => void) | null = null;
+process.on("unhandledRejection", (reason: unknown) => {
+  const detail = reason instanceof Error ? reason.message : String(reason);
+  const text = `internal error (unhandled rejection): ${detail}`;
+  if (unhandledNotice !== null) unhandledNotice(text);
+  else process.stderr.write(`noem: ${text}\n`);
+});
+
 function flagValue(args: string[], ...names: string[]): string | undefined {
   for (const name of names) {
     const index = args.indexOf(name);
@@ -178,6 +198,9 @@ async function main(): Promise<void> {
   controller.themeName = state.theme;
   controller.goal = state.goal;
   controller.vimMode = state.vim;
+  // From here on an unhandled rejection is reported on the transcript the
+  // operator is watching, instead of being printed over it.
+  unhandledNotice = (text: string) => controller.notify(text);
   if (resumeSessionId) {
     await controller.submit(`/resume ${resumeSessionId}`);
   }
