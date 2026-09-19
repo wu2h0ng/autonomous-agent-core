@@ -60,8 +60,21 @@ class StubClient {
     return Math.max(1, this.history.reduce((max, event) => Math.max(max, event.sequence), 0));
   }
 
+  sessions: {
+    session_id: string;
+    task_id: string;
+    status: string;
+    permission_mode: string;
+    message_count: number;
+    updated_at: string;
+    awaiting_approval: boolean;
+  }[] = [];
+
   async openSession() {
     return snapshot({ event_sequence: this.baseSequence() });
+  }
+  async listSessions() {
+    return this.sessions;
   }
   async getSession() {
     return snapshot({
@@ -450,4 +463,36 @@ test("a refusal IN the resumed turn is still exit 4 (history scoping is not a by
   assert.equal(payload["subtype"], "denied");
   assert.equal(payload["stop_reason"], "denied_by_rule:rule-1");
   assert.equal(payload["is_error"], true);
+});
+test("headless on a halted session: exit 1, the turn was never sent", async () => {
+  // Nothing runs on a CORRECTION_HALTED session (the controller refuses before
+  // begin-turn), so exit 0 would report a turn that never happened. Measured
+  // 2026-09-19 on a real daemon: `noem -p ... --resume <halted session>` printed
+  // the halt notice and exited 0.
+  const client = new StubClient();
+  client.sessions = [
+    {
+      session_id: "s:1",
+      task_id: "task:1",
+      status: "CORRECTION_HALTED",
+      permission_mode: "ASK",
+      message_count: 1,
+      updated_at: new Date().toISOString(),
+      awaiting_approval: false,
+    },
+  ];
+  client.getSession = async () => snapshot({ status: "CORRECTION_HALTED" });
+  const io = capture();
+  // Text mode: the notice is the operator-visible part (json mode omits
+  // notices by contract), so this asserts the stderr the operator reads.
+  const code = await runHeadless(
+    client as never,
+    { prompt: "hi", sessionId: "s:1", outputFormat: "text" },
+    io,
+  );
+  assert.equal(code, HEADLESS_EXIT.ERROR);
+  assert.match(io.err.join(""), /CORRECTION_HALTED/);
+  assert.match(io.err.join(""), /refuses every further turn/);
+  assert.equal(io.out.join(""), "", "no assistant text may be reported for a turn that never ran");
+
 });

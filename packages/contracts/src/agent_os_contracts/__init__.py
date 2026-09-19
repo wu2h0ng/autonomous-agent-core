@@ -217,6 +217,7 @@ from .surface import (
     ChildAgentOrphanProjection,
     PendingSurfaceApproval,
     PermissionMode,
+    RecoveredUnknownTurn,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
@@ -243,6 +244,8 @@ from .surface import (
     SurfaceStreamFrameKind,
     SurfaceStreamSubscription,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
     downgrade_surface_payload,
     negotiate_surface_protocol_version,
@@ -780,6 +783,7 @@ __all__ = [
     "surface_protocol_supported_versions",
     "surface_protocol_unknown_fields",
     "PermissionMode",
+    "RecoveredUnknownTurn",
     "SurfaceApprovalCommand",
     "SurfaceBeginTurnCommand",
     "SurfaceBeginTurnResponse",
@@ -806,6 +810,8 @@ __all__ = [
     "SurfaceStreamFrameKind",
     "SurfaceStreamSubscription",
     "SurfaceTurnCommand",
+    "SurfaceTurnRecoveryCommand",
+    "SurfaceTurnRecoveryResponse",
     "SurfaceTurnResponse",
 
 ]

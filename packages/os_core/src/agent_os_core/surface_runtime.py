@@ -35,6 +35,8 @@ from agent_os_contracts import (
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
+    SurfaceTurnRecoveryResponse,
     SurfaceTurnResponse,
     TurnTrace,
     canonical_json,
@@ -48,6 +50,7 @@ ResponseT = TypeVar(
     SurfaceSessionSnapshot,
     SurfaceTurnResponse,
     SurfaceBeginTurnResponse,
+    SurfaceTurnRecoveryResponse,
 )
 
 
@@ -79,6 +82,16 @@ class SurfaceTurnInProgress(RuntimeError):
     """
 
 
+class SurfaceTurnOwnedByLiveRuntime(RuntimeError):
+    """Recovery was asked for a turn this runtime generation is still running.
+
+    The in-process ownership registry is the only sound liveness test: a turn
+    this generation holds in flight is alive by construction and must never be
+    closed from under it. A turn with no live owner is a candidate for the
+    operator's explicit dead-turn declaration.
+    """
+
+
 class SurfaceApplicationPort(Protocol):
     """Composition-root authority consumed by the Surface runtime service."""
 
@@ -93,9 +106,15 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_has_uncommitted_turn(self, session_id: str) -> bool: ...
 
+    def surface_open_turn_id(self, session_id: str) -> str | None: ...
+
     def surface_begin_turn(
         self, command: SurfaceBeginTurnCommand
     ) -> SurfaceBeginTurnResponse: ...
+
+    def surface_recover_unknown_turn(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse: ...
 
     def surface_decide_approval(
         self, command: SurfaceApprovalCommand
@@ -303,6 +322,37 @@ class SurfaceRuntime:
                 operation=lambda: self._decide_approval_once(command),
             )
 
+    def recover_unknown_turn(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse:
+        """Operator-only: close the session's dead turn as an unknown outcome.
+
+        The gates are the same ones every other state-changing command passes
+        (protocol, principal scope, exact durable sequence, open session,
+        idempotency). This command resolves a *dead* turn only; it never starts
+        a second live one, so the "one in-flight turn per session" invariant is
+        untouched. The application refuses a turn this runtime generation still
+        holds in flight (`SurfaceTurnOwnedByLiveRuntime`).
+        """
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=f"surface:recover-turn:{command.session_id}",
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceTurnRecoveryResponse,
+                operation=lambda: self._recover_unknown_turn_once(command),
+            )
+
+    def _recover_unknown_turn_once(
+        self, command: SurfaceTurnRecoveryCommand
+    ) -> SurfaceTurnRecoveryResponse:
+        self._require_protocol(command.protocol_version)
+        task_id = self._application.surface_task_for_session(command.session_id)
+        self._require_principal_scope(command.client)
+        self._require_sequence(task_id, command.expected_event_sequence)
+        self._require_open_session(command.session_id)
+        return self._application.surface_recover_unknown_turn(command)
+
     def pause(self, command: SurfaceCorrectionCommand) -> SurfaceSessionSnapshot:
         return self._control_command(
             command,
@@ -480,8 +530,14 @@ class SurfaceRuntime:
         if self._application.surface_has_uncommitted_turn(command.session_id):
             # Frozen (rev 9): one in-flight turn per session; no queueing, no
             # multiplexing, provider never started.
+            turn_id = self._application.surface_open_turn_id(command.session_id)
             raise SurfaceTurnInProgress(
                 "a prior turn is still uncommitted for this session"
+                + (f" (turn {turn_id})" if turn_id else "")
+                + ": if the runtime that started it is gone the turn can only be"
+                " closed by an explicit operator declaration - POST"
+                f" /v1/surface/sessions/{command.session_id}/recover-turn with"
+                " that turn_id, or `noem session recover <session-id>`"
             )
         response = self._application.surface_begin_turn(command)
         if self._stream_registry is not None:

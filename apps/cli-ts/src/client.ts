@@ -25,6 +25,7 @@ import { z } from "zod";import {
   SurfaceStreamFrameSchema,
   SurfaceStreamSubscriptionSchema,
   SurfaceTaskOverviewSchema,
+  SurfaceTurnRecoveryResponseSchema,
   SurfaceTurnResponseSchema,
   TaskEventSchema,
   TurnTraceSchema,
@@ -42,6 +43,7 @@ import { z } from "zod";import {
   type SurfaceStreamFrame,
   type SurfaceStreamSubscription,
   type SurfaceTaskOverview,
+  type SurfaceTurnRecoveryResponse,
   type SurfaceTurnResponse,
   type TaskEvent,
   type TurnTrace,
@@ -384,6 +386,43 @@ export class SurfaceClient {
     const snapshot = this.unwrap(response, "snapshot", SurfaceSessionSnapshotSchema);
     this.track(snapshot);
     return snapshot;
+  }
+
+  /** Declare the session's open durable turn dead and close it as unknown.
+   *
+   * The turn's owning process is gone, so nothing will ever complete it; the
+   * kernel records the closure as `unknown_requires_review` with the typed
+   * recovery record (who declared it, on what evidence, why). It is never a
+   * success record, and the kernel refuses a turn its own runtime still owns. */
+  async recoverTurn(
+    sessionId: string,
+    turnId: string,
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<SurfaceTurnRecoveryResponse> {
+    if (!turnId.trim()) throw new Error("turn id must be non-empty");
+    if (!reason.trim()) throw new Error("recovery reason must be non-empty");
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${sessionId}/recover-turn`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: sessionId,
+        turn_id: turnId,
+        reason,
+        expected_event_sequence: this.sequence(sessionId),
+        idempotency_key: idempotencyKey ?? `cli-ts-recover-turn:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    const recovery = this.unwrap(
+      response,
+      "recovery",
+      SurfaceTurnRecoveryResponseSchema,
+    );
+    this.track(recovery.snapshot);
+    return recovery;
   }
 
   private readonly streamCursors = new Map<string, number>();

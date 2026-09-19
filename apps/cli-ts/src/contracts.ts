@@ -145,6 +145,36 @@ export const SurfaceStreamSubscriptionSchema = z.object({
 });
 export type SurfaceStreamSubscription = z.infer<typeof SurfaceStreamSubscriptionSchema>;
 
+/** Mirror of `RecoveredUnknownTurn` (surface.py): the typed, durable record of
+ * a dead turn the operator closed as an unknown outcome. Never a success claim
+ * — the completion it belongs to carries `stop_reason: unknown_requires_review`. */
+export const RecoveredUnknownTurnSchema = z.object({
+  turn_id: NonEmptyStr,
+  session_id: NonEmptyStr,
+  reason_code: z.literal("TURN_OWNER_PROCESS_GONE"),
+  declared_by: NonEmptyStr,
+  declared_at: NonEmptyStr,
+  reason: NonEmptyStr,
+  owner_runtime_boot_id: NonEmptyStr.nullable().optional(),
+  owner_runtime_pid: z.number().int().positive().nullable().optional(),
+  recovered_by_runtime_boot_id: NonEmptyStr,
+  recovered_by_runtime_pid: z.number().int().positive(),
+  started_event_id: NonEmptyStr,
+  started_sequence: z.number().int().positive(),
+  counters_recorded: z.boolean().default(false),
+});
+export type RecoveredUnknownTurn = z.infer<typeof RecoveredUnknownTurnSchema>;
+
+export const SurfaceTurnRecoveryResponseSchema = z.object({
+  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION).default(SURFACE_PROTOCOL_VERSION),
+  snapshot: SurfaceSessionSnapshotSchema,
+  recovery: RecoveredUnknownTurnSchema,
+  notice: NonEmptyStr,
+});
+export type SurfaceTurnRecoveryResponse = z.infer<
+  typeof SurfaceTurnRecoveryResponseSchema
+>;
+
 export const SurfaceStreamFrameSchema = z
   .object({
     kind: z.enum(["CHUNK", "GAP", "STREAM_END", "REASONING"]),

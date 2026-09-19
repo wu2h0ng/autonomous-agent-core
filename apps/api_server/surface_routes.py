@@ -32,6 +32,7 @@ SURFACE_PROTOCOL_MIN_SUPPORTED,
     SurfaceSetPermissionModeCommand,
     SurfaceStreamBatch,
     SurfaceTurnCommand,
+    SurfaceTurnRecoveryCommand,
     canonical_json,
     downgrade_surface_payload,
     negotiate_surface_protocol_version,
@@ -45,6 +46,8 @@ from agent_os_core import (
     SurfaceSequenceConflict,
     SurfaceSessionNotFound,
     SurfaceStreamGone,
+    SurfaceTurnInProgress,
+    SurfaceTurnOwnedByLiveRuntime,
     TaskNotFoundError,
     TurnTraceNotFoundError,
     aggregate_provider_metrics,
@@ -77,6 +80,8 @@ def _surface_error_status(exc: BaseException) -> int:
             SurfaceSequenceConflict,
             SurfaceIdempotencyConflict,
             InvalidTransitionError,
+            SurfaceTurnOwnedByLiveRuntime,
+            SurfaceTurnInProgress,
         ),
     ):
         return 409
@@ -249,6 +254,10 @@ class SurfaceRoutes:
                 if session_id is not None:
                     self._post_begin_turn(handler, session_id)
                     return
+                session_id = _match_surface_session_leaf(handler.path, "recover-turn")
+                if session_id is not None:
+                    self._post_recover_turn(handler, session_id)
+                    return
                 session_id = _match_surface_session_leaf(handler.path, "mode")
                 if session_id is not None:
                     self._post_mode(handler, session_id)
@@ -344,7 +353,7 @@ class SurfaceRoutes:
             raise ValueError(
                 f"unknown metrics source {source!r}: expected process or log"
             )
-        handler._json(200, {"metrics": snapshot.model_dump(mode="json")})
+        self._respond(handler, 200, {"metrics": snapshot.model_dump(mode="json")})
 
     def _post_provider(self, handler: Any) -> None:
         body = handler._body()
@@ -439,7 +448,7 @@ class SurfaceRoutes:
             raise ValueError("turn_id must be provided at most once")
         turn_id = turn_values[0] if turn_values else None
         trace = self._runtime.turn_trace(session_id, turn_id)
-        handler._json(200, {"trace": trace.model_dump(mode="json")})
+        self._respond(handler, 200, {"trace": trace.model_dump(mode="json")})
 
     def _post_turn(self, handler: Any, session_id: str) -> None:
         body = handler._body()
@@ -514,6 +523,24 @@ class SurfaceRoutes:
             {"turn": self._runtime.decide_approval(command).model_dump(mode="json")},
         )
 
+    def _post_recover_turn(self, handler: Any, session_id: str) -> None:
+        body = handler._body()
+        command = SurfaceTurnRecoveryCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        self._respond(
+            handler,
+            200,
+            {
+                "recovery": self._runtime.recover_unknown_turn(command).model_dump(
+                    mode="json"
+                )
+            },
+        )
+
     def _post_pause(self, handler: Any, session_id: str) -> None:
         body = handler._body()
         command = SurfaceCorrectionCommand.model_validate(body)
@@ -544,7 +571,8 @@ class SurfaceRoutes:
         """Read-only attribution roll-up and orphan picture for one session."""
 
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             self._runtime.child_agents(session_id).model_dump(mode="json"),
         )
@@ -559,7 +587,8 @@ class SurfaceRoutes:
                 "surface command session does not bind the route"
             )
         self._require_protocol_header(handler)
-        handler._json(
+        self._respond(
+            handler,
             200,
             self._runtime.reconcile_child_agents(command).model_dump(
                 mode="json"

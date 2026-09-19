@@ -303,6 +303,60 @@ class SurfaceSetPermissionModeCommand(ContractModel):
     requested_at: UtcDateTime
 
 
+class SurfaceTurnRecoveryCommand(ContractModel):
+    """Operator declaration that this session's one open durable turn is dead.
+
+    A `SESSION_TURN_STARTED` whose owning runtime process is gone can never be
+    resumed: the provider call that would have produced its outcome died with
+    that process, and no later process can re-enter it. The turn is therefore
+    never completed — it is closed out as an unknown outcome by the operator,
+    who names the exact turn and states why. Runtime enforces operator-only
+    issuance (principal scope + principal role) and refuses any turn this
+    runtime generation is still executing.
+    """
+
+    protocol_version: SurfaceProtocolVersion
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    turn_id: NonEmptyStr
+    reason: NonEmptyStr
+    expected_event_sequence: int = Field(ge=0)
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class RecoveredUnknownTurn(ContractModel):
+    """Typed, durable record of a dead turn closed out as an unknown outcome.
+
+    This is the notice: it names the turn, who declared it dead, on what
+    evidence, and why - and it is written into the task event stream, so a
+    restart cannot lose it. It is never a success claim: `stop_reason` on the
+    completion event it belongs to is `unknown_requires_review`, and
+    `counters_recorded` says whether any steps/token counters survived.
+    """
+
+    turn_id: NonEmptyStr
+    session_id: NonEmptyStr
+    reason_code: Literal["TURN_OWNER_PROCESS_GONE"]
+    declared_by: NonEmptyStr
+    declared_at: UtcDateTime
+    reason: NonEmptyStr
+    owner_runtime_boot_id: NonEmptyStr | None = None
+    owner_runtime_pid: int | None = Field(default=None, ge=1)
+    recovered_by_runtime_boot_id: NonEmptyStr
+    recovered_by_runtime_pid: int = Field(ge=1)
+    started_event_id: NonEmptyStr
+    started_sequence: int = Field(ge=1)
+    counters_recorded: bool = False
+
+
+class SurfaceTurnRecoveryResponse(ContractModel):
+    protocol_version: SurfaceProtocolVersion
+    snapshot: SurfaceSessionSnapshot
+    recovery: RecoveredUnknownTurn
+    notice: NonEmptyStr
+
+
 class SurfaceProviderStatus(ContractModel):
     """Redacted live provider configuration for the terminal.
 
@@ -419,7 +473,7 @@ class ChildAgentOrphanProjection(ContractModel):
 class SurfaceChildAgentReconcileCommand(ContractModel):
     """Operator-declared reconciliation of a session's ownerless children."""
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     session_id: NonEmptyStr
     reason: NonEmptyStr
@@ -435,7 +489,7 @@ class SurfaceChildAgentsResponse(ContractModel):
     runtime owner; ``buried`` lists what this call reconciled, if any.
     """
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     session_id: NonEmptyStr
     children_included_in_totals: Literal[True] = True
     turns: tuple[ChildAgentTurnAttribution, ...] = ()

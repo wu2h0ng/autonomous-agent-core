@@ -110,6 +110,11 @@ class FakeStreamApplication:
     def surface_has_uncommitted_turn(self, session_id: str) -> bool:
         return session_id in self.uncommitted_turns
 
+    def surface_open_turn_id(self, session_id: str) -> str | None:
+        if session_id not in self.uncommitted_turns:
+            return None
+        return f"turn-uncommitted-{session_id}"
+
     def surface_begin_turn(
         self, command: SurfaceBeginTurnCommand
     ) -> SurfaceBeginTurnResponse:
