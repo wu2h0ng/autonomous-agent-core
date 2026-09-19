@@ -263,11 +263,16 @@ def main() -> int:
                 )
                 assert "stop FAILED" not in frame, f"the pause was rejected: {frame!r}"
 
-                # 3. The durable terminal state.
+                # 3. The durable terminal state. Condition-driven, not a fixed
+                #    sleep: wait until BOTH the durable stopped record is on
+                #    screen AND the client's own "stopping…" indicator has
+                #    cleared (the finally block that clears it runs one render
+                #    after the record is pushed, so polling for the record alone
+                #    can catch a frame that still shows "stopping…").
                 settled, elapsed = tui.wait_until(
-                    lambda text: STOP_TERMINAL in text,
+                    lambda text: STOP_TERMINAL in text and "stopping…" not in text,
                     TURN_TIMEOUT,
-                    "the durable stopped_by_operator turn record",
+                    "the durable stopped_by_operator turn record with the stopping indicator cleared",
                 )
                 assert "the session is PAUSED" in settled, settled
                 assert "noem session resume" in settled, (

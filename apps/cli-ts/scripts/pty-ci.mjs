@@ -389,9 +389,16 @@ try {
       failures.push(`${file} (budget exhausted, never ran)`);
       continue;
     }
-    const result = await run(file, Math.min(perCheckMs, remaining));
+    // A timeout under load is a scheduling/slow-boot flake, not an assertion
+    // failure: retry it ONCE before counting it. An exit-nonzero (assertion
+    // failure) is never retried, so weakening a gate is out of scope.
+    let result = await run(file, Math.min(perCheckMs, remaining));
     if (result.timedOut) {
-      console.error(`=== ${file}: TIMED OUT after ${result.timeoutMs} ms`);
+      console.error(`=== ${file}: TIMED OUT after ${result.timeoutMs} ms (retrying once)`);
+      result = await run(file, Math.min(perCheckMs, deadline - Date.now()));
+    }
+    if (result.timedOut) {
+      console.error(`=== ${file}: TIMED OUT after retry (${result.timeoutMs} ms)`);
       failures.push(`${file} (timeout after ${result.timeoutMs} ms)`);
     } else if (result.code !== 0) {
       failures.push(

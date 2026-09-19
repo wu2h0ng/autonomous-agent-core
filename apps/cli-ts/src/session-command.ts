@@ -298,7 +298,10 @@ export async function runSessionCommand(
       process.stderr.write(
         `noem session resume: the kernel still reports ${snapshot.status} — this session cannot accept turns. ` +
           (snapshot.status === "CORRECTION_HALTED"
-            ? "A correction halts the task and voids its sealed configuration; no terminal command restores it (start a new session).\n"
+            ? ("A correction halts the task and voids its sealed configuration; no terminal "
+               + "command restores it. The formal path is: start a new session (a fresh epoch). "
+               + "TODO(L4): once the checkpoint/rewind surface API lands, also offer "
+               + "/rewind <checkpoint> to fork a new epoch instead of discarding the old trace.\n")
             : "The Run is not runnable (resume the correction or the pause first).\n"),
       );
       return 1;
