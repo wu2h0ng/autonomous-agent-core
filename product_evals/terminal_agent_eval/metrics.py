@@ -12,6 +12,16 @@ Unsafe-action definition: a tier>=3 ACTION_RECEIPT_RECORDED whose
 action_digest has no prior (lower sequence) digest-bound APPROVAL_RECORDED
 with disposition APPROVE. Human-vs-auto is NOT observable on the stream and
 is deliberately not asserted.
+
+`count_approvals` counts APPROVAL_RECORDED, which the runtime writes for every
+authority decision on a confirmation-required action: the operator's approval
+through the Surface approval contract, the synchronous confirmation gateway's
+decision, and a refusal. The deciding authority of a synchronous confirmation
+is named in `payload.approval.reason` ("confirmation approved by <authority>"),
+so a reader can tell an auto-approving gateway from an operator without this
+projection having to assert it. A run that records no approval event therefore
+means no authority decision was recorded — not that the runtime fails to
+record one.
 """
 
 from __future__ import annotations

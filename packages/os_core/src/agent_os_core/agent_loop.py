@@ -130,9 +130,29 @@ _MAX_TOOL_RESULT_CHARS = 8000
 
 
 class ConfirmationGateway(Protocol):
-    """Interactive authority bridge. Implementations must be human-driven UI."""
+    """Interactive authority bridge. Implementations must be human-driven UI.
+
+    ``authority_id`` is the deciding authority named in the durable approval
+    record this bridge's decision produces. It is the only place the durable
+    stream can carry the identity behind a confirmation: a non-declaring
+    implementation is recorded as ``UNIDENTIFIED_GATEWAY_AUTHORITY`` and is
+    never recorded as an operator decision.
+    """
+
+    authority_id: str
 
     def confirm(self, action: ActionContract, preview: str) -> bool: ...
+
+
+UNIDENTIFIED_GATEWAY_AUTHORITY = "gateway:unidentified"
+
+
+def gateway_authority_id(gateway: object) -> str:
+    """The declared confirmation authority, or the unidentified fail-closed id."""
+    value = getattr(gateway, "authority_id", "")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return UNIDENTIFIED_GATEWAY_AUTHORITY
 
 
 @dataclass(frozen=True)
@@ -143,6 +163,8 @@ class ApprovalRequired(Exception):
 
 class DeferredApprovalGateway:
     """Persist the exact proposal and return control to the Surface caller."""
+
+    authority_id = "gateway:deferred-surface"
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
         raise ApprovalRequired(action=action, preview=preview)
@@ -158,12 +180,16 @@ class AutoApproveGateway:
     must not be wired into interactive production paths.
     """
 
+    authority_id = "gateway:auto-approve"
+
     def confirm(self, action: ActionContract, preview: str) -> bool:
         return action.risk_tier < 3
 
 
 class NonInteractiveDenyGateway:
     """Fail closed when a headless run reaches a confirmation-required action."""
+
+    authority_id = "gateway:non-interactive-deny"
 
     def confirm(self, action: ActionContract, preview: str) -> bool:
         return False
@@ -1817,8 +1843,14 @@ class AgentLoop:
                     proposal,
                     {"error": "user rejected the proposed action", "rejected": True},
                 )
+            # Recorded before the dispatch it authorizes, mirroring the denial
+            # above. Tier<3 is admitted by the kernel without an
+            # ApprovalDecision, so for it this record is authority evidence,
+            # never a new admission path.
+            confirmation = self._build_approval(action)
+            self._record_confirmation(session, action, confirmation)
             if gate.risk_tier >= 3:
-                approval = self._build_approval(action)
+                approval = confirmation
         else:
             self._actions.record_action_proposed(action)
             if gate.outcome is PermissionGateOutcome.MODE_AUTO_ALLOW:
@@ -1978,7 +2010,7 @@ class AgentLoop:
         )
 
     def _record_denial(self, session: ChatSession, action: ActionContract) -> None:
-        """Durably record that the principal declined this exact proposed action."""
+        """Durably record that the confirmation gate declined this exact action."""
         now = _session_now()
         denial = ApprovalDecision(
             approval_id=f"approval-{uuid4()}",
@@ -1988,7 +2020,7 @@ class AgentLoop:
             actor_id=self._principal.principal_id,
             actor_role=self._principal.role,
             disposition=ApprovalDisposition.REJECT,
-            reason="interactive terminal denial",
+            reason=f"confirmation denied by {self._gateway_authority()}",
             decided_at=now,
             expires_at=now + timedelta(minutes=5),
         )
@@ -2004,10 +2036,36 @@ class AgentLoop:
             actor_id=self._principal.principal_id,
             actor_role=self._principal.role,
             disposition=ApprovalDisposition.APPROVE,
-            reason="interactive terminal approval",
+            reason=f"confirmation approved by {self._gateway_authority()}",
             decided_at=now,
             expires_at=now + timedelta(minutes=5),
         )
+
+    def _record_confirmation(
+        self,
+        session: ChatSession,
+        action: ActionContract,
+        approval: ApprovalDecision,
+    ) -> None:
+        """Durably record the operator's confirmation of this exact action.
+
+        Without this write the confirmation is the one authority decision on
+        the interactive path with no durable trace: the refusal is recorded by
+        :meth:`_record_denial` and a deferred decision by the Surface approval
+        contract, but a synchronous confirmation would leave only an admitted
+        policy decision whose ``approval_id`` names no decision. The record is
+        appended before the dispatch it authorizes, so authority is always
+        reconstructable from the stream. A confirmation that does not bind the
+        exact proposed action fails closed before any effect.
+        """
+        if approval.action_digest != action.action_digest():
+            raise InvalidTransitionError(
+                "confirmation does not bind the exact proposed action"
+            )
+        self._tasks.record_approval(session.task_id, approval)
+
+    def _gateway_authority(self) -> str:
+        return gateway_authority_id(self._gateway)
 
     def _tool_message(self, proposal: Any, payload: dict[str, Any]) -> ProviderMessage:
         return ProviderMessage(

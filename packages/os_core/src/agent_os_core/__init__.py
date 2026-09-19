@@ -293,6 +293,7 @@ from .agent_loop import (
     NonInteractiveDenyGateway,
     TurnResult,
     chat_capability_ids,
+    gateway_authority_id,
 )
 from .child_agent import (
     CHILD_AGENTS_ENV_VAR,
@@ -701,6 +702,7 @@ __all__ = [
     "ConfirmationGateway",
     "NonInteractiveDenyGateway",
     "TurnResult",
+    "gateway_authority_id",
     "DeterministicOutcomeEvaluator",
     "ExecutionProfileError",
     "ExecutionProfilePort",
