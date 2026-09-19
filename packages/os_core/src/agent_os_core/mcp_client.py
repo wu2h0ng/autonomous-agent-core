@@ -1,7 +1,7 @@
 """MCP (Model Context Protocol) local stdio client (shard B).
 
 Conservative, fail-closed defaults, enforced in CODE and pinned in
-ADR-0062 (pending founder ratification):
+ADR-0067 (pending founder ratification):
 
 1. **Local stdio only.** No network/SSE/HTTP transport. The client spawns a
    local subprocess and talks JSON-RPC over its stdin/stdout.

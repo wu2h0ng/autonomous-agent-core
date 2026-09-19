@@ -1,4 +1,4 @@
-"""Hermetic tests for the minimal model-agnostic skills face (shard B / ADR-0062).
+"""Hermetic tests for the minimal model-agnostic skills face (shard B / ADR-0067).
 
 Proves:
 - skills are opt-in (disabled/undeclared skills are never advertised);

@@ -1,4 +1,4 @@
-# ADR-0062: 可扩展性面（typed hooks / MCP / skills）的保守安全默认
+# ADR-0067: 可扩展性面（typed hooks / MCP / skills）的保守安全默认
 
 - Status: **Decided — 已决定默认（同模型产出、fail-closed、可逆配置）**（founder 2026-09-19 裁决 3：六条安全默认全部 fail-closed，定为决定项；仍为可逆配置）
 - Date: 2026-09-19
@@ -9,7 +9,8 @@
   - `docs/product/GC-TYPED-HOOKS-2026-09-18.md`（`DESIGN_ONLY / NO_IMPLEMENTATION_AUTHORITY`）
   - `docs/product/GC-MCP-FORM-AND-BOUNDARY-2026-09-18.md`（`DESIGN_ONLY / NO_IMPLEMENTATION_AUTHORITY`）
 - Preserves: C6、C7、`ADR-0059`（单派发路径）、`ADR-0061`、所有历史 verdict 与 migration/release gate
-- 编号核查（baseline 实测）：`docs/adr/` 在 baseline 上最高已接受编号为 `ADR-0061`（subagent fanout）；`ADR-0060` 仍仅被未合并分支占用；`ADR-0039/0040/0041` 历史重号不得复用。**0062 在 baseline 上空闲，本 ADR 占用之。**
+- 编号核查（baseline 实测）：`docs/adr/` 在 baseline 上最高已接受编号为 `ADR-0061`（subagent fanout）；`ADR-0060` 仍仅被未合并分支占用；`ADR-0039/0040/0041` 历史重号不得复用。**0062 在 baseline 上空闲，本 ADR 起草时占用之。**
+  - **集成更正（2026-09-19，aggregate PR #112）：本 ADR 起草编号为 0062，但 PR #101 已将 Surface protocol 1.2 的 ADR 以同一编号 0062 合入 main（重号）。为消除重号，本『可扩展性保守默认』ADR 重编号为 ADR-0067，代码/测试中全部自指同步更新；Surface protocol 1.2 的 ADR 保留 ADR-0062 不变。**
 
 ## 1. Context
 

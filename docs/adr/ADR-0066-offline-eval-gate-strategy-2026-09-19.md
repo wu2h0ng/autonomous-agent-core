@@ -5,8 +5,8 @@
 - Deciders: founder（门禁形态）；架构判断由 agent 起草，**评审等级为同模型 subagent 工作，非独立 provider 批准**（同 ADR-0061 §9：此为豁免不是满足）
 - Track: Product Track（评测/门禁）；不得由研究证据回填
 - Baseline: `origin/main = 04377dc3`（worktree `.worktrees/ws-p3-eval-release`，branch `feat/p3-eval-release-20260919`）
-- Preserves: ADR-0061、ADR-0062、所有历史 verdict、`tests/product_eval/_quarantine.py` 的"无静默 skip"纪律
-- 编号核查（本 worktree 实测）：`docs/adr/` 最大编号为 `ADR-0062`（两份同名文件，extensibility 与 surface-protocol）；`ADR-0063` 已由 checkpoint/rewind（L4）占用；本 ADR 顺延为 `ADR-0066`（aggregate 集成时重编号）。
+- Preserves: ADR-0061、ADR-0067（可扩展性保守默认，集成时由重号 0062 改编号）、所有历史 verdict、`tests/product_eval/_quarantine.py` 的"无静默 skip"纪律
+- 编号核查（本 worktree 实测）：起草时 `docs/adr/` 出现两份 `ADR-0062`（extensibility 与 surface-protocol，后者随 #101 入 main）；`ADR-0063/0064/0065` 由 L4（checkpoint/minisign/版本分发）占用；本 ADR 编号为 `ADR-0066`。aggregate 集成时，extensibility 那份重号已重编号为 `ADR-0067`，surface-protocol 保留 `ADR-0062`。
 
 ## 1. Context
 

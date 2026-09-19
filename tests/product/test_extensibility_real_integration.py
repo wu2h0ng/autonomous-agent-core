@@ -6,7 +6,7 @@ the subprocess is a genuinely real, on-disk artifact that does observable work
 (writes/deletes files, computes a real digest) — while remaining fully
 hermetic: no network, no real provider key, only fake sentinel keys.
 
-Covered (ADR-0062, still fail-closed; this is verification, not a default flip):
+Covered (ADR-0067, still fail-closed; this is verification, not a default flip):
 - MCP: a real Python stdio server with 3 tier-classified tools; connect/list/
   call; tier>=3 refuses auto-run (preflight + execute) until approved; the
   env allow-list strips EVERY provider key and still passes allowlisted vars;

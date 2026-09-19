@@ -1,7 +1,7 @@
 """Typed hooks runtime (shard B) — isolated, fail-closed event observers.
 
 Conservative defaults, enforced in CODE (not just docs) and pinned in
-ADR-0062 (pending founder ratification):
+ADR-0067 (pending founder ratification):
 
 1. **Off by default.** A hook dispatcher with no configuration (or the
    global kill-switch ``AGENT_OS_HOOKS_DISABLED=1``) dispatches NOTHING and
