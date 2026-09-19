@@ -400,3 +400,74 @@ class ProviderFailure(ContractModel):
     retryable: bool
     safe_message: NonEmptyStr
     occurred_at: UtcDateTime
+
+
+# The widest `safe_message` an attempt record will store. A refusal is already
+# normalized and cut to 300 characters before its prefix, and the HTTP/transport
+# messages are shorter still, so this ceiling never truncates a real class; it is
+# enforced here so a future adapter cannot hand the durable log an unbounded
+# string.
+_PROVIDER_ATTEMPT_MESSAGE_MAX_CHARS = 512
+
+
+class ProviderAttemptFailure(ContractModel):
+    """Durable evidence for one failed model invocation attempt.
+
+    One record is written per failed attempt (``TaskEventType.
+    PROVIDER_ATTEMPT_FAILED``), so a turn that stopped on a provider failure can
+    be read back as: which call (``node_id``/``turn_id``/``provider_profile_id``/
+    ``model_id``), which attempt out of how many (``attempt_index``/
+    ``attempts_planned``), which failure class and whether it was retryable
+    (``code``/``retryable``), whether the attempt had already streamed output
+    (``emitted_output``, the same fact the adapter's own retry rule turns on),
+    and how long it took (``started_at``/``latency_ms``).
+
+    Content-free by construction, the same exclusion the adapter's operator log
+    makes: no prompt, no completion, no credential. ``safe_message`` is the
+    adapter's own bounded, sanitized failure text - the exact string the operator
+    reads - and it is the only free text here.
+    """
+
+    attempt_failure_id: NonEmptyStr
+    request_id: NonEmptyStr
+    node_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    session_id: NonEmptyStr
+    turn_id: NonEmptyStr
+    attempt_index: int = Field(ge=0)
+    attempts_planned: int = Field(ge=1)
+    code: ProviderErrorCode
+    retryable: bool
+    emitted_output: bool
+    provider_profile_id: NonEmptyStr
+    model_id: NonEmptyStr
+    safe_message: NonEmptyStr = Field(
+        max_length=_PROVIDER_ATTEMPT_MESSAGE_MAX_CHARS
+    )
+    latency_ms: float = Field(ge=0)
+    started_at: UtcDateTime
+
+    @field_validator("safe_message", mode="before")
+    @classmethod
+    def _bound_message(cls, value: object) -> object:
+        """Bound an over-long message instead of rejecting the whole record.
+
+        A failure to record must never be worse than the failure being recorded,
+        so an adapter that hands over more than the ceiling gets a bounded message
+        rather than a validation error that would lose the attempt entirely. The
+        shipped adapters already bound their own text well below this ceiling.
+        """
+
+        if (
+            isinstance(value, str)
+            and len(value) > _PROVIDER_ATTEMPT_MESSAGE_MAX_CHARS
+        ):
+            return value[:_PROVIDER_ATTEMPT_MESSAGE_MAX_CHARS]
+        return value
+
+    @model_validator(mode="after")
+    def _validate_attempt(self) -> ProviderAttemptFailure:
+        if self.attempt_index >= self.attempts_planned:
+            raise ValueError("attempt_index must be below attempts_planned")
+        return self

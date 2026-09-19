@@ -160,6 +160,7 @@ from .outcome import (
 from .provider import (
     CredentialRef,
     CredentialStatus,
+    ProviderAttemptFailure,
     ProviderErrorCode,
     ProviderFailure,
     ProviderExecutionReceipt,
@@ -631,6 +632,7 @@ __all__ = [
     "ProcedureCandidate",
     "ProviderErrorCode",
     "ProviderFailure",
+    "ProviderAttemptFailure",
     "ProviderFailureCategory",
     "ProviderLatencyStats",
     "ProviderMetricsSnapshot",
