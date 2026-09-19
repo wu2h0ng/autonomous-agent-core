@@ -1,4 +1,4 @@
-# ADR-0063: 离线 eval 门禁策略（recorded/replay 为门禁臂，live 臂不进门禁）
+# ADR-0066: 离线 eval 门禁策略（recorded/replay 为门禁臂，live 臂不进门禁）
 
 - Status: **Decided**（founder 裁决 6，2026-09-19：gating eval 用录制/重放确定性臂，无 key 可跑；live 臂显式 optional、永不进 CI 门禁）
 - Date: 2026-09-19
@@ -6,7 +6,7 @@
 - Track: Product Track（评测/门禁）；不得由研究证据回填
 - Baseline: `origin/main = 04377dc3`（worktree `.worktrees/ws-p3-eval-release`，branch `feat/p3-eval-release-20260919`）
 - Preserves: ADR-0061、ADR-0062、所有历史 verdict、`tests/product_eval/_quarantine.py` 的"无静默 skip"纪律
-- 编号核查（本 worktree 实测）：`docs/adr/` 最大编号为 `ADR-0062`（两份同名文件，extensibility 与 surface-protocol）；`ADR-0063` 空闲，本 ADR 占用之。
+- 编号核查（本 worktree 实测）：`docs/adr/` 最大编号为 `ADR-0062`（两份同名文件，extensibility 与 surface-protocol）；`ADR-0063` 已由 checkpoint/rewind（L4）占用；本 ADR 顺延为 `ADR-0066`（aggregate 集成时重编号）。
 
 ## 1. Context
 
