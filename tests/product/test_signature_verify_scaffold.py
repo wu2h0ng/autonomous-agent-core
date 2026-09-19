@@ -13,6 +13,11 @@ import os
 
 import pytest
 
+# cryptography is an optional test-time extra (product-test). Skip the whole
+# module gracefully if it is not installed, so the governed file-set gate still
+# collects this module (as skipped) rather than failing at import time.
+pytest.importorskip("cryptography")
+
 from agent_os_core.distribution import (
     Ed25519Verifier,
     SignatureVerificationError,
@@ -22,8 +27,6 @@ from agent_os_core.distribution import (
     ed25519_sign,
     ed25519_signature_from_hex,
 )
-
-cryptography = pytest.importorskip("cryptography")  # noqa: F841
 
 
 def _fresh_seed() -> bytes:
