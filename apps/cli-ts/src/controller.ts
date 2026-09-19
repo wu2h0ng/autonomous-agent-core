@@ -1173,6 +1173,7 @@ export class TuiController {
         "enter submit · ctrl-j newline · ctrl-g $EDITOR",
         "backspace/delete delete backward · ctrl-d delete forward",
         "↑/↓ history · ctrl-r reverse search (ctrl-p/ctrl-n: agents panel)",
+        "agents panel: ↑/↓ move · enter resume · x stop running child",
         "ctrl-a/ctrl-e line start/end",
         "ctrl-x stop the running turn (pauses the session) · esc correction",
         "/resume <id> reattach — and un-pause a session ctrl-x stopped",

@@ -525,3 +525,63 @@ export interface SurfaceProviderConfigureCommand {
   endpoint_class: string;
   temperature?: number;
 }
+
+/**
+ * Child-agent roll-up (GET /v1/surface/sessions/{id}/children, and the body of
+ * POST .../children/stop). The panel renders only identifiers/status/counters
+ * and is deliberately lenient (passthrough + defaults) so a server-side
+ * projection change degrades to fewer rows instead of crashing the terminal.
+ */
+export const SurfaceChildAgentAttributionSchema = z
+  .object({
+    spawn_id: NonEmptyStr,
+    child_session_id: NonEmptyStr,
+    child_task_id: NonEmptyStr,
+    agent_type: z.string().min(1),
+    description: z.string().default(""),
+    status: z.string().min(1),
+    steps: z.number().int().nonnegative().default(0),
+    tokens: z.number().int().nonnegative().default(0),
+    stop_reason: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type SurfaceChildAgentAttribution = z.infer<
+  typeof SurfaceChildAgentAttributionSchema
+>;
+
+export const SurfaceChildAgentTurnSchema = z
+  .object({
+    parent_session_id: NonEmptyStr,
+    parent_turn_id: NonEmptyStr,
+    children: z.array(SurfaceChildAgentAttributionSchema).default([]),
+  })
+  .passthrough();
+export type SurfaceChildAgentTurn = z.infer<typeof SurfaceChildAgentTurnSchema>;
+
+/** Liveness signal, distinct from the conservative attribution status: an
+ * unfinished child is reported `stopped` in the roll-up, so only `in_flight`
+ * tells the terminal which children are actually executing (and stoppable). */
+export const SurfaceChildAgentInFlightSchema = z
+  .object({
+    spawn_id: NonEmptyStr,
+    child_session_id: NonEmptyStr,
+    parent_turn_id: NonEmptyStr,
+  })
+  .passthrough();
+export type SurfaceChildAgentInFlight = z.infer<
+  typeof SurfaceChildAgentInFlightSchema
+>;
+
+export const SurfaceChildAgentsResponseSchema = z
+  .object({
+    protocol_version: SurfaceProtocolVersionSchema,
+    session_id: NonEmptyStr,
+    turns: z.array(SurfaceChildAgentTurnSchema).default([]),
+    in_flight: z.array(SurfaceChildAgentInFlightSchema).default([]),
+    orphaned: z.array(z.unknown()).default([]),
+    buried: z.array(z.unknown()).default([]),
+  })
+  .passthrough();
+export type SurfaceChildAgentsResponse = z.infer<
+  typeof SurfaceChildAgentsResponseSchema
+>;

@@ -22,6 +22,7 @@ export type ViewKeyOwner =
   | { layer: "editor" }
   | { layer: "vim"; action?: "normal" }
   | { layer: "agents"; action: "move"; delta: 1 | -1 }
+  | { layer: "agents"; action: "stop-child" }
   | { layer: "enter" }
   | { layer: "ignore" };
 
@@ -181,6 +182,14 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   }
   if (ctx.activePanel === "agents" && (name === "up" || name === "down")) {
     return { layer: "agents", action: "move", delta: name === "down" ? 1 : -1 };
+  }
+
+  // Per-child stop: while the agents panel is selected the composer is blurred,
+  // so a plain "x" reaches this resolver (it never inserts text). Mnemonic with
+  // the global Ctrl-X "stop the run"; the renderer only acts when the selected
+  // row is a live child, otherwise it falls through (see stopTargetAtRow).
+  if (ctx.activePanel === "agents" && !ctrl && name === "x") {
+    return { layer: "agents", action: "stop-child" };
   }
 
   // 8. Readline-style history for the composer (only when no panel owns the

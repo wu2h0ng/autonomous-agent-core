@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 import subprocess
 import threading
 from http.server import ThreadingHTTPServer
@@ -128,6 +129,18 @@ def start_runtime(config: RuntimeConfig) -> RunningRuntime:
         database=config.database,
         workspace=config.workspace,
     )
+    # Probe P6 / ADR-0061 G4-G5: a fresh generation taking over an existing
+    # database must bury the children a crashed previous generation left in
+    # flight, before it serves a single request. The sweep is a no-op on a
+    # fresh database and never touches children parked on a human approval.
+    reaped = app.recover_orphaned_children_on_startup()
+    if reaped:
+        print(
+            f"startup recovery: buried {len(reaped)} orphaned child agent(s) "
+            f"left by a previous runtime generation",
+            file=sys.stderr,
+            flush=True,
+        )
     token = generate_runtime_token()
     boot_id = generate_boot_id()
     server = build_server(app, config.host, config.port, local_token=token)

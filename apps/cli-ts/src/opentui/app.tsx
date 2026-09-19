@@ -53,6 +53,7 @@ import {
   moveCursor,
   planEnter,
   repositionCursor,
+  stopTargetAtRow,
 } from "./agents.js";
 import { fetchAgentTree, type AgentTreeResult } from "./agent-tree-source.js";
 import type { SurfaceClient } from "../client.js";
@@ -203,6 +204,8 @@ export function App({
   const [width, setWidth] = useState(terminalWidth);
   const [sample, setSample] = useState<WorkspaceSample>(EMPTY_SAMPLE);
   const [tree, setTree] = useState<AgentTreeResult>(EMPTY_TREE);
+  const [childStopNote, setChildStopNote] = useState<string | null>(null);
+  const childStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cursor, setCursor] = useState(0);
   const [selectorQuery, setSelectorQuery] = useState("");
   const [selectorIndex, setSelectorIndex] = useState(0);
@@ -394,6 +397,36 @@ export function App({
     };
   }, [client, showAgentsPanel]);
 
+  /** Per-child stop (Form B G10): stop only the highlighted live child. The
+   * kernel is idempotent and fail-closed; a non-live/non-child row is a no-op.
+   * The tree's own interval converges the displayed state; we also refresh
+   * once immediately and surface a one-shot note in the agents panel. */
+  const stopSelectedChild = (): void => {
+    const target = stopTargetAtRow(tree.rows, cursor);
+    if (target === null) {
+      setChildStopNote("(highlight a running child to stop it; x)");
+    } else {
+      setChildStopNote(`stopping child ${target.childSessionId.slice(0, 8)}…`);
+      void client
+        .stopChildAgent(target.parentSessionId, target.childSessionId)
+        .then(async () => {
+          setChildStopNote(`stop sent: ${target.childSessionId.slice(0, 8)}`);
+          const next = await fetchAgentTree(client);
+          setTree(next);
+          setCursor((current) =>
+            repositionCursor(next.rows, cursorKeyRef.current, current),
+          );
+        })
+        .catch((cause: unknown) => {
+          setChildStopNote(
+            `stop failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          );
+        });
+    }
+    if (childStopTimer.current !== null) clearTimeout(childStopTimer.current);
+    childStopTimer.current = setTimeout(() => setChildStopNote(null), 4000);
+  };
+
 
   useKeyboard((key: { name?: string; ctrl?: boolean; shift?: boolean; sequence?: string }) => {
     const name = key.name ?? "";
@@ -557,7 +590,11 @@ export function App({
         return;
       }
       case "agents": {
-        setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
+        if (owner.action === "move") {
+          setCursor((current) => moveCursor(current, owner.delta, tree.rows.length));
+        } else if (owner.action === "stop-child") {
+          stopSelectedChild();
+        }
         return;
       }
       case "vim": {
@@ -745,6 +782,7 @@ export function App({
           )
             .concat(tree.truncated ? ["(truncated)"] : [])
             .concat(tree.note && tree.rows.length > 0 ? [tree.note] : [])
+            .concat(childStopNote !== null ? [childStopNote] : [])
             .map((row, index) => (
               <text key={`g${index}`}>{row}</text>
             ))}
@@ -909,7 +947,7 @@ export function App({
       } · ${
         panels.length > 1
           ? activePanel === "agents"
-            ? `[tab] panel: agents · [ctrl+↑/↓] move · [enter] switch session`
+            ? `[tab] agents · [↑/↓] move · [enter] resume · [x] stop running child`
             : `[tab] panel: ${activePanel} · [pgup/pgdn] scroll`
           : "/help"
       }`}</text>

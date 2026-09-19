@@ -385,3 +385,28 @@ test("a selector still outranks an open search", () => {
     { layer: "selector" },
   );
 });
+
+test("agents panel: plain x stops the highlighted child; ctrl-x stays global", () => {
+  const closed = false;
+  // Plain x while the agents panel is selected routes to per-child stop.
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "x", ctrl: false })),
+    { layer: "agents", action: "stop-child" },
+  );
+  // Ctrl-X is the frozen global "stop the run" regardless of panel.
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "x", ctrl: true })),
+    { layer: "global" },
+  );
+  // Plain x outside the agents panel belongs to the composer (ignore), so it
+  // can never stop a child while the user is typing in the transcript.
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "transcript", name: "x", ctrl: false })),
+    { layer: "ignore" },
+  );
+  // Arrows in the agents panel still move (the x binding did not shadow them).
+  assert.deepEqual(
+    resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "down", ctrl: false })),
+    { layer: "agents", action: "move", delta: 1 },
+  );
+});

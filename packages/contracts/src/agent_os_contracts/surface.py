@@ -481,12 +481,49 @@ class SurfaceChildAgentReconcileCommand(ContractModel):
     requested_at: UtcDateTime
 
 
+class SurfaceChildAgentStopCommand(ContractModel):
+    """Operator stop of one in-flight child of the route's parent session.
+
+    Additive in protocol 1.2: it drives the same per-child C7 correction the
+    kernel already exposes (``stop_child_agent``), never an approval or a
+    widening. ``session_id`` is the parent session (the route scope);
+    ``child_session_id`` names the single child to stop and must be a live
+    child of that parent. The stop is idempotent: stopping a child that has
+    already ended returns the current roll-up rather than rewriting it.
+    """
+
+    protocol_version: SurfaceProtocolVersion
+    client: SurfaceClientRef
+    session_id: NonEmptyStr
+    child_session_id: NonEmptyStr
+    reason: NonEmptyStr
+    idempotency_key: NonEmptyStr
+    requested_at: UtcDateTime
+
+
+class SurfaceChildAgentInFlight(ContractModel):
+    """One child currently executing in a live runtime.
+
+    This is the liveness signal, deliberately separate from the frozen
+    attribution status: an unfinished child is conservatively reported as
+    ``stopped`` in the budget roll-up, so a terminal cannot use that status to
+    tell a running child from a stopped one. It is recomputed from the durable
+    open-turn projection (and excludes reconciled/buried children), never
+    inferred from counters.
+    """
+
+    spawn_id: NonEmptyStr
+    child_session_id: NonEmptyStr
+    parent_turn_id: NonEmptyStr
+
+
 class SurfaceChildAgentsResponse(ContractModel):
     """Attribution roll-up plus the burial picture for one session.
 
     ``turns`` reuses the frozen per-turn attribution (each turn's totals include
     its children and say so); ``orphaned`` lists in-flight children with no live
-    runtime owner; ``buried`` lists what this call reconciled, if any.
+    runtime owner; ``buried`` lists what this call reconciled, if any;
+    ``in_flight`` names the children still executing (the stoppable set).
     """
 
     protocol_version: SurfaceProtocolVersion
@@ -495,6 +532,7 @@ class SurfaceChildAgentsResponse(ContractModel):
     turns: tuple[ChildAgentTurnAttribution, ...] = ()
     orphaned: tuple[ChildAgentOrphanProjection, ...] = ()
     buried: tuple[ChildAgentBurialRecord, ...] = ()
+    in_flight: tuple[SurfaceChildAgentInFlight, ...] = ()
 
 
 class ChildAgentBurialRecord(ContractModel):

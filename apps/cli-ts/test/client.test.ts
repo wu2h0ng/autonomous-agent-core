@@ -408,6 +408,87 @@ test("getReadOnly issues a GET with no body (read-only projections only)", async
   assert.equal(seen[0]?.auth, `Bearer ${TOKEN}`);
 });
 
+function childRollup(sessionId: string) {
+  return {
+    protocol_version: "1.2",
+    session_id: sessionId,
+    children_included_in_totals: true,
+    turns: [
+      {
+        parent_session_id: sessionId,
+        parent_turn_id: "turn-1",
+        children: [
+          {
+            spawn_id: "spawn-1",
+            child_session_id: "child-1",
+            child_task_id: "ctask-1",
+            agent_type: "explorer",
+            description: "d",
+            status: "stopped",
+            steps: 0,
+            tokens: 0,
+            stop_reason: null,
+          },
+        ],
+      },
+    ],
+    in_flight: [
+      { spawn_id: "spawn-1", child_session_id: "child-1", parent_turn_id: "turn-1" },
+    ],
+    orphaned: [],
+    buried: [],
+  };
+}
+
+test("childAgents GETs the roll-up and exposes the in-flight (stoppable) set", async () => {
+  const seen: { method: string; url: string; body?: string }[] = [];
+  await withServer(
+    (req) => {
+      seen.push({ method: req.method, url: req.url, ...(req.body ? { body: req.body } : {}) });
+      return { status: 200, json: childRollup("parent-1") };
+    },
+    async (client) => {
+      const rollup = await client.childAgents("parent-1");
+      assert.equal(rollup.session_id, "parent-1");
+      assert.equal(rollup.in_flight[0]?.child_session_id, "child-1");
+      assert.equal(rollup.turns[0]?.children[0]?.child_session_id, "child-1");
+    },
+  );
+  assert.equal(seen[0]?.method, "GET");
+  assert.equal(seen[0]?.url, "/v1/surface/sessions/parent-1/children");
+  assert.equal(seen[0]?.body, undefined);
+});
+
+test("stopChildAgent POSTs the per-child stop command with route scope + idempotency key", async () => {
+  const seen: { method: string; url: string; body?: string }[] = [];
+  await withServer(
+    (req) => {
+      seen.push({ method: req.method, url: req.url, ...(req.body ? { body: req.body } : {}) });
+      return { status: 200, json: childRollup("parent-1") };
+    },
+    async (client) => {
+      const rollup = await client.stopChildAgent("parent-1", "child-1");
+      assert.equal(rollup.session_id, "parent-1");
+    },
+  );
+  assert.equal(seen[0]?.method, "POST");
+  assert.equal(seen[0]?.url, "/v1/surface/sessions/parent-1/children/stop");
+  const body = JSON.parse(seen[0]?.body ?? "{}") as Record<string, unknown>;
+  assert.equal(body.session_id, "parent-1");
+  assert.equal(body.child_session_id, "child-1");
+  assert.equal(body.reason, "stopped_by_operator");
+  assert.equal(typeof body.idempotency_key, "string");
+  assert.equal(typeof body.requested_at, "string");
+  assert.equal(body.protocol_version, SURFACE_PROTOCOL_VERSION);
+  const clientRef = body.client as Record<string, unknown>;
+  assert.equal(clientRef.client_type, "CLI");
+  assert.equal(clientRef.principal_id, "user:local");
+  assert.equal(clientRef.tenant_id, "tenant:local");
+  assert.equal(clientRef.workspace_id, "workspace:local");
+  assert.equal(typeof clientRef.client_id, "string");
+  assert.equal(typeof clientRef.device_id, "string");
+});
+
 const TASK_ID = "task:1";
 
 function durableEvent(sequence: number, taskId = TASK_ID) {

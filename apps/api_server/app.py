@@ -87,6 +87,7 @@ from agent_os_contracts import (
     SurfaceApprovalCommand,
     SurfaceChildAgentReconcileCommand,
     SurfaceChildAgentsResponse,
+    SurfaceChildAgentInFlight,
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
     SurfaceCorrectionCommand,
@@ -2905,6 +2906,24 @@ class AgentOSApplication:
         )
         return self.surface_provider_status()
 
+    def surface_session_is_open(self, session_id: str) -> bool:
+        """Closed-only open check that never acquires the correction lock.
+
+        The full session snapshot projects correction-halted state, which
+        takes the correction authority's global lock. A live ``agent.spawn``
+        effect drives its child inline while holding that lock for the whole
+        child run, so a per-child stop gated on the full snapshot would block
+        until the child's wall-clock bound - a deadlock against the run it must
+        stop. Stopping only needs the durable closed flag, read straight from
+        the event stream (the same ``projected.closed`` the snapshot uses).
+        """
+
+        if not session_id.strip():
+            raise ValueError("session_id must be non-empty")
+        task_id = self.surface_task_for_session(session_id)
+        projected = self.tasks.project_session(task_id, session_id)
+        return not projected.closed
+
     def surface_session_snapshot(self, session_id: str) -> SurfaceSessionSnapshot:
         if not session_id.strip():
             raise ValueError("session_id must be non-empty")
@@ -3681,6 +3700,46 @@ class AgentOSApplication:
             buried.append(burial)
         return self._child_agents_response(command.session_id, task_id, buried=tuple(buried))
 
+    def surface_stop_child_agent(self, command: Any) -> SurfaceChildAgentsResponse:
+        """Operator stop of one in-flight child, scoped to its parent session.
+
+        The route is parent-scoped (``command.session_id``), and the named
+        child must be a durable child of that parent: a stop for a session that
+        is not this parent's child fails closed with a typed link error. The
+        stop itself delegates to :meth:`stop_child_agent`, which drives the
+        operator's own C7 correction and is idempotent for an already-ended
+        child. Nothing here approves, widens, retries or fabricates an outcome;
+        the returned roll-up is the parent's fresh child picture.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError(
+                "stopping a child agent requires principal authority"
+            )
+        parent_task_id = self.surface_task_for_session(command.session_id)
+        index = self.child_agent_index()
+        target = next(
+            (
+                child
+                for child in index.children(parent_task_id)
+                if child.child_session_id == command.child_session_id
+            ),
+            None,
+        )
+        if target is None:
+            # Surface boundary: the command names a child relationship that
+            # does not exist (422, fail closed). The kernel's own link
+            # resolution keeps the stricter ChildAgentLinkError internally.
+            raise ValueError(
+                f"child session {command.child_session_id} is not a child of "
+                f"session {command.session_id}; nothing stopped"
+            )
+        self.stop_child_agent(command.child_session_id, reason=command.reason)
+        return self._child_agents_response(
+            command.session_id, parent_task_id, buried=()
+        )
+
     def _buriable_children(
         self,
         index: ChildAgentIndex,
@@ -3710,6 +3769,99 @@ class AgentOSApplication:
             buriable.append(orphan)
         return tuple(buriable)
 
+    def recover_orphaned_children_on_startup(self) -> list[ChildAgentBurial]:
+        """System-run startup sweep: bury children a dead runtime left in flight.
+
+        The daemon composition root calls this once when a fresh runtime
+        generation takes over an existing database (ADR-0061 review G4/G5/E1,
+        probe P6). A child whose owning runtime generation is gone can never
+        finish - its provider call died with that process - so leaving it in
+        flight hangs the parent roll-up for ever, with no durable way to tell
+        "still running" from "was killed".
+
+        This is the automatic counterpart of
+        :meth:`surface_reconcile_child_agents`, with three deliberate
+        differences:
+
+        * no operator principal and no operator reason - the runtime itself
+          owns the call, and ``declared_by`` names this generation rather than
+          impersonating a human;
+        * only children whose durable spawn generation is not THIS generation
+          are eligible (a child this generation owns is never touched), and a
+          child parked on a pending human approval is never buried;
+        * every burial writes the same two durable records as the operator
+          path - ``CHILD_AGENT_FINISHED`` (status ``failed``, stop reason
+          ``unknown_requires_review``) plus ``CHILD_AGENT_RECONCILED`` naming
+          ``CHILD_RUNTIME_GENERATION_GONE`` and the recovering generation.
+
+        Nothing fabricates the dead child's outcome: the finish is never
+        ``completed``, no receipt is invented and no effect is re-dispatched.
+        Returns the burials it wrote so the caller can log them; a database
+        with no orphans (the normal fresh-start case) returns an empty list.
+        """
+
+        if not self.child_agents_enabled:
+            return []
+        index = self.child_agent_index()
+        # A fresh generation owns no in-memory spawns. If this generation
+        # already holds live children the sweep is being called too late and
+        # must not run: fail closed rather than risk burying a live child.
+        with self._live_child_lock:
+            live = tuple(self._live_child_spawns)
+        if live:
+            return []
+        now = self._clock()
+        buried: list[ChildAgentBurial] = []
+        for parent_task_id in self.store.list_task_ids():
+            orphans = self._buriable_children(
+                index, parent_task_id, in_memory_spawn_ids=live
+            )
+            for orphan in orphans:
+                child = orphan.child
+                owner = orphan.spawn_runtime_boot_id
+                # Durable defence in depth: never bury a child this generation
+                # owns. At startup the live set is empty, but the recorded
+                # spawn generation is the real evidence.
+                if owner is not None and owner == self._runtime_boot_id:
+                    continue
+                self.tasks.record_child_agent_finished(
+                    parent_task_id,
+                    ChildAgentFinished(
+                        spawn_id=child.spawn_id,
+                        status=ChildAgentStatus.FAILED,
+                        steps=0,
+                        tokens=0,
+                        stop_reason=CHILD_AGENT_STOP_REASON_UNKNOWN,
+                        summary_digest=summary_digest(""),
+                    ),
+                    parent_run_id=child.parent_run_id,
+                )
+                burial = ChildAgentBurial(
+                    spawn_id=child.spawn_id,
+                    child_session_id=child.child_session_id,
+                    child_task_id=child.child_task_id,
+                    reason_code=CHILD_AGENT_RECONCILE_REASON_RUNTIME_GONE,
+                    outcome=CHILD_AGENT_RECONCILE_OUTCOME,
+                    declared_by=f"runtime:{self._runtime_boot_id}:startup-recovery",
+                    declared_at=now,
+                    runtime_boot_id=self._runtime_boot_id,
+                    runtime_pid=os.getpid(),
+                    reason=(
+                        "automatic startup recovery: the runtime generation "
+                        f"that owned this child ({owner}) is gone; the new "
+                        f"generation ({self._runtime_boot_id}) buried it as an "
+                        "unknown outcome"
+                    ),
+                    child_open_turn_id=index.open_turn_id(child.child_task_id),
+                )
+                self.tasks.record_child_agent_reconciled(
+                    parent_task_id,
+                    burial.payload(),
+                    parent_run_id=child.parent_run_id,
+                )
+                buried.append(burial)
+        return buried
+
     def stop_child_agent(
         self,
         session_id: str,
@@ -3717,13 +3869,24 @@ class AgentOSApplication:
         reason: str,
         stop_reason: str = STOP_REASON_STOPPED_BY_OPERATOR,
     ) -> ChildAgentChild:
-        """Stop one in-flight child through the existing C7 correction path.
+        """Stop one in-flight child, by the only path that cannot deadlock.
 
-        This is the *operator's* stop, expressed with the operator's own tool:
-        the same task-scope correction ``surface_correct_session`` writes. The
-        child's next dispatch is denied by the broker and its loop stops at the
-        next step boundary; the durable finish record then says what happened.
-        Nothing here approves, widens or clears anything.
+        Two cases, chosen from the live spawn set, not from durable status:
+
+        * Driven inline on the parent turn's thread, the child runs INSIDE the
+          parent ``agent.spawn`` effect's C7 guard, which holds the correction
+          authority's lock for the effect's whole duration. A synchronous
+          correction would block until the child's wall-clock bound (a deadlock
+          against the run we mean to stop). We use the same non-blocking durable
+          stop as a live parent turn (#77): append RUN_PAUSED; the child observes
+          it at its next safe boundary and writes its own finish.
+        * Parked, orphaned, or between effects, no guard is held, so the
+          synchronous task-scope correction plus a terminal finish is safe and
+          guarantees a terminal record even with no live worker.
+
+        This is the operator's stop with the operator's own tool; it never
+        approves, widens or clears anything. Stopping an already-ended child is
+        an idempotent no-op, not a rewrite.
         """
 
         actor = self.principal
@@ -3749,6 +3912,24 @@ class AgentOSApplication:
         if not index.is_in_flight(child):
             # The child already ended; stopping is idempotent, not a rewrite.
             return child
+        with self._live_child_lock:
+            driven_inline = spawn_id in self._live_child_spawns
+        if driven_inline:
+            # The child is being driven inline on the parent turn's thread,
+            # INSIDE the parent ``agent.spawn`` effect's C7 guard - which holds
+            # the correction authority's lock for the effect's whole duration.
+            # A synchronous correction here would block until the child's wall
+            # clock bound (a deadlock against the very run we mean to stop). Use
+            # the same non-blocking durable stop as a live parent turn (#77):
+            # append RUN_PAUSED to the child's optimistic stream. Its loop
+            # observes PAUSED at the next safe boundary (before the next
+            # provider call / proposal dispatch) and records its own
+            # ``stopped_by_operator`` finish through the normal spawn path.
+            self._pause_task_with_conflict_retry(task_id)
+            return child
+        # Parked, orphaned or between effects: no effect guard is held, so the
+        # synchronous C7 correction + terminal finish is safe and guarantees a
+        # terminal record even when no live worker remains to write one.
         epoch = self.correction_admin.correct("task", task_id, reason)
         self.tasks.append_event(
             task_id,
@@ -3847,11 +4028,22 @@ class AgentOSApplication:
         orphans = self._buriable_children(
             index, task_id, in_memory_spawn_ids=live
         )
+        orphan_spawn_ids = {orphan.child.spawn_id for orphan in orphans}
+        in_flight = tuple(
+            SurfaceChildAgentInFlight(
+                spawn_id=child.spawn_id,
+                child_session_id=child.child_session_id,
+                parent_turn_id=child.spawned.parent_turn_id,
+            )
+            for child in index.in_flight_children(task_id)
+            if child.spawn_id not in orphan_spawn_ids
+        )
         return SurfaceChildAgentsResponse(
             protocol_version=SURFACE_PROTOCOL_VERSION,
             session_id=session_id,
             children_included_in_totals=True,
             turns=attribution,
+            in_flight=in_flight,
             orphaned=tuple(
                 ChildAgentOrphanProjection(
                     spawn_id=orphan.child.spawn_id,

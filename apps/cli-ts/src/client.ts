@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";import {
   SURFACE_PROTOCOL_VERSION,
   SurfaceBeginTurnResponseSchema,
+  SurfaceChildAgentsResponseSchema,
   SurfaceEventBatchSchema,
   SurfaceFileEntrySchema,
   SurfaceProviderStatusSchema,
@@ -32,6 +33,7 @@ import { z } from "zod";import {
   type ProviderMetricsSnapshot,
   type PermissionMode,
   type SurfaceBeginTurnResponse,
+  type SurfaceChildAgentsResponse,
   type SurfaceClientRef,
   type SurfaceEventBatch,
   type SurfaceFileEntry,
@@ -280,6 +282,46 @@ export class SurfaceClient {
    */
   async getReadOnly(path: string): Promise<unknown> {
     return this.request("GET", path);
+  }
+
+  /** Read-only child-agent roll-up for one parent session (Form B / G10). */
+  async childAgents(parentSessionId: string): Promise<SurfaceChildAgentsResponse> {
+    const response = await this.request(
+      "GET",
+      `/v1/surface/sessions/${encodeURIComponent(parentSessionId)}/children`,
+    );
+    return SurfaceChildAgentsResponseSchema.parse(response);
+  }
+
+  /**
+   * Operator stop of ONE in-flight child (per-child stop). It drives the same
+   * per-child C7 stop the kernel exposes and is idempotent at the kernel: a
+   * child that already ended returns the current roll-up without rewriting it,
+   * and a session that is not a live child of this parent is refused 422.
+   */
+  async stopChildAgent(
+    parentSessionId: string,
+    childSessionId: string,
+    reason = "stopped_by_operator",
+    idempotencyKey?: string,
+  ): Promise<SurfaceChildAgentsResponse> {
+    if (!childSessionId.trim()) throw new Error("child session id must be non-empty");
+    const response = await this.request(
+      "POST",
+      `/v1/surface/sessions/${encodeURIComponent(parentSessionId)}/children/stop`,
+      {
+        protocol_version: SURFACE_PROTOCOL_VERSION,
+        client: this.clientRef(),
+        session_id: parentSessionId,
+        child_session_id: childSessionId,
+        reason,
+        idempotency_key:
+          idempotencyKey ??
+          `cli-ts-child-stop:${parentSessionId}:${childSessionId}:${randomUUID()}`,
+        requested_at: this.now(),
+      },
+    );
+    return SurfaceChildAgentsResponseSchema.parse(response);
   }
 
   /** Subscription-first: mint a transient stream under the current daemon

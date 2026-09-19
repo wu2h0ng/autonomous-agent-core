@@ -697,15 +697,42 @@ def test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome(
             [{"text": "unused"}],
             index=2,
         )
+        # Probe P6 / ADR-0061 G4-G5: the new generation reaps the crashed
+        # generation's in-flight child *automatically at startup*, before it
+        # serves a single request - no operator reconcile call is required.
         children = get_json(
             second, f"/v1/surface/sessions/{opened.session.session_id}/children"
         )
-        assert len(children["orphaned"]) == 1
-        orphan = children["orphaned"][0]
-        assert orphan["spawned_by_current_generation"] is False
-        assert orphan["spawn_runtime_boot_id"] == first_boot
+        assert children["orphaned"] == []
 
-        buried = post_json(
+        events = durable_events(database, opened.session.task_id)
+        finishes = [
+            payload
+            for event_type, payload in events
+            if event_type == "CHILD_AGENT_FINISHED"
+        ]
+        assert finishes
+        assert finishes[-1]["status"] == "failed"
+        assert finishes[-1]["status"] != "completed"
+        assert finishes[-1]["stop_reason"] == "unknown_requires_review"
+        reconciled = [
+            payload
+            for event_type, payload in events
+            if event_type == "CHILD_AGENT_RECONCILED"
+        ]
+        assert reconciled
+        record = reconciled[-1]
+        assert record["reason_code"] == "CHILD_RUNTIME_GENERATION_GONE"
+        assert record["outcome"] == "UNKNOWN"
+        # The system, not a fabricated operator, owns the automatic burial, and
+        # it names the recovering generation rather than impersonating a human.
+        assert record["declared_by"].startswith("runtime:")
+        assert record["declared_by"].endswith(":startup-recovery")
+        assert record["runtime_boot_id"] != first_boot
+
+        # The operator reconcile route is now an idempotent no-op: nothing
+        # ownerless is left for it to bury.
+        again = post_json(
             second,
             f"/v1/surface/sessions/{opened.session.session_id}/children/reconcile",
             {
@@ -720,34 +747,14 @@ def test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome(
                 },
                 "session_id": opened.session.session_id,
                 "reason": "the runtime died mid-child",
-                "idempotency_key": "idem:reconcile:1",
+                "idempotency_key": "idem:reconcile:2",
                 "requested_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        assert len(buried["buried"]) == 1
-        record = buried["buried"][0]
-        assert record["reason_code"] == "CHILD_RUNTIME_GENERATION_GONE"
-        assert record["outcome"] == "UNKNOWN"
-        assert record["declared_by"] == "user:local"
-
-        events = durable_events(database, opened.session.task_id)
-        finishes = [
-            payload for event_type, payload in events if event_type == "CHILD_AGENT_FINISHED"
-        ]
-        assert finishes
-        assert finishes[-1]["status"] == "failed"
-        assert finishes[-1]["status"] != "completed"
-        assert finishes[-1]["stop_reason"] == "unknown_requires_review"
-        assert any(
-            event_type == "CHILD_AGENT_RECONCILED" for event_type, _ in events
-        )
+        assert again["buried"] == []
 
         # No component resurrects the dead child, and the parent's turn is
         # exactly the dead turn it was: started, never completed.
-        after = get_json(
-            second, f"/v1/surface/sessions/{opened.session.session_id}/children"
-        )
-        assert after["orphaned"] == []
         started = {
             payload["turn_id"]
             for event_type, payload in events
@@ -764,4 +771,190 @@ def test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome(
         for daemon in (first, second):
             if daemon is not None:
                 daemon.stop()
+        provider.close()
+
+
+# ---------------------------------------------------------------------------
+# Scenario 5: the operator stops one in-flight child over the surface
+# (per-child stop, protocol 1.2 additive)
+# ---------------------------------------------------------------------------
+
+
+def test_daemon_operator_can_stop_one_in_flight_child_over_surface(
+    tmp_path: Path,
+) -> None:
+    root = workspace(tmp_path)
+    provider = ProviderStub()
+    daemon: Daemon | None = None
+    try:
+        daemon = start_daemon(
+            tmp_path,
+            root,
+            provider,
+            [
+                {
+                    "text": "",
+                    "tool_calls": [
+                        spawn_call(
+                            {
+                                "prompt": "slow child work",
+                                "description": "child the operator stops",
+                            }
+                        )
+                    ],
+                },
+                # The child's one provider call is short but in flight when the
+                # stop lands; it proposes a read, so after the stub returns the
+                # loop reaches its pre-dispatch operator-stop check.
+                {
+                    "text": "",
+                    "delay_seconds": 1.0,
+                    "tool_calls": [
+                        {
+                            "id": "call-child-read",
+                            "name": "workspace__read",
+                            "arguments": {"path": "fixture.txt"},
+                        }
+                    ],
+                },
+                # The parent resumes once the stopped child result is in.
+                {"text": "child was stopped", "tool_calls": []},
+            ],
+            index=1,
+        )
+        client = SurfaceClient(load_runtime_descriptor(daemon.descriptor_path))
+        opened = client.open_session("parent statement")
+        parent_id = opened.session.session_id
+        set_accept_in_workspace(daemon, client, parent_id)
+        begin_turn(client, parent_id, "spawn a slow child", "idem:begin:1")
+
+        database = tmp_path / "agent-os.sqlite3"
+
+        def child_started() -> bool:
+            records = child_spawn_records(database, opened.session.task_id)
+            if not records:
+                return False
+            child_task = records[0]["child_task_id"]
+            return any(
+                event_type == "SESSION_TURN_STARTED"
+                for event_type, _ in durable_events(database, child_task)
+            )
+
+        assert wait_for(child_started, timeout=30.0), "the child turn never started"
+        spawn_record = child_spawn_records(database, opened.session.task_id)[0]
+        child_session_id = spawn_record["child_session_id"]
+        child_task_id = spawn_record["child_task_id"]
+
+        client_ref = {
+            "client_id": "tui-1",
+            "client_type": "CLI",
+            "principal_id": "user:local",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "device_id": "device:local",
+        }
+
+        def stop_body(child_id: str, key: str) -> dict[str, Any]:
+            return {
+                "protocol_version": "1.1",
+                "client": client_ref,
+                "session_id": parent_id,
+                "child_session_id": child_id,
+                "reason": "operator stopped this child",
+                "idempotency_key": key,
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # The stop of a child that is being driven inline must return
+        # immediately: it durably pauses the child Run (RUN_PAUSED) without
+        # blocking on the parent agent.spawn effect's C7 guard.
+        post_json(
+            daemon,
+            f"/v1/surface/sessions/{parent_id}/children/stop",
+            stop_body(child_session_id, "idem:stop:1"),
+        )
+
+        def child_paused() -> bool:
+            return any(
+                event_type == "RUN_PAUSED"
+                for event_type, _ in durable_events(database, child_task_id)
+            )
+
+        assert wait_for(child_paused, timeout=10.0), "the child Run was never paused"
+
+        # The child loop observes PAUSED at its next safe boundary and records
+        # its own terminal finish through the normal spawn completion path.
+        def child_finished_stopped() -> bool:
+            finishes = [
+                payload
+                for event_type, payload in durable_events(
+                    database, opened.session.task_id
+                )
+                if event_type == "CHILD_AGENT_FINISHED"
+            ]
+            return bool(
+                finishes
+                and finishes[-1]["status"] == "stopped"
+                and finishes[-1]["stop_reason"] == "stopped_by_operator"
+            )
+
+        assert wait_for(child_finished_stopped, timeout=20.0), (
+            "the child did not finish as stopped_by_operator"
+        )
+
+        def rollup_stopped() -> bool:
+            roll = get_json(
+                daemon,
+                f"/v1/surface/sessions/{parent_id}/children",
+            )
+            rows = [
+                row
+                for turn in roll["turns"]
+                for row in turn["children"]
+                if row["child_session_id"] == child_session_id
+            ]
+            return bool(
+                rows
+                and rows[0]["status"] == "stopped"
+                and rows[0]["stop_reason"] == "stopped_by_operator"
+            )
+
+        assert wait_for(rollup_stopped, timeout=10.0), (
+            "the roll-up never showed the child as stopped"
+        )
+
+        finish_count = sum(
+            1
+            for event_type, _ in durable_events(database, opened.session.task_id)
+            if event_type == "CHILD_AGENT_FINISHED"
+        )
+
+        # Idempotent: stopping the now-ended child with a fresh key is a no-op
+        # that fabricates no second terminal record.
+        post_json(
+            daemon,
+            f"/v1/surface/sessions/{parent_id}/children/stop",
+            stop_body(child_session_id, "idem:stop:2"),
+        )
+        finish_count_after = sum(
+            1
+            for event_type, _ in durable_events(database, opened.session.task_id)
+            if event_type == "CHILD_AGENT_FINISHED"
+        )
+        assert finish_count_after == finish_count
+
+        # Fail closed: stopping a session that is not this parent's child is a
+        # 4xx and stops nothing. The parent is never its own child.
+        with pytest.raises(AssertionError) as failure:
+            post_json(
+                daemon,
+                f"/v1/surface/sessions/{parent_id}/children/stop",
+                stop_body(parent_id, "idem:stop:foreign"),
+            )
+        message = str(failure.value)
+        assert "422" in message
+        assert "not a child" in message
+    finally:
+        if daemon is not None:
+            daemon.stop()
         provider.close()

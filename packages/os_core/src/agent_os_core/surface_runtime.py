@@ -20,6 +20,7 @@ from agent_os_contracts import (
     SurfaceBeginTurnCommand,
     SurfaceBeginTurnResponse,
     SurfaceChildAgentReconcileCommand,
+    SurfaceChildAgentStopCommand,
     SurfaceChildAgentsResponse,
     SurfaceClientRef,
     SurfaceCorrectionCommand,
@@ -138,8 +139,14 @@ class SurfaceApplicationPort(Protocol):
 
     def surface_child_agents(self, session_id: str) -> SurfaceChildAgentsResponse: ...
 
+    def surface_session_is_open(self, session_id: str) -> bool: ...
+
     def surface_reconcile_child_agents(
         self, command: SurfaceChildAgentReconcileCommand
+    ) -> SurfaceChildAgentsResponse: ...
+
+    def surface_stop_child_agent(
+        self, command: SurfaceChildAgentStopCommand
     ) -> SurfaceChildAgentsResponse: ...
 
     def surface_provider_status(self) -> SurfaceProviderStatus: ...
@@ -407,6 +414,35 @@ class SurfaceRuntime:
         self._require_principal_scope(command.client)
         self._require_open_session(command.session_id)
         return self._application.surface_reconcile_child_agents(command)
+
+    def stop_child_agent(
+        self, command: SurfaceChildAgentStopCommand
+    ) -> SurfaceChildAgentsResponse:
+        """Operator stop of one in-flight child of the route's parent session."""
+
+        with self._session_lock(command.session_id):
+            return self._idempotent(
+                scope=(
+                    "surface:child-stop:"
+                    f"{command.session_id}:{command.child_session_id}"
+                ),
+                key=command.idempotency_key,
+                command=command,
+                response_type=SurfaceChildAgentsResponse,
+                operation=lambda: self._stop_child_agent_once(command),
+            )
+
+    def _stop_child_agent_once(
+        self, command: SurfaceChildAgentStopCommand
+    ) -> SurfaceChildAgentsResponse:
+        self._require_protocol(command.protocol_version)
+        self._require_principal_scope(command.client)
+        # A lock-free closed check: the full snapshot gate projects correction
+        # state and would block on the parent spawn effect's held guard while
+        # the child is driven inline (the very window a live stop targets).
+        if not self._application.surface_session_is_open(command.session_id):
+            raise SurfaceProtocolError("surface session is closed")
+        return self._application.surface_stop_child_agent(command)
 
     def set_permission_mode(
         self, command: SurfaceSetPermissionModeCommand

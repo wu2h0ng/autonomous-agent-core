@@ -11,7 +11,7 @@
  * crashing the terminal. Failures are reported as a note, never thrown.
  */
 import { z } from "zod";
-import { buildAgentTree, type AgentTree } from "./agents.js";
+import { buildAgentTree, type AgentTree, type ChildRowInput } from "./agents.js";
 import type { SurfaceClient } from "../client.js";
 
 const MandateRowSchema = z
@@ -33,6 +33,9 @@ const TaskLinkRowSchema = z
 
 /** Bound the fan-out: one link request per mandate, capped. */
 export const AGENT_TREE_MAX_MANDATES = 20;
+
+/** Bound the fan-out for child roll-ups: one GET per parent session. */
+export const AGENT_TREE_MAX_CHILD_SESSIONS = 30;
 
 export interface AgentTreeResult extends AgentTree {
   note: string | null;
@@ -95,6 +98,40 @@ export async function fetchAgentTree(
     notes.push("session listing unavailable");
   }
 
-  const tree = buildAgentTree({ mandates, links, sessions });
+  // Child roll-ups, one bounded GET per parent session (lenient: a failed or
+  // unparseable roll-up degrades to a note, never crashes the tree). Liveness
+  // comes from `in_flight`, not the conservative per-child attribution status.
+  const children: ChildRowInput[] = [];
+  const childSessions = sessions.slice(0, AGENT_TREE_MAX_CHILD_SESSIONS);
+  if (sessions.length > AGENT_TREE_MAX_CHILD_SESSIONS) {
+    notes.push(
+      `child agents truncated at ${AGENT_TREE_MAX_CHILD_SESSIONS}/${sessions.length} sessions`,
+    );
+  }
+  for (const parent of childSessions) {
+    try {
+      const rollup = await client.childAgents(parent.session_id);
+      const live = new Set(rollup.in_flight.map((entry) => entry.child_session_id));
+      for (const turn of rollup.turns) {
+        for (const child of turn.children) {
+          children.push({
+            parent_session_id: rollup.session_id,
+            spawn_id: child.spawn_id,
+            child_session_id: child.child_session_id,
+            agent_type: child.agent_type,
+            status: child.status,
+            steps: child.steps,
+            tokens: child.tokens,
+            stop_reason: child.stop_reason ?? null,
+            in_flight: live.has(child.child_session_id),
+          });
+        }
+      }
+    } catch {
+      notes.push(`child roll-up unavailable for ${parent.session_id}`);
+    }
+  }
+
+  const tree = buildAgentTree({ mandates, links, sessions, children });
   return { ...tree, note: notes.length > 0 ? notes.join("; ") : null };
 }

@@ -20,6 +20,7 @@ from ._cors import _tauri_origin_cors
 
 from agent_os_contracts import (
 SurfaceChildAgentReconcileCommand,
+SurfaceChildAgentStopCommand,
 SURFACE_PROTOCOL_MIN_SUPPORTED,
     SURFACE_PROTOCOL_VERSION,
     SurfaceApprovalCommand,
@@ -287,7 +288,16 @@ class SurfaceRoutes:
                 )
                 if session_id is not None:
                     self._post_reconcile_children(handler, session_id)
-                    return            self._respond(handler, 404, {"error": "surface_route_not_found"})
+                    return
+                session_id = _match_surface_session_leaf(
+                    handler.path, "children/stop"
+                )
+                if session_id is not None:
+                    self._post_stop_child(handler, session_id)
+                    return
+                self._respond(
+                    handler, 404, {"error": "surface_route_not_found"}
+                )
 
         except Exception as exc:
             self._respond(
@@ -593,6 +603,22 @@ class SurfaceRoutes:
             self._runtime.reconcile_child_agents(command).model_dump(
                 mode="json"
             ),
+        )
+
+    def _post_stop_child(self, handler: Any, session_id: str) -> None:
+        """Operator stop of one in-flight child of this parent session."""
+
+        body = handler._body()
+        command = SurfaceChildAgentStopCommand.model_validate(body)
+        if command.session_id != session_id:
+            raise SurfaceProtocolError(
+                "surface command session does not bind the route"
+            )
+        self._require_protocol_header(handler)
+        self._respond(
+            handler,
+            200,
+            self._runtime.stop_child_agent(command).model_dump(mode="json"),
         )
 
     def _post_correction(self, handler: Any, session_id: str) -> None:
