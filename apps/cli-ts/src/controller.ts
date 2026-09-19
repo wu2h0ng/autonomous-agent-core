@@ -19,6 +19,18 @@ import { helpLines } from "./commands.js";
 import { diffLines } from "./diffview.js";
 import { DEFAULT_THEME_NAME, nextTheme, THEMES, themeNames } from "./theme.js";
 import { latestDeadTurnClosure, openDurableTurnIds } from "./turns.js";
+import { registerRuntimeSecret } from "./daemon.js";
+import {
+  CUSTOM_ENDPOINT_CLASSES,
+  formFieldsFor,
+  presetById,
+  PROVIDER_PRESETS,
+  seedForm,
+  validateForm,
+  type EndpointClass,
+  type ProviderFormDraft,
+  type ProviderFormField,
+} from "./provider-config.js";
 import { chmodSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type {
@@ -26,6 +38,7 @@ import type {
 ProviderMetricsSnapshot,
 RecoveredUnknownTurn,
   SurfaceFileEntry,
+  SurfaceProviderStatus,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
   TaskEvent,
@@ -339,6 +352,27 @@ export interface PendingSelector {
   title: string;
   items: string[];
 }
+
+/**
+ * P5 interactive `/provider` modal state machine. The API key draft NEVER lives
+ * here: it stays in the view's local React state and is handed to
+ * `providerFormSubmit` as a one-shot argument, so it cannot reach history,
+ * state, transcript, trace or receipt.
+ */
+export type ProviderModalState =
+  | { phase: "closed" }
+  | { phase: "view"; status: SurfaceProviderStatus }
+  | { phase: "preset"; index: number }
+  | {
+      phase: "form";
+      presetId: string;
+      baseUrl: string;
+      model: string;
+      endpointClass: EndpointClass;
+      fieldIndex: number;
+      hasExistingKey: boolean;
+      error: string | null;
+    };
 
 /** Capability whose latest successful call defines the visible task list
  * (GC-SESSION-TODO-WRITE-2026-09-11; tier-1 internal scratchpad, pending
@@ -659,6 +693,8 @@ export class TuiController {
   vimMode = false;
   /** Open overlay selector, if any (mainstream `/resume` `/theme` `/mode`). */
   pendingSelector: PendingSelector | null = null;
+  /** P5: interactive `/provider` modal (read-only card or setup wizard). */
+  pendingProvider: ProviderModalState = { phase: "closed" };
   /** Locally observed session ids, most-recent first (no sessions-list
    * endpoint exists yet, so `/resume` can only offer what this client saw). */
   recentSessions: string[] = [];
@@ -997,90 +1033,243 @@ export class TuiController {
     };
   }
 
-  /** `/provider` — show the redacted live provider status, or configure it.
-   * The API key is read from AGENT_OS_PROVIDER_KEY in the CLI environment, so
-   * it is never typed into the composer (and thus never written to history,
-   * state or the transcript). */
+  /** `/provider` — interactive read-only card + setup wizard (P5).
+   *
+   * The API key is typed into a masked overlay and handed to the daemon exactly
+   * once over the authenticated local surface; it is never written to the
+   * composer, history, state, transcript, trace or receipt.
+   */
   private async providerCommand(rest: string[]): Promise<void> {
-    try {
-      const sub = rest[0]?.toLowerCase();
-      if (sub === "clear") {
+    const sub = rest[0]?.toLowerCase();
+    if (sub === "clear") {
+      try {
         const status = await this.client.clearProvider();
-        this.push({
-          role: "system",
-          content:
-            `provider config + stored key removed (persisted=${status.persisted}); ` +
-            "the running daemon keeps its current provider until restart",
-        });
-        this.emit();
-        return;
+        this.pendingProvider = { phase: "view", status };
+      } catch (cause) {
+        this.push({ role: "system", content: `provider clear failed: ${(cause as Error).message}` });
       }
-      if (sub !== "set") {
-        const status = await this.client.providerStatus();
-        const provenance = [
-          `persisted  ${status.persisted ? "yes" : "no"}`,
-          `key_source ${status.key_source ?? "none"}`,
-        ];
-        this.push({
-          role: "system",
-          content: "",
-          panel: {
-            title: "provider",
-            lines: status.configured
-              ? [
-                  "status     configured",
-                  `model      ${status.model_id ?? "?"}`,
-                  `endpoint   ${status.endpoint_class ?? "?"}`,
-                  `base_url   ${status.base_url ?? "?"}`,
-                  `credential ${status.credential_ref_id ?? "?"}`,
-                  ...provenance,
-                ]
-              : [
-                  "status     not configured",
-                  ...provenance,
-                  "usage      /provider set <base-url> <model> [endpoint-class]",
-                  "(export AGENT_OS_PROVIDER_KEY in the CLI environment first)",
-                ],
-          },
-        });
-        return;
-      }
-      const [, baseUrl, model, endpointClass] = rest;
-      if (!baseUrl || !model) {
-        this.push({
-          role: "system",
-          content: "usage: /provider set <base-url> <model> [endpoint-class]",
-        });
-        return;
-      }
-      const apiKey = process.env.AGENT_OS_PROVIDER_KEY;
-      if (!apiKey) {
-        this.push({
-          role: "system",
-          content:
-            "AGENT_OS_PROVIDER_KEY is not set in the CLI environment; export it " +
-            "there, then retry (the key is never typed into the composer).",
-        });
-        return;
-      }
-      const status = await this.client.configureProvider({
-        baseUrl,
-        model,
-        apiKey,
-        ...(endpointClass ? { endpointClass } : {}),
-      });
-      this.push({
-        role: "system",
-        content:
-          `provider configured: model ${status.model_id ?? "?"} · ` +
-          `endpoint ${status.endpoint_class ?? "?"} · base_url ${status.base_url ?? "?"}`,
-      });
+      this.emit();
+      return;
+    }
+    if (sub === "setup") {
+      this.openProviderPreset();
+      return;
+    }
+    try {
+      const status = await this.client.providerStatus();
+      this.pendingProvider = status.configured
+        ? { phase: "view", status }
+        : { phase: "preset", index: 0 };
       this.emit();
     } catch (cause) {
-      this.push({
-        role: "system",
-        content: `provider command failed: ${(cause as Error).message}`,
+      this.push({ role: "system", content: `provider status failed: ${(cause as Error).message}` });
+    }
+  }
+
+  // ---- P5 provider modal state machine -------------------------------------
+  // The key draft lives in the view (local React state); these methods only
+  // touch non-secret config fields.
+
+  private openProviderPreset(): void {
+    this.pendingProvider = { phase: "preset", index: 0 };
+    this.emit();
+  }
+
+  /** Open the setup wizard from anywhere (P5 §3: the `p` onboarding key). */
+  providerOpenSetup(): void {
+    if (this.pendingProvider.phase !== "closed") return;
+    this.openProviderPreset();
+  }
+
+  providerPresetMove(delta: number): void {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "preset") return;
+    const count = PROVIDER_PRESETS.length;
+    this.pendingProvider = { phase: "preset", index: (modal.index + delta + count) % count };
+    this.emit();
+  }
+
+  providerPresetChoose(): void {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "preset") return;
+    const preset = PROVIDER_PRESETS[modal.index];
+    if (preset === undefined) return;
+    const seed = seedForm(preset);
+    this.pendingProvider = {
+      phase: "form",
+      presetId: preset.id,
+      baseUrl: seed.baseUrl,
+      model: seed.model,
+      endpointClass: seed.endpointClass,
+      fieldIndex: 0,
+      hasExistingKey: false,
+      error: null,
+    };
+    this.emit();
+  }
+
+  /** The ordered editable fields of the form (view uses this to route keys). */
+  providerFormFields(): ProviderFormField[] {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "form") return [];
+    const preset = presetById(modal.presetId) ?? PROVIDER_PRESETS[0];
+    return formFieldsFor(preset!);
+  }
+
+  providerFormMoveField(delta: number): void {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "form") return;
+    const fields = this.providerFormFields();
+    if (fields.length === 0) return;
+    const next = (modal.fieldIndex + delta + fields.length) % fields.length;
+    this.pendingProvider = { ...modal, fieldIndex: next };
+    this.emit();
+  }
+
+  /** Type a printable character into the selected NON-SECRET field. The api_key
+   *  field is handled entirely by the view (masked local draft); this is a no-op
+   *  there so the secret never enters controller state. */
+  providerFormType(char: string): void {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "form") return;
+    const fields = this.providerFormFields();
+    const field = fields[modal.fieldIndex];
+    if (field === "baseUrl") {
+      this.pendingProvider = { ...modal, baseUrl: modal.baseUrl + char, error: null };
+    } else if (field === "model") {
+      this.pendingProvider = { ...modal, model: modal.model + char, error: null };
+    } else if (field === "endpointClass") {
+      const cur = CUSTOM_ENDPOINT_CLASSES.indexOf(modal.endpointClass);
+      this.pendingProvider = {
+        ...modal,
+        endpointClass: CUSTOM_ENDPOINT_CLASSES[(cur + 1) % CUSTOM_ENDPOINT_CLASSES.length]!,
+        error: null,
+      };
+    } else {
+      return; // api_key: the view owns the masked draft
+    }
+    this.emit();
+  }
+
+  providerFormBackspace(): void {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "form") return;
+    const fields = this.providerFormFields();
+    const field = fields[modal.fieldIndex];
+    if (field === "baseUrl") {
+      this.pendingProvider = { ...modal, baseUrl: modal.baseUrl.slice(0, -1) };
+    } else if (field === "model") {
+      this.pendingProvider = { ...modal, model: modal.model.slice(0, -1) };
+    }
+    this.emit();
+  }
+
+  /** Submit the wizard. `apiKeyDraft` is the view's local masked draft; it is
+   *  sent once to the authenticated surface and registered with the redactor. */
+  async providerFormSubmit(apiKeyDraft: string): Promise<void> {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "form") return;
+    const draft: ProviderFormDraft = {
+      baseUrl: modal.baseUrl,
+      model: modal.model,
+      endpointClass: modal.endpointClass,
+    };
+    const problem = validateForm(draft, apiKeyDraft.length, modal.hasExistingKey);
+    if (problem !== null) {
+      this.pendingProvider = { ...modal, error: problem };
+      this.emit();
+      return;
+    }
+    // Empty key on an already-configured provider = keep the existing key:
+    // refresh the read-only card without re-sending any credential.
+    if (apiKeyDraft.length === 0 && modal.hasExistingKey) {
+      try {
+        const status = await this.client.providerStatus();
+        this.pendingProvider = { phase: "view", status };
+      } catch (cause) {
+        this.pendingProvider = { ...modal, error: (cause as Error).message };
+      }
+      this.emit();
+      return;
+    }
+    if (apiKeyDraft.length > 0) registerRuntimeSecret(apiKeyDraft);
+    try {
+      const status = await this.client.configureProvider({
+        baseUrl: modal.baseUrl.trim(),
+        model: modal.model.trim(),
+        apiKey: apiKeyDraft,
+        endpointClass: modal.endpointClass,
       });
+      this.pendingProvider = { phase: "view", status };
+    } catch (cause) {
+      this.pendingProvider = { ...modal, error: (cause as Error).message };
+    }
+    this.emit();
+  }
+
+  /** Read-only card actions: edit (open wizard), clear, close. */
+  providerViewAction(action: "edit" | "clear" | "close"): void {
+    const modal = this.pendingProvider;
+    if (modal.phase !== "view") return;
+    if (action === "close") {
+      this.pendingProvider = { phase: "closed" };
+      this.emit();
+      return;
+    }
+    if (action === "edit") {
+      const status = modal.status;
+      this.pendingProvider = {
+        phase: "form",
+        presetId: "custom",
+        baseUrl: status.base_url ?? "",
+        model: status.model_id ?? "",
+        endpointClass: (status.endpoint_class as EndpointClass) ?? "openai-compatible",
+        fieldIndex: 0,
+        hasExistingKey: (status.key_source ?? "none") !== "none",
+        error: null,
+      };
+      this.emit();
+      return;
+    }
+    // clear
+    void (async () => {
+      try {
+        const cleared = await this.client.clearProvider();
+        this.pendingProvider = { phase: "view", status: cleared };
+      } catch (cause) {
+        this.push({ role: "system", content: `provider clear failed: ${(cause as Error).message}` });
+        this.pendingProvider = { phase: "closed" };
+      }
+      this.emit();
+    })();
+  }
+
+  /** Esc at any wizard step: close without writing anything. */
+  providerCancel(): void {
+    if (this.pendingProvider.phase === "closed") return;
+    this.pendingProvider = { phase: "closed" };
+    this.emit();
+  }
+
+  /** P5 §3: a provider 401/403 opens the setup wizard instead of a bare error. */
+  private maybeOfferProviderSetup(stopReason: string, detail: string): void {
+    const text = `${stopReason} ${detail}`.toLowerCase();
+    const auth =
+      text.includes("401") ||
+      text.includes("403") ||
+      text.includes("unauthorized") ||
+      text.includes("forbidden") ||
+      text.includes("invalid_api_key") ||
+      text.includes("invalid x-api-key") ||
+      (text.includes("api key") && (text.includes("invalid") || text.includes("missing")));
+    if (!auth) return;
+    this.push({
+      role: "system",
+      content:
+        "provider rejected the credential (401/403). Press /provider (or p) to set up a provider.",
+    });
+    if (this.pendingProvider.phase === "closed") {
+      this.pendingProvider = { phase: "preset", index: 0 };
     }
   }
 
@@ -2032,6 +2221,9 @@ export class TuiController {
                   `${this.sessionId ?? "<session-id>"}\` from a shell)`
                 : `turn ended: ${this.lastStopReason} (${steps} steps, tokens counted) — not a successful completion`,
           });
+          // P5 §3: a provider credential failure (401/403) opens the setup
+          // wizard instead of leaving the operator with a bare error.
+          this.maybeOfferProviderSetup(this.lastStopReason, this.lastDurableError ?? "");
         }
         this.status = "idle";
         this.turnId = null;

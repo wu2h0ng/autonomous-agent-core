@@ -13,6 +13,7 @@ import { resolveViewKey, type ViewKeyContext } from "../src/opentui/viewkeys.js"
 function ctx(overrides: Partial<ViewKeyContext> = {}): ViewKeyContext {
   return {
     selectorOpen: false,
+    providerOpen: false,
     searchOpen: false,
     awaitingApproval: false,
     paletteOpen: false,
@@ -408,5 +409,27 @@ test("agents panel: plain x stops the highlighted child; ctrl-x stays global", (
   assert.deepEqual(
     resolveViewKey(ctx({ selectorOpen: closed, activePanel: "agents", name: "down", ctrl: false })),
     { layer: "agents", action: "move", delta: 1 },
+  );
+});
+
+
+test("an open provider modal owns every key (Esc cancels, never approves)", () => {
+  // The provider modal sits above the approval/transcript layers: while it is
+  // open, y/n/Esc must never leak to an awaiting approval or the composer.
+  assert.deepEqual(resolveViewKey(ctx({ providerOpen: true, name: "escape" })), {
+    layer: "provider",
+  });
+  assert.deepEqual(
+    resolveViewKey(ctx({ providerOpen: true, name: "y", awaitingApproval: true })),
+    { layer: "provider" },
+  );
+  assert.deepEqual(
+    resolveViewKey(ctx({ providerOpen: true, name: "up" })),
+    { layer: "provider" },
+  );
+  // A closed provider modal falls through to the normal layers.
+  assert.deepEqual(
+    resolveViewKey(ctx({ awaitingApproval: true, name: "y" })),
+    { layer: "approval", action: "approve" },
   );
 });

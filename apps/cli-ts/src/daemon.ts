@@ -131,6 +131,21 @@ const SECRET_ENV_PATTERN = /(TOKEN|SECRET|PASSWORD|_KEY|APIKEY)$/i;
 const REDACTED = "<redacted>";
 
 /**
+ * Operator-typed secrets (the P5 interactive `/provider` key) registered at
+ * runtime. They are never written to state/history/transcript; this registry
+ * exists only so that, if one ever surfaces in a captured launcher stderr, the
+ * redactor masks it there too. Entries are kept in-memory for process lifetime.
+ */
+const runtimeSecrets: string[] = [];
+
+/** Add an operator-typed secret to the redaction mask set (P5 security line). */
+export function registerRuntimeSecret(secret: string): void {
+  if (secret.length > 0 && !runtimeSecrets.includes(secret)) {
+    runtimeSecrets.push(secret);
+  }
+}
+
+/**
  * Every launcher to try, in order. The first element is the launcher the client
  * prefers (`resolveDaemonLaunch` returns exactly that, and `doctor` reports it);
  * the rest are fallbacks used only when an earlier candidate is gone before a
@@ -445,6 +460,9 @@ function secretsToMask(descriptorPath: string): string[] {
     if (typeof value === "string" && value.length >= 8 && SECRET_ENV_PATTERN.test(name)) {
       secrets.push(value);
     }
+  }
+  for (const secret of runtimeSecrets) {
+    if (secret.length > 0) secrets.push(secret);
   }
   return secrets;
 }
