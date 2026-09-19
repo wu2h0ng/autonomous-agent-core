@@ -31,6 +31,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"   # repo requires-python >= 3.10
+      # uv is needed ONLY by the install-smoke step at the bottom of this job, which
+      # proves the `uv tool install .` PYTHON tool path (the cli-ts job already proves
+      # the Bun/TS artifact; this is its Python counterpart). Pinned to a major line
+      # like the other toolchains; the script itself points UV_TOOL_DIR/UV_CACHE_DIR
+      # at its own $TMPDIR scratch, so the runner's real uv tools dir is untouched.
+      - uses: astral-sh/setup-uv@v5
       - name: Lint (product scope, pinned ruff)
         run: |
           # Pin ruff to the repo's dev-extra range (pyproject: ruff>=0.14,<1) and
@@ -305,6 +311,24 @@ jobs:
             python -m pytest tests/product_eval/test_terminal_coding_eval.py \
                             tests/product_eval/test_terminal_coding_eval_live.py \
                             tests/product_eval/test_terminal_coding_horizon.py -q
+
+      # --- Install smoke (PYTHON tool path): `uv tool install .` -> start -> hermetic turn --
+      # Why this step exists: every step above runs the Python side either from a PYTHONPATH
+      # workspace (product suite, eval) or as a `pip install --no-deps .` wheel that never
+      # exercises `uv tool install .` -- the distribution shape a user actually gets when
+      # they install this tool. This step is the ONLY CI coverage of that path: it builds a
+      # wheel into a throwaway UV_TOOL_DIR, boots the INSTALLED agent-os-runtime console
+      # script against a temp db/workspace/descriptor, and drives one hermetic turn through
+      # the installed SurfaceClient with a stub provider (no live key, no network).
+      # The cli-ts job already covers the Bun/TS artifact; this covers the Python one.
+      # Hermetic by construction (scripts/install_smoke.sh): UV_TOOL_DIR/UV_CACHE_DIR under
+      # $TMPDIR, AGENT_OS_PROVIDER_CONFIG/AGENT_OS_PRICING_FILE/AGENT_OS_CLI_STATE pointed at
+      # non-existent temp paths so a real ~/.agent-os/provider.json can never be read, and the
+      # daemon is SIGKILLed at the end (stateless; no rollback needed). No publish/tag/release.
+      # Measured locally (macOS arm64, this branch): install -> --help -> one hermetic turn
+      # with stop_reason=completed -> daemon gone, exit 0.
+      - name: Install smoke (uv tool install . -> start -> hermetic turn)
+        run: bash scripts/install_smoke.sh
 
   # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
   # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it

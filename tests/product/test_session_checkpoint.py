@@ -119,3 +119,70 @@ def test_crash_then_forward_replay_reconstructs_session_state(tmp_path: Path) ->
     # No history was deleted: the pre-checkpoint events are still readable.
     total_events = len(recovered.store.read(session.task_id))
     assert total_events >= checkpoint_sequence
+
+
+def test_fork_from_checkpoint_branches_a_new_epoch_and_keeps_parent_immutable(tmp_path: Path) -> None:
+    app = _app(
+        tmp_path,
+        scripted=(
+            ("parent first reply", ()),
+            ("forked turn reply", ()),
+        ),
+    )
+    session, loop = app.open_chat_session("work", DeferredApprovalGateway())
+    loop.run_turn(session, "first request")
+    app.surface_write_checkpoint(_checkpoint_command(app, session.session_id, "cp1"))
+
+    # Evidence snapshot of the parent BEFORE the fork: every durable event
+    # byte-for-byte (event_id, sequence, event_type, payload_json).
+    parent_task_id = app.surface_task_for_session(session.session_id)
+    before = [
+        (e.event_id, e.sequence, e.event_type.value, e.payload_json)
+        for e in app.store.read(parent_task_id)
+    ]
+
+    result = app.surface_fork_from_checkpoint(
+        _checkpoint_command(app, session.session_id, "cp1"),
+        checkpoint_label="cp1",
+        gateway=DeferredApprovalGateway(),
+    )
+
+    # The parent is now sealed read-only; its events are byte-identical.
+    after = [
+        (e.event_id, e.sequence, e.event_type.value, e.payload_json)
+        for e in app.store.read(parent_task_id)
+    ]
+    # The only addition on the parent is the SESSION_CLOSED seal event.
+    assert after[: len(before)] == before, "parent events mutated across fork"
+    assert after[len(before):][0][2] == "SESSION_CLOSED"
+
+    # The new epoch carries the lineage event and can run a turn.
+    new_task_id = result["new_task_id"]
+    fork_events = [
+        e for e in app.store.read(new_task_id)
+        if e.event_type.value == "SESSION_FORKED_FROM_CHECKPOINT"
+    ]
+    assert len(fork_events) == 1
+    payload = fork_events[0].decoded_payload()
+    assert payload["parent_session_id"] == session.session_id
+    assert payload["parent_task_id"] == parent_task_id
+    assert payload["checkpoint_label"] == "cp1"
+    assert isinstance(payload["checkpoint_sequence"], int)
+
+    # The forked session is a live, independent epoch.
+    assert app.surface.get_session(result["new_session_id"]).status is SurfaceSessionStatus.ACTIVE
+
+
+def test_fork_unknown_checkpoint_label_is_typed_rejection(tmp_path: Path) -> None:
+    app = _app(tmp_path, scripted=())
+    session, loop = app.open_chat_session("work", DeferredApprovalGateway())
+    loop.run_turn(session, "first")
+    try:
+        app.surface_fork_from_checkpoint(
+            _checkpoint_command(app, session.session_id, "x"),
+            checkpoint_label="does-not-exist",
+            gateway=DeferredApprovalGateway(),
+        )
+    except KeyError:
+        return
+    raise AssertionError("fork from a missing checkpoint should raise KeyError")

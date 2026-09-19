@@ -14,10 +14,12 @@ from .signature_verify import (
     ed25519_sign,
     ed25519_signature_from_hex,
 )
+from .minisign_verify import MinisignVerifier
 
 __all__ = [
     "ArtifactVerifier",
     "Ed25519Verifier",
+    "MinisignVerifier",
     "SignatureVerificationError",
     "ed25519_public_bytes",
     "ed25519_public_key_fingerprint",
