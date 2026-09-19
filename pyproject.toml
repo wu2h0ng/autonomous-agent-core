@@ -54,6 +54,15 @@ pythonpath = [
     "packages/contracts/src",
     "packages/os_core/src",
 ]
+# `quarantine(reason=...)` marks an offline-deterministic test that cannot run in this
+# repo's CI because it depends on an asset this repo does not materialize (a live provider
+# key, a Docker daemon + pinned image, or the cross-repo runner worktree pinned at a
+# commit). The conftest hook turns each such mark into a skip that ALWAYS carries its
+# reason; there is no bare skip and no deleted test. Un-quarantine only when the named
+# asset is available and the test re-confirms green.
+markers = [
+    "quarantine: offline test gated on an asset this repo does not ship; reason= states what is missing and when it can be lifted",
+]
 
 [tool.pyright]
 pythonVersion = "3.11"

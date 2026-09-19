@@ -33,3 +33,61 @@ def _restore_process_environment() -> None:
         for name in [name for name in os.environ if name not in snapshot]:
             del os.environ[name]
         os.environ.update(snapshot)
+
+
+# --------------------------------------------------------------------------- #
+# Quarantine mechanism (shard D, 2026-09-19)
+# --------------------------------------------------------------------------- #
+# A `quarantine(reason=...)` mark is the ONLY sanctioned way to suppress an offline
+# deterministic test in this suite. It is converted here into a skip that always carries
+# its reason, so:
+#   * there is no silent `@pytest.mark.skip` (a reason is mandatory),
+#   * no test is deleted (the mark sits on the test and runs when the asset lands),
+#   * every quarantined item appears, with its reason, in `-rs` and in the report below.
+# Lift a quarantine only when the named asset is available and the test re-confirms green
+# in this repo (not just on the author's machine).
+def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
+    """Convert every quarantined item into a reason-bearing skip.
+
+    Two sources, one rule:
+      * an in-file ``@pytest.mark.quarantine(reason=...)`` on the item itself;
+      * the central manifest ``_quarantine.QUARANTINE_BUCKETS`` (exact nodeids).
+
+    Both require a non-empty reason. A reasonless quarantine is a silent skip and is
+    rejected here rather than silently suppressing a test. The resulting skips print their
+    reason under ``-rs`` and are tallied below.
+    """
+    from tests.product_eval._quarantine import QUARANTINE_BUCKETS
+
+    manifest = {}
+    for bucket in QUARANTINE_BUCKETS.values():
+        reason = bucket["reason"]
+        for nodeid in bucket["nodeids"]:
+            manifest[nodeid] = reason
+
+    quarantined: list[str] = []
+    for item in items:
+        reasons: list[str] = []
+        for mark in item.iter_markers(name="quarantine"):
+            reason = mark.kwargs.get("reason")
+            if not reason:
+                raise RuntimeError(
+                    f"quarantine mark on {item.nodeid!r} must carry a reason= explaining "
+                    "what asset is missing, why it cannot run in this repo, and when it "
+                    "can be lifted. A reasonless quarantine is a silent skip and is rejected."
+                )
+            reasons.append(reason)
+        # Central manifest match (exact nodeid).
+        if item.nodeid in manifest:
+            reasons.append(manifest[item.nodeid])
+        for reason in reasons:
+            item.add_marker(pytest.mark.skip(reason=f"[quarantine] {reason}"))
+        if reasons:
+            quarantined.append(f"{item.nodeid} :: {reasons[0]}")
+    if quarantined:
+        print(
+            "\n".join(
+                ["", "=== QUARANTINED product_eval tests (asset-gated, not silent skips) ==="]
+                + [f"  - {line}" for line in quarantined]
+            )
+        )
