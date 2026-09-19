@@ -4125,6 +4125,80 @@ class AgentOSApplication:
             "turn_ids_seen": list(replay.turn_ids_seen),
         }
 
+    def surface_fork_from_checkpoint(
+        self,
+        command: SurfaceCorrectionCommand,
+        *,
+        checkpoint_label: str,
+        gateway,
+    ) -> dict[str, object]:
+        """Fork a NEW epoch from a named checkpoint on THIS session.
+
+        This is the append-only "rewind" the evidence spine allows (see
+        ADR-0063 / docs/product/GC-CHECKPOINT-REWIND-2026-09-18.md): the parent
+        session is CLOSED read-only, its events are never deleted or rewritten,
+        and a brand-new session is opened whose durable stream begins with a
+        ``SESSION_FORKED_FROM_CHECKPOINT`` lineage event binding
+        ``(parent_session_id, parent_task_id, checkpoint_sequence,
+        checkpoint_label, parent_state_digest)``. The new session then runs
+        forward from there. This is a branch, not a time-travel mutation.
+
+        The fork does NOT inject the parent's prior messages into the new
+        session's model context (that would be a snapshot the append-only spine
+        does not keep after compaction); it only records provenance. It also
+        does NOT reuse the parent's permits/approvals.
+        """
+
+        actor = self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("forking from a checkpoint requires principal authority")
+        parent_task_id = self.surface_task_for_session(command.session_id)
+        from agent_os_core.session_checkpoint import list_checkpoints
+
+        matches = [c for c in list_checkpoints(self.store, parent_task_id)
+                   if c.label == checkpoint_label]
+        if not matches:
+            raise KeyError(
+                f"no checkpoint named {checkpoint_label!r} on session {command.session_id}"
+            )
+        cp = matches[-1]
+
+        # Open the NEW epoch through the single chat-session path.
+        new_session, _new_loop = self.open_chat_session(
+            f"forked from checkpoint {checkpoint_label!r} (parent {command.session_id})",
+            gateway,
+        )
+        new_task_id = self.surface_task_for_session(new_session.session_id)
+        new_run = self.tasks.get_task(new_task_id).run
+        assert new_run is not None
+        self.tasks.record_session_fork_from_checkpoint(
+            new_task_id,
+            session_id=new_session.session_id,
+            run_id=new_run.run_id,
+            parent_session_id=command.session_id,
+            parent_task_id=parent_task_id,
+            checkpoint_sequence=cp.sequence,
+            checkpoint_label=cp.label,
+            parent_state_digest=cp.state_digest,
+        )
+
+        # Seal the parent read-only. If it is already closed this is a no-op
+        # guarded by close_session's own "already closed" check.
+        try:
+            self.tasks.close_session(parent_task_id, command.session_id)
+        except InvalidTransitionError:
+            pass
+
+        return {
+            "new_session_id": new_session.session_id,
+            "new_task_id": new_task_id,
+            "parent_session_id": command.session_id,
+            "parent_task_id": parent_task_id,
+            "checkpoint_sequence": cp.sequence,
+            "checkpoint_label": cp.label,
+            "parent_state_digest": cp.state_digest,
+        }
+
     def _child_agents_response(
         self,
         session_id: str,

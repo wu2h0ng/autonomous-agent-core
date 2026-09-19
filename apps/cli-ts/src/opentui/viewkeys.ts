@@ -11,6 +11,7 @@
  * layer, so stopping a running turn never depends on what is on screen.
  */
 export type ViewKeyOwner =
+  | { layer: "provider" }
   | { layer: "selector" }
   | { layer: "search"; action: "open" | "up" | "down" | "pick" | "cancel" | "ignore" }
   | { layer: "approval"; action: "approve" | "reject" | "ignore" }
@@ -34,6 +35,9 @@ export interface ViewKeyContext {
    * layer and silently disabled Enter/movement.
    */
   selectorOpen: unknown;
+  /** The P5 interactive `/provider` modal (read-only card or setup wizard) is open.
+   *  Any TRUTHY value means open; it owns every key like the selector does. */
+  providerOpen: unknown;
   /**
    * The Ctrl-R reverse history search is open. Any truthy value means open
    * (same convention as `selectorOpen`).
@@ -96,6 +100,11 @@ export function resolveViewKey(ctx: ViewKeyContext): ViewKeyOwner {
   // 1. Selector owns every key while open (so Esc cancels the picker and never
   //    reaches the frozen global mapping).
   if (ctx.selectorOpen) return { layer: "selector" };
+
+  // 1a. The P5 provider modal owns every key while open: it is a masked-input
+  //     wizard, so a stray key must not fall through to the composer (which would
+  //     leak the draft) or to panel/history handling. Esc is its own cancel.
+  if (ctx.providerOpen) return { layer: "provider" };
 
   // 1b. Ctrl-R reverse search (#14). The QUERY lives in the composer, so only
   //     the keys the overlay itself owns are intercepted and printable keys

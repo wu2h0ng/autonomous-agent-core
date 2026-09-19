@@ -467,3 +467,17 @@ founder 的指示是"按主流做法做"。本节给出来源与差异，并**�
 - **`PARENT_STOPPED_CHILDREN_DURABLY`（句 A，已观测）**：`tests/product/test_agent_spawn_kernel.py::test_g10_operator_close_stops_every_in_flight_child_durably`（两个并发在飞子，停父后两子均 durable 终态、reason=`stopped_by_operator`，PASS）；真实 daemon 走 HTTP close 路由的 `tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_operator_close_cascades_to_in_flight_child`（先 `GET` 读 `current.event_sequence` 再发，避免 409，PASS）。
 - **`SINGLE_CHILD_STOPPED_OTHERS_UNTOUCHED`（句 B 加强项，已观测）**：`tests/product/test_agent_spawn_kernel.py::test_g10_single_child_stop_leaves_its_sibling_in_flight`（两个并发在飞子，停一个兄弟：被停子 durable 终止，**兄弟继续在飞/不受影响**，父仍 ACTIVE，PASS）。注意 parked 子的 `is_in_flight()`（child_agent.py）与 `.in_flight` property 语义不同，断言用 before/after diff 排除 park 时已有的 awaiting_approval 记录。
 - **G10 重裁为 `MET`（仅本 hermetic 切片，窄）**：两具名合取同时有证据。保留边界：Form B 默认仍**关**、三条 fail-closed 关断不变；证据全为 hermetic 单进程/本地 daemon，**无 live provider**；同模型 subagent 评审 `builder_id != reviewed_by` 仍不满足、无独立 provider 批准；本裁决**不**构成 release/publish/自主主张。探针 P6（崩溃/重启 orphan 回收）PASS、P12（UNKNOWN receipt 经操作者停不变）PASS、P13 BLOCKED（5 分钟 lease TTL 不可注入，需真实墙钟 `--allow-slow`，缺前提非回归）。
+
+## 16. G10 close 级联语义（决定项，founder 裁决 4，2026-09-19）
+
+本节把 §15.4 已落地的操作者 close 级联**正式定为决定项**，逐句锁语义，实现侧不得自行偏离。
+
+1. **级联触发者唯一**：只有**显式操作者**动作 `POST /v1/surface/sessions/{id}/close`（headless `noem session close <id> <reason>`）才级联 durable 停掉该父会话的全部在飞子。终态统一为 `stop_reason=stopped_by_operator`。
+2. **pause ≠ kill**：可恢复的 `pause` / Ctrl-X **不杀子**。pause 保恢复性，不写 durable 终止；只有 close 才终止。理由：操作者意图须显式可归因，pause 是"挂起以后再跑"，close 是"结束不恢复"。
+3. **`parent_session_closed` 归因保留给非操作者拆除**：GC/异常/重启/崩溃恢复（orphan scan）拆除子会话时用 `parent_session_closed`，**不得**伪造为 `stopped_by_operator`。理由：证据完整性——非操作者 teardown 冒充操作者归因会污染操作者意图审计。
+4. **未决审批的父拒绝关闭**：父有未决审批（awaiting_approval）时 close 被拒绝并要求带原因处理；parked 子的审批**保留待人**，close 不静默丢弃子的待批卡片。
+5. **单 child stop 的语义边界**：单独停一个子走既有单会话停止路径（`POST .../children/stop`），只终止该子，兄弟与父不受影响；父 close 才遍历 `in_flight_children`。
+6. **不变保留**：Form B（`agent.spawn`）仍默认**关**；三条 fail-closed 关断开关（`AGENT_OS_MAX_CHILD_AGENTS=0` / 撤回 grant / 从 E2 allowlist 移除）保留；本决定不构成 release/publish 授权，证据仍为 hermetic、无 live provider。
+
+**可逆性**：级联是新增的显式入口，不删除既有 pause/单停路径；关掉 spawn（Form B 默认关）即无在飞子可级联。无数据迁移。
+

@@ -1,4 +1,4 @@
-"""Hermetic tests for the MCP local stdio client (shard B / ADR-0062).
+"""Hermetic tests for the MCP local stdio client (shard B / ADR-0067).
 
 Proves the conservative defaults in CODE against a stub stdio MCP server
 (a local Python script):

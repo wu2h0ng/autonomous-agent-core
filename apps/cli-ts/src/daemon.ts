@@ -24,9 +24,11 @@ import {
 import {
   closeSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   openSync,
   readFileSync,
+  readlinkSync,
   readSync,
   statSync,
   writeFileSync,
@@ -131,6 +133,21 @@ const SECRET_ENV_PATTERN = /(TOKEN|SECRET|PASSWORD|_KEY|APIKEY)$/i;
 const REDACTED = "<redacted>";
 
 /**
+ * Operator-typed secrets (the P5 interactive `/provider` key) registered at
+ * runtime. They are never written to state/history/transcript; this registry
+ * exists only so that, if one ever surfaces in a captured launcher stderr, the
+ * redactor masks it there too. Entries are kept in-memory for process lifetime.
+ */
+const runtimeSecrets: string[] = [];
+
+/** Add an operator-typed secret to the redaction mask set (P5 security line). */
+export function registerRuntimeSecret(secret: string): void {
+  if (secret.length > 0 && !runtimeSecrets.includes(secret)) {
+    runtimeSecrets.push(secret);
+  }
+}
+
+/**
  * Every launcher to try, in order. The first element is the launcher the client
  * prefers (`resolveDaemonLaunch` returns exactly that, and `doctor` reports it);
  * the rest are fallbacks used only when an earlier candidate is gone before a
@@ -209,6 +226,62 @@ function defaultHasOnPath(name: string): boolean {
     if (dir && existsSync(join(dir, name))) return true;
   }
   return false;
+}
+
+export interface DanglingPathShim {
+  /** The PATH entry that is a broken symlink, e.g. ~/.local/bin/agent-os-runtime. */
+  shim: string;
+  /** What the shim points at (best effort; null if unreadable). */
+  target: string | null;
+}
+
+/**
+ * Find a `name` on PATH that is a SYMLINK whose target does not resolve. This is
+ * the failure mode of `uv tool install` writing shims into ~/.local/bin while
+ * UV_TOOL_DIR (and, before 2026-09-19, UV_TOOL_BIN_DIR) pointed at a temp dir:
+ * the shim survives the temp cleanup but points at a deleted path.
+ *
+ * `existsSync` (used by defaultHasOnPath) already follows the link and reports
+ * false for a dangling shim, so the launcher chain skips it -- which is correct,
+ * but then silently falls through to `uv run` outside a checkout and dies with a
+ * confusing ENOENT. Returning the shim here lets us tell the operator the real
+ * repair instead.
+ */
+export function detectDanglingPathShim(
+  name: string,
+  pathEnv: string | undefined = process.env.PATH,
+): DanglingPathShim | null {
+  for (const dir of (pathEnv ?? "").split(":")) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    let link: string;
+    try {
+      const stat = lstatSync(candidate);
+      if (!stat.isSymbolicLink()) continue;
+      link = readlinkSync(candidate);
+    } catch {
+      continue;
+    }
+    if (!existsSync(candidate)) {
+      return { shim: candidate, target: link };
+    }
+  }
+  return null;
+}
+
+/** Actionable repair text for a dangling shim, or null when there is none. */
+export function danglingShimRepairHint(
+  name: string = RUNTIME_SCRIPT,
+  pathEnv: string | undefined = process.env.PATH,
+): string | null {
+  const broken = detectDanglingPathShim(name, pathEnv);
+  if (broken === null) return null;
+  return (
+    `noem: the \`${name}\` shim on PATH (${broken.shim}) is a broken symlink ` +
+    `-> ${broken.target ?? "(unreadable target)"}. This usually means a previous ` +
+    "install pointed the shims at a temporary uv tools dir that was deleted. " +
+    "Reinstall from this tree to repair it: `uv tool install . --force --reinstall`."
+  );
 }
 
 /**
@@ -445,6 +518,9 @@ function secretsToMask(descriptorPath: string): string[] {
     if (typeof value === "string" && value.length >= 8 && SECRET_ENV_PATTERN.test(name)) {
       secrets.push(value);
     }
+  }
+  for (const secret of runtimeSecrets) {
+    if (secret.length > 0) secrets.push(secret);
   }
   return secrets;
 }
@@ -714,6 +790,17 @@ export async function ensureDaemon(
     );
   }
   const candidates = toCandidates(resolved.resolveLaunch(process.env));
+  // If we are about to fall through to the bare `uv run` launcher with no
+  // checkout and no working PATH shim, but there IS a dangling shim on PATH,
+  // say so before the confusing ENOENT (bug 2026-09-19: a broken shim silently
+  // fell through to `uv run` outside a project and died).
+  const onlyUvFallback =
+    candidates.length > 0 &&
+    candidates.every((c) => c.source === "uv");
+  if (onlyUvFallback) {
+    const hint = danglingShimRepairHint();
+    if (hint !== null) resolved.warn(hint);
+  }
   if (candidates.length === 0) {
     throw new Error(
       "no daemon launcher found; install agent-os-runtime, run from the repo with uv, " +

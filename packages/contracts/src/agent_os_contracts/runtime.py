@@ -111,6 +111,15 @@ class TaskEventType(str, Enum):
     # FORWARD from this point. It never deletes or rewrites history, and it
     # never carries prompt or completion text.
     SESSION_CHECKPOINT_RECORDED = "SESSION_CHECKPOINT_RECORDED"
+    # Additive (2026-09-19, checkpoint P0 "fork" form): the append-only lineage
+    # record of a NEW session that branches from a named checkpoint on a parent
+    # session. It binds (parent_session_id, parent_task_id, checkpoint_sequence,
+    # checkpoint_label, parent_state_digest) so the new session can always trace
+    # its provenance. It NEVER deletes or rewrites the parent's events (the
+    # parent is closed read-only) and NEVER carries prompt or completion text.
+    # This is the only "rewind" the append-only evidence spine allows: a new
+    # epoch that starts at the checkpoint, not a time-travel mutation.
+    SESSION_FORKED_FROM_CHECKPOINT = "SESSION_FORKED_FROM_CHECKPOINT"
 
 
 class WaitCondition(ContractModel):

@@ -1,10 +1,15 @@
 # CI patch: Python install smoke (uv tool install path)
 
-Status: DRAFT PATCH FOR THE INTEGRATION-SINGLE OWNER. This repo's
-`.github/workflows/ci.yml` is owned by the integration slice; this file is a
-proposed snippet ONLY and does not edit ci.yml. Add the step below to the
-existing `test` job (or a new sibling job) when the integration owner picks it
-up.
+Status: **APPLIED on branch `feat/l4-audit-closure-20260919` (draft PR, 2026-09-19)**.
+The step below was added as the last step of the existing `test` job in
+`.github/workflows/ci.yml`, after the `Terminal coding eval` step, with
+`astral-sh/setup-uv@v5` added after `actions/setup-python@v5` to provide `uv`.
+The cli-ts job already runs the Bun/TS install smoke (`apps/cli-ts/scripts/
+install_smoke.sh`); this step adds the PYTHON counterpart (`scripts/
+install_smoke.sh`, `uv tool install .`). Measured locally (macOS arm64):
+`bash scripts/install_smoke.sh` exits 0, one hermetic turn completes with
+`stop_reason=completed`, daemon SIGKILLed cleanly. The original proposed step
+is kept below for record.
 
 ## What it proves
 

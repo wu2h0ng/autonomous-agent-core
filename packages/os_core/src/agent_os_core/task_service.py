@@ -804,6 +804,47 @@ class TaskService:
             writer_token=self._runtime_writer_token,
         )
 
+    def record_session_fork_from_checkpoint(
+        self,
+        task_id: str,
+        *,
+        session_id: str,
+        run_id: str,
+        parent_session_id: str,
+        parent_task_id: str,
+        checkpoint_sequence: int,
+        checkpoint_label: str,
+        parent_state_digest: str,
+    ) -> TaskAggregate:
+        """Append the lineage record of a NEW session forking from a parent checkpoint.
+
+        This is the typed writer for ``SESSION_FORKED_FROM_CHECKPOINT`` (it is in
+        ``PROTECTED_TRUTH_EVENTS``). It records the append-only provenance of a new
+        epoch: the new session branches from ``(parent_session_id,
+        parent_task_id, checkpoint_sequence)``. It NEVER deletes, rewrites or
+        resequences the parent's events (the parent session is closed read-only by
+        the caller) and it NEVER carries prompt or completion text. This is the
+        only "rewind" the append-only evidence spine allows: a new epoch that
+        starts at the checkpoint, not a time-travel mutation.
+        """
+
+        return self._append_event(
+            task_id,
+            TaskEventType.SESSION_FORKED_FROM_CHECKPOINT,
+            {
+                "session_id": session_id,
+                "task_id": task_id,
+                "run_id": run_id,
+                "parent_session_id": parent_session_id,
+                "parent_task_id": parent_task_id,
+                "checkpoint_sequence": int(checkpoint_sequence),
+                "checkpoint_label": str(checkpoint_label),
+                "parent_state_digest": parent_state_digest,
+            },
+            correlation_id=session_id,
+            writer_token=self._runtime_writer_token,
+        )
+
     def record_session_message(
         self,
         task_id: str,

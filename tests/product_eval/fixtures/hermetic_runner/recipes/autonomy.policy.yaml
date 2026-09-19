@@ -1,0 +1,3 @@
+# Hermetic pinned autonomy policy (recorded vendor). Not consumed offline.
+name: hermetic-autonomy
+max_risk_level: R2

@@ -466,6 +466,9 @@ class TaskAggregate:
             # Append-only session checkpoint marker: a durable reference into the
             # stream, not a parent state transition.
             TaskEventType.SESSION_CHECKPOINT_RECORDED,
+            # Append-only fork lineage marker: provenance of a new epoch, no state
+            # transition on the aggregate.
+            TaskEventType.SESSION_FORKED_FROM_CHECKPOINT,
         }:
             # Chat-turn audit markers carry no aggregate state transition.
             return replace(

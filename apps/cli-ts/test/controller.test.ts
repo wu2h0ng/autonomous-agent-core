@@ -1089,7 +1089,7 @@ test("input queue: a submit while an approval is pending is queued, never a conc
   assert.deepEqual(client.beginTexts, []);
 });
 
-test("/provider shows persistence + key source; /provider clear removes it", async () => {
+test("/provider opens the read-only modal card; /provider clear removes it", async () => {
   const client = new FakeClient();
   client.providerStatusResult = {
     protocol_version: "1.1",
@@ -1103,55 +1103,46 @@ test("/provider shows persistence + key source; /provider clear removes it", asy
   };
   const controller = new TuiController(client as never);
   await controller.submit("/provider");
-  const panel = controller.messages.at(-1)?.panel;
-  const text = [panel?.title, ...(panel?.lines ?? [])].join("\n");
-  assert.match(text, /persisted\s+yes/);
-  assert.match(text, /key_source keychain/);
-  assert.match(text, /model\s+deepseek-chat/);
+  // P5: a read-only overlay modal, NOT a transcript panel.
+  assert.equal(controller.pendingProvider.phase, "view");
+  const modal = controller.pendingProvider;
+  if (modal.phase === "view") {
+    assert.equal(modal.status.persisted, true);
+    assert.equal(modal.status.key_source, "keychain");
+  }
   // No secret is present anywhere in the transcript.
   assert.ok(!JSON.stringify(controller.messages).includes("sk-"));
 
   await controller.submit("/provider clear");
   assert.equal(client.clearCalls, 1);
-  assert.match(
-    controller.messages.at(-1)?.content ?? "",
-    /provider config \+ stored key removed/,
-  );
+  assert.equal(controller.pendingProvider.phase, "view");
 });
 
-test("/provider set without an env key never echoes or stores a key", async () => {
+test("/provider set opens the interactive setup wizard (no env key echo)", async () => {
   const client = new FakeClient();
   const controller = new TuiController(client as never);
-  const previous = process.env.AGENT_OS_PROVIDER_KEY;
-  delete process.env.AGENT_OS_PROVIDER_KEY;
-  try {
-    await controller.submit("/provider set https://api.example.com/v1 m");
-  } finally {
-    if (previous !== undefined) process.env.AGENT_OS_PROVIDER_KEY = previous;
-  }
+  await controller.submit("/provider set https://api.example.com/v1 m");
+  // P5: `/provider set` opens the masked wizard; it does not read AGENT_OS_PROVIDER_KEY
+  // from the TUI env and never calls configure on the transcript path.
+  assert.equal(controller.pendingProvider.phase, "preset");
   assert.equal(client.configureCalls, 0);
-  assert.match(
-    controller.messages.at(-1)?.content ?? "",
-    /AGENT_OS_PROVIDER_KEY is not set/,
-  );
   assert.ok(!JSON.stringify(controller.messages).includes("sk-"));
 });
 
-test("/provider set reads the key from env and never echoes it into the transcript", async () => {
-  const sentinel = "sk-test-do-not-echo-123";
+test("the setup wizard submits the key once and never echoes it into the transcript", async () => {
+  const sentinel = "sk-test-do-not-echo-789";
   const client = new FakeClient();
   const controller = new TuiController(client as never);
-  const previous = process.env.AGENT_OS_PROVIDER_KEY;
-  process.env.AGENT_OS_PROVIDER_KEY = sentinel;
-  try {
-    await controller.submit("/provider set https://api.example.com/v1 m");
-  } finally {
-    if (previous === undefined) delete process.env.AGENT_OS_PROVIDER_KEY;
-    else process.env.AGENT_OS_PROVIDER_KEY = previous;
-  }
-  // The key was present and used, yet must not appear in the transcript.
+  await controller.submit("/provider setup");
+  assert.equal((controller.pendingProvider as { phase: string }).phase, "preset");
+  controller.providerPresetChoose();
+  assert.equal((controller.pendingProvider as { phase: string }).phase, "form");
+  await controller.providerFormSubmit(sentinel);
   assert.equal(client.configureCalls, 1);
+  // The key was sent to the daemon, yet must never reach the transcript.
   assert.ok(!JSON.stringify(controller.messages).includes(sentinel));
+  // After a successful configure the read-only card is shown.
+  assert.equal((controller.pendingProvider as { phase: string }).phase, "view");
 });
 
 /** Durable event helpers for the tool-card projection tests below. Shaped
