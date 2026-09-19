@@ -86,7 +86,13 @@ TERMINAL_CODING_EVAL_GATE = "terminal coding eval gate"
 # `tests/product` and `unittest discover -s tests` cannot collect these modules either. So while
 # nothing asserted the step, the whole corpus could stop running in CI with every check green.
 TERMINAL_CODING_EVAL_ROOT = "tests/product_eval"
-TERMINAL_CODING_EVAL_MODULE = re.compile(r"test_terminal_coding_eval[A-Za-z0-9_]*\.py")
+# ``test_terminal_coding_eval_*`` and the ``test_terminal_coding_horizon`` module are the
+# same TERMINAL-CODING-EVAL corpus (ci.yml names all of them). The horizon module dropped the
+# ``eval_`` infix, so the family regex must cover both namings or this comparison silently
+# excludes it while CI still runs it.
+TERMINAL_CODING_EVAL_MODULE = re.compile(
+    r"test_terminal_coding_(?:eval|horizon)[A-Za-z0-9_]*\.py"
+)
 
 # A gate stops gating when its command can no longer fail. Each entry is
 # (human label, regex over the comment-stripped run block).

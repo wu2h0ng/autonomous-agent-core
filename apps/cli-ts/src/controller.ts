@@ -1175,7 +1175,7 @@ export class TuiController {
         "↑/↓ history · ctrl-r reverse search (ctrl-p/ctrl-n: agents panel)",
         "agents panel: ↑/↓ move · enter resume · x stop running child",
         "ctrl-a/ctrl-e line start/end",
-        "ctrl-x stop the running turn (pauses the session) · esc correction",
+        "ctrl-x stop the running turn (pauses the session) · esc correction (halts the session)",
         "/resume <id> reattach — and un-pause a session ctrl-x stopped",
         "ctrl-c exit · ctrl-l clear view",
 
