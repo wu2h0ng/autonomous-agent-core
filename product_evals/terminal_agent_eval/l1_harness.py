@@ -24,6 +24,7 @@ from apps.api_server.app import AgentOSApplication
 
 from product_evals.terminal_agent_eval import EvalTask, freeze_manifest, run_eval
 from product_evals.terminal_agent_eval.models import EvalManifest
+from product_evals.terminal_agent_eval.provider_isolation import isolated_provider_config
 
 
 def _proposal(call_id: str, capability_id: str, arguments: dict[str, object]) -> ProviderToolProposal:
@@ -95,17 +96,26 @@ class _InProcessExecutor:
         root.mkdir(parents=True, exist_ok=True)
         statement, expected_text, scripted = scenario(root)
 
-        app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
-        app.provider = DeterministicProvider(
-            scripted=scripted,
-            invocation_binding=app.provider.invocation_binding,
-        )
-        app.provider_configured = True
+        app = self._build_app(root, scripted)
         session, loop = app.open_chat_session(statement, AutoApproveGateway())
         result = loop.run_turn(session, task.input)
         assert result.text == expected_text, f"{task.task_id}: {result.text!r}"
         events = self._read_events(app, session.task_id)
         return events, self._verify(task, root)
+
+    @staticmethod
+    def _build_app(root: Path, scripted: tuple) -> AgentOSApplication:
+        # The operator's persisted provider config is kept out of the eval: the
+        # application would otherwise install it (with a live connection test)
+        # before this harness replaces the provider with the scripted one.
+        with isolated_provider_config(root):
+            app = AgentOSApplication(database=root / "agent-os.sqlite3", workspace=root)
+        app.provider = DeterministicProvider(
+            scripted=scripted,
+            invocation_binding=app.provider.invocation_binding,
+        )
+        app.provider_configured = True
+        return app
 
     @staticmethod
     def _read_events(app: AgentOSApplication, task_id: str) -> list[Mapping[str, Any]]:

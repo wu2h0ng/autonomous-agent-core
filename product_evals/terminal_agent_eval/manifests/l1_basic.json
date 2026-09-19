@@ -15,7 +15,10 @@
           "src/core.py",
           "0000000000000000000000000000000000000000000000000000000000000000"
         ]
-      ]
+      ],
+      "fixture": [],
+      "task_kind": "work",
+      "operator_policy": "approve_tier_below_3"
     },
     {
       "task_id": "l1-add-test",
@@ -31,8 +34,11 @@
           "tests/test_core.py",
           "0000000000000000000000000000000000000000000000000000000000000000"
         ]
-      ]
+      ],
+      "fixture": [],
+      "task_kind": "work",
+      "operator_policy": "approve_tier_below_3"
     }
   ],
-  "manifest_sha256": "419a083887c28b3bdfd226fbb48958fa9ea5689a5b9895d45fb7bebbe9e2c339"
+  "manifest_sha256": "5980ffb507ecebd54ec9aa11c1e59f07a16071040dada05b81f4254eeb4fd66b"
 }

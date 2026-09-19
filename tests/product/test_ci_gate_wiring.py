@@ -22,6 +22,17 @@ Both jobs are also bounded in time. GitHub's default job cap is 360 minutes, so 
 job that declares no ``timeout-minutes`` turns a hung step into six hours of runner
 time; the bound is asserted per job, not once for the file.
 
+A third gate lives in the same job -- the terminal coding eval step, which is the
+only thing that runs ``tests/product_eval/`` -- and it used to be judged by nothing
+here. ``_runs_product_suite`` matches ``tests/product\\b``, which does NOT match
+``tests/product_eval`` (``_`` is a word character, so there is no boundary), so the
+eval step was in none of the lists below and in no named assertion. Measured at
+3fb0ff46 (2026-09-18): this file reported 19 passed with that step present, 19
+passed after deleting the whole step, and 19 passed after turning it into
+``continue-on-error: true`` with an ``echo`` body. The step has its own predicate
+and named assertion below, and the assertion is pinned to the eval modules that
+exist on disk, so narrowing it to one of them is red too.
+
 Wiring the step is not the whole claim, which is why two more layers are judged
 here. The cli-ts step runs ``npm run test:ci``, and that indirection used to be
 unguarded in both directions: the step could name a silent script that does
@@ -58,6 +69,15 @@ WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 PRODUCT_GATE = "governed product gate"
 CLI_TS_GATE = "cli-ts gate"
+TERMINAL_CODING_EVAL_GATE = "terminal coding eval gate"
+
+# The terminal line's coding corpus is graded by the pytest modules under this root, and
+# this step is the only CI dependency tests/product_eval/ has: `grep -n product_eval
+# .github/workflows/ci.yml` matches the step itself and nothing else, because $PRODUCT_ARGS is
+# `tests/product` and `unittest discover -s tests` cannot collect these modules either. So while
+# nothing asserted the step, the whole corpus could stop running in CI with every check green.
+TERMINAL_CODING_EVAL_ROOT = "tests/product_eval"
+TERMINAL_CODING_EVAL_MODULE = re.compile(r"test_terminal_coding_eval[A-Za-z0-9_]*\.py")
 
 # A gate stops gating when its command can no longer fail. Each entry is
 # (human label, regex over the comment-stripped run block).
@@ -160,6 +180,36 @@ def _runs_product_suite(step: Step) -> bool:
     """A real pytest invocation scoped to the governed suite at tests/product."""
     return bool(re.search(r"\bpytest\b", step.command)) and bool(
         re.search(r"tests/product\b", step.command)
+    )
+
+
+def _runs_terminal_coding_eval(step: Step) -> bool:
+    """A real pytest invocation scoped to the terminal coding eval modules.
+
+    A predicate of its own rather than a widened ``_runs_product_suite``: the two
+    suites are different corpora, carried by different steps, and ``tests/product``
+    is also named by the governed gate's shell variables and error messages.
+    """
+    return bool(re.search(r"\bpytest\b", step.command)) and bool(
+        re.search(r"tests/product_eval\b", step.command)
+    )
+
+
+def _terminal_coding_eval_modules_on_disk() -> list[str]:
+    """Every ``test_terminal_coding_eval*.py`` module under tests/product_eval.
+
+    The root is pinned as a literal instead of being read out of the workflow: a
+    narrowed step must not also shrink the expectation it is judged against.
+    """
+    root = REPO_ROOT / TERMINAL_CODING_EVAL_ROOT
+    assert root.is_dir(), (
+        f"CI GATE MISSING: {root} does not exist, so the terminal coding eval has no corpus "
+        f"modules to run and the comparison below would be vacuous."
+    )
+    return sorted(
+        f"{TERMINAL_CODING_EVAL_ROOT}/{path.name}"
+        for path in root.iterdir()
+        if path.is_file() and TERMINAL_CODING_EVAL_MODULE.fullmatch(path.name)
     )
 
 
@@ -319,10 +369,32 @@ _PYTEST_COMMAND = re.compile(
 )
 
 
+def _joined_command_lines(command: str) -> str:
+    """Join shell line continuations, so one command split across lines is one line.
+
+    ``ci.yml`` writes a long pytest invocation as ``... \\`` + an indented
+    continuation. Judging such a command line by line reads its first target and
+    then the backslash as the second one, which is why the terminal coding eval
+    step's targets are only readable here.
+    """
+    joined: list[str] = []
+    pending = ""
+    for line in command.splitlines():
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            pending += stripped[:-1] + " "
+            continue
+        joined.append(pending + line)
+        pending = ""
+    if pending:
+        joined.append(pending)
+    return "\n".join(joined)
+
+
 def _pytest_invocations(command: str) -> list[PytestInvocation]:
     """Every pytest line in a run block, with the positional (target) words it names."""
     invocations: list[PytestInvocation] = []
-    for line in command.splitlines():
+    for line in _joined_command_lines(command).splitlines():
         match = _PYTEST_COMMAND.search(line)
         if match is None:
             continue
@@ -415,12 +487,56 @@ def test_ci_workflow_still_runs_the_cli_ts_install_smoke() -> None:
     )
 
 
+def test_ci_workflow_still_declares_the_terminal_coding_eval_gate() -> None:
+    """The eval step is the only CI dependency tests/product_eval/ has, and must run all of it.
+
+    ``tests/product_eval`` is not covered by $PRODUCT_ARGS, so this step is what
+    carries the terminal line's coding corpus into CI. It is asserted here for
+    the same reason the two gates above are: a step that is deleted, emptied or
+    silently given ``continue-on-error`` takes the corpus with it and nothing
+    else in the repo goes red. The targets are judged against the modules on
+    disk (not a literal list) so that dropping one of them -- or adding a module
+    the step forgets -- is red as well.
+    """
+    steps = _all_steps()
+    _assert_gate_runs(
+        steps,
+        TERMINAL_CODING_EVAL_GATE,
+        _runs_terminal_coding_eval,
+        "a step whose run block invokes pytest against tests/product_eval "
+        "(`PYTHONPATH=src:packages/contracts/src:packages/os_core/src python -m pytest "
+        "tests/product_eval/test_terminal_coding_eval.py "
+        "tests/product_eval/test_terminal_coding_eval_live.py -q`). Without it the "
+        "TERMINAL-CODING-EVAL-1 corpus stops running in CI: the step above is scoped to "
+        "tests/product and `unittest discover` cannot collect these modules",
+    )
+    step = next(step for step in steps if _runs_terminal_coding_eval(step))
+    on_disk = _terminal_coding_eval_modules_on_disk()
+    assert on_disk, (
+        f"CI GATE VACUOUS: no `test_terminal_coding_eval*.py` module is on disk under "
+        f"{TERMINAL_CODING_EVAL_ROOT}, so there is nothing for {step.label} to run and the "
+        f"comparison below would compare two empty sets."
+    )
+    targets = sorted(
+        {target for invocation in _pytest_invocations(step.command) for target in invocation.targets}
+    )
+    assert targets == on_disk, (
+        f"CI EVAL TARGET MISMATCH: {step.label} would run {targets} where the modules on disk "
+        f"under {TERMINAL_CODING_EVAL_ROOT} are {on_disk}. The step must name every "
+        f"`test_terminal_coding_eval*.py` module that exists -- a step narrowed to one of them "
+        f"runs the corpus's own tests while the other file stops being executed by anything, "
+        f"and a new module left out of the step is a file that exists, is registered in no "
+        f"target, and never runs."
+    )
+
+
 def test_ci_gate_steps_are_not_softened() -> None:
     steps = _all_steps()
     gated = [
         step
         for step in steps
         if _runs_product_suite(step)
+        or _runs_terminal_coding_eval(step)
         or _runs_cli_ts_tests(step)
         or _runs_cli_ts_typecheck(step)
         or _runs_cli_ts_install_smoke(step)

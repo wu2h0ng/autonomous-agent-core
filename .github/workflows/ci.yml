@@ -258,6 +258,43 @@ jobs:
             exit "$TEST_STATUS"
           fi
 
+      - name: Terminal coding eval (offline qualification, pytest)
+        run: |
+          # Why this step exists: tests/product_eval/ is not in $PRODUCT_ARGS, so the step above
+          # never runs it, and `unittest discover -s tests` cannot collect it either (it has no
+          # __init__.py, and its modules are pytest-style functions, not TestCase classes).
+          # Until this step existed the terminal line's own coding eval -- the corpus that asks
+          # whether the agent can fix code until a suite passes, derive a value it can only know
+          # by reading a file, write a regression test that actually detects the bug it names,
+          # and refuse work the governance path does not authorize -- ran only on a developer's
+          # machine, so "can the terminal agent do work" had no attributable measurement in CI.
+          # What it gates: the OFFLINE qualification of TERMINAL-CODING-EVAL-1 only. The frozen
+          # corpus (product_evals/terminal_agent_eval/manifests/coding_v1.json, digest-verified
+          # before any task runs) is driven through the real product loop three times with
+          # deterministic plans, and each arm has a frozen expected pattern: reference must score
+          # 6/6, null (proposes nothing) must fail every WORK task -- that is what proves the
+          # acceptance graders are not constant-return -- and mutant (plausible but wrong work)
+          # must fail exactly the three tasks it gets wrong. It needs NO provider key, starts no
+          # daemon, and writes only inside a temp workspace it creates; it also fails closed if a
+          # provider is configured from the environment, so an ambient key cannot silently turn
+          # an offline arm into a billable one.
+          # What it does NOT gate, stated so this line is not read as more than it is: model
+          # capability. The live arm of the same corpus needs AGENT_OS_PROVIDER_PROFILE plus
+          # <PROFILE>_BASE_URL/_MODEL/_API_KEY and is skipped here; the second file below asserts
+          # that the live arm fails closed while those are absent.
+          # It is also the only CI dependency tests/product_eval/ has, and `grep -n product_eval
+          # .github/workflows/ci.yml` matches this step and nothing else -- so its own wiring is
+          # asserted in tests/product/test_ci_gate_wiring.py, which used to pass with this whole
+          # step deleted (its product-suite predicate matches `tests/product\b`, never
+          # `tests/product_eval`), emptied into an echo, or given continue-on-error.
+          # Measured on this tree 2026-09-18: 19 passed, 1 skipped in ~8 s (15 passed before this
+          # commit's grader hardening added four cases), and the two files are green when run
+          # together on their own -- that is the local baseline, not a CI one: this step is what
+          # puts them in CI at all.
+          PYTHONPATH=src:packages/contracts/src:packages/os_core/src \
+            python -m pytest tests/product_eval/test_terminal_coding_eval.py \
+                            tests/product_eval/test_terminal_coding_eval_live.py -q
+
   # The TypeScript terminal client (apps/cli-ts) is the single supported user entry -- npm bins
   # `agentos` / `agent-os` / `agent-os-ts`, interactive TUI plus headless `agentos -p` -- and it
   # runs on a different runtime (Bun) with its own suite (node:test, 205 cases). It had NO CI

@@ -1,4 +1,10 @@
-"""TERMINAL-AGENT-EVAL-0 — product eval instrument (GC/CP-AB 2026-09-13)."""
+"""TERMINAL-AGENT-EVAL-0 — product eval instrument (GC/CP-AB 2026-09-13).
+
+TERMINAL-CODING-EVAL-1 (`coding_tasks`, `coding_solver`, `coding_harness`,
+`coding_live`) is the terminal coding corpus built on this instrument; those
+modules pull in `apps.api_server`, so they are imported explicitly by their
+harness/CLI and are deliberately not re-exported here.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +14,16 @@ from .manifest import (
     freeze_manifest,
     load_manifest,
     manifest_digest,
+    refreeze_manifest,
     verify_manifest,
 )
 from .metrics import (
     count_approvals,
     count_corrections,
+    count_denials,
+    count_provider_steps,
+    count_tool_calls,
+    count_turns,
     count_unsafe_actions,
     durable_outcome_verified,
     project_task,
@@ -27,6 +38,8 @@ from .models import (
     EvalTask,
     EvidenceLevel,
     MetricSummary,
+    OperatorPolicy,
+    TaskKind,
     TaskResult,
 )
 from .report import render_report
@@ -44,19 +57,26 @@ __all__ = [
     "EvidenceLevel",
     "ManifestIntegrityError",
     "MetricSummary",
+    "OperatorPolicy",
     "ProductTurnExecutor",
     "SurfaceSessionClient",
+    "TaskKind",
     "TaskResult",
     "TurnExecutor",
     "assert_no_tier3_auto_approval",
     "count_approvals",
     "count_corrections",
+    "count_denials",
+    "count_provider_steps",
+    "count_tool_calls",
+    "count_turns",
     "count_unsafe_actions",
     "durable_outcome_verified",
     "freeze_manifest",
     "load_manifest",
     "manifest_digest",
     "project_task",
+    "refreeze_manifest",
     "render_report",
     "run_eval",
     "summarize",
