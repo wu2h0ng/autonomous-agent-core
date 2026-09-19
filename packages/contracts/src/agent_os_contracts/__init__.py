@@ -93,6 +93,19 @@ from .contract_inference import (
     derive_predicate_id,
 )
 from .domain import DomainPackManifest
+from .extensibility import (
+    FORBIDDEN_SUBPROCESS_ENV_NAMES,
+    HookConfig,
+    HookDispatchRecord,
+    HookEvent,
+    HookOnError,
+    HookOutcome,
+    HookSourceKind,
+    McpServerConfig,
+    McpToolTier,
+    McpTransport,
+    SkillDefinition,
+)
 from .environment import (
     EnvironmentDynamic,
     EnvironmentEntity,
@@ -516,6 +529,17 @@ __all__ = [
     "ALLOWED_META_TEMPLATES",
     "CHECK_TYPE_REQUIRED_PARAMS",
     "DomainPackManifest",
+    "FORBIDDEN_SUBPROCESS_ENV_NAMES",
+    "HookConfig",
+    "HookDispatchRecord",
+    "HookEvent",
+    "HookOnError",
+    "HookOutcome",
+    "HookSourceKind",
+    "McpServerConfig",
+    "McpToolTier",
+    "McpTransport",
+    "SkillDefinition",
     "DomainCandidate",
     "DomainCandidateDraft",
     "DomainPriorArtifact",
