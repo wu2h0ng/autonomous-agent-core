@@ -70,6 +70,7 @@ async function main(): Promise<void> {
         "  noem                 interactive TUI (starts the daemon on demand)",
         "  noem -p <prompt>     headless one-shot (--output-format json|text|stream-json)",
         "  noem doctor          read-only self-check",
+        "  noem self-update     verify + replace the installed program (explicit source only)",
         "  noem provider ...    show/configure the live provider",
         "  noem session ...     show/pause/resume/correct a session",
         "  noem daemon ...      start/stop/status the local runtime",
@@ -90,6 +91,14 @@ async function main(): Promise<void> {
     const report = await runDoctor(descriptorPath ?? defaultDaemonPaths().descriptorPath);
     process.stdout.write(renderDoctorText(report));
     process.exitCode = report.ok ? 0 : 1;
+    return;
+  }
+
+  // Dispatched BEFORE daemon resolution: replacing the program file needs no
+  // descriptor, no token and no kernel, and must not be able to start one.
+  if (args[0] === "self-update") {
+    const { runSelfUpdateCommand } = await import("./self-update-command.js");
+    process.exitCode = await runSelfUpdateCommand({ args: args.slice(1) });
     return;
   }
 

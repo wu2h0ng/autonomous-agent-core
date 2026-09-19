@@ -77,8 +77,10 @@ npm run e2e        # doctor → smoke full → headless -p json → daemon resta
                    # resume → doctor-must-fail → pty smoke (3 phases)
 ```
 
-`npm test` runs the 205 unit tests; `npm run build` type-checks and emits `dist`
-(it is the release build — a release also wants `npm run compile`).
+`npm test` runs the 273 unit tests (a count that goes stale every time one is
+added — re-measure with `npm test` rather than trusting this line);
+`npm run build` type-checks and emits `dist` (it is the release build — a
+release also wants `npm run compile`).
 
 Targeted real-pty checks (each boots its own hermetic daemon):
 
@@ -88,6 +90,56 @@ npm run check:home       # the home panel owns the first frame
 npm run check:search     # Ctrl-R reverse search + multiline composer
 npm run check:highlight  # fenced-code colouring (headless + pty)
 ```
+
+## Upgrade path (`noem self-update`)
+
+An installed single-file binary can replace itself, but only when an operator
+explicitly names where to get the bytes and only after it verifies them:
+
+```bash
+noem self-update --status                                   # read-only: version, path, pending journal
+noem self-update --source file:///srv/noem --check          # manifest + version only; downloads nothing
+noem self-update --source https://example.invalid/noem      # verify, then replace, with rollback
+```
+
+The source is a directory holding `manifest.json` and the artifact:
+
+```json
+{"schema":"noem-self-update-manifest/1","version":"0.2.0",
+ "artifacts":{"darwin-arm64":{"file":"noem-0.2.0-darwin-arm64","sha256":"<64 hex>","bytes":76691442}}}
+```
+
+There is **no default channel**: publishing is a founder-reserved decision, so
+nothing is contacted unless `--source` (or `AGENT_OS_SELF_UPDATE_SOURCE`) names
+a source, and there is no background check or telemetry. Refusals are typed and
+exit non-zero: `no_source_configured`, `source_invalid`, `source_unreachable`,
+`manifest_invalid`, `checksum_missing`, `checksum_mismatch`,
+`artifact_not_executable`, `downgrade_refused`, `target_unresolved`,
+`replace_failed`, `rolled_back`, `rollback_failed`,
+`interrupted_update_pending`.
+
+Verification chain, in order: scheme → manifest shape + a checksum for this
+platform → strictly-newer version → program-image shape → SHA-256 of the
+**staged bytes read back from disk** → copy the old bytes aside → atomic
+`rename` over the program file → run the **installed path** in a fresh process
+and require the published `--version`. Any failure after the rename restores
+the previous bytes, which are verified again before the command reports.
+
+Honest limits: the checksum proves integrity, not authenticity — a source that
+serves the manifest can serve any artifact with a matching checksum, so a
+forged newer version string is not detectable until a signature exists (no
+signing utility exists in this repository, and no signature is claimed). A
+source publishing a genuinely older version IS refused. When a replacement is
+rejected because it did not run, the `rejection` field says which way, and its
+`spawn_error` / `exit_nonzero` split is **platform-dependent**, not a product
+promise: a file the kernel will not execute fails the spawn on macOS (its
+spawn path performs no shell fallback), while Linux's `execvp` retries it as
+`/bin/sh <file>`, so it does start, as a shell, and exits non-zero. Both roll
+back; treat `rolled_back` as the contract and `rejection` as the host's wording.
+
+This replaces a program file and nothing else: C7, permission modes, approval,
+policy, evidence and `ActionReceipt`/`ReceiptStatus` are untouched, and the
+command is a shell entry point with no session, slash-command or turn input.
 
 ## Other entry points
 
@@ -108,6 +160,11 @@ npm run live:pty                    # real provider multi-turn in a real pty
 - `src/controller.ts` — renderer-neutral state machine; frozen-semantics mapping table in the header comment
 - `src/cli.tsx` — the unified entry: every subcommand plus the interactive TUI
   (the view is a **lazy** import so view-free paths stay runtime-independent)
+- `src/self-update.ts` — the upgrade mechanism (typed statuses, SHA-256
+  verification, atomic replace, rollback, interruption journal); the header
+  comment is the contract, including what it deliberately does NOT touch
+- `src/self-update-command.ts` — the `noem self-update` shell surface (exit
+  codes 0/1/2); dispatched before daemon resolution so it cannot wake a kernel
 - `src/opentui/` — the full-screen view (`app.tsx`), its entry (`mount.tsx`),
   panels, overlays, key routing (`viewkeys.ts`), theme colours and code
   highlighting (`code-highlight.ts`)
