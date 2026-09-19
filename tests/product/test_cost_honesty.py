@@ -21,6 +21,9 @@ from agent_os_contracts import (
     ProviderResponse,
     ProviderUsage,
     SURFACE_PROTOCOL_VERSION,
+    negotiate_surface_protocol_version,
+    parse_surface_protocol_version,
+    surface_protocol_unknown_fields,
 )
 from agent_os_core import (
     DeterministicProvider,
@@ -228,7 +231,13 @@ def test_openai_sse_usage_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_surface_protocol_bumped_for_usage_v2() -> None:
-    assert SURFACE_PROTOCOL_VERSION == "1.1"
+    # E3's guarantee is a MINOR FLOOR, not a pinned value: the usage-v2
+    # cost-honesty contract must still be on the wire, and later additive
+    # minors (1.2) may sit above it without re-opening E3. Comparing minors
+    # keeps that guarantee while letting the protocol grow.
+    negotiated = negotiate_surface_protocol_version(SURFACE_PROTOCOL_VERSION)
+    assert parse_surface_protocol_version(negotiated) >= (1, 1)
+    assert surface_protocol_unknown_fields("1.1") == ("awaiting_approval",)
 
 
 def _credential(credential_id: str) -> CredentialRef:

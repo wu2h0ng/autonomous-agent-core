@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from enum import Enum
-from typing import Any, Literal
+from types import MappingProxyType
+from typing import Any, Literal, cast
 
 from pydantic import Field, model_validator
 
@@ -12,7 +15,206 @@ from .provider import ProviderMessage, SessionRef
 from .runtime import TaskEvent
 
 
-SURFACE_PROTOCOL_VERSION = "1.1"  # E3: usage v2 cost-honesty contract on the wire
+SurfaceProtocolVersion = Literal["1.1", "1.2"]
+"""Every Surface protocol version this build understands, ascending by minor.
+
+The version is ``MAJOR.MINOR``. A MINOR step is additive only, so a reader at
+minor *n* understands every payload at minor <= *n*; the MAJOR step is what
+breaks. Growing this union is the only way to admit a new version.
+"""
+
+SURFACE_PROTOCOL_VERSION: SurfaceProtocolVersion = "1.2"
+"""The version this build SPEAKS: E3 usage v2 cost-honesty (1.1) plus the
+additive P3a-2 ``awaiting_approval`` session-listing field (1.2)."""
+
+SURFACE_PROTOCOL_MIN_SUPPORTED: SurfaceProtocolVersion = "1.1"
+"""The oldest minor this build still NEGOTIATES with.
+
+An older reader is served a payload projected onto its own minor rather than
+the current shape under an older version string: the two must never disagree.
+"""
+
+SURFACE_PROTOCOL_ADDITIVE_MINORS: Mapping[SurfaceProtocolVersion, tuple[str, ...]] = (
+    MappingProxyType(
+        {
+            # minor -> the wire fields that minor ADDED, declared ascending.
+            # Registration is mandatory: this is the ONLY thing
+            # `downgrade_surface_payload` is permitted to remove, so an
+            # unregistered additive field would leak to older readers.
+            "1.2": ("awaiting_approval",),
+        }
+    )
+)
+"""Ordered registry of additive minors and the fields each one added."""
+
+
+class SurfaceProtocolVersionError(ValueError):
+    """A surface protocol version string is malformed, or names a version this
+    build cannot negotiate with."""
+
+
+_SURFACE_PROTOCOL_VERSION_PATTERN = re.compile(
+    r"(?P<major>0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)"
+)
+
+
+def parse_surface_protocol_version(value: str) -> tuple[int, int]:
+    """Parse ``MAJOR.MINOR`` into ``(major, minor)``.
+
+    Raises ``SurfaceProtocolVersionError`` for anything else — a non-string, an
+    empty string, a single segment, a non-numeric segment, or leading zeros.
+    Callers must not fall back to a default: an unparsable version is not an
+    older version.
+    """
+
+    if not isinstance(value, str):
+        raise SurfaceProtocolVersionError(
+            f"surface protocol version must be a string, got {type(value).__name__}"
+        )
+    match = _SURFACE_PROTOCOL_VERSION_PATTERN.fullmatch(value)
+    if match is None:
+        raise SurfaceProtocolVersionError(
+            f"surface protocol version {value!r} is not MAJOR.MINOR"
+        )
+    return int(match.group("major")), int(match.group("minor"))
+
+
+def surface_protocol_supported_versions() -> tuple[SurfaceProtocolVersion, ...]:
+    """Every version this build negotiates, ascending by minor.
+
+    The floor plus the declared additive minors. Derived from the registry, so
+    declaring a new minor is what makes it negotiable.
+    """
+
+    versions: list[SurfaceProtocolVersion] = [SURFACE_PROTOCOL_MIN_SUPPORTED]
+    versions.extend(SURFACE_PROTOCOL_ADDITIVE_MINORS)
+    return tuple(versions)
+
+
+def negotiate_surface_protocol_version(supplied: str) -> SurfaceProtocolVersion:
+    """Return the version to serve ``supplied`` at, or raise.
+
+    Ordered rule — same MAJOR as this build and a minor inside
+    ``[SURFACE_PROTOCOL_MIN_SUPPORTED, SURFACE_PROTOCOL_VERSION]``. A same-MAJOR
+    minor below the floor, a higher MAJOR, and a malformed value are all
+    rejected: compatibility is a declared set, never open-ended tolerance.
+    """
+
+    major, minor = parse_surface_protocol_version(supplied)
+    supported = surface_protocol_supported_versions()
+    normalized = f"{major}.{minor}"
+    if normalized in supported:
+        return cast(SurfaceProtocolVersion, normalized)
+    raise SurfaceProtocolVersionError(
+        f"unsupported surface protocol version {supplied!r}; this build "
+        f"negotiates {', '.join(supported)}"
+    )
+
+
+def surface_protocol_readable_versions(reader: str) -> tuple[SurfaceProtocolVersion, ...]:
+    """The versions a reader at ``reader`` may accept from a peer, ascending.
+
+    Ordered and bounded: this build's declared supported set, filtered to the
+    reader's own MAJOR and to minors no newer than the reader. A reader knows
+    every shape at or below its own minor, so a newer client still reads an
+    older server — while a version this build never declared, a foreign MAJOR
+    and an unparsable value are all outside the set, so nothing is accepted by
+    accident. Empty for a reader that is not itself a version.
+    """
+
+    try:
+        reader_major, reader_minor = parse_surface_protocol_version(reader)
+    except SurfaceProtocolVersionError:
+        return ()
+    return tuple(
+        version
+        for version in surface_protocol_supported_versions()
+        if parse_surface_protocol_version(version)[0] == reader_major
+        and parse_surface_protocol_version(version)[1] <= reader_minor
+    )
+
+
+def surface_protocol_unknown_fields(negotiated: str) -> tuple[str, ...]:
+    """Every wire field a reader at ``negotiated`` cannot know about.
+
+    The additive registry entries for all minors ABOVE ``negotiated``,
+    concatenated in ascending minor order; empty at the newest minor. Ordering
+    is part of the contract: the result is deterministic and depends only on the
+    registered minors, so downgrading is reproducible rather than best-effort.
+    """
+
+    version = negotiate_surface_protocol_version(negotiated)
+    negotiated_major, negotiated_minor = parse_surface_protocol_version(version)
+    unknown: list[str] = []
+    for minor, fields in SURFACE_PROTOCOL_ADDITIVE_MINORS.items():
+        minor_major, minor_number = parse_surface_protocol_version(minor)
+        if minor_major != negotiated_major or minor_number > negotiated_minor:
+            unknown.extend(fields)
+    return tuple(unknown)
+
+
+def _downgrade_protocol_version(
+    declared: str, negotiated: SurfaceProtocolVersion
+) -> str:
+    """The version to declare for ``negotiated`` given a payload's ``declared``.
+
+    Downgrades only: a payload never claims a version newer than the shape it
+    actually carries, and a version this build cannot parse is left untouched so
+    the reader rejects it instead of being reassured.
+    """
+
+    try:
+        declared_major, declared_minor = parse_surface_protocol_version(declared)
+    except SurfaceProtocolVersionError:
+        return declared
+    negotiated_major, negotiated_minor = parse_surface_protocol_version(negotiated)
+    if declared_major == negotiated_major and declared_minor > negotiated_minor:
+        return negotiated
+    return declared
+
+
+def _project(value: Any, unknown: frozenset[str], negotiated: SurfaceProtocolVersion) -> Any:
+    if isinstance(value, dict):
+        projected: dict[Any, Any] = {}
+        for key, item in value.items():
+            if isinstance(key, str) and key in unknown:
+                continue
+            if key == "protocol_version" and isinstance(item, str):
+                projected[key] = _downgrade_protocol_version(item, negotiated)
+                continue
+            projected[key] = _project(item, unknown, negotiated)
+        return projected
+    if isinstance(value, list):
+        return [_project(item, unknown, negotiated) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_project(item, unknown, negotiated) for item in value)
+    return value
+
+
+def downgrade_surface_payload(payload: Any, negotiated: str) -> Any:
+    """Project a serialized server payload onto ``negotiated``.
+
+    Two ordered effects, both driven by ``SURFACE_PROTOCOL_ADDITIVE_MINORS`` and
+    nothing else:
+
+    * every field added by a minor above ``negotiated`` is REMOVED, so a strict
+      older reader never meets a field it must reject;
+    * a ``protocol_version`` newer than ``negotiated`` is REWRITTEN to
+      ``negotiated``, so the version on the wire is what actually governs the
+      payload.
+
+    What an older reader does with the CURRENT shape is therefore fixed, not
+    vague: it is rejected, because `extra="forbid"` is unchanged and the current
+    shape carries fields its contract never declared. That is why this
+    projection exists instead of a tolerant parse.
+
+    Everything else passes through untouched — this is not permission to accept
+    unknown fields, and ``negotiated`` must be a version this build supports.
+    """
+
+    negotiated_version = negotiate_surface_protocol_version(negotiated)
+    unknown = frozenset(surface_protocol_unknown_fields(negotiated_version))
+    return _project(payload, unknown, negotiated_version)
 
 
 PermissionMode = Literal["ASK", "ACCEPT_READ_ONLY", "ACCEPT_IN_WORKSPACE"]
@@ -44,7 +246,7 @@ class SurfaceSessionStatus(str, Enum):
 
 
 class SurfaceOpenSessionCommand(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     statement: NonEmptyStr
     idempotency_key: NonEmptyStr
@@ -52,7 +254,7 @@ class SurfaceOpenSessionCommand(ContractModel):
 
 
 class SurfaceTurnCommand(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     session_id: NonEmptyStr
     text: NonEmptyStr
@@ -62,7 +264,7 @@ class SurfaceTurnCommand(ContractModel):
 
 
 class SurfaceApprovalCommand(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     session_id: NonEmptyStr
     action_digest: NonEmptyStr
@@ -74,7 +276,7 @@ class SurfaceApprovalCommand(ContractModel):
 
 
 class SurfaceCorrectionCommand(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     session_id: NonEmptyStr
     reason: NonEmptyStr
@@ -92,7 +294,7 @@ class SurfaceSetPermissionModeCommand(ContractModel):
     event's digest (provenance chain).
     """
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     session_id: NonEmptyStr
     mode: PermissionMode
@@ -109,7 +311,7 @@ class SurfaceProviderStatus(ContractModel):
     and where the key comes from (keychain | env | none).
     """
 
-    protocol_version: Literal["1.1"] = "1.1"  # pyright: ignore[reportIncompatibleVariableOverride]
+    protocol_version: SurfaceProtocolVersion = SURFACE_PROTOCOL_VERSION
     configured: bool
     provider_id: NonEmptyStr | None = None
     model_id: NonEmptyStr | None = None
@@ -128,7 +330,7 @@ class SurfaceProviderClearCommand(ContractModel):
     provider until restart.
     """
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
 
 
@@ -140,7 +342,7 @@ class SurfaceProviderConfigureCommand(ContractModel):
     persists it to the database, state files, artifacts or logs.
     """
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     base_url: NonEmptyStr
     model: NonEmptyStr
@@ -159,7 +361,7 @@ class PendingSurfaceApproval(ContractModel):
 
 
 class SurfaceSessionSnapshot(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     session: SessionRef
     envelope_id: NonEmptyStr
     expected_outcome_id: NonEmptyStr
@@ -176,6 +378,11 @@ class SurfaceSessionSummary(ContractModel):
 
     Deliberately excludes statement, envelope id, expected outcome, tokens and
     credentials: the list endpoint must never leak session content or secrets.
+
+    ``awaiting_approval`` is the protocol-1.2 additive field: it is registered in
+    ``SURFACE_PROTOCOL_ADDITIVE_MINORS`` so a negotiated 1.1 reader is served a
+    1.1 projection without it, instead of being handed a field its contract
+    would reject. Removing that registration would leak 1.2 to 1.1 readers.
     """
 
     session_id: NonEmptyStr
@@ -188,7 +395,7 @@ class SurfaceSessionSummary(ContractModel):
 
 
 class SurfaceSessionListResponse(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     sessions: tuple[SurfaceSessionSummary, ...] = ()
     next_cursor: NonEmptyStr | None = None
 
@@ -261,7 +468,8 @@ class SurfaceTurnResponse(ContractModel):
     capability dispatch and the Run stays PAUSED until an explicit resume.
     """
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
+
     snapshot: SurfaceSessionSnapshot
     turn_id: NonEmptyStr | None = None
     text: NonEmptyStr
@@ -271,7 +479,7 @@ class SurfaceTurnResponse(ContractModel):
 
 
 class SurfaceEventBatch(ContractModel):
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     task_id: NonEmptyStr
     after_sequence: int = Field(ge=0)
     next_sequence: int = Field(ge=0)
@@ -303,7 +511,7 @@ class SurfaceConflictProjection(ContractModel):
     touching authority or fence state.
     """
 
-    protocol_version: Literal["1.1"] = "1.1"
+    protocol_version: SurfaceProtocolVersion = SURFACE_PROTOCOL_VERSION
     action_id: NonEmptyStr
     lease_id: NonEmptyStr
     disposition: Literal["REPLAN", "CONFLICT", "CANCEL"]
@@ -361,7 +569,7 @@ class SurfaceBeginTurnCommand(ContractModel):
     authoritative `{turn_id, stream_id}`. The client never mints turn ids.
     """
 
-    protocol_version: Literal["1.1"]
+    protocol_version: SurfaceProtocolVersion
     client: SurfaceClientRef
     session_id: NonEmptyStr
     text: NonEmptyStr
@@ -375,7 +583,7 @@ class SurfaceBeginTurnResponse(ContractModel):
     """Authoritative begin-turn result; idempotent replays return this
     recorded response without re-invoking the provider."""
 
-    protocol_version: Literal["1.1"] = "1.1"
+    protocol_version: SurfaceProtocolVersion = SURFACE_PROTOCOL_VERSION
     turn_id: NonEmptyStr
     stream_id: NonEmptyStr
 
@@ -433,7 +641,7 @@ class SurfaceStreamSubscription(ContractModel):
     `SurfaceStreamGone` and can never collide with the new one.
     """
 
-    protocol_version: Literal["1.1"] = "1.1"
+    protocol_version: SurfaceProtocolVersion = SURFACE_PROTOCOL_VERSION
     runtime_boot_id: NonEmptyStr
     stream_id: NonEmptyStr
 
@@ -447,7 +655,7 @@ class SurfaceStreamBatch(ContractModel):
     is required.
     """
 
-    protocol_version: Literal["1.1"] = "1.1"
+    protocol_version: SurfaceProtocolVersion = SURFACE_PROTOCOL_VERSION
     session_id: NonEmptyStr
     after_sequence: int = Field(ge=0)
     next_sequence: int = Field(ge=0)

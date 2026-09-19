@@ -32,6 +32,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from agent_os_contracts import SURFACE_PROTOCOL_VERSION
+
 ROOT = Path(__file__).resolve().parents[3]
 CLI = ROOT / "apps" / "cli-ts"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -100,7 +102,7 @@ def api(descriptor_path: Path, method: str, path: str, body: dict | None = None)
         data=None if body is None else json.dumps(body).encode(),
         headers={
             "Authorization": f"Bearer {descriptor['bearer_token']}",
-            "X-Agent-OS-Protocol": "1.1",
+            "X-Agent-OS-Protocol": SURFACE_PROTOCOL_VERSION,
             **({"Content-Type": "application/json"} if body is not None else {}),
         },
     )
@@ -169,7 +171,7 @@ def main() -> None:
         # registered in the same daemon the client is talking to.
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         created = api(descriptor_path, "POST", "/v1/surface/sessions", {
-            "protocol_version": "1.1",
+            "protocol_version": SURFACE_PROTOCOL_VERSION,
             "client": client_ref(),
             "statement": "fixture: second session for the multi-session switch",
             "idempotency_key": "p3a-fixture-open-1",

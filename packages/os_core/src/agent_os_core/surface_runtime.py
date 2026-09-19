@@ -15,7 +15,6 @@ from threading import RLock
 from typing import Any, Protocol, TypeVar
 
 from agent_os_contracts import (
-    SURFACE_PROTOCOL_VERSION,
     PrincipalIdentity,
     SurfaceApprovalCommand,
     SurfaceBeginTurnCommand,
@@ -26,6 +25,7 @@ from agent_os_contracts import (
     SurfaceCorrectionCommand,
     SurfaceEventBatch,
     SurfaceOpenSessionCommand,
+    SurfaceProtocolVersionError,
     SurfaceProviderClearCommand,
     SurfaceProviderConfigureCommand,
     SurfaceProviderStatus,
@@ -38,6 +38,7 @@ from agent_os_contracts import (
     SurfaceTurnResponse,
     TurnTrace,
     canonical_json,
+    negotiate_surface_protocol_version,
 )
 
 from .session_stream import SessionStreamRegistry, StreamCursor, SurfaceStreamGone
@@ -554,11 +555,25 @@ class SurfaceRuntime:
             return response_type.model_validate(winning_response)
         return response
 
-    def _require_protocol(self, protocol_version: str) -> None:
-        if protocol_version != SURFACE_PROTOCOL_VERSION:
-            raise SurfaceProtocolError(
-                f"unsupported surface protocol version {protocol_version}"
-            )
+    def _require_protocol(self, protocol_version: str) -> str:
+        """Negotiate the command's protocol version, or raise.
+
+        Ordered MINOR rule: a client one minor behind still speaks a shape this
+        build understands, because a MINOR step is additive. It is negotiated
+        down to its own version rather than rejected, and the callers that
+        serialize a response project it back onto that version (see
+        ``downgrade_surface_payload``), so the version on the wire and the shape
+        of the payload never disagree.
+
+        Anything outside ``[SURFACE_PROTOCOL_MIN_SUPPORTED,
+        SURFACE_PROTOCOL_VERSION]`` — a higher minor, another MAJOR, a malformed
+        value — is refused: there is no lenient fallback.
+        """
+
+        try:
+            return negotiate_surface_protocol_version(protocol_version)
+        except SurfaceProtocolVersionError as exc:
+            raise SurfaceProtocolError(str(exc)) from exc
 
     def _require_principal_scope(self, client: SurfaceClientRef) -> None:
         principal = self._application.principal

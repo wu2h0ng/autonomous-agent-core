@@ -1,5 +1,5 @@
 /**
- * Wire contracts for the Agent OS surface protocol v1.1.
+ * Wire contracts for the Agent OS surface protocol v1.2.
  *
  * Mirror of packages/contracts/src/agent_os_contracts/surface.py (M2 frozen).
  * TS client is a protocol client only: it never mints turn ids, never holds
@@ -7,7 +7,28 @@
  */
 import { z } from "zod";
 
-export const SURFACE_PROTOCOL_VERSION = "1.1" as const;
+export const SURFACE_PROTOCOL_VERSION = "1.2" as const;
+
+/** The oldest minor this build still negotiates with (mirrors the Python floor). */
+export const SURFACE_PROTOCOL_MIN_SUPPORTED = "1.1" as const;
+
+/**
+ * The versions a reader at `SURFACE_PROTOCOL_VERSION` accepts from a runtime.
+ *
+ * Ordered: a MINOR step is additive, so a runtime one minor behind still speaks
+ * a shape this client knows and its response must parse. Bounded to the declared
+ * minors — a foreign MAJOR and an undeclared version are outside the set, so
+ * this is a closed enumeration, never tolerance for an arbitrary version. The
+ * Python side states the same rule as `surface_protocol_readable_versions`.
+ */
+export const SURFACE_PROTOCOL_READABLE_VERSIONS = [
+  SURFACE_PROTOCOL_MIN_SUPPORTED,
+  SURFACE_PROTOCOL_VERSION,
+] as const;
+
+export const SurfaceProtocolVersionSchema = z.enum(
+  SURFACE_PROTOCOL_READABLE_VERSIONS,
+);
 
 const NonEmptyStr = z.string().min(1);
 
@@ -55,7 +76,7 @@ export const PendingSurfaceApprovalSchema = z.object({
 export type PendingSurfaceApproval = z.infer<typeof PendingSurfaceApprovalSchema>;
 
 export const SurfaceSessionSnapshotSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  protocol_version: SurfaceProtocolVersionSchema,
   session: SessionRefSchema,
   envelope_id: NonEmptyStr,
   expected_outcome_id: NonEmptyStr,
@@ -80,7 +101,7 @@ export const SurfaceSessionSummarySchema = z.object({
 export type SurfaceSessionSummary = z.infer<typeof SurfaceSessionSummarySchema>;
 
 export const SurfaceSessionListResponseSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  protocol_version: SurfaceProtocolVersionSchema,
   sessions: z.array(SurfaceSessionSummarySchema).default([]),
   next_cursor: NonEmptyStr.nullable().optional(),
 });
@@ -94,7 +115,7 @@ export const ProviderMessageSchema = z
 export type ProviderMessage = z.infer<typeof ProviderMessageSchema>;
 
 export const SurfaceTurnResponseSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION),
+  protocol_version: SurfaceProtocolVersionSchema,
   snapshot: SurfaceSessionSnapshotSchema,
   turn_id: NonEmptyStr.nullable().optional(),
   text: NonEmptyStr,
@@ -111,14 +132,14 @@ export const SurfaceStreamBindingSchema = z.object({
 export type SurfaceStreamBinding = z.infer<typeof SurfaceStreamBindingSchema>;
 
 export const SurfaceBeginTurnResponseSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION).default(SURFACE_PROTOCOL_VERSION),
+  protocol_version: SurfaceProtocolVersionSchema.default(SURFACE_PROTOCOL_VERSION),
   turn_id: NonEmptyStr,
   stream_id: NonEmptyStr,
 });
 export type SurfaceBeginTurnResponse = z.infer<typeof SurfaceBeginTurnResponseSchema>;
 
 export const SurfaceStreamSubscriptionSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION).default(SURFACE_PROTOCOL_VERSION),
+  protocol_version: SurfaceProtocolVersionSchema.default(SURFACE_PROTOCOL_VERSION),
   runtime_boot_id: NonEmptyStr,
   stream_id: NonEmptyStr,
 });
@@ -150,7 +171,7 @@ export const SurfaceStreamFrameSchema = z
 export type SurfaceStreamFrame = z.infer<typeof SurfaceStreamFrameSchema>;
 
 export const SurfaceStreamBatchSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION).default(SURFACE_PROTOCOL_VERSION),
+  protocol_version: SurfaceProtocolVersionSchema.default(SURFACE_PROTOCOL_VERSION),
   session_id: NonEmptyStr,
   after_sequence: z.number().int().nonnegative(),
   next_sequence: z.number().int().nonnegative(),
@@ -282,7 +303,7 @@ export interface SurfaceCorrectionCommand {
 
 /** Redacted live provider configuration (never the credential value). */
 export const SurfaceProviderStatusSchema = z.object({
-  protocol_version: z.literal(SURFACE_PROTOCOL_VERSION).optional(),
+  protocol_version: SurfaceProtocolVersionSchema.optional(),
   configured: z.boolean(),
   provider_id: NonEmptyStr.nullable().optional(),
   model_id: NonEmptyStr.nullable().optional(),

@@ -4,7 +4,9 @@ One configured workspace per daemon process. The daemon composes one
 AgentOSApplication, binds a loopback-only authenticated HTTP server, persists a
 private 0600 descriptor, and removes only its own descriptor (boot-id match)
 on shutdown. A second daemon refuses a live descriptor; stale descriptors
-(dead PID) are replaced.
+(dead PID) are replaced. A descriptor written by another surface-protocol
+version is refused loudly instead of replaced: it may belong to a live daemon
+for which that file is the only handle (see ``RuntimeDescriptorProtocolError``).
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from apps.api_server.server import build_server
 from .descriptor import (
     RuntimeDescriptor,
     RuntimeDescriptorError,
+    RuntimeDescriptorProtocolError,
     generate_boot_id,
     generate_runtime_token,
     load_runtime_descriptor,
@@ -91,11 +94,23 @@ def _require_loopback(host: str) -> None:
 
 
 def _reject_live_descriptor(descriptor_path: Path) -> None:
+    """Refuse to start over a descriptor that shows this path is already taken.
+
+    A descriptor this build cannot parse at all is not evidence that a daemon is
+    alive, so it is replaced. A descriptor that names another surface protocol
+    version is different: it was written by a build that may well be running, and
+    replacing it would strand that daemon by removing its only handle. That case
+    fails loudly and typed instead, with the remedy in the message.
+    """
+
     if not descriptor_path.exists():
         return
     try:
         existing = load_runtime_descriptor(descriptor_path)
+    except RuntimeDescriptorProtocolError:
+        raise
     except RuntimeDescriptorError:
+        # Unreadable is not evidence of a live daemon: this path is replaceable.
         return
     if _pid_alive(existing.pid):
         raise RuntimeAlreadyRunning(
