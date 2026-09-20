@@ -55,6 +55,12 @@ class StubClient {
    * "NONE" (no outcome exists). Tests can set this to "VERIFIED" etc. */
   outcomeStatus = "NONE";
   outcomeEvidenceValid = false;
+  /** Independent expected_outcome_id for the overview stub (orthogonal to
+   * outcomeStatus, matching real server semantics). Default empty. */
+  expectedOutcomeId = "";
+  /** Number of times overview() was called — used to prove refreshOutcomeStatus
+   * actually consulted the server, not just fell through to default values. */
+  overviewCallCount = 0;
   /** Durable events already on the server when the CLI attaches — what a
    * resumed session (`noem -p --resume <session-id>`) drains from
    * `after_sequence = 0`. `surface_event_batch` returns EVERY event with
@@ -92,12 +98,13 @@ class StubClient {
     return this.sessions;
   }
   async overview(_taskId: string) {
+    this.overviewCallCount += 1;
     return {
       task_id: "task-stub",
       task_status: "RUNNING",
       run_status: "RUNNING",
       run_id: "run-stub",
-      expected_outcome_id: this.outcomeStatus !== "NONE" ? "expected-stub" : "",
+      expected_outcome_id: this.expectedOutcomeId,
       observed_outcome_status: this.outcomeStatus,
       outcome_evidence_valid: this.outcomeEvidenceValid,
       receipt_count: 0,
@@ -275,8 +282,8 @@ test("headless text mode: text on stdout only, notices on stderr", async () => {
   const code = await runHeadless(client as never, { prompt: "hi" }, io);
   assert.equal(code, HEADLESS_EXIT.OK);
   assert.equal(io.out.join(""), "answer\n");
-  // session lifecycle notices go to stderr, never stdout
-  assert.match(io.err.join(""), /^⏵ session s:1 opened\n$/);
+  // session lifecycle and outcome acceptance notices go to stderr, never stdout
+  assert.match(io.err.join(""), /^⏵ session s:1 opened\n⏵ outcome: NONE\n$/);
 });
 
 test("headless approval: fail-closed exit 2, no auto-approve", async () => {
@@ -657,7 +664,9 @@ test("headless result carries verified outcome acceptance status", async () => {
   const io = capture();
   const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
   assert.equal(code, HEADLESS_EXIT.OK);
+  assert.equal(client.overviewCallCount, 1, "overview must be consulted exactly once");
   const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "success");
   assert.equal(payload.observed_outcome_status, "VERIFIED");
   assert.equal(payload.outcome_evidence_valid, true);
 });
@@ -669,7 +678,9 @@ test("headless result carries unresolved outcome when evidence is stale", async 
   const io = capture();
   const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
   assert.equal(code, HEADLESS_EXIT.OK);
+  assert.equal(client.overviewCallCount, 1);
   const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "success");
   assert.equal(payload.observed_outcome_status, "UNRESOLVED");
   assert.equal(payload.outcome_evidence_valid, false);
 });
@@ -680,7 +691,9 @@ test("headless result carries NONE outcome when no outcome exists", async () => 
   const io = capture();
   const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
   assert.equal(code, HEADLESS_EXIT.OK);
+  assert.equal(client.overviewCallCount, 1, "overview must be consulted even for NONE");
   const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "success");
   assert.equal(payload.observed_outcome_status, "NONE");
   assert.equal(payload.outcome_evidence_valid, false);
 });
@@ -694,9 +707,63 @@ test("turn completed but no outcome is not reported as verified (C2 acceptance n
   const io = capture();
   const code = await runHeadless(client as never, { prompt: "finish", outputFormat: "json" }, io);
   assert.equal(code, HEADLESS_EXIT.OK);
+  assert.equal(client.overviewCallCount, 1);
   const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
   assert.equal(payload.subtype, "success");
   assert.equal(payload.stop_reason, "completed");
   assert.equal(payload.observed_outcome_status, "NONE");
   assert.equal(payload.outcome_evidence_valid, false);
+});
+
+test("overview failure does not break headless (best-effort fallback)", async () => {
+  // C2 core safety promise: outcome status is best-effort. If the overview
+  // endpoint throws (503, network, timeout), the turn result must still be
+  // emitted with exit 0 and fallback NONE/false outcome values.
+  const client = new StubClient();
+  client.stopReason = "completed";
+  client.overview = async () => { throw new Error("overview unavailable: 503"); };
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK, "overview failure must not change exit code");
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "success");
+  assert.equal(payload.stop_reason, "completed");
+  assert.equal(payload.observed_outcome_status, "NONE", "fallback to NONE on overview failure");
+  assert.equal(payload.outcome_evidence_valid, false);
+  assert.equal(payload.total_tokens, 10, "turn tokens unaffected by overview failure");
+});
+
+test("text mode surfaces outcome status on stderr", async () => {
+  // MAJOR-1 fix: the default text mode must show outcome status, not just JSON.
+  const client = new StubClient();
+  client.outcomeStatus = "VERIFIED";
+  client.outcomeEvidenceValid = true;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  assert.match(io.err.join(""), /outcome: VERIFIED/);
+});
+
+test("text mode surfaces NONE outcome when no acceptance exists", async () => {
+  const client = new StubClient();
+  // default outcomeStatus = "NONE"
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  assert.match(io.err.join(""), /outcome: NONE/);
+});
+
+test("not_completed result also carries outcome fields", async () => {
+  // MINOR-5 fix: non-success subtypes must also carry outcome fields via result().
+  const client = new StubClient();
+  client.stopReason = "max_steps";
+  client.outcomeStatus = "UNRESOLVED";
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "not_completed");
+  assert.ok("observed_outcome_status" in payload);
+  assert.ok("outcome_evidence_valid" in payload);
+  assert.equal(payload.observed_outcome_status, "UNRESOLVED");
 });

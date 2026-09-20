@@ -220,6 +220,9 @@ function emit(
   } else {
     if (payload.text) out.stdout(payload.text.endsWith("\n") ? payload.text : `${payload.text}\n`);
     if (payload.is_error) out.stderr(`noem: ${payload.subtype} (${payload.stop_reason ?? ""})\n`);
+    // Outcome acceptance status is always surfaced in text mode so the default
+    // `noem -p "..."` user can distinguish "turn completed" from "goal verified".
+    out.stderr(`⏵ outcome: ${payload.observed_outcome_status}\n`);
   }
   return exitCode;
 }

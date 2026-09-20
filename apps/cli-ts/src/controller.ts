@@ -457,8 +457,13 @@ function formatOutcomeStatus(overview: SurfaceTaskOverview): string {
     case "INVALID":
       return "invalid";
     case "NONE":
-    default:
       return overview.expected_outcome_id ? "awaiting evaluation" : "none";
+    default:
+      // Echo unknown status verbatim for debuggability rather than collapsing
+      // it into "none". Guard against undefined (older servers omit the field).
+      return typeof overview.observed_outcome_status === "string"
+        ? overview.observed_outcome_status.toLowerCase()
+        : "none";
   }
 }
 
@@ -1888,14 +1893,27 @@ export class TuiController {
    * server-side projection re-verifies VERIFIED records, so a stale/expired
    * VERIFIED degrades to UNRESOLVED here.
    */
+  /**
+   * Best-effort outcome status refresh with a bounded timeout.
+   *
+   * The overview call may block if the server-side current_outcome re-verification
+   * hits a slow evaluator or the API is unresponsive. We race it against a
+   * 5-second timeout and silently fall back to the previous (default NONE/false)
+   * values on any failure — outcome status must never break the turn result.
+   */
   async refreshOutcomeStatus(): Promise<void> {
     if (!this.taskId) return;
     try {
-      const overview = await this.client.overview(this.taskId);
+      const overview = await Promise.race([
+        this.client.overview(this.taskId),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("outcome overview timeout")), 5_000),
+        ),
+      ]);
       this.observedOutcomeStatus = overview.observed_outcome_status;
       this.outcomeEvidenceValid = overview.outcome_evidence_valid;
     } catch {
-      // Best-effort: leave previous values, never throw.
+      // Best-effort: leave previous values, never throw or block.
     }
   }
 
