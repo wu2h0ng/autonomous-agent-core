@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { HEADLESS_EXIT, runHeadless } from "../src/headless.js";
 import { completionStopReason } from "../src/controller.js";
+import { SurfaceSessionSnapshotSchema } from "../src/contracts.js";
 import type {
   SurfaceSessionSnapshot,
   SurfaceStreamFrame,
@@ -50,6 +51,8 @@ class StubClient {
    * other value is sent verbatim, including malformed types. */
   stopReason: unknown = "completed";
   tokens = 10;
+  /** Per-turn token budget ceiling surfaced in the session snapshot. Defaults to the kernel default 100_000. */
+  maxTurnTokens = 100_000;
   approvalPending = false;
   /** Durable refusal records this turn's drain returns (defect b). */
   denials: Record<string, unknown>[] = [];
@@ -94,7 +97,7 @@ class StubClient {
   }[] = [];
 
   async openSession() {
-    return snapshot({ event_sequence: this.baseSequence() });
+    return snapshot({ event_sequence: this.baseSequence(), max_turn_tokens: this.maxTurnTokens });
   }
   async listSessions() {
     return this.sessions;
@@ -116,6 +119,7 @@ class StubClient {
   async getSession() {
     return snapshot({
       event_sequence: this.baseSequence(),
+      max_turn_tokens: this.maxTurnTokens,
       status: this.approvalPending ? "WAITING_APPROVAL" : "ACTIVE",
       ...(this.approvalPending
         ? {
@@ -803,4 +807,45 @@ test("C3: not_completed result also carries max_turn_tokens", async () => {
   assert.equal(payload.stop_reason, "budget_exceeded");
   assert.equal(payload.max_turn_tokens, 100_000);
   assert.equal(payload.total_tokens, 100_001);
+});
+
+test("C3: custom max_turn_tokens value is surfaced through the chain", async () => {
+  // MAJOR-3 fix: verify non-default ceiling propagates snapshot -> controller -> result -> JSON.
+  const client = new StubClient();
+  client.maxTurnTokens = 50_000;
+  client.tokens = 1200;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.max_turn_tokens, 50_000, "custom ceiling must propagate, not hardcoded default");
+  assert.equal(payload.total_tokens, 1200);
+});
+
+test("C3: text mode shows custom ceiling in budget notice", async () => {
+  const client = new StubClient();
+  client.maxTurnTokens = 50_000;
+  client.tokens = 1200;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  assert.match(io.err.join(""), /budget: 1200\/50000 tokens/);
+});
+
+test("C3: Zod default fills max_turn_tokens when old server omits it", () => {
+  // MAJOR-4 fix: verify the Zod .default(100_000) path — StubClient bypasses
+  // Zod parse, so this needs a direct schema.parse test.
+  const withoutField = {
+    protocol_version: "1.2",
+    session: { session_id: "s:1", task_id: "t:1", run_id: "r:1", tenant_id: "tenant:1", workspace_id: "ws:1" },
+    envelope_id: "env:1",
+    expected_outcome_id: "out:1",
+    status: "ACTIVE",
+    event_sequence: 1,
+    message_count: 0,
+    permission_mode: "ASK",
+    updated_at: "2026-09-21T00:00:00Z",
+  };
+  const parsed = SurfaceSessionSnapshotSchema.parse(withoutField);
+  assert.equal(parsed.max_turn_tokens, 100_000, "Zod default must fill omitted field");
 });

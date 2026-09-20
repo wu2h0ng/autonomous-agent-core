@@ -1877,13 +1877,13 @@ export class TuiController {
       return;
     }
     const outcomeLabel = formatOutcomeStatus(overview);
-    const maxTurnTokens = this.snapshot?.max_turn_tokens ?? 100_000;
+    const maxTurnTokens = this.getMaxTurnTokens();
     this.push({
       role: "system",
       content:
         `task ${overview.task_id} · status ${overview.task_status} · run ${overview.run_status}` +
         ` · receipts ${overview.receipt_count} · outcome ${outcomeLabel}` +
-        ` · budget ${this.tokensTotal}/${maxTurnTokens} tokens`,
+        ` · usage ${this.tokensTotal} tokens (cumulative) · turn ceiling ${maxTurnTokens}`,
     });
   }
 

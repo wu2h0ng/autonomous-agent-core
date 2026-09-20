@@ -23,9 +23,10 @@ minor *n* understands every payload at minor <= *n*; the MAJOR step is what
 breaks. Growing this union is the only way to admit a new version.
 """
 
-SURFACE_PROTOCOL_VERSION: SurfaceProtocolVersion = "1.2"
+SURFACE_PROTOCOL_VERSION: SurfaceProtocolVersion = "1.3"
 """The version this build SPEAKS: E3 usage v2 cost-honesty (1.1) plus the
-additive P3a-2 ``awaiting_approval`` session-listing field (1.2)."""
+additive P3a-2 ``awaiting_approval`` session-listing field (1.2), plus the
+additive C3 ``max_turn_tokens`` session-snapshot field (1.3)."""
 
 SURFACE_PROTOCOL_MIN_SUPPORTED: SurfaceProtocolVersion = "1.1"
 """The oldest minor this build still NEGOTIATES with.
@@ -42,6 +43,7 @@ SURFACE_PROTOCOL_ADDITIVE_MINORS: Mapping[SurfaceProtocolVersion, tuple[str, ...
             # `downgrade_surface_payload` is permitted to remove, so an
             # unregistered additive field would leak to older readers.
             "1.2": ("awaiting_approval",),
+            "1.3": ("max_turn_tokens",),
         }
     )
 )

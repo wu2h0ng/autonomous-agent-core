@@ -440,6 +440,8 @@ test("/files and /task: session-required, listing, prefix filter, overview", asy
   await controller.submit("/task");
   const overview = controller.messages.at(-1)?.content ?? "";
   assert.match(overview, /task task:1 · status ACTIVE · run COMPLETED · receipts 3/);
+  // MINOR-2 fix: /task sidebar must surface cumulative usage and per-turn ceiling.
+  assert.match(overview, /usage \d+ tokens \(cumulative\) · turn ceiling \d+/);
 });
 
 test("approval pending → human approve → tokens + continuation text", async () => {
