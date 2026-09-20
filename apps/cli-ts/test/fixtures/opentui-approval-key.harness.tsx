@@ -60,6 +60,8 @@ const PENDING: SurfaceSessionSnapshot = {
     requested_at: "2026-09-17T00:00:00Z",
   },
   permission_mode: "ASK",
+
+  max_turn_tokens: 100_000,
   updated_at: "2026-09-17T00:00:00Z",
 };
 

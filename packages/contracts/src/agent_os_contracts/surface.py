@@ -424,6 +424,7 @@ class SurfaceSessionSnapshot(ContractModel):
     message_count: int = Field(ge=0)
     pending_approval: PendingSurfaceApproval | None = None
     permission_mode: PermissionMode = "ASK"
+    max_turn_tokens: int = Field(ge=0, default=100_000)
     updated_at: UtcDateTime
 
 

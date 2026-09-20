@@ -31,6 +31,8 @@ function snapshot(overrides: Partial<SurfaceSessionSnapshot> = {}): SurfaceSessi
     message_count: 0,
     pending_approval: null,
     permission_mode: "ASK",
+
+    max_turn_tokens: 100_000,
     updated_at: new Date().toISOString(),
     ...overrides,
   };

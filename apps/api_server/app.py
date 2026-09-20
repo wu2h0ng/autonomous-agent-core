@@ -2959,6 +2959,7 @@ class AgentOSApplication:
             message_count=projected.next_message_index,
             pending_approval=projected.pending_approval,
             permission_mode=projected.permission_mode,
+            max_turn_tokens=projected.loop_config.max_turn_tokens,
             updated_at=self._clock(),
         )
 

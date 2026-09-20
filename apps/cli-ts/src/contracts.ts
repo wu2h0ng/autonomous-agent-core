@@ -85,6 +85,7 @@ export const SurfaceSessionSnapshotSchema = z.object({
   message_count: z.number().int().nonnegative(),
   pending_approval: PendingSurfaceApprovalSchema.nullable().optional(),
   permission_mode: PermissionModeSchema.default("ASK"),
+  max_turn_tokens: z.number().int().nonnegative().default(100_000),
   updated_at: NonEmptyStr,
 });
 export type SurfaceSessionSnapshot = z.infer<typeof SurfaceSessionSnapshotSchema>;

@@ -29,6 +29,8 @@ function snapshot(overrides: Partial<SurfaceSessionSnapshot> = {}): SurfaceSessi
     message_count: 0,
     pending_approval: null,
     permission_mode: "ASK",
+
+    max_turn_tokens: 100_000,
     updated_at: new Date().toISOString(),
     ...overrides,
   };
@@ -282,8 +284,8 @@ test("headless text mode: text on stdout only, notices on stderr", async () => {
   const code = await runHeadless(client as never, { prompt: "hi" }, io);
   assert.equal(code, HEADLESS_EXIT.OK);
   assert.equal(io.out.join(""), "answer\n");
-  // session lifecycle and outcome acceptance notices go to stderr, never stdout
-  assert.match(io.err.join(""), /^⏵ session s:1 opened\n⏵ outcome: NONE\n$/);
+  // session lifecycle, outcome acceptance, and budget notices go to stderr, never stdout
+  assert.match(io.err.join(""), /^⏵ session s:1 opened\n⏵ outcome: NONE\n⏵ budget: 10\/100000 tokens\n$/);
 });
 
 test("headless approval: fail-closed exit 2, no auto-approve", async () => {
@@ -766,4 +768,39 @@ test("not_completed result also carries outcome fields", async () => {
   assert.ok("observed_outcome_status" in payload);
   assert.ok("outcome_evidence_valid" in payload);
   assert.equal(payload.observed_outcome_status, "UNRESOLVED");
+});
+
+test("C3: JSON result carries max_turn_tokens budget ceiling", async () => {
+  const client = new StubClient();
+  client.tokens = 42;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "success");
+  assert.equal(payload.max_turn_tokens, 100_000, "default kernel budget ceiling");
+  assert.equal(payload.total_tokens, 42);
+});
+
+test("C3: text mode surfaces budget usage on stderr", async () => {
+  const client = new StubClient();
+  client.tokens = 1500;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  assert.match(io.err.join(""), /budget: 1500\/100000 tokens/);
+});
+
+test("C3: not_completed result also carries max_turn_tokens", async () => {
+  const client = new StubClient();
+  client.stopReason = "budget_exceeded";
+  client.tokens = 100_001;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "not_completed");
+  assert.equal(payload.stop_reason, "budget_exceeded");
+  assert.equal(payload.max_turn_tokens, 100_000);
+  assert.equal(payload.total_tokens, 100_001);
 });

@@ -1877,11 +1877,13 @@ export class TuiController {
       return;
     }
     const outcomeLabel = formatOutcomeStatus(overview);
+    const maxTurnTokens = this.snapshot?.max_turn_tokens ?? 100_000;
     this.push({
       role: "system",
       content:
         `task ${overview.task_id} · status ${overview.task_status} · run ${overview.run_status}` +
-        ` · receipts ${overview.receipt_count} · outcome ${outcomeLabel}`,
+        ` · receipts ${overview.receipt_count} · outcome ${outcomeLabel}` +
+        ` · budget ${this.tokensTotal}/${maxTurnTokens} tokens`,
     });
   }
 
@@ -1922,6 +1924,13 @@ export class TuiController {
       status: this.observedOutcomeStatus,
       evidenceValid: this.outcomeEvidenceValid,
     };
+  }
+
+  /** Per-turn token budget ceiling from the kernel's AgentLoopConfig.
+   * Defaults to 100_000 when no session snapshot is attached (e.g. early
+   * in a headless run before the first durable event). */
+  getMaxTurnTokens(): number {
+    return this.snapshot?.max_turn_tokens ?? 100_000;
   }
 
   /** `/goal` — show, set or clear the persistent session objective. Not a

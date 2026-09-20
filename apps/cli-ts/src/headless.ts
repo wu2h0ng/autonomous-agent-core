@@ -58,6 +58,10 @@ export interface HeadlessResult {
   observed_outcome_status: string;
   /** True only when the re-verified outcome is VERIFIED. */
   outcome_evidence_valid: boolean;
+  /** Per-turn token budget ceiling from the kernel's AgentLoopConfig.
+   * The turn stops with stop_reason "budget_exceeded" when total_tokens
+   * exceeds this value. */
+  max_turn_tokens: number;
 }
 
 export async function runHeadless(
@@ -206,6 +210,7 @@ function result(
     is_error: subtype !== "success",
     observed_outcome_status: outcome.status,
     outcome_evidence_valid: outcome.evidenceValid,
+    max_turn_tokens: controller.getMaxTurnTokens(),
   };
 }
 
@@ -223,6 +228,9 @@ function emit(
     // Outcome acceptance status is always surfaced in text mode so the default
     // `noem -p "..."` user can distinguish "turn completed" from "goal verified".
     out.stderr(`⏵ outcome: ${payload.observed_outcome_status}\n`);
+    // Token budget usage so the user can see how close the turn is to the
+    // kernel's max_turn_tokens ceiling (budget_exceeded stop_reason).
+    out.stderr(`⏵ budget: ${payload.total_tokens}/${payload.max_turn_tokens} tokens\n`);
   }
   return exitCode;
 }
