@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { HEADLESS_EXIT, runHeadless } from "../src/headless.js";
+import { completionStopReason } from "../src/controller.js";
 import type {
   SurfaceSessionSnapshot,
   SurfaceStreamFrame,
@@ -41,7 +42,11 @@ type StubEvent = {
 
 class StubClient {
   chunks: string[] = [];
-  stopReason: string | null = null;
+  /** Durable stop_reason emitted with SESSION_TURN_COMPLETED. Defaults to the
+   * explicit legal value "completed" so success tests carry real completion
+   * evidence. Set to null to omit the field (the missing-reason path); any
+   * other value is sent verbatim, including malformed types. */
+  stopReason: unknown = "completed";
   tokens = 10;
   approvalPending = false;
   /** Durable refusal records this turn's drain returns (defect b). */
@@ -502,4 +507,71 @@ test("headless on a halted session: exit 1, the turn was never sent", async () =
   assert.match(io.err.join(""), /refuses every further turn/);
   assert.equal(io.out.join(""), "", "no assistant text may be reported for a turn that never ran");
 
+});
+
+test("completion reason rejects absent and malformed values", () => {
+  for (const value of [undefined, null, "", "  ", 0, false, {}, []]) {
+    assert.equal(completionStopReason(value), "invalid_completion_reason");
+  }
+  assert.equal(completionStopReason("completed"), "completed");
+  assert.equal(completionStopReason(" completed "), " completed ");
+  assert.equal(completionStopReason("budget_exceeded"), "budget_exceeded");
+});
+
+for (const reason of [null, "", "  ", 0, false, {}, []]) {
+  test(`headless rejects malformed completion ${JSON.stringify(reason)}`, async () => {
+    const client = new StubClient();
+    client.stopReason = reason;
+    client.chunks = ["All work is done and verified."];
+    const io = capture();
+    const code = await runHeadless(
+      client as never, { prompt: "finish", outputFormat: "json" }, io,
+    );
+    const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+    assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
+    assert.equal(payload.subtype, "not_completed");
+    assert.equal(payload.stop_reason, "invalid_completion_reason");
+    assert.equal(payload.is_error, true);
+    assert.equal(payload.total_tokens, 10);
+  });
+}
+
+for (const format of ["text", "json", "stream-json"] as const) {
+  for (const [reason, expectedCode] of [
+    ["completed", HEADLESS_EXIT.OK],
+    [" completed ", HEADLESS_EXIT.NOT_COMPLETED],
+    ["unknown_requires_review", HEADLESS_EXIT.NOT_COMPLETED],
+    ["max_steps", HEADLESS_EXIT.NOT_COMPLETED],
+    ["stopped_by_operator", HEADLESS_EXIT.NOT_COMPLETED],
+  ] as const) {
+    test(`completion matrix ${format}/${reason}`, async () => {
+      const client = new StubClient();
+      client.stopReason = reason;
+      const io = capture();
+      const code = await runHeadless(
+        client as never, { prompt: "hi", outputFormat: format }, io,
+      );
+      assert.equal(code, expectedCode);
+      if (format !== "text") {
+        const lines = io.out.join("").trim().split("\n").map((s) => JSON.parse(s) as Record<string, unknown>);
+        const finals = lines.filter((x) => x.type === "result");
+        assert.equal(finals.length, 1);
+        assert.equal(finals[0]!.stop_reason, reason);
+        assert.equal(finals[0]!.total_tokens, 10);
+      }
+    });
+  }
+}
+
+test("historical success cannot repair current missing reason", async () => {
+  const client = new StubClient();
+  client.history = [{sequence: 2, event_type: "SESSION_TURN_COMPLETED",
+    payload: {turn_id: "turn:old", stop_reason: "completed", total_tokens: 90}}];
+  client.stopReason = null;
+  const io = capture();
+  const code = await runHeadless(client as never, {
+    prompt: "continue", sessionId: "s:1", outputFormat: "json",
+  }, io);
+  assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
+  assert.equal((JSON.parse(io.out.join("")) as Record<string, unknown>).stop_reason, "invalid_completion_reason");
 });

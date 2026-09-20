@@ -73,6 +73,24 @@ export function isSequenceConflict(cause: unknown): boolean {
   );
 }
 
+/**
+ * Interpret a durable `stop_reason` payload value fail-closed.
+ *
+ * A non-empty, non-whitespace string is returned verbatim (the kernel owns
+ * the vocabulary: "completed", "max_steps", "budget_exceeded", …). Anything
+ * else — field absent, null, empty string, whitespace-only, or a non-string
+ * type (number/boolean/object/array) — is NOT inferred as success: older or
+ * malformed records remain readable but lose the default-success qualification.
+ *
+ * Pure function, no side effects; callers decide what to do with
+ * "invalid_completion_reason" (headless maps it to exit 3).
+ */
+export function completionStopReason(value: unknown): string {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : "invalid_completion_reason";
+}
+
 /** Kernel sentinel for "no error" (`agent_os_contracts.authority.NO_ERROR_CODE`).
  * Every receipt carries it; it must never render as an error. */
 export const NO_ERROR_CODE = "error:none";
@@ -2199,7 +2217,7 @@ export class TuiController {
         if (payload["turn_id"] !== this.turnId) continue;
         this.tokensTotal += Number(payload["total_tokens"] ?? 0);
         this.turns += 1;
-        this.lastStopReason = String(payload["stop_reason"] ?? "completed");
+        this.lastStopReason = completionStopReason(payload["stop_reason"]);
         if (this.lastStopReason !== "completed") {
           // Honest surfacing of frozen kernel stop reasons (max_steps /
           // budget_exceeded / loop_detected / provider_failure:* / …): the

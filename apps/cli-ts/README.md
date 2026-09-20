@@ -229,6 +229,12 @@ npm run live:pty                    # real provider multi-turn in a real pty
   frozen semantics fails here). `test/fixtures/ink-home-baseline.ts` is a frozen
   record of the retired Ink home panel; the drift guard still compares against it.
 
+## Headless exit semantics
+
+Exit 0 reports an explicitly completed turn, not independently verified task success.
+A missing or malformed durable `stop_reason` is reported as `invalid_completion_reason`
+and exits with code 3. Older records remain readable but are not inferred successful.
+
 ## Boundaries
 
 Protocol client only: never mints turn ids, never holds governance state,

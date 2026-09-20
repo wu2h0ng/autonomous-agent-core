@@ -170,6 +170,19 @@ export async function runHeadless(
       out,
     );
   }
+  // Fail-closed: a turn without an explicit "completed" stop_reason is not
+  // reported as success. Missing or malformed durable completion evidence maps
+  // to invalid_completion_reason and exit 3; older records remain readable
+  // but are not inferred successful. This runs after error/denial handling so
+  // a real ERROR or DENIED is never masked by a missing completion reason.
+  if (controller.lastStopReason !== "completed") {
+    return emit(
+      result("not_completed", controller, text, "invalid_completion_reason"),
+      HEADLESS_EXIT.NOT_COMPLETED,
+      options,
+      out,
+    );
+  }
   return emit(result("success", controller, text, "completed"), HEADLESS_EXIT.OK, options, out);
 }
 
