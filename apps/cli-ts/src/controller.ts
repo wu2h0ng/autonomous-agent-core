@@ -41,6 +41,7 @@ RecoveredUnknownTurn,
   SurfaceProviderStatus,
   SurfaceSessionSnapshot,
   SurfaceStreamBinding,
+  SurfaceTaskOverview,
   TaskEvent,
   TraceSpan,
   TurnTrace,
@@ -434,6 +435,34 @@ function formatMilliseconds(value: number | null | undefined): string {
 }
 
 /**
+ * Human-readable outcome acceptance label for the task sidebar.
+ *
+ * The status comes from surface_task_overview, which projects
+ * task_service.current_outcome (re-verified, never historical VERIFIED).
+ * "verified" only appears when outcome_evidence_valid is true; a stale or
+ * expired VERIFIED degrades to UNRESOLVED on the server side.
+ */
+function formatOutcomeStatus(overview: SurfaceTaskOverview): string {
+  if (overview.outcome_evidence_valid) {
+    return "verified";
+  }
+  switch (overview.observed_outcome_status) {
+    case "VERIFIED":
+      // Should not happen when evidence_valid is false, but label honestly.
+      return "verified (stale)";
+    case "NOT_MET":
+      return "not met";
+    case "UNRESOLVED":
+      return "unresolved";
+    case "INVALID":
+      return "invalid";
+    case "NONE":
+    default:
+      return overview.expected_outcome_id ? "awaiting evaluation" : "none";
+  }
+}
+
+/**
  * `/metrics` card: the aggregated provider boundary.
  *
  * Counts and codes only — the payload has no prompt or completion text, so
@@ -739,6 +768,9 @@ export class TuiController {
 
   private sessionId: string | null = null;
   private taskId: string | null = null;
+  /** Projected outcome acceptance status from the last overview refresh. */
+  private observedOutcomeStatus: string = "NONE";
+  private outcomeEvidenceValid: boolean = false;
   private snapshot: SurfaceSessionSnapshot | null = null;
   private filesCache: SurfaceFileEntry[] | null = null;
   private stream: SurfaceStreamBinding | null = null;
@@ -1839,12 +1871,39 @@ export class TuiController {
       });
       return;
     }
+    const outcomeLabel = formatOutcomeStatus(overview);
     this.push({
       role: "system",
       content:
         `task ${overview.task_id} · status ${overview.task_status} · run ${overview.run_status}` +
-        ` · receipts ${overview.receipt_count} · outcome ${overview.expected_outcome_id || "none"}`,
+        ` · receipts ${overview.receipt_count} · outcome ${outcomeLabel}`,
     });
+  }
+
+  /**
+   * Refresh the projected outcome acceptance status from the task overview.
+   *
+   * Best-effort: the overview call can fail (e.g. no task bound yet), and
+   * outcome status is optional — it must never break the turn result. The
+   * server-side projection re-verifies VERIFIED records, so a stale/expired
+   * VERIFIED degrades to UNRESOLVED here.
+   */
+  async refreshOutcomeStatus(): Promise<void> {
+    if (!this.taskId) return;
+    try {
+      const overview = await this.client.overview(this.taskId);
+      this.observedOutcomeStatus = overview.observed_outcome_status;
+      this.outcomeEvidenceValid = overview.outcome_evidence_valid;
+    } catch {
+      // Best-effort: leave previous values, never throw.
+    }
+  }
+
+  getOutcomeStatus(): { status: string; evidenceValid: boolean } {
+    return {
+      status: this.observedOutcomeStatus,
+      evidenceValid: this.outcomeEvidenceValid,
+    };
   }
 
   /** `/goal` — show, set or clear the persistent session objective. Not a
@@ -1905,6 +1964,9 @@ export class TuiController {
     this.snapshot = snapshot;
     this.sessionId = snapshot.session.session_id;
     this.taskId = snapshot.session.task_id;
+    // Reset projected outcome status; refreshed on demand by refreshOutcomeStatus.
+    this.observedOutcomeStatus = "NONE";
+    this.outcomeEvidenceValid = false;
     this.mode = snapshot.permission_mode;
     this.stream = null;
     this.filesCache = null;

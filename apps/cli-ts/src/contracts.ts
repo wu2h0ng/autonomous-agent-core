@@ -274,6 +274,13 @@ export const SurfaceTaskOverviewSchema = z.object({
   run_status: NonEmptyStr,
   run_id: z.string().default(""),
   expected_outcome_id: z.string().default(""),
+  /** Projected observed outcome status after re-verification: VERIFIED,
+   * NOT_MET, UNRESOLVED, INVALID, or NONE when no outcome exists. A stale
+   * VERIFIED degrades to UNRESOLVED here — we never project historical
+   * VERIFIED directly. */
+  observed_outcome_status: z.string().default("NONE"),
+  /** True only when the current (re-verified) outcome is VERIFIED. */
+  outcome_evidence_valid: z.boolean().default(false),
   receipt_count: z.number().int().nonnegative(),
   session_id: z.string().default(""),
 });

@@ -53,6 +53,11 @@ export interface HeadlessResult {
   stop_reason: string | null;
   total_tokens: number;
   is_error: boolean;
+  /** Projected task outcome acceptance status (VERIFIED/NOT_MET/UNRESOLVED/INVALID/NONE).
+   * Re-verified server-side; a stale VERIFIED degrades to UNRESOLVED. */
+  observed_outcome_status: string;
+  /** True only when the re-verified outcome is VERIFIED. */
+  outcome_evidence_valid: boolean;
 }
 
 export async function runHeadless(
@@ -108,6 +113,10 @@ export async function runHeadless(
       out.stderr(`⏵ ${message.content}\n`);
     }
   }
+
+  // Best-effort outcome acceptance projection: refresh from the task overview
+  // so the result payload carries verified/unresolved status. Never throws.
+  await controller.refreshOutcomeStatus();
 
   if (controller.status === "awaiting_approval") {
     // The durable event path returns before a snapshot refresh; fetch the
@@ -186,6 +195,7 @@ function result(
   text: string,
   stopReason: string | null,
 ): HeadlessResult {
+  const outcome = controller.getOutcomeStatus();
   return {
     type: "result",
     subtype,
@@ -194,6 +204,8 @@ function result(
     stop_reason: subtype === "success" ? "completed" : stopReason,
     total_tokens: controller.tokensTotal,
     is_error: subtype !== "success",
+    observed_outcome_status: outcome.status,
+    outcome_evidence_valid: outcome.evidenceValid,
   };
 }
 

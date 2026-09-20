@@ -51,6 +51,10 @@ class StubClient {
   approvalPending = false;
   /** Durable refusal records this turn's drain returns (defect b). */
   denials: Record<string, unknown>[] = [];
+  /** Projected outcome acceptance status returned by overview(). Defaults to
+   * "NONE" (no outcome exists). Tests can set this to "VERIFIED" etc. */
+  outcomeStatus = "NONE";
+  outcomeEvidenceValid = false;
   /** Durable events already on the server when the CLI attaches — what a
    * resumed session (`noem -p --resume <session-id>`) drains from
    * `after_sequence = 0`. `surface_event_batch` returns EVERY event with
@@ -86,6 +90,19 @@ class StubClient {
   }
   async listSessions() {
     return this.sessions;
+  }
+  async overview(_taskId: string) {
+    return {
+      task_id: "task-stub",
+      task_status: "RUNNING",
+      run_status: "RUNNING",
+      run_id: "run-stub",
+      expected_outcome_id: this.outcomeStatus !== "NONE" ? "expected-stub" : "",
+      observed_outcome_status: this.outcomeStatus,
+      outcome_evidence_valid: this.outcomeEvidenceValid,
+      receipt_count: 0,
+      session_id: "session-stub",
+    };
   }
   async getSession() {
     return snapshot({
@@ -631,4 +648,55 @@ test("malformed completion reason in text mode reports invalid reason on stderr"
   assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
   assert.match(io.err.join(""), /invalid_completion_reason/);
   assert.match(io.out.join(""), /all done/);
+});
+
+test("headless result carries verified outcome acceptance status", async () => {
+  const client = new StubClient();
+  client.outcomeStatus = "VERIFIED";
+  client.outcomeEvidenceValid = true;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.observed_outcome_status, "VERIFIED");
+  assert.equal(payload.outcome_evidence_valid, true);
+});
+
+test("headless result carries unresolved outcome when evidence is stale", async () => {
+  const client = new StubClient();
+  client.outcomeStatus = "UNRESOLVED";
+  client.outcomeEvidenceValid = false;
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.observed_outcome_status, "UNRESOLVED");
+  assert.equal(payload.outcome_evidence_valid, false);
+});
+
+test("headless result carries NONE outcome when no outcome exists", async () => {
+  const client = new StubClient();
+  // Default outcomeStatus = "NONE", outcomeEvidenceValid = false
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.observed_outcome_status, "NONE");
+  assert.equal(payload.outcome_evidence_valid, false);
+});
+
+test("turn completed but no outcome is not reported as verified (C2 acceptance negative)", async () => {
+  // A turn can complete (stop_reason = "completed", exit 0) while the task
+  // outcome has not been evaluated. The result must NOT claim verified.
+  const client = new StubClient();
+  client.stopReason = "completed";
+  client.outcomeStatus = "NONE";
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "finish", outputFormat: "json" }, io);
+  assert.equal(code, HEADLESS_EXIT.OK);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "success");
+  assert.equal(payload.stop_reason, "completed");
+  assert.equal(payload.observed_outcome_status, "NONE");
+  assert.equal(payload.outcome_evidence_valid, false);
 });

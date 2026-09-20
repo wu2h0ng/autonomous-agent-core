@@ -3165,6 +3165,17 @@ class AgentOSApplication:
         if run is not None:
             run_status = run.status.value
             run_id = run.run_id
+        # Outcome acceptance projection: current_outcome re-verifies VERIFIED
+        # records before projecting them, so a stale/expired VERIFIED degrades
+        # to UNRESOLVED here. We never project the historical VERIFIED directly.
+        current_outcome = self.tasks.current_outcome(task_id)
+        observed_outcome_status = (
+            current_outcome.status.value if current_outcome is not None else "NONE"
+        )
+        outcome_evidence_valid = (
+            current_outcome is not None
+            and current_outcome.status is OutcomeStatus.VERIFIED
+        )
         return {
             "task_id": task_id,
             "task_status": (
@@ -3177,6 +3188,8 @@ class AgentOSApplication:
                 if aggregate.expected_outcome is not None
                 else ""
             ),
+            "observed_outcome_status": observed_outcome_status,
+            "outcome_evidence_valid": outcome_evidence_valid,
             "receipt_count": receipts,
             "session_id": session_id or "",
         }
