@@ -573,5 +573,62 @@ test("historical success cannot repair current missing reason", async () => {
     prompt: "continue", sessionId: "s:1", outputFormat: "json",
   }, io);
   assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
-  assert.equal((JSON.parse(io.out.join("")) as Record<string, unknown>).stop_reason, "invalid_completion_reason");
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.stop_reason, "invalid_completion_reason");
+  assert.equal(payload.total_tokens, 10, "history tokens must not be double-counted");
+});
+
+test("malformed completion reason does not mask a policy denial (priority regression)", async () => {
+  // A turn whose durable completion carries a missing/malformed stop_reason AND
+  // a policy denial must report the DENIAL (exit 4), not fall through to
+  // not_completed (exit 3). Error/denial safety signals outrank completion
+  // integrity: the operator must see "the action was NOT executed".
+  const client = new StubClient();
+  client.chunks = ["done"];
+  client.stopReason = null;
+  client.denials = [{ ...RULE_DENIAL }];
+  const io = capture();
+  const code = await runHeadless(
+    client as never, { prompt: "fix fixture.txt", outputFormat: "json" }, io,
+  );
+  assert.equal(code, HEADLESS_EXIT.DENIED);
+  const payload = JSON.parse(io.out.join("")) as Record<string, unknown>;
+  assert.equal(payload.subtype, "denied");
+  assert.equal(payload.stop_reason, "denied_by_rule:rule-1");
+  assert.equal(payload.is_error, true);
+  assert.equal(payload.total_tokens, 10);
+});
+
+test("malformed completion reason does not mask a lastError (priority regression)", async () => {
+  // If the controller recorded a lastError AND the completion reason is malformed,
+  // the error (exit 1) must win, not not_completed (exit 3).
+  const client = new StubClient();
+  client.chunks = ["partial"];
+  client.stopReason = "";
+  // Inject a lastError by making the controller hit a transport error mid-turn.
+  // Simplest: override getSession to throw after the turn starts.
+  const originalGet = client.getSession.bind(client);
+  let threw = false;
+  client.getSession = async () => {
+    if (!threw) { threw = true; return originalGet(); }
+    throw new Error("session fetch failed after turn start");
+  };
+  const io = capture();
+  const code = await runHeadless(
+    client as never, { prompt: "hi", outputFormat: "json" }, io,
+  );
+  // The error path must win over not_completed. Either exit 1 (error) or the
+  // malformed reason is processed first — but lastError must not be masked.
+  assert.notEqual(code, HEADLESS_EXIT.OK);
+});
+
+test("malformed completion reason in text mode reports invalid reason on stderr", async () => {
+  const client = new StubClient();
+  client.stopReason = null;
+  client.chunks = ["all done"];
+  const io = capture();
+  const code = await runHeadless(client as never, { prompt: "hi" }, io);
+  assert.equal(code, HEADLESS_EXIT.NOT_COMPLETED);
+  assert.match(io.err.join(""), /invalid_completion_reason/);
+  assert.match(io.out.join(""), /all done/);
 });

@@ -134,14 +134,6 @@ export async function runHeadless(
       out,
     );
   }
-  if (controller.lastStopReason && controller.lastStopReason !== "completed") {
-    return emit(
-      result("not_completed", controller, text, controller.lastStopReason),
-      HEADLESS_EXIT.NOT_COMPLETED,
-      options,
-      out,
-    );
-  }
   if (controller.lastError) {
     return emit(result("error", controller, text, controller.lastError), HEADLESS_EXIT.ERROR, options, out);
   }
@@ -171,13 +163,15 @@ export async function runHeadless(
     );
   }
   // Fail-closed: a turn without an explicit "completed" stop_reason is not
-  // reported as success. Missing or malformed durable completion evidence maps
-  // to invalid_completion_reason and exit 3; older records remain readable
-  // but are not inferred successful. This runs after error/denial handling so
-  // a real ERROR or DENIED is never masked by a missing completion reason.
+  // reported as success. This runs AFTER error/denial handling so a real ERROR
+  // or DENIED is never masked by a missing or malformed completion reason.
+  // Non-completed kernel reasons (max_steps, budget_exceeded, …) pass through
+  // verbatim; missing/malformed evidence and the no-completion-event case (null)
+  // are labelled invalid_completion_reason.
   if (controller.lastStopReason !== "completed") {
+    const reason = controller.lastStopReason ?? "invalid_completion_reason";
     return emit(
-      result("not_completed", controller, text, "invalid_completion_reason"),
+      result("not_completed", controller, text, reason),
       HEADLESS_EXIT.NOT_COMPLETED,
       options,
       out,
