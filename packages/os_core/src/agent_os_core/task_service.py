@@ -206,7 +206,7 @@ def _approval_resolution_payload(
 
 
 def expected_outcome_contract_error(expected: ExpectedOutcome) -> str | None:
-    """Backward-compatible contract validation using a pytest-only default registry.
+    """Backward-compatible contract validation using a default registry (pytest + predicate:conjunction).
 
     Prefer TaskService.contract_error() which uses the bound registry.
     """

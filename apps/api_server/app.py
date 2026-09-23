@@ -490,6 +490,10 @@ class AgentOSApplication:
             if str(database) != ":memory:" and observation_binding_descriptors
             else None
         )
+        # TODO(C3-next): inject a SQLitePredicateSetStore and register the
+        # predicate:conjunction evaluator with a real evidence accessor factory.
+        # Currently the default registry uses an empty InMemoryPredicateSetStore,
+        # so predicate:conjunction outcomes fail closed at contract time.
         self.tasks = TaskService(self.store, clock=self._clock)
         # S2: durable, operator-authored, DENY-only permission rules (fail-closed;
         # consulted after the frozen E2 gate, can only restrict).

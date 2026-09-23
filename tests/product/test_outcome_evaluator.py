@@ -208,22 +208,17 @@ def test_default_registry_registers_predicate_conjunction_evaluator() -> None:
     assert predicate_evaluator.evaluator_type == PREDICATE_CONJUNCTION_TYPE
 
 
-def test_predicate_evaluator_fails_closed_without_accessor() -> None:
-    """C3: with accessor_factory=None, predicate evaluation must fail closed to
-    UNRESOLVED rather than guessing or defaulting to VERIFIED."""
+def test_predicate_contract_rejects_unknown_predicate_set() -> None:
+    """C3: an unknown predicate-set digest is rejected by contract_error before
+    any evaluation — the empty in-memory store cannot resolve it."""
     from agent_os_core.outcome_evaluators import default_registry
     from agent_os_core.predicate_evaluator import PREDICATE_CONJUNCTION_TYPE
-    from agent_os_contracts.outcome import OutcomeStatus
+    from datetime import datetime, timezone
+    from agent_os_contracts.outcome import ExpectedOutcome
 
     registry = default_registry()
     evaluator = registry.get(PREDICATE_CONJUNCTION_TYPE)
     assert evaluator is not None
-
-    # A minimal ExpectedOutcome for predicate:conjunction. The predicate set
-    # won't be found in the empty in-memory store, so contract_error should
-    # reject it — proving the evaluator is wired but fail-closed.
-    from datetime import datetime, timezone
-    from agent_os_contracts.outcome import ExpectedOutcome
 
     expected = ExpectedOutcome(
         expected_outcome_id="exp-1",
@@ -240,5 +235,185 @@ def test_predicate_evaluator_fails_closed_without_accessor() -> None:
     )
 
     error = evaluator.contract_error(expected)
-    assert error is not None, "unknown predicate set must be rejected, not silently accepted"
-    assert "predicate set not found" in error or "predicate set" in error
+    assert error == "predicate set not found"
+
+
+def test_default_registry_evaluator_has_no_accessor_factory() -> None:
+    """C3 MAJOR-1: the default-registry predicate evaluator must have
+    accessor_factory=None — this is the fail-closed switch. Without a real
+    evidence accessor, evaluate() must return UNRESOLVED rather than guessing."""
+    from agent_os_core.outcome_evaluators import default_registry
+    from agent_os_core.predicate_evaluator import PREDICATE_CONJUNCTION_TYPE
+
+    registry = default_registry()
+    evaluator = registry.get(PREDICATE_CONJUNCTION_TYPE)
+    assert evaluator is not None
+    assert evaluator._accessor_factory is None, (
+        "default-registry predicate evaluator must have accessor_factory=None; "
+        "a guessing factory would silently produce fake VERIFIED outcomes"
+    )
+
+
+def test_evaluate_without_accessor_returns_unresolved() -> None:
+    """C3 MAJOR-1: with a pre-loaded predicate set but accessor_factory=None,
+    evaluate() must return UNRESOLVED with 'evidence accessor not configured'."""
+    from datetime import datetime, timezone
+    from agent_os_contracts import ExpectedOutcome, PredicateSet
+    from agent_os_contracts.outcome import OutcomeStatus
+    from agent_os_core.outcome_evaluators import default_registry
+    from agent_os_core.predicate_evaluator import PREDICATE_CONJUNCTION_TYPE
+
+    # Build a minimal predicate set and save it into the evaluator's store.
+    # The predicate check itself won't run (accessor_factory=None), so any
+    # well-formed predicate satisfies the contract.
+    from agent_os_contracts import SuccessPredicate, PredicateKind
+    minimal_pred = SuccessPredicate(
+        predicate_id="pred:1",
+        kind=PredicateKind.SEMANTIC,
+        description="test predicate",
+        check_type="FIELD_PRESENCE",
+        check_params={"path": "answer"},
+        evidence_bindings=(__import__("agent_os_contracts").EvidenceBinding(
+            binding_id="bind:1",
+            source_type="TOOL_RESPONSE",
+            source_selector="assistant",
+            extract_path="answer",
+            relation="test",
+        ),),
+        confidence=0.9,
+        falsifiable=True,
+        blocking=True,
+        source="test",
+    )
+    ps = PredicateSet(
+        set_id="set:test",
+        contract_id="contract:test",
+        task_id="task-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        predicates=(minimal_pred,),
+        frozen_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    registry = default_registry()
+    evaluator = registry.get(PREDICATE_CONJUNCTION_TYPE)
+    assert evaluator is not None
+    evaluator._store.save(ps)  # type: ignore[attr-defined]
+
+    expected = ExpectedOutcome(
+        expected_outcome_id="expected:1",
+        task_id="task-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        evaluator_type=PREDICATE_CONJUNCTION_TYPE,
+        evaluator_version=ps.content_key(),
+        evidence_requirements=("predicate-set",),
+        failure_semantics=("blocking predicate failed",),
+        threshold=1.0,
+        frozen_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        observation_window_seconds=3600,
+    )
+
+    observed = datetime(2026, 1, 1, second=30, tzinfo=timezone.utc)
+    outcome = evaluator.evaluate(
+        expected,
+        task_id="task-1",
+        run_id="run-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        evidence_refs=("predicate-set:" + ps.content_key(),),
+        test_exit_code=None,
+        now=observed,
+    )
+
+    assert outcome.status is OutcomeStatus.UNRESOLVED, (
+        f"expected UNRESOLVED without accessor, got {outcome.status}: {outcome.unresolved_gaps}"
+    )
+    assert any("evidence accessor" in g for g in outcome.unresolved_gaps), (
+        f"expected 'evidence accessor not configured' gap, got {outcome.unresolved_gaps}"
+    )
+
+
+def test_verify_verified_without_accessor_raises() -> None:
+    """C3 MAJOR-1: verify_verified_recording() with accessor_factory=None must
+    raise InvalidTransitionError — a stale VERIFIED must not be trusted."""
+    import pytest
+    from datetime import datetime, timezone
+    from agent_os_contracts import ExpectedOutcome, ObservedOutcome, PredicateSet
+    from agent_os_contracts.outcome import OutcomeStatus
+    from agent_os_core.errors import InvalidTransitionError
+    from agent_os_core.outcome_evaluators import default_registry
+    from agent_os_core.predicate_evaluator import PREDICATE_CONJUNCTION_TYPE
+
+    from agent_os_contracts import SuccessPredicate, PredicateKind
+    minimal_pred = SuccessPredicate(
+        predicate_id="pred:1",
+        kind=PredicateKind.SEMANTIC,
+        description="test predicate",
+        check_type="FIELD_PRESENCE",
+        check_params={"path": "answer"},
+        evidence_bindings=(__import__("agent_os_contracts").EvidenceBinding(
+            binding_id="bind:1",
+            source_type="TOOL_RESPONSE",
+            source_selector="assistant",
+            extract_path="answer",
+            relation="test",
+        ),),
+        confidence=0.9,
+        falsifiable=True,
+        blocking=True,
+        source="test",
+    )
+    ps = PredicateSet(
+        set_id="set:test",
+        contract_id="contract:test",
+        task_id="task-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        predicates=(minimal_pred,),
+        frozen_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    registry = default_registry()
+    evaluator = registry.get(PREDICATE_CONJUNCTION_TYPE)
+    assert evaluator is not None
+    evaluator._store.save(ps)  # type: ignore[attr-defined]
+
+    expected = ExpectedOutcome(
+        expected_outcome_id="expected:1",
+        task_id="task-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        evaluator_type=PREDICATE_CONJUNCTION_TYPE,
+        evaluator_version=ps.content_key(),
+        evidence_requirements=("predicate-set",),
+        failure_semantics=("blocking predicate failed",),
+        threshold=1.0,
+        frozen_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        observation_window_seconds=3600,
+    )
+
+    fake_verified = ObservedOutcome(
+        observed_outcome_id="observed:fake",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id="task-1",
+        run_id="run-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        evaluator_type=PREDICATE_CONJUNCTION_TYPE,
+        evaluator_version="1",
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("predicate-set:" + ps.content_key(),),
+        unresolved_gaps=(),
+        observed_at=datetime(2026, 1, 1, second=30, tzinfo=timezone.utc),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="accessor"):
+        evaluator.verify_verified_recording(
+            expected,
+            fake_verified,
+            report_resolver=lambda *a: None,  # type: ignore[arg-type]
+            now=datetime(2026, 1, 1, second=30, tzinfo=timezone.utc),
+        )
