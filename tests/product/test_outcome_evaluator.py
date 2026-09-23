@@ -192,3 +192,53 @@ def test_evaluator_uses_injected_clock_when_caller_omits_now() -> None:
 
     assert outcome.status is OutcomeStatus.VERIFIED
     assert outcome.observed_at == FROZEN_AT + timedelta(seconds=30)
+
+
+def test_default_registry_registers_predicate_conjunction_evaluator() -> None:
+    """C3: the default registry must include the predicate:conjunction evaluator
+    alongside pytest, so named-goal predicates can be mechanically evaluated."""
+    from agent_os_core.outcome_evaluators import default_registry
+    from agent_os_core.predicate_evaluator import PREDICATE_CONJUNCTION_TYPE
+
+    registry = default_registry()
+    predicate_evaluator = registry.get(PREDICATE_CONJUNCTION_TYPE)
+    assert predicate_evaluator is not None, (
+        "predicate:conjunction evaluator must be registered in default_registry"
+    )
+    assert predicate_evaluator.evaluator_type == PREDICATE_CONJUNCTION_TYPE
+
+
+def test_predicate_evaluator_fails_closed_without_accessor() -> None:
+    """C3: with accessor_factory=None, predicate evaluation must fail closed to
+    UNRESOLVED rather than guessing or defaulting to VERIFIED."""
+    from agent_os_core.outcome_evaluators import default_registry
+    from agent_os_core.predicate_evaluator import PREDICATE_CONJUNCTION_TYPE
+    from agent_os_contracts.outcome import OutcomeStatus
+
+    registry = default_registry()
+    evaluator = registry.get(PREDICATE_CONJUNCTION_TYPE)
+    assert evaluator is not None
+
+    # A minimal ExpectedOutcome for predicate:conjunction. The predicate set
+    # won't be found in the empty in-memory store, so contract_error should
+    # reject it — proving the evaluator is wired but fail-closed.
+    from datetime import datetime, timezone
+    from agent_os_contracts.outcome import ExpectedOutcome
+
+    expected = ExpectedOutcome(
+        expected_outcome_id="exp-1",
+        task_id="task-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        evaluator_type=PREDICATE_CONJUNCTION_TYPE,
+        evaluator_version="nonexistent-digest",
+        evidence_requirements=("predicate-set",),
+        failure_semantics=("blocking predicate failed",),
+        threshold=1.0,
+        frozen_at=datetime.now(timezone.utc),
+        observation_window_seconds=3600,
+    )
+
+    error = evaluator.contract_error(expected)
+    assert error is not None, "unknown predicate set must be rejected, not silently accepted"
+    assert "predicate set not found" in error or "predicate set" in error

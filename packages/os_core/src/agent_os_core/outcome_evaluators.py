@@ -336,7 +336,25 @@ class OutcomeEvaluatorRegistry:
 def default_registry(
     evidence_resolver: TestReportResolver | None = None,
 ) -> OutcomeEvaluatorRegistry:
-    """Registry with the pytest evaluator registered."""
+    """Registry with the pytest and predicate-conjunction evaluators registered.
+
+    The predicate-conjunction evaluator is registered with an in-memory
+    PredicateSetStore; callers that need durable predicate sets should inject
+    their own store via the registry directly. The accessor_factory is left
+    None here — predicate evaluation without an evidence accessor fails closed
+    to UNRESOLVED rather than guessing.
+    """
+    from .predicate_evaluator import (
+        InMemoryPredicateSetStore,
+        PredicateConjunctionEvaluator,
+    )
+
     registry = OutcomeEvaluatorRegistry()
     registry.register(PytestOutcomeEvaluator(evidence_resolver=evidence_resolver))
+    registry.register(
+        PredicateConjunctionEvaluator(
+            predicate_store=InMemoryPredicateSetStore(),
+            accessor_factory=None,
+        )
+    )
     return registry
