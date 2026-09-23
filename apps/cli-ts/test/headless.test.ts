@@ -289,7 +289,7 @@ test("headless text mode: text on stdout only, notices on stderr", async () => {
   assert.equal(code, HEADLESS_EXIT.OK);
   assert.equal(io.out.join(""), "answer\n");
   // session lifecycle, outcome acceptance, and budget notices go to stderr, never stdout
-  assert.match(io.err.join(""), /^⏵ session s:1 opened\n⏵ outcome: NONE\n⏵ budget: 10\/100000 tokens\n$/);
+  assert.match(io.err.join(""), /^⏵ session s:1 opened\n⏵ outcome: NONE\n⏵ budget: 10\/100000 tokens \(task ceiling \d+\)\n$/);
 });
 
 test("headless approval: fail-closed exit 2, no auto-approve", async () => {

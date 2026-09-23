@@ -26,7 +26,7 @@ breaks. Growing this union is the only way to admit a new version.
 SURFACE_PROTOCOL_VERSION: SurfaceProtocolVersion = "1.3"
 """The version this build SPEAKS: E3 usage v2 cost-honesty (1.1) plus the
 additive P3a-2 ``awaiting_approval`` session-listing field (1.2), plus the
-additive C3 ``max_turn_tokens`` session-snapshot field (1.3)."""
+additive C3 ``max_turn_tokens`` (1.3) and C4 ``max_task_tokens`` (1.4)."""
 
 SURFACE_PROTOCOL_MIN_SUPPORTED: SurfaceProtocolVersion = "1.1"
 """The oldest minor this build still NEGOTIATES with.
@@ -44,6 +44,7 @@ SURFACE_PROTOCOL_ADDITIVE_MINORS: Mapping[SurfaceProtocolVersion, tuple[str, ...
             # unregistered additive field would leak to older readers.
             "1.2": ("awaiting_approval",),
             "1.3": ("max_turn_tokens",),
+            "1.4": ("max_task_tokens",),
         }
     )
 )
@@ -427,6 +428,7 @@ class SurfaceSessionSnapshot(ContractModel):
     pending_approval: PendingSurfaceApproval | None = None
     permission_mode: PermissionMode = "ASK"
     max_turn_tokens: int = Field(ge=0, default=100_000)
+    max_task_tokens: int = Field(ge=0, default=1_000_000)
     updated_at: UtcDateTime
 
 

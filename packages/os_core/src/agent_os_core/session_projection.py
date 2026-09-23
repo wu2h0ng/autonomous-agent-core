@@ -40,6 +40,7 @@ class SessionLoopConfig:
     max_steps_per_turn: int
     max_provider_retries: int
     max_turn_tokens: int
+    max_task_tokens: int
     max_context_chars: int
     loop_detection_threshold: int
     system_prompt: str
@@ -48,6 +49,7 @@ class SessionLoopConfig:
         positive_limits = (
             self.max_steps_per_turn,
             self.max_turn_tokens,
+            self.max_task_tokens,
             self.max_context_chars,
             self.loop_detection_threshold,
         )
@@ -65,6 +67,7 @@ class SessionLoopConfig:
             "max_steps_per_turn": self.max_steps_per_turn,
             "max_provider_retries": self.max_provider_retries,
             "max_turn_tokens": self.max_turn_tokens,
+            "max_task_tokens": self.max_task_tokens,
             "max_context_chars": self.max_context_chars,
             "loop_detection_threshold": self.loop_detection_threshold,
             "system_prompt": self.system_prompt,
@@ -82,6 +85,7 @@ class SessionLoopConfig:
             "max_steps_per_turn",
             "max_provider_retries",
             "max_turn_tokens",
+            "max_task_tokens",
             "max_context_chars",
             "loop_detection_threshold",
             "system_prompt",

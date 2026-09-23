@@ -1883,7 +1883,7 @@ export class TuiController {
       content:
         `task ${overview.task_id} · status ${overview.task_status} · run ${overview.run_status}` +
         ` · receipts ${overview.receipt_count} · outcome ${outcomeLabel}` +
-        ` · usage ${this.tokensTotal} tokens (cumulative) · turn ceiling ${maxTurnTokens}`,
+        ` · usage ${this.tokensTotal} tokens (cumulative) · turn ceiling ${maxTurnTokens} · task ceiling ${this.getMaxTaskTokens()}`,
     });
   }
 
@@ -1931,6 +1931,10 @@ export class TuiController {
    * in a headless run before the first durable event). */
   getMaxTurnTokens(): number {
     return this.snapshot?.max_turn_tokens ?? 100_000;
+  }
+
+  getMaxTaskTokens(): number {
+    return this.snapshot?.max_task_tokens ?? 1_000_000;
   }
 
   /** `/goal` — show, set or clear the persistent session objective. Not a

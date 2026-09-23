@@ -62,6 +62,10 @@ export interface HeadlessResult {
    * The turn stops with stop_reason "budget_exceeded" when total_tokens
    * exceeds this value. */
   max_turn_tokens: number;
+  /** Task-level total token budget ceiling across all turns.
+   * Auto-resume stops with stop_reason "task_budget_exceeded" when the
+   * cumulative usage reaches this value. */
+  max_task_tokens: number;
 }
 
 export async function runHeadless(
@@ -211,6 +215,7 @@ function result(
     observed_outcome_status: outcome.status,
     outcome_evidence_valid: outcome.evidenceValid,
     max_turn_tokens: controller.getMaxTurnTokens(),
+    max_task_tokens: controller.getMaxTaskTokens(),
   };
 }
 
@@ -230,7 +235,7 @@ function emit(
     out.stderr(`⏵ outcome: ${payload.observed_outcome_status}\n`);
     // Token budget usage so the user can see how close the turn is to the
     // kernel's max_turn_tokens ceiling (budget_exceeded stop_reason).
-    out.stderr(`⏵ budget: ${payload.total_tokens}/${payload.max_turn_tokens} tokens\n`);
+    out.stderr(`⏵ budget: ${payload.total_tokens}/${payload.max_turn_tokens} tokens (task ceiling ${payload.max_task_tokens})\n`);
   }
   return exitCode;
 }

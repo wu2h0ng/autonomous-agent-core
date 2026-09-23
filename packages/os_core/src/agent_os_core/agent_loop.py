@@ -205,6 +205,7 @@ class AgentLoopConfig:
     max_steps_per_turn: int = 25
     max_provider_retries: int = 2
     max_turn_tokens: int = 100_000
+    max_task_tokens: int = 1_000_000
     max_context_chars: int = 60_000
     loop_detection_threshold: int = 3
     system_prompt: str = _SYSTEM_PROMPT
@@ -335,6 +336,10 @@ class AgentLoop:
         self._gateway = gateway
         self._session = session
         self._config = config or AgentLoopConfig()
+        # C4: task-level cumulative token budget. Reset per AgentLoop instance
+        # (i.e. per API-server process). When the process restarts, the
+        # operator can inspect history and decide whether to continue.
+        self._task_total_tokens = 0
         self._broker = CapabilityBroker(
             connector, correction, collaboration_preflight=collaboration_preflight
         )
@@ -455,6 +460,18 @@ class AgentLoop:
             turn_id=f"turn-{uuid4()}",
             session_id=session.session_id,
         )
+        # C4: task-level total budget guard. If the cumulative token usage
+        # across turns in this AgentLoop instance has already hit the ceiling,
+        # refuse to start another turn — auto-resume must stop.
+        if self._task_total_tokens >= self._config.max_task_tokens:
+            return TurnResult(
+                stop_reason="task_budget_exceeded",
+                steps=0,
+                total_tokens=0,
+                final_text="",
+                tool_proposals=(),
+            )
+
         text = user_input.strip()
         if not text:
             raise ValueError("user input must be non-empty")
@@ -1335,6 +1352,8 @@ class AgentLoop:
                             seen_action_digests=seen_action_digests,
                         )
                 break
+        # C4: accumulate this turn's token usage toward the task-level budget.
+        self._task_total_tokens += total_tokens
         return TurnResult(
             turn_id=turn_id,
             text=final_text,

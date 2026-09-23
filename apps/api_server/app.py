@@ -2189,6 +2189,7 @@ class AgentOSApplication:
                 max_steps_per_turn=config.max_steps_per_turn,
                 max_provider_retries=config.max_provider_retries,
                 max_turn_tokens=config.max_turn_tokens,
+                max_task_tokens=config.max_task_tokens,
                 max_context_chars=config.max_context_chars,
                 loop_detection_threshold=config.loop_detection_threshold,
                 system_prompt=config.system_prompt,
@@ -2964,6 +2965,7 @@ class AgentOSApplication:
             pending_approval=projected.pending_approval,
             permission_mode=projected.permission_mode,
             max_turn_tokens=projected.loop_config.max_turn_tokens,
+            max_task_tokens=projected.loop_config.max_task_tokens,
             updated_at=self._clock(),
         )
 
