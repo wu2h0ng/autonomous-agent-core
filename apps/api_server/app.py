@@ -2319,6 +2319,7 @@ class AgentOSApplication:
             max_steps_per_turn=projected.loop_config.max_steps_per_turn,
             max_provider_retries=projected.loop_config.max_provider_retries,
             max_turn_tokens=projected.loop_config.max_turn_tokens,
+            max_task_tokens=projected.loop_config.max_task_tokens,
             max_context_chars=projected.loop_config.max_context_chars,
             loop_detection_threshold=projected.loop_config.loop_detection_threshold,
             system_prompt=projected.loop_config.system_prompt,
@@ -2449,6 +2450,21 @@ class AgentOSApplication:
         session, loop = self.restore_chat_session(
             command.session_id, DeferredApprovalGateway()
         )
+        # C4: task-level total budget guard. Check durable cumulative tokens
+        # against the session's loop_config.max_task_tokens BEFORE starting
+        # a new turn. This is the real enforcement point — the AgentLoop
+        # instance is per-request (and thus stateless across turns).
+        projected = self.tasks.project_session(session.task_id, session.session_id)
+        if projected.cumulative_tokens >= projected.loop_config.max_task_tokens:
+            return SurfaceTurnResponse(
+                protocol_version=SURFACE_PROTOCOL_VERSION,
+                snapshot=self.surface_session_snapshot(session.session_id),
+                turn_id="",
+                text="task budget exceeded: cumulative token usage has reached the task ceiling",
+                steps=(),
+                stop_reason="task_budget_exceeded",
+                total_tokens=projected.cumulative_tokens,
+            )
         history_before = len(loop.history)
         ownership = self._claim_surface_turn(command.session_id)
         try:

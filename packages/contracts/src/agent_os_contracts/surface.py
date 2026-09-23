@@ -15,7 +15,7 @@ from .provider import ProviderMessage, SessionRef
 from .runtime import TaskEvent
 
 
-SurfaceProtocolVersion = Literal["1.1", "1.2"]
+SurfaceProtocolVersion = Literal["1.1", "1.2", "1.3", "1.4"]
 """Every Surface protocol version this build understands, ascending by minor.
 
 The version is ``MAJOR.MINOR``. A MINOR step is additive only, so a reader at
@@ -23,7 +23,7 @@ minor *n* understands every payload at minor <= *n*; the MAJOR step is what
 breaks. Growing this union is the only way to admit a new version.
 """
 
-SURFACE_PROTOCOL_VERSION: SurfaceProtocolVersion = "1.3"
+SURFACE_PROTOCOL_VERSION: SurfaceProtocolVersion = "1.4"
 """The version this build SPEAKS: E3 usage v2 cost-honesty (1.1) plus the
 additive P3a-2 ``awaiting_approval`` session-listing field (1.2), plus the
 additive C3 ``max_turn_tokens`` (1.3) and C4 ``max_task_tokens`` (1.4)."""

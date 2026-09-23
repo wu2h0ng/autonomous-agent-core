@@ -49,6 +49,7 @@ LOOP_CONFIG = SessionLoopConfig(
     max_steps_per_turn=7,
     max_provider_retries=1,
     max_turn_tokens=9_000,
+    max_task_tokens=50_000,
     max_context_chars=4_000,
     loop_detection_threshold=2,
     system_prompt="frozen session prompt",

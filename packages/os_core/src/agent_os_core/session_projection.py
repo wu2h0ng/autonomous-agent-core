@@ -195,6 +195,9 @@ class ProjectedSession:
     resumable_turn_id: str | None
     permission_mode: PermissionMode = "ASK"
     permission_mode_event_id: str | None = None
+    # C4: cumulative tokens across all completed turns in this session.
+    # Used by the task-level budget guard (max_task_tokens).
+    cumulative_tokens: int = 0
 
 
 class SessionProjector:
@@ -278,6 +281,7 @@ def _strict_project(
     user_turns: dict[str, str] = {}
     started_turns: set[str] = set()
     completed_turns: set[str] = set()
+    cumulative_tokens_total: int = 0
     open_turn_id: str | None = None
 
     for event in events:
@@ -565,6 +569,10 @@ def _strict_project(
                 completed_turns.add(turn_id)
                 open_turn_id = None
                 resolved_continuation = None
+                # C4: accumulate completed turn tokens for task budget guard
+                turn_tokens = payload.get("total_tokens", 0)
+                if isinstance(turn_tokens, int) and turn_tokens > 0:
+                    cumulative_tokens_total += turn_tokens
                 continue
 
             if event.event_type is TaskEventType.SESSION_PERMISSION_MODE_SET:
@@ -646,6 +654,7 @@ def _strict_project(
         resumable_turn_id=open_turn_id,
         permission_mode=permission_mode,
         permission_mode_event_id=permission_mode_event_id,
+        cumulative_tokens=cumulative_tokens_total,
     )
 
 

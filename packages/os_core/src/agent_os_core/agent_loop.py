@@ -465,11 +465,11 @@ class AgentLoop:
         # refuse to start another turn — auto-resume must stop.
         if self._task_total_tokens >= self._config.max_task_tokens:
             return TurnResult(
-                stop_reason="task_budget_exceeded",
+                turn_id=turn_id,
+                text="",
                 steps=0,
+                stop_reason="task_budget_exceeded",
                 total_tokens=0,
-                final_text="",
-                tool_proposals=(),
             )
 
         text = user_input.strip()

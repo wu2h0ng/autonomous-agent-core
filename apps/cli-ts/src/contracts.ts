@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-export const SURFACE_PROTOCOL_VERSION = "1.2" as const;
+export const SURFACE_PROTOCOL_VERSION = "1.4" as const;
 
 /** The oldest minor this build still negotiates with (mirrors the Python floor). */
 export const SURFACE_PROTOCOL_MIN_SUPPORTED = "1.1" as const;
@@ -23,6 +23,8 @@ export const SURFACE_PROTOCOL_MIN_SUPPORTED = "1.1" as const;
  */
 export const SURFACE_PROTOCOL_READABLE_VERSIONS = [
   SURFACE_PROTOCOL_MIN_SUPPORTED,
+  "1.2",
+  "1.3",
   SURFACE_PROTOCOL_VERSION,
 ] as const;
 
