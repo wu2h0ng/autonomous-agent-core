@@ -168,6 +168,67 @@ class PostgresTaskEventStore:
                 drafts=drafts,
             )
 
+    def append_fenced(
+        self,
+        task_id: str,
+        *,
+        run_id: str,
+        owner: str,
+        fence: int,
+        expected_sequence: int,
+        drafts: Sequence[TaskEventDraft],
+        capability_id: str | None = None,
+        expected_correction_epochs: CorrectionEpochVector | None = None,
+    ) -> tuple[TaskEvent, ...]:
+        """Atomically validate the live lease, optional C7 epochs, and append."""
+        if not drafts:
+            raise EventStreamError("append requires at least one event draft")
+        if (capability_id is None) != (expected_correction_epochs is None):
+            raise ValueError("capability and correction epochs must be supplied together")
+        with self._connect() as conn, conn.cursor() as cur:
+            if expected_correction_epochs is not None:
+                assert capability_id is not None
+                scopes = (
+                    ("capability", capability_id, expected_correction_epochs.capability_epoch),
+                    ("run", run_id, expected_correction_epochs.run_epoch),
+                    ("task", task_id, expected_correction_epochs.task_epoch),
+                )
+                for scope, scope_id, _ in scopes:
+                    cur.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        (f"correction:{scope}:{scope_id}",),
+                    )
+            else:
+                scopes = ()
+            cur.execute(
+                "SELECT owner, fence, expires_at FROM run_leases "
+                "WHERE run_id=%s FOR UPDATE",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if (
+                row is None
+                or str(row[0]) != owner
+                or int(row[1]) != fence
+                or not self._lease_active(row[2])
+            ):
+                raise ConcurrentWriteError("stale execution lease cannot append task truth")
+            for scope, scope_id, expected in scopes:
+                cur.execute(
+                    "SELECT epoch, halted FROM correction_epochs "
+                    "WHERE scope=%s AND scope_id=%s",
+                    (scope, scope_id),
+                )
+                correction = cur.fetchone()
+                epoch = int(correction[0]) if correction is not None else 0
+                halted = bool(correction[1]) if correction is not None else False
+                if halted or epoch != expected:
+                    raise ConcurrentWriteError("correction authority changed before fenced append")
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (task_id,))
+            return self._append_with_cursor(
+                cur, task_id, expected_sequence=expected_sequence, drafts=drafts
+            )
+
     def _append_with_cursor(
         self,
         cur: Any,
@@ -270,7 +331,7 @@ class PostgresTaskEventStore:
     ) -> bool:
         """Insert one reservation iff the exact execution lease is active."""
 
-        expected_expiry = datetime.fromisoformat(expires_at)
+        del expires_at  # The active row may be heartbeat-renewed after claim issue.
         with self._connect() as conn, conn.cursor() as cur:
             self._lock_idempotency(cur, scope, key)
             cur.execute(
@@ -283,7 +344,6 @@ class PostgresTaskEventStore:
                 row is None
                 or int(row[0]) != fence
                 or str(row[1]) != owner
-                or row[2] != expected_expiry
                 or not self._lease_active(row[2])
             ):
                 raise ConcurrentWriteError(
@@ -339,8 +399,16 @@ class PostgresTaskEventStore:
 
     def recover_lease(self, run_id: str, owner: str, expires_at: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("SELECT fence FROM run_leases WHERE run_id=%s FOR UPDATE", (run_id,))
+            cur.execute(
+                "SELECT fence, owner, expires_at FROM run_leases "
+                "WHERE run_id=%s FOR UPDATE",
+                (run_id,),
+            )
             row = cur.fetchone()
+            if row and self._lease_active(row[2]):
+                raise ConcurrentWriteError(
+                    f"run {run_id} still has an active worker lease"
+                )
             fence = int(row[0]) + 1 if row else 1
             cur.execute(
                 "INSERT INTO run_leases(run_id,fence,owner,expires_at) VALUES (%s,%s,%s,%s) ON CONFLICT(run_id) DO UPDATE SET fence=EXCLUDED.fence,owner=EXCLUDED.owner,expires_at=EXCLUDED.expires_at",
@@ -365,6 +433,23 @@ class PostgresTaskEventStore:
             if self._held_leases.get((run_id, owner)) == fence:
                 self._held_leases.pop((run_id, owner), None)
         return released
+
+    def renew_lease(
+        self, run_id: str, owner: str, fence: int, expires_at: str
+    ) -> bool:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE run_leases SET expires_at=%s "
+                "WHERE run_id=%s AND owner=%s AND fence=%s AND expires_at > %s",
+                (
+                    expires_at,
+                    run_id,
+                    owner,
+                    fence,
+                    datetime.now(timezone.utc),
+                ),
+            )
+            return cur.rowcount == 1
 
     def lease_fence(self, run_id: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:

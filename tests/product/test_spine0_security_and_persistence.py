@@ -20,6 +20,8 @@ from agent_os_contracts import (
     PrincipalIdentity,
     PrincipalRole,
     ResourceBudget,
+    TaskEventDraft,
+    TaskEventType,
 )
 from agent_os_core import (
     CapabilityBroker,
@@ -339,6 +341,60 @@ def test_active_execution_lease_owner_blocks_takeover(tmp_path: Path) -> None:
             "capability-reservation.v1",
             "approval-action",
         )
+
+
+def test_fenced_append_rejects_takeover_in_the_append_transaction(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.sqlite3"
+    old = SQLiteTaskEventStore(database)
+    successor = SQLiteTaskEventStore(database)
+    run_id = "run:fenced-append"
+    task_id = "task:fenced-append"
+    old_fence = old.acquire_lease(
+        run_id,
+        "worker:old",
+        (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
+
+    def draft(event_id: str) -> TaskEventDraft:
+        return TaskEventDraft.build(
+            event_id=event_id,
+            task_id=task_id,
+            event_type=TaskEventType.NODE_COMPLETED,
+            payload={"node_id": "node:1"},
+            occurred_at=datetime.now(timezone.utc),
+            correlation_id=run_id,
+        )
+
+    # A prior read of old_fence can succeed; takeover occurs before append.
+    assert old.lease_fence(run_id) == old_fence
+    assert old.release_lease(run_id, "worker:old")
+    new_fence = successor.recover_lease(
+        run_id,
+        "worker:new",
+        (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    )
+    with pytest.raises(ConcurrentWriteError, match="stale execution lease"):
+        old.append_fenced(
+            task_id,
+            run_id=run_id,
+            owner="worker:old",
+            fence=old_fence,
+            expected_sequence=0,
+            drafts=(draft("event:old"),),
+        )
+    assert old.read(task_id) == ()
+    appended = successor.append_fenced(
+        task_id,
+        run_id=run_id,
+        owner="worker:new",
+        fence=new_fence,
+        expected_sequence=0,
+        drafts=(draft("event:new"),),
+    )
+    assert len(appended) == 1
+    assert appended[0].event_id == "event:new"
 
 
 def test_stale_execution_lease_fence_cannot_insert_reservation(

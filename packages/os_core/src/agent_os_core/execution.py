@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
+from contextlib import ExitStack, contextmanager
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -44,7 +46,7 @@ from .capability import (
     CapabilityResult,
     CollaborationPreflightPort,
 )
-from ._action_outcome import ExecutionLease
+from ._action_outcome import ExecutionLease, ExecutionLeaseConflict
 from .action_pipeline import ActionPipeline
 from .errors import (
     ConcurrentWriteError,
@@ -142,6 +144,8 @@ class DeterministicOutcomeEvaluator:
 class RunCoordinator:
     """Single durable execution path shared by API, CLI and workspace adapters."""
 
+    _LEASE_TTL = timedelta(minutes=5)
+
     def __init__(
         self,
         task_service: TaskService,
@@ -194,6 +198,30 @@ class RunCoordinator:
         execution_fence: Callable[[str], None] | None = None,
         effect_custody: EffectCustodyPort | None = None,
     ):
+        with self.tasks.execution_scope(), ExitStack() as heartbeat_stack:
+            return self._run_with_claim(
+                task_id,
+                principal,
+                inputs,
+                stop_after_node=stop_after_node,
+                recover_stale_lease=recover_stale_lease,
+                execution_fence=execution_fence,
+                effect_custody=effect_custody,
+                heartbeat_stack=heartbeat_stack,
+            )
+
+    def _run_with_claim(
+        self,
+        task_id: str,
+        principal: PrincipalIdentity,
+        inputs: dict[str, Any] | None = None,
+        *,
+        stop_after_node: str | None = None,
+        recover_stale_lease: bool = False,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
+        heartbeat_stack: ExitStack,
+    ):
         def assert_execution_fence(phase: str) -> None:
             if execution_fence is not None:
                 execution_fence(phase)
@@ -210,7 +238,7 @@ class RunCoordinator:
         acquire_lease = getattr(self.tasks._event_store, "acquire_lease", None)
         if acquire_lease is not None:
             owner = f"worker:{uuid4()}"
-            expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+            expiry = (datetime.now(timezone.utc) + self._LEASE_TTL).isoformat()
             try:
                 lease_fence = acquire_lease(run.run_id, owner, expiry)
             except ConcurrentWriteError:
@@ -220,6 +248,11 @@ class RunCoordinator:
                 if recover is None:
                     raise
                 lease_fence = recover(run.run_id, owner, expiry)
+        if owner is not None:
+            self.tasks.bind_execution_claim(task_id, run.run_id, owner, lease_fence)
+            heartbeat_stack.enter_context(
+                self._lease_heartbeat(run.run_id, owner, lease_fence, check_on_exit=False)
+            )
         aggregate = self.tasks.get_task(task_id)
         if (
             aggregate.run is None
@@ -300,6 +333,9 @@ class RunCoordinator:
                         for criterion in aggregate.commitment.acceptance_criteria
                     ),
                 )
+            commitment = aggregate.commitment
+            if commitment is None:
+                raise RunExecutionError("task commitment disappeared during execution")
             completed_nodes = self._completed_nodes(task_id)
             restored_evidence = context.get("evidence_refs", ())
             evidence: list[str] = (
@@ -326,7 +362,7 @@ class RunCoordinator:
                 generator_id=self.execution_profile.generator_id,
                 generator_version=self.execution_profile.generator_version,
                 allowed_capability_ids=tuple(sorted(self.capabilities.specs())),
-                resource_budget=aggregate.commitment.budget,
+                resource_budget=commitment.budget,
                 candidate_ids=tuple(node.node_id for node in aggregate.workflow.nodes),
                 has_abstain=True, has_ask=True, has_no_action=True, created_at=datetime.now(timezone.utc),
             )
@@ -339,22 +375,29 @@ class RunCoordinator:
                 continue
             assert_execution_fence(f"before_node:{node.node_id}")
             try:
+                expiry = self._renew_lease_or_raise(
+                    run.run_id, owner, lease_fence
+                )
                 self.tasks.append_event(task_id, TaskEventType.NODE_STARTED, {"node_id": node.node_id}, correlation_id=run.run_id)
             except Exception:
                 self._release_lease(run.run_id, owner)
                 raise
             try:
                 if node.kind is NodeKind.PROVIDER:
-                    provider_event_id = f"event:provider-response:{uuid4()}"
-                    provider_output, provider_receipt = self._call_provider(
-                        run.run_id,
-                        task_id,
-                        node.capability or "provider",
-                        node.node_id,
-                        provider_event_id,
-                        context,
-                        execution_fence=execution_fence,
+                    expiry = self._renew_lease_or_raise(
+                        run.run_id, owner, lease_fence
                     )
+                    provider_event_id = f"event:provider-response:{uuid4()}"
+                    with self._lease_heartbeat(run.run_id, owner, lease_fence):
+                        provider_output, provider_receipt = self._call_provider(
+                            run.run_id,
+                            task_id,
+                            node.capability or "provider",
+                            node.node_id,
+                            provider_event_id,
+                            context,
+                            execution_fence=execution_fence,
+                        )
                     assert_execution_fence("before_provider_projection")
                     context[node.node_id] = provider_output
                     if provider_receipt is None:
@@ -400,6 +443,9 @@ class RunCoordinator:
                                 correlation_id=run.run_id,
                             )
                 elif node.kind is NodeKind.TOOL:
+                    expiry = self._renew_lease_or_raise(
+                        run.run_id, owner, lease_fence
+                    )
                     try:
                         arguments = self.execution_profile.tool_arguments(
                             node.capability or "",
@@ -407,27 +453,31 @@ class RunCoordinator:
                         )
                     except ExecutionProfileError as exc:
                         raise RunExecutionError(str(exc)) from exc
-                    result = self._call_tool(
-                        task_id, run.run_id, node.node_id, node.capability or "", principal,
-                        arguments,
-                        aggregate.expected_outcome,
-                        envelope.envelope_id,
-                        aggregate.approval,
-                        node.risk_tier,
-                        context.get(f"action:{node.capability}"),
-                        execution_fence=execution_fence,
-                        effect_custody=effect_custody,
-                        execution_claim=ExecutionLease(
-                            run_id=run.run_id,
-                            owner=owner or f"worker:{uuid4()}",
-                            fence=lease_fence,
-                            expires_at=(
-                                datetime.fromisoformat(expiry)
-                                if expiry
-                                else datetime.now(timezone.utc)
-                                + timedelta(minutes=5)
+                    with self._lease_heartbeat(run.run_id, owner, lease_fence):
+                        result = self._call_tool(
+                            task_id, run.run_id, node.node_id, node.capability or "", principal,
+                            arguments,
+                            aggregate.expected_outcome,
+                            envelope.envelope_id,
+                            aggregate.approval,
+                            node.risk_tier,
+                            context.get(f"action:{node.capability}"),
+                            execution_fence=execution_fence,
+                            effect_custody=effect_custody,
+                            execution_claim=ExecutionLease(
+                                run_id=run.run_id,
+                                owner=owner or f"worker:{uuid4()}",
+                                fence=lease_fence,
+                                expires_at=(
+                                    datetime.fromisoformat(expiry)
+                                    if expiry
+                                    else datetime.now(timezone.utc)
+                                    + self._LEASE_TTL
+                                ),
                             ),
-                        ),
+                        )
+                    expiry = self._renew_lease_or_raise(
+                        run.run_id, owner, lease_fence
                     )
                     context[node.node_id] = result.output
                     context[node.capability or node.node_id] = result.output
@@ -527,10 +577,15 @@ class RunCoordinator:
                 if isinstance(output, dict):
                     payload["output"] = output
                 assert_execution_fence(f"before_node_commit:{node.node_id}")
+                expiry = self._renew_lease_or_raise(
+                    run.run_id, owner, lease_fence
+                )
                 self.tasks.append_event(task_id, TaskEventType.NODE_COMPLETED, payload, correlation_id=run.run_id)
                 if stop_after_node == node.node_id:
                     raise WorkerInterrupted(f"worker interrupted after node {node.node_id}")
             except WorkerInterrupted:
+                # A simulated worker death leaves the durable lease in place.
+                # Recovery must wait for expiry and explicitly claim a new fence.
                 raise
             except KeyboardInterrupt:
                 try:
@@ -580,6 +635,12 @@ class RunCoordinator:
                     f"node {node.node_id} effect is UNKNOWN; "
                     "external reconciliation required"
                 ) from unknown
+            except (ConcurrentWriteError, ExecutionLeaseConflict) as exc:
+                self._release_lease(run.run_id, owner)
+                raise RunExecutionError(
+                    f"node {node.node_id} lost its run lease; "
+                    "current owner must reconcile before continuing"
+                ) from exc
             except Exception as exc:
                 failure_commit_allowed = True
                 if execution_fence is not None:
@@ -609,6 +670,7 @@ class RunCoordinator:
             raise RunExecutionError("workflow completed without an evaluation node")
         try:
             assert_execution_fence("before_run_finalization")
+            expiry = self._renew_lease_or_raise(run.run_id, owner, lease_fence)
             observed_outcome = self._revalidate_outcome_before_finalization(
                 task_id,
                 observed_outcome,
@@ -1667,6 +1729,59 @@ class RunCoordinator:
         release = getattr(self.tasks._event_store, "release_lease", None)
         if release is not None:
             release(run_id, owner)
+
+    def _renew_lease_or_raise(
+        self, run_id: str, owner: str | None, fence: int
+    ) -> str | None:
+        if owner is None:
+            return None
+        expires_at = (datetime.now(timezone.utc) + self._LEASE_TTL).isoformat()
+        renew = getattr(self.tasks._event_store, "renew_lease", None)
+        if renew is not None:
+            if not renew(run_id, owner, fence, expires_at):
+                raise ConcurrentWriteError("run lease was lost to another worker")
+            return expires_at
+        current_fence = getattr(
+            self.tasks._event_store, "lease_fence", lambda _run_id: fence
+        )(run_id)
+        if current_fence != fence:
+            raise ConcurrentWriteError("run lease was lost to another worker")
+        return expires_at
+
+    @contextmanager
+    def _lease_heartbeat(
+        self, run_id: str, owner: str | None, fence: int, *, check_on_exit: bool = True
+    ):
+        if owner is None:
+            yield
+            return
+        stop = threading.Event()
+        failed: list[BaseException] = []
+        interval = max(0.1, self._LEASE_TTL.total_seconds() / 3)
+
+        def beat() -> None:
+            while not stop.wait(interval):
+                try:
+                    self._renew_lease_or_raise(run_id, owner, fence)
+                except BaseException as exc:  # pragma: no cover - surfaced on exit.
+                    failed.append(exc)
+                    stop.set()
+
+        thread = threading.Thread(
+            target=beat,
+            name=f"agent-os-run-lease-heartbeat:{run_id}",
+            daemon=True,
+        )
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join(timeout=1)
+        if check_on_exit:
+            if failed:
+                raise failed[0]
+            self._renew_lease_or_raise(run_id, owner, fence)
 
     @staticmethod
     def _ordered_nodes(workflow: WorkflowGraph):

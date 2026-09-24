@@ -494,6 +494,16 @@ def _interrupt_after_bad_patch(tmp_path: Path) -> tuple[Path, str]:
     return database, task_id
 
 
+def _expire_interrupted_worker_lease(app: AgentOSApplication, task_id: str) -> None:
+    run = app.tasks.get_task(task_id).run
+    assert run is not None
+    app.store._db.execute(  # noqa: SLF001 - simulate clock expiry without waiting.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(), run.run_id),
+    )
+    app.store._db.commit()  # noqa: SLF001
+
+
 def test_literal_apply_interrupt_keeps_lease_until_natural_expiry(
     tmp_path: Path,
 ) -> None:
@@ -577,6 +587,7 @@ def test_b_not_met_after_restart_compensates_bad_patch(tmp_path: Path) -> None:
         AgentOSApplication(database=database, workspace=tmp_path),
         DeterministicProvider(),
     )
+    _expire_interrupted_worker_lease(restarted, task_id)
     result = restarted.run_task(task_id, INPUTS, recover_stale_lease=True)
 
     assert result.status is TaskStatus.FAILED
@@ -618,6 +629,7 @@ def test_compensation_replays_exact_action_after_effect_before_receipt_crash(
         AgentOSApplication(database=database, workspace=tmp_path),
         DeterministicProvider(),
     )
+    _expire_interrupted_worker_lease(restarted, task_id)
     crashed = False
 
     def crash_compensation_after_effect(operation_slot, _intent_digest, effect):
@@ -676,6 +688,7 @@ def test_c_c7_blocks_recovery_until_principal_resumes_correction(
         AgentOSApplication(database=database, workspace=tmp_path),
         DeterministicProvider(),
     )
+    _expire_interrupted_worker_lease(restarted, task_id)
     # External C7 correction halts the task before any recovery can run.
     restarted.correct_task(task_id, "external principal halt before recovery")
 
