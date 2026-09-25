@@ -185,6 +185,63 @@ class SQLiteTaskEventStore:
                     self._db.rollback()
                 raise
 
+    def append_fenced(
+        self,
+        task_id: str,
+        *,
+        run_id: str,
+        owner: str,
+        fence: int,
+        expected_sequence: int,
+        drafts: Sequence[TaskEventDraft],
+        capability_id: str | None = None,
+        expected_correction_epochs: CorrectionEpochVector | None = None,
+    ) -> tuple[TaskEvent, ...]:
+        """Check the live execution lease and append in one write transaction."""
+        if not drafts:
+            raise EventStreamError("append requires at least one event draft")
+        if (capability_id is None) != (expected_correction_epochs is None):
+            raise ValueError("capability and correction epochs must be supplied together")
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                row = self._db.execute(
+                    "SELECT owner, fence, expires_at FROM run_leases WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if (
+                    row is None
+                    or str(row["owner"]) != owner
+                    or int(row["fence"]) != fence
+                    or not self._lease_active(str(row["expires_at"]))
+                ):
+                    raise ConcurrentWriteError("stale execution lease cannot append task truth")
+                if expected_correction_epochs is not None:
+                    assert capability_id is not None
+                    for scope, scope_id, expected in (
+                        ("task", task_id, expected_correction_epochs.task_epoch),
+                        ("run", run_id, expected_correction_epochs.run_epoch),
+                        ("capability", capability_id, expected_correction_epochs.capability_epoch),
+                    ):
+                        correction = self._db.execute(
+                            "SELECT epoch, halted FROM correction_epochs "
+                            "WHERE scope = ? AND scope_id = ?",
+                            (scope, scope_id),
+                        ).fetchone()
+                        epoch = int(correction["epoch"]) if correction is not None else 0
+                        halted = bool(correction["halted"]) if correction is not None else False
+                        if halted or epoch != expected:
+                            raise ConcurrentWriteError("correction authority changed before fenced append")
+                appended = self._append_in_transaction(
+                    task_id, expected_sequence=expected_sequence, drafts=drafts
+                )
+                self._db.commit()
+                return appended
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
+
     def _append_in_transaction(
         self,
         task_id: str,
@@ -337,6 +394,7 @@ class SQLiteTaskEventStore:
 
         import json
 
+        del expires_at  # The active row may be heartbeat-renewed after claim issue.
         with self._lock:
             try:
                 self._db.execute("BEGIN IMMEDIATE")
@@ -349,7 +407,6 @@ class SQLiteTaskEventStore:
                     row is None
                     or int(row["fence"]) != fence
                     or str(row["owner"]) != owner
-                    or str(row["expires_at"]) != expires_at
                     or not self._lease_active(str(row["expires_at"]))
                 ):
                     raise ConcurrentWriteError(
@@ -415,17 +472,27 @@ class SQLiteTaskEventStore:
     def recover_lease(self, run_id: str, owner: str, expires_at: str) -> int:
         """Explicit operator/worker recovery takeover after a confirmed dead worker."""
         with self._lock:
-            self._db.execute("BEGIN IMMEDIATE")
-            row = self._db.execute(
-                "SELECT fence FROM run_leases WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            fence = int(row["fence"]) + 1 if row is not None else 1
-            self._db.execute(
-                "INSERT INTO run_leases(run_id, fence, owner, expires_at) VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(run_id) DO UPDATE SET fence=excluded.fence, owner=excluded.owner, expires_at=excluded.expires_at",
-                (run_id, fence, owner, expires_at),
-            )
-            self._db.commit()
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                row = self._db.execute(
+                    "SELECT fence, owner, expires_at FROM run_leases WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if row is not None and self._lease_active(str(row["expires_at"])):
+                    raise ConcurrentWriteError(
+                        f"run {run_id} still has an active worker lease"
+                    )
+                fence = int(row["fence"]) + 1 if row is not None else 1
+                self._db.execute(
+                    "INSERT INTO run_leases(run_id, fence, owner, expires_at) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(run_id) DO UPDATE SET fence=excluded.fence, owner=excluded.owner, expires_at=excluded.expires_at",
+                    (run_id, fence, owner, expires_at),
+                )
+                self._db.commit()
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
             self._held_leases[(run_id, owner)] = fence
             return fence
 
@@ -438,6 +505,30 @@ class SQLiteTaskEventStore:
                 "UPDATE run_leases SET expires_at = ? "
                 "WHERE run_id = ? AND owner = ? AND fence = ?",
                 (datetime.now(timezone.utc).isoformat(), run_id, owner, fence),
+            )
+            self._db.commit()
+            return cursor.rowcount == 1
+
+    def renew_lease(
+        self, run_id: str, owner: str, fence: int, expires_at: str
+    ) -> bool:
+        """Extend only the exact active lease held by this worker."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT fence, owner, expires_at FROM run_leases WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if (
+                row is None
+                or int(row["fence"]) != fence
+                or str(row["owner"]) != owner
+                or not self._lease_active(str(row["expires_at"]))
+            ):
+                return False
+            cursor = self._db.execute(
+                "UPDATE run_leases SET expires_at = ? "
+                "WHERE run_id = ? AND owner = ? AND fence = ?",
+                (expires_at, run_id, owner, fence),
             )
             self._db.commit()
             return cursor.rowcount == 1

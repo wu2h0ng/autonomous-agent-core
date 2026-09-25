@@ -679,6 +679,18 @@ def _interrupt_after_patch(root: Path) -> tuple[Path, str]:
     with pytest.raises(WorkerInterrupted):
         app.run_task(task.task_id, inputs, stop_after_node="apply")
     assert target.read_text(encoding="utf-8") == "bad\n"
+    # A crashed worker remains fenced until its lease expires. Advance that
+    # durable clock boundary explicitly for the restart scenarios below.
+    interrupted_run = app.tasks.get_task(task.task_id).run
+    assert interrupted_run is not None
+    app.store._db.execute(  # noqa: SLF001 - deterministic lease expiry fixture.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            interrupted_run.run_id,
+        ),
+    )
+    app.store._db.commit()  # noqa: SLF001
     return database, task.task_id
 
 

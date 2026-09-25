@@ -369,12 +369,21 @@ class ActionPipeline:
             # an automatic resend; recording the uncertainty does not resolve
             # it. Behavior is preserved (the unknown is re-raised) on both the
             # chat seam and the reconciliation seam.
-            self._record_unknown_action_receipt(
+            self._record_unknown_action_receipt_if_current(
                 action, decision, permit, unknown
             )
             raise
         if execution_fence is not None:
             execution_fence("before_tool_effect_commit")
+        current_fence = getattr(
+            self._tasks._event_store,
+            "lease_fence",
+            lambda _run_id: permit.lease_fence,
+        )(action.run_id)
+        if current_fence != permit.lease_fence:
+            raise ExecutionLeaseConflict(
+                "worker lost its run lease after dispatch before receipt"
+            )
         self._tasks._record_action_receipt(
             action.task_id,
             action=action,
@@ -469,6 +478,24 @@ class ActionPipeline:
             receipt=receipt,
             writer_token=self._tasks._runtime_writer_token,
         )
+
+    def _record_unknown_action_receipt_if_current(
+        self,
+        action: ActionContract,
+        decision: Any,
+        permit: Any,
+        unknown: CapabilityEffectUnknown,
+    ) -> None:
+        current_fence = getattr(
+            self._tasks._event_store,
+            "lease_fence",
+            lambda _run_id: permit.lease_fence,
+        )(action.run_id)
+        if current_fence != permit.lease_fence:
+            raise ExecutionLeaseConflict(
+                "worker lost its run lease before UNKNOWN receipt recording"
+            ) from unknown
+        self._record_unknown_action_receipt(action, decision, permit, unknown)
 
     def execute_observed(
         self,
@@ -576,12 +603,21 @@ class ActionPipeline:
             # an automatic resend; recording the uncertainty does not resolve
             # it. Behavior is preserved (the unknown is re-raised) on both the
             # chat seam and the reconciliation seam.
-            self._record_unknown_action_receipt(
+            self._record_unknown_action_receipt_if_current(
                 action, decision, permit, unknown
             )
             raise
         if execution_fence is not None:
             execution_fence("before_tool_effect_commit")
+        current_fence = getattr(
+            self._tasks._event_store,
+            "lease_fence",
+            lambda _run_id: permit.lease_fence,
+        )(action.run_id)
+        if current_fence != permit.lease_fence:
+            raise ExecutionLeaseConflict(
+                "worker lost its run lease after dispatch before receipt"
+            )
         self._tasks._record_action_receipt(
             action.task_id,
             action=action,

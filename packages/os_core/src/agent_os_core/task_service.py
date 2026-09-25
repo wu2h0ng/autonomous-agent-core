@@ -4,6 +4,8 @@ import hashlib
 import json
 import time
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -237,7 +239,62 @@ class TaskService:
         self._artifact_reader = artifact_reader
         self._correction_reader: CorrectionGuard | None = None
         self._runtime_writer_token = object()
+        self._execution_claim: ContextVar[tuple[str, str, str, int] | None] = ContextVar(
+            f"execution_claim:{id(self)}", default=None
+        )
         self._evaluator_registry = evaluator_registry or default_registry()
+
+    @contextmanager
+    def execution_scope(self):
+        token = self._execution_claim.set(None)
+        try:
+            yield
+        finally:
+            self._execution_claim.reset(token)
+
+    def bind_execution_claim(
+        self, task_id: str, run_id: str, owner: str, fence: int
+    ) -> None:
+        self._execution_claim.set((task_id, run_id, owner, fence))
+
+    def _append_drafts(
+        self,
+        task_id: str,
+        *,
+        expected_sequence: int,
+        drafts: tuple[TaskEventDraft, ...],
+        capability_id: str | None = None,
+        correction_epochs: CorrectionEpochVector | None = None,
+    ) -> None:
+        claim = self._execution_claim.get()
+        if claim is not None:
+            claim_task_id, run_id, owner, fence = claim
+            aggregate = self.get_task(task_id)
+            if (
+                task_id != claim_task_id
+                or aggregate.run is None
+                or aggregate.run.run_id != run_id
+            ):
+                raise ConcurrentWriteError("execution claim does not match task Run")
+            append_fenced = getattr(self._event_store, "append_fenced", None)
+            if not callable(append_fenced):
+                raise ConcurrentWriteError("durable execution store lacks fenced append")
+            append_fenced(
+                task_id,
+                run_id=run_id,
+                owner=owner,
+                fence=fence,
+                expected_sequence=expected_sequence,
+                drafts=drafts,
+                capability_id=capability_id,
+                expected_correction_epochs=correction_epochs,
+            )
+            return
+        if correction_epochs is not None:
+            raise ConcurrentWriteError("correction guarded append requires explicit path")
+        self._event_store.append(
+            task_id, expected_sequence=expected_sequence, drafts=drafts
+        )
 
     def bind_evaluator_registry(
         self, registry: OutcomeEvaluatorRegistry
@@ -305,7 +362,7 @@ class TaskService:
             event_id=self._id_factory("event"),
             occurred_at=self._clock(),
         )
-        self._event_store.append(task_id, expected_sequence=0, drafts=(draft,))
+        self._append_drafts(task_id, expected_sequence=0, drafts=(draft,))
         return self.get_task(task_id)
 
     def ensure_task(
@@ -337,7 +394,7 @@ class TaskService:
             occurred_at=occurred_at,
         )
         try:
-            self._event_store.append(task_id, expected_sequence=0, drafts=(draft,))
+            self._append_drafts(task_id, expected_sequence=0, drafts=(draft,))
         except ConcurrentWriteError:
             pass
         events = self._event_store.read(task_id)
@@ -370,7 +427,7 @@ class TaskService:
             event_id=self._id_factory("event"),
             occurred_at=self._clock(),
         )
-        self._event_store.append(
+        self._append_drafts(
             task_id,
             expected_sequence=aggregate.sequence,
             drafts=(draft,),
@@ -394,7 +451,7 @@ class TaskService:
             event_id=self._id_factory("event"),
             occurred_at=self._clock(),
         )
-        self._event_store.append(
+        self._append_drafts(
             task_id,
             expected_sequence=aggregate.sequence,
             drafts=(draft,),
@@ -472,7 +529,7 @@ class TaskService:
             event_id=self._id_factory("event"),
             occurred_at=self._clock(),
         )
-        self._event_store.append(
+        self._append_drafts(
             task_id,
             expected_sequence=aggregate.sequence,
             drafts=(draft,),
@@ -586,7 +643,7 @@ class TaskService:
             correlation_id=run.run_id,
             causation_id=aggregate.last_event_id,
         )
-        self._event_store.append(
+        self._append_drafts(
             task_id,
             expected_sequence=aggregate.sequence,
             drafts=(draft,),
@@ -627,7 +684,7 @@ class TaskService:
             correlation_id=run.run_id,
             causation_id=aggregate.last_event_id,
         )
-        self._event_store.append(
+        self._append_drafts(
             task_id,
             expected_sequence=aggregate.sequence,
             drafts=(draft,),
@@ -660,7 +717,7 @@ class TaskService:
             correlation_id=correlation_id or task_id,
             causation_id=aggregate.last_event_id,
         )
-        self._event_store.append(
+        self._append_drafts(
             task_id, expected_sequence=aggregate.sequence, drafts=(draft,)
         )
         return self.get_task(task_id)
@@ -2499,7 +2556,15 @@ class TaskService:
             )
             causation_id = event_id
         guarded_append = getattr(self._event_store, "append_guarded", None)
-        if correction_epochs is not None and callable(guarded_append):
+        if correction_epochs is not None and self._execution_claim.get() is not None:
+            self._append_drafts(
+                aggregate.task_id,
+                expected_sequence=aggregate.sequence,
+                drafts=tuple(drafts),
+                capability_id=correction_capability_id,
+                correction_epochs=correction_epochs,
+            )
+        elif correction_epochs is not None and callable(guarded_append):
             if aggregate.run is None:
                 raise InvalidTransitionError("guarded append requires an active Run")
             try:
@@ -2533,13 +2598,13 @@ class TaskService:
                     raise InvalidTransitionError(
                         "C7 correction authority changed before approval claim"
                     )
-                self._event_store.append(
+                self._append_drafts(
                     aggregate.task_id,
                     expected_sequence=aggregate.sequence,
                     drafts=tuple(drafts),
                 )
         else:
-            self._event_store.append(
+            self._append_drafts(
                 aggregate.task_id,
                 expected_sequence=aggregate.sequence,
                 drafts=tuple(drafts),
@@ -3148,6 +3213,24 @@ class TaskService:
                 now=now,
             )
         guarded_append = getattr(self._event_store, "append_guarded", None)
+        if correction_epochs is not None and self._execution_claim.get() is not None:
+            draft = TaskEventDraft.build(
+                event_id=self._id_factory("event"),
+                task_id=task_id,
+                event_type=TaskEventType.OUTCOME_OBSERVED,
+                payload={"outcome": outcome.model_dump(mode="json")},
+                occurred_at=self._clock(),
+                correlation_id=outcome.run_id,
+                causation_id=aggregate.last_event_id,
+            )
+            self._append_drafts(
+                task_id,
+                expected_sequence=aggregate.sequence,
+                drafts=(draft,),
+                capability_id="outcome.evaluate",
+                correction_epochs=correction_epochs,
+            )
+            return self.get_task(task_id)
         if callable(guarded_append) and correction_epochs is not None:
             draft = TaskEventDraft.build(
                 event_id=self._id_factory("event"),

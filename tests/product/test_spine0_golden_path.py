@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import threading
+import time
 
 import pytest
 
@@ -12,11 +14,14 @@ from agent_os_contracts import (
     NodeSpec,
     ProviderToolProposal,
     RunStatus,
+    TaskEventType,
     TaskStatus,
     WorkflowGraph,
 )
 from apps.api_server.app import AgentOSApplication
 from agent_os_core import DeterministicProvider, RunExecutionError, WorkerInterrupted
+from agent_os_core.errors import ConcurrentWriteError
+from agent_os_core.execution import RunCoordinator
 
 
 NOW = datetime.now(timezone.utc)
@@ -175,6 +180,16 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
     )
     restarted.provider = app.provider
     restarted.provider_configured = True
+    interrupted_run = restarted.tasks.get_task(task.task_id).run
+    assert interrupted_run is not None
+    restarted.store._db.execute(  # noqa: SLF001 - simulate natural lease expiry.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            interrupted_run.run_id,
+        ),
+    )
+    restarted.store._db.commit()  # noqa: SLF001
     waiting = restarted.run_task(task.task_id, inputs, recover_stale_lease=True)
     assert waiting.run is not None
     assert waiting.run.status is RunStatus.WAITING_APPROVAL
@@ -237,6 +252,521 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
     compensated = reader.compensate_task(task.task_id)
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
     assert compensated.compensations[-1].status.value == "COMPENSATED"
+
+
+def test_stale_worker_cannot_commit_after_lease_takeover(tmp_path) -> None:
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    (tmp_path / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert open('fixture.txt').read() == 'after\\n'\n",
+        encoding="utf-8",
+    )
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:fixture",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "after\n"}
+                ),
+            ),
+        ),
+    )
+    app.provider_configured = True
+    task = app.create_task(
+        {
+            "goal_id": "goal:lease",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": NOW,
+            "statement": "patch fixture",
+        }
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": "commitment:lease",
+                "task_id": task.task_id,
+                "goal_id": "goal:lease",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "accepted_by": "user:local",
+                "accepted_at": NOW,
+                "deliverables": ["fixture patch"],
+                "acceptance_criteria": ["pytest passes"],
+                "authority_scopes": ["workspace:read", "workspace:write"],
+                "budget": {
+                    "max_cost_usd": "1",
+                    "max_duration_seconds": 300,
+                    "max_provider_tokens": 1000,
+                    "max_tool_calls": 10,
+                },
+                "risk_tier": 1,
+                "exit_conditions": ["verified"],
+                "expires_at": NOW + timedelta(hours=1),
+            },
+            "workflow": _workflow().model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": "expected:lease",
+                "task_id": task.task_id,
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "evaluator_type": "pytest",
+                "evaluator_version": "1",
+                "evidence_requirements": ["test-report"],
+                "failure_semantics": ["non-zero exit"],
+                "threshold": 1,
+                "observation_window_seconds": 3600,
+                "frozen_at": NOW,
+            },
+        },
+    )
+    inputs = {"target_path": "fixture.txt", "test_command": "python -m pytest"}
+    waiting = app.run_task(task.task_id, inputs)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task.task_id,
+        {"disposition": "APPROVE", "reason": "Reviewed provider patch"},
+    )
+
+    took_over = False
+    stale_claim: tuple[str, int] | None = None
+
+    def steal_lease(phase: str) -> None:
+        nonlocal took_over, stale_claim
+        if phase != "before_node_commit:apply" or took_over:
+            return
+        current = app.tasks.get_task(task.task_id)
+        assert current.run is not None
+        lease = app.store._db.execute(  # noqa: SLF001 - capture old worker identity.
+            "SELECT owner, fence FROM run_leases WHERE run_id = ?",
+            (current.run.run_id,),
+        ).fetchone()
+        assert lease is not None
+        stale_claim = (str(lease["owner"]), int(lease["fence"]))
+        expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        app.store._db.execute(  # noqa: SLF001 - targeted stale-worker regression.
+            "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+            (expired, current.run.run_id),
+        )
+        app.store._db.commit()  # noqa: SLF001
+        app.store.recover_lease(
+            current.run.run_id,
+            "worker:takeover",
+            (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        )
+        took_over = True
+
+    with pytest.raises(RunExecutionError, match="lost its run lease"):
+        app.run_task(task.task_id, inputs, execution_fence=steal_lease)
+
+    completed = [
+        event.decoded_payload()["node_id"]
+        for event in app.store.read(task.task_id)
+        if event.event_type.value == "NODE_COMPLETED"
+    ]
+    assert "apply" not in completed
+    assert took_over is True
+    assert stale_claim is not None
+    with app.tasks.execution_scope():
+        app.tasks.bind_execution_claim(
+            task.task_id, waiting.run.run_id, stale_claim[0], stale_claim[1]
+        )
+        with pytest.raises(ConcurrentWriteError, match="stale execution lease"):
+            app.tasks.update_run_status(
+                task.task_id, RunStatus.PAUSED, event_type=TaskEventType.RUN_PAUSED
+            )
+    event_types_after_loss = [
+        event.event_type.value for event in app.store.read(task.task_id)
+    ]
+    assert "NODE_FAILED" not in event_types_after_loss
+    assert "RUN_FAILED" not in event_types_after_loss
+    assert "ACTION_COMPENSATED" not in event_types_after_loss
+    assert "COMPENSATION_STARTED" not in event_types_after_loss
+    current = app.tasks.get_task(task.task_id)
+    assert current.run is not None
+    app.store._db.execute(  # noqa: SLF001 - takeover worker is now stale.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            current.run.run_id,
+        ),
+    )
+    app.store._db.commit()  # noqa: SLF001
+
+    recovered = app.run_task(task.task_id, inputs, recover_stale_lease=True)
+    assert recovered.run is not None
+    assert recovered.run.status is RunStatus.SUCCEEDED
+    receipts = [
+        event.decoded_payload()["receipt"]
+        for event in app.store.read(task.task_id)
+        if event.event_type.value == "ACTION_RECEIPT_RECORDED"
+    ]
+    assert [receipt["connector_id"] for receipt in receipts].count(
+        "workspace.apply_patch"
+    ) == 1
+
+
+def test_run_wide_heartbeat_renews_lease_during_orchestration(tmp_path, monkeypatch) -> None:
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:fixture",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "after\n"}
+                ),
+            ),
+        ),
+    )
+    app.provider_configured = True
+    task = app.create_task(
+        {
+            "goal_id": "goal:heartbeat",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": NOW,
+            "statement": "patch fixture",
+        }
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": "commitment:heartbeat",
+                "task_id": task.task_id,
+                "goal_id": "goal:heartbeat",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "accepted_by": "user:local",
+                "accepted_at": NOW,
+                "deliverables": ["fixture patch"],
+                "acceptance_criteria": ["pytest passes"],
+                "authority_scopes": ["workspace:read", "workspace:write"],
+                "budget": {
+                    "max_cost_usd": "1",
+                    "max_duration_seconds": 300,
+                    "max_provider_tokens": 1000,
+                    "max_tool_calls": 10,
+                },
+                "risk_tier": 1,
+                "exit_conditions": ["verified"],
+                "expires_at": NOW + timedelta(hours=1),
+            },
+            "workflow": _workflow().model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": "expected:heartbeat",
+                "task_id": task.task_id,
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "evaluator_type": "pytest",
+                "evaluator_version": "1",
+                "evidence_requirements": ["test-report"],
+                "failure_semantics": ["non-zero exit"],
+                "threshold": 1,
+                "observation_window_seconds": 3600,
+                "frozen_at": NOW,
+            },
+        },
+    )
+    monkeypatch.setattr(RunCoordinator, "_LEASE_TTL", timedelta(milliseconds=200))
+    takeover_result: list[str] = []
+
+    def try_takeover(run_id: str) -> None:
+        time.sleep(0.32)
+        try:
+            app.store.recover_lease(
+                run_id,
+                "worker:takeover",
+                (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+            )
+            takeover_result.append("took-over")
+        except ConcurrentWriteError:
+            takeover_result.append("blocked")
+
+    started = False
+
+    def slow_provider(phase: str) -> None:
+        nonlocal started
+        # This phase sits outside the provider-specific heartbeat; the Run-wide
+        # heartbeat must keep the lease alive while orchestration is blocked.
+        if phase != "before_node:provider" or started:
+            return
+        started = True
+        current = app.tasks.get_task(task.task_id)
+        assert current.run is not None
+        thread = threading.Thread(target=try_takeover, args=(current.run.run_id,))
+        thread.start()
+        time.sleep(0.5)
+        thread.join(timeout=1)
+
+    with pytest.raises(WorkerInterrupted):
+        app.run_task(
+            task.task_id,
+            {"target_path": "fixture.txt", "test_command": "python -m pytest"},
+            stop_after_node="provider",
+            execution_fence=slow_provider,
+        )
+
+    assert started is True
+    assert takeover_result == ["blocked"]
+
+
+def test_slow_dispatch_reservation_accepts_heartbeat_renewed_expiry(
+    tmp_path, monkeypatch
+) -> None:
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    (tmp_path / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert open('fixture.txt').read() == 'after\\n'\n",
+        encoding="utf-8",
+    )
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:fixture",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "after\n"}
+                ),
+            ),
+        ),
+    )
+    app.provider_configured = True
+    task = app.create_task(
+        {
+            "goal_id": "goal:slow-dispatch",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": NOW,
+            "statement": "patch fixture",
+        }
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": "commitment:slow-dispatch",
+                "task_id": task.task_id,
+                "goal_id": "goal:slow-dispatch",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "accepted_by": "user:local",
+                "accepted_at": NOW,
+                "deliverables": ["fixture patch"],
+                "acceptance_criteria": ["pytest passes"],
+                "authority_scopes": ["workspace:read", "workspace:write"],
+                "budget": {
+                    "max_cost_usd": "1",
+                    "max_duration_seconds": 300,
+                    "max_provider_tokens": 1000,
+                    "max_tool_calls": 10,
+                },
+                "risk_tier": 1,
+                "exit_conditions": ["verified"],
+                "expires_at": NOW + timedelta(hours=1),
+            },
+            "workflow": _workflow().model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": "expected:slow-dispatch",
+                "task_id": task.task_id,
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "evaluator_type": "pytest",
+                "evaluator_version": "1",
+                "evidence_requirements": ["test-report"],
+                "failure_semantics": ["non-zero exit"],
+                "threshold": 1,
+                "observation_window_seconds": 3600,
+                "frozen_at": NOW,
+            },
+        },
+    )
+    waiting = app.run_task(
+        task.task_id, {"target_path": "fixture.txt", "test_command": "python -m pytest"}
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task.task_id,
+        {"disposition": "APPROVE", "reason": "Reviewed provider patch"},
+    )
+
+    monkeypatch.setattr(RunCoordinator, "_LEASE_TTL", timedelta(milliseconds=200))
+    original_put = app.store.put_idempotency_guarded_by_lease
+    slept = False
+
+    def slow_put(*args, **kwargs):
+        nonlocal slept
+        if not slept:
+            slept = True
+            time.sleep(0.35)
+        return original_put(*args, **kwargs)
+
+    monkeypatch.setattr(app.store, "put_idempotency_guarded_by_lease", slow_put)
+    result = app.run_task(
+        task.task_id, {"target_path": "fixture.txt", "test_command": "python -m pytest"}
+    )
+
+    assert slept is True
+    assert result.run is not None
+    assert result.run.status is RunStatus.SUCCEEDED
+
+
+def test_effect_before_receipt_lost_lease_is_unknown_without_compensation(
+    tmp_path,
+) -> None:
+    (tmp_path / "fixture.txt").write_text("before\n", encoding="utf-8")
+    (tmp_path / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert open('fixture.txt').read() == 'after\\n'\n",
+        encoding="utf-8",
+    )
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:fixture",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "after\n"}
+                ),
+            ),
+        ),
+    )
+    app.provider_configured = True
+    task = app.create_task(
+        {
+            "goal_id": "goal:unknown-lease",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": NOW,
+            "statement": "patch fixture",
+        }
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": "commitment:unknown-lease",
+                "task_id": task.task_id,
+                "goal_id": "goal:unknown-lease",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "accepted_by": "user:local",
+                "accepted_at": NOW,
+                "deliverables": ["fixture patch"],
+                "acceptance_criteria": ["pytest passes"],
+                "authority_scopes": ["workspace:read", "workspace:write"],
+                "budget": {
+                    "max_cost_usd": "1",
+                    "max_duration_seconds": 300,
+                    "max_provider_tokens": 1000,
+                    "max_tool_calls": 10,
+                },
+                "risk_tier": 1,
+                "exit_conditions": ["verified"],
+                "expires_at": NOW + timedelta(hours=1),
+            },
+            "workflow": _workflow().model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": "expected:unknown-lease",
+                "task_id": task.task_id,
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "evaluator_type": "pytest",
+                "evaluator_version": "1",
+                "evidence_requirements": ["test-report"],
+                "failure_semantics": ["non-zero exit"],
+                "threshold": 1,
+                "observation_window_seconds": 3600,
+                "frozen_at": NOW,
+            },
+        },
+    )
+    inputs = {"target_path": "fixture.txt", "test_command": "python -m pytest"}
+    waiting = app.run_task(task.task_id, inputs)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task.task_id,
+        {"disposition": "APPROVE", "reason": "Reviewed provider patch"},
+    )
+
+    stole = False
+
+    def steal_after_effect(phase: str) -> None:
+        nonlocal stole
+        if phase != "before_tool_effect_commit" or stole:
+            return
+        current = app.tasks.get_task(task.task_id)
+        assert current.run is not None
+        expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        app.store._db.execute(  # noqa: SLF001 - targeted stale-worker regression.
+            "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+            (expired, current.run.run_id),
+        )
+        app.store._db.commit()  # noqa: SLF001
+        app.store.recover_lease(
+            current.run.run_id,
+            "worker:takeover",
+            (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        )
+        stole = True
+
+    with pytest.raises(RunExecutionError, match="lost its run lease"):
+        app.run_task(task.task_id, inputs, execution_fence=steal_after_effect)
+
+    assert stole is True
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "after\n"
+    events = list(app.store.read(task.task_id))
+    receipts = [
+        event.decoded_payload()["receipt"]
+        for event in events
+        if event.event_type.value == "ACTION_RECEIPT_RECORDED"
+    ]
+    apply_receipts = [
+        receipt
+        for receipt in receipts
+        if receipt["connector_id"] == "workspace.apply_patch"
+    ]
+    assert apply_receipts == []
+    event_types = [event.event_type.value for event in events]
+    assert "RUN_PAUSED" not in event_types
+    assert "RUN_FAILED" not in event_types
+    assert "NODE_FAILED" not in event_types
+    assert "ACTION_COMPENSATED" not in event_types
+    assert "COMPENSATION_STARTED" not in event_types
+
+    current = app.tasks.get_task(task.task_id)
+    assert current.run is not None
+    app.store._db.execute(  # noqa: SLF001 - takeover worker is now stale.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            current.run.run_id,
+        ),
+    )
+    app.store._db.commit()  # noqa: SLF001
+    recovered = app.run_task(task.task_id, inputs, recover_stale_lease=True)
+    assert recovered.run is not None
+    assert recovered.run.status is RunStatus.SUCCEEDED
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "after\n"
+    replay_receipts = [
+        event.decoded_payload()["receipt"]
+        for event in app.store.read(task.task_id)
+        if event.event_type.value == "ACTION_RECEIPT_RECORDED"
+        and event.decoded_payload()["receipt"]["connector_id"]
+        == "workspace.apply_patch"
+    ]
+    assert [receipt["status"] for receipt in replay_receipts] == ["SUCCEEDED"]
 
 
 def test_malformed_provider_output_has_zero_file_effects(tmp_path) -> None:
