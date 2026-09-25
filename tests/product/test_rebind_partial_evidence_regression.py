@@ -300,6 +300,16 @@ def test_rebind_removes_partial_artifact_evidence_and_keeps_completed_prefix(
     assert restored.get("prefix_write") is not None
     assert restored.get("tests") is None
 
+    interrupted_run = app.tasks.get_task(task_id).run
+    assert interrupted_run is not None
+    app.store._db.execute(  # noqa: SLF001 - model the lease's natural expiry.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            interrupted_run.run_id,
+        ),
+    )
+    app.store._db.commit()  # noqa: SLF001
     result = app.run_task(task_id, _inputs(), recover_stale_lease=True)
     final_events = app.store.read(task_id)
 

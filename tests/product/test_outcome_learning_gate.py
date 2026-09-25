@@ -120,6 +120,16 @@ def _verified(tmp_path):
     restarted = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=tmp_path)
     restarted.provider = app.provider
     restarted.provider_configured = True
+    interrupted_run = restarted.tasks.get_task(task.task_id).run
+    assert interrupted_run is not None
+    restarted.store._db.execute(  # noqa: SLF001 - simulate expired crashed worker.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        (
+            (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+            interrupted_run.run_id,
+        ),
+    )
+    restarted.store._db.commit()  # noqa: SLF001
     restarted.run_task(task.task_id, inputs, recover_stale_lease=True)
     restarted.record_approval(
         task.task_id, {"disposition": "APPROVE", "reason": "reviewed"}
