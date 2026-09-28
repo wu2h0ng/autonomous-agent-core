@@ -1,0 +1,7 @@
+[90m[main 2026-09-10T19:53:35.248Z][0m StorageMainService: creating application shared storage
+[90m[main 2026-09-10T19:53:35.316Z][0m [CSS_DEV] DONE, 453 css modules (62ms)
+[90m[main 2026-09-10T19:53:35.415Z][0m update#setState disabled
+[90m[main 2026-09-10T19:53:35.464Z][0m [shared storage] Creating shared storage database at '/Users/mima1234/.vscode-oss-shared/sharedStorage/state.vscdb' (wasCreated: false)
+[90m[main 2026-09-10T19:53:35.464Z][0m [shared storage] Initializing fallback application storage (path: /var/folders/w8/nnfxc0ts0137qnqfgwfh78qm0000gn/T/agent-os-e2e-s3-ui-ikW9Qd/user-data/User/globalStorage/state.vscdb)
+[90m[main 2026-09-10T19:53:35.480Z][0m [shared storage] Fallback application storage initialized with 3 items
+[90m[main 2026-09-10T19:53:37.140Z][0m AgentHostProcessManager: agent host started

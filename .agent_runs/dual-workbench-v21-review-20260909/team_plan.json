@@ -1,0 +1,26 @@
+{
+  "agents": [
+    {
+      "agent_id": "codex-reviewer-architecture",
+      "role": "read-only independent architecture reviewer",
+      "status": "done"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "DUAL-WORKBENCH-V21-INDEPENDENT-REVIEW",
+      "title": "Review v2.1 preflight closure and implementation-planning readiness",
+      "agent_id": "codex-reviewer-architecture",
+      "depends_on": [],
+      "status": "done",
+      "evidence_refs": [
+        "goal_card.md",
+        "context_pack.json"
+      ],
+      "expected_artifacts": [
+        "review.md",
+        "messages.jsonl"
+      ]
+    }
+  ]
+}

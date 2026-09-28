@@ -1,0 +1,25 @@
+{
+  "run_id": "dual-workbench-v21-review-20260909",
+  "task_id": "DUAL-WORKBENCH-V21-INDEPENDENT-REVIEW",
+  "branch": "codex/ide-ui",
+  "head": "b05d29b8cc1c5d7d54c0061db9dacac91c9a6f56",
+  "artifacts": [
+    "docs/architecture/A-AGENT-OS-DUAL-WORKBENCH-ARCHITECTURE-SPEC-V2-2026-09-09.md",
+    "docs/architecture/A-AGENT-OS-DUAL-WORKBENCH-PREFLIGHT-SPIKE-2026-09-09.md",
+    "docs/architecture/REVIEW-FUSION-AGENT-ARCHITECTURE-SPEC-2026-09-09.md",
+    "apps/code-oss/upstream.lock.json"
+  ],
+  "review_questions": [
+    "Is 1.136.2@88e44fa0 a correctly fixed official baseline and is whole-baseline upgrade justified over backport?",
+    "Does SQLite canonical event/outbox remove the dual-truth atomicity contradiction?",
+    "Are interactive versus unattended Runtime lifecycle claims now honest and implementable?",
+    "Does channel lease binding avoid deriving business identity from peer credentials?",
+    "Are upstream Sessions service ownership and ActionPermit versus dispatch guard accurately mapped?",
+    "May work proceed to implementation planning without freezing broader protocol or implementing automation/approval/Rust?"
+  ],
+  "known_verification": {
+    "code_oss_tests": "8 passed, 1 intentionally failing anti-degradation oracle; current Agent Window remains fake DOM",
+    "git_diff_check": "passed",
+    "status": "all target architecture artifacts remain untracked; no commit/push/merge"
+  }
+}

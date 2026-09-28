@@ -1,0 +1,56 @@
+{
+  "approve": {
+    "cardDigest": "b07a973d73b07b17e16554a8e4d78b98d997fe0bcb7173b22bd55d2ef0eea972",
+    "approvalDigest": "b07a973d73b07b17e16554a8e4d78b98d997fe0bcb7173b22bd55d2ef0eea972",
+    "receiptDigest": "b07a973d73b07b17e16554a8e4d78b98d997fe0bcb7173b22bd55d2ef0eea972",
+    "finalRunStatus": "FAILED",
+    "finalEvents": [
+      "TASK_CREATED",
+      "TASK_COMMITTED",
+      "TASK_CONFIGURATION_SNAPSHOT_SEALED",
+      "RUN_STARTED",
+      "RUN_QUEUED",
+      "CANDIDATES_GENERATED",
+      "NODE_STARTED",
+      "ACTION_PROPOSED",
+      "POLICY_DECIDED",
+      "ACTION_RECEIPT_RECORDED",
+      "NODE_COMPLETED",
+      "NODE_STARTED",
+      "PROVIDER_RESPONDED",
+      "ACTION_PROPOSED",
+      "NODE_COMPLETED",
+      "NODE_STARTED",
+      "APPROVAL_REQUESTED",
+      "APPROVAL_REQUESTED",
+      "APPROVAL_RECORDED",
+      "RUN_RESUMED",
+      "CANDIDATES_GENERATED",
+      "NODE_STARTED",
+      "NODE_COMPLETED",
+      "NODE_STARTED",
+      "POLICY_DECIDED",
+      "ACTION_RECEIPT_RECORDED",
+      "NODE_COMPLETED",
+      "NODE_STARTED",
+      "OUTCOME_OBSERVED",
+      "NODE_COMPLETED",
+      "NODE_STARTED",
+      "NODE_COMPLETED",
+      "RUN_FAILED",
+      "COMPENSATION_STARTED",
+      "ACTION_PROPOSED",
+      "POLICY_DECIDED",
+      "ACTION_RECEIPT_RECORDED",
+      "ACTION_COMPENSATED"
+    ]
+  },
+  "reject": {
+    "cardDigest": "64f4675a805981ec18b88836c3b2b9c3fba7ae84b61ae2209cb428d4362aa3f8",
+    "disposition": "REJECT",
+    "finalRunStatus": "WAITING_APPROVAL"
+  },
+  "negative": {
+    "wrongDigestStatus": 400
+  }
+}
