@@ -1651,24 +1651,18 @@ def test_final_assistant_and_turn_completion_commit_atomically(
         tmp_path,
         final_text=final_text,
     )
-    original_append = app1.store.append
+    original_append = app1.store.append_guarded
 
     def crash_after_final_assistant(
         task_id: str,
-        *,
-        expected_sequence: int,
-        drafts: tuple[TaskEventDraft, ...],
+        **kwargs: Any,
     ) -> object:
-        appended = original_append(
-            task_id,
-            expected_sequence=expected_sequence,
-            drafts=drafts,
-        )
-        if _draft_has_message(drafts, role="ASSISTANT", content=final_text):
+        appended = original_append(task_id, **kwargs)
+        if _draft_has_message(kwargs["drafts"], role="ASSISTANT", content=final_text):
             raise _ProcessCrash("after final assistant transaction")
         return appended
 
-    monkeypatch.setattr(app1.store, "append", crash_after_final_assistant)
+    monkeypatch.setattr(app1.store, "append_guarded", crash_after_final_assistant)
     with pytest.raises(_ProcessCrash, match="final assistant"):
         _approve_pending(app1, session, pending)
 
@@ -1699,6 +1693,34 @@ def test_final_assistant_and_turn_completion_commit_atomically(
     assert [
         message.content for message in app2.provider.requests[0].messages
     ].count(final_text) == 1
+
+
+def test_provider_correction_before_final_commit_rejects_stale_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = chat_app(tmp_path, scripted=(("stale answer", ()),))
+    session, loop = app.open_chat_session("final response correction", AutoApproveGateway())
+    original_append = app.store.append_guarded
+    corrected = False
+
+    def correct_before_final(task_id: str, **kwargs: Any) -> Any:
+        nonlocal corrected
+        if not corrected and any(
+            draft.event_type is TaskEventType.SESSION_TURN_COMPLETED
+            for draft in kwargs["drafts"]
+        ):
+            corrected = True
+            app.correction_admin.correct("capability", "provider", "operator correction")
+        return original_append(task_id, **kwargs)
+
+    monkeypatch.setattr(app.store, "append_guarded", correct_before_final)
+    with pytest.raises(InvalidTransitionError, match="C7|correction"):
+        loop.run_turn(session, "answer")
+    assert corrected
+    assert _event_count(app, session.task_id, TaskEventType.PROVIDER_RESPONDED) == 1
+    assert _event_count(app, session.task_id, TaskEventType.SESSION_TURN_COMPLETED) == 0
+    projected = SessionProjector(app.store).project(session.task_id, session.session_id)
+    assert all(message.content != "stale answer" for message in projected.history)
 
 
 def _surface_client(app: AgentOSApplication) -> SurfaceClientRef:

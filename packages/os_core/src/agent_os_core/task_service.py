@@ -45,6 +45,7 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderToolProposal,
     ProviderExecutionReceipt,
+    ProviderResponse,
     ReceiptStatus,
     SessionRef,
     content_digest,
@@ -1099,6 +1100,32 @@ class TaskService:
             raise InvalidTransitionError(
                 "final assistant does not bind the current open turn"
             )
+        node_id = f"{turn_id}-step-{steps}"
+        sources = [
+            event for event in self._event_store.read(task_id)
+            if event.event_type is TaskEventType.PROVIDER_RESPONDED
+            and event.decoded_payload().get("node_id") == node_id
+        ]
+        if len(sources) != 1 or aggregate.run is None or aggregate.configuration_snapshot is None:
+            raise InvalidTransitionError("final assistant requires one exact provider response")
+        source = sources[0]
+        payload = source.decoded_payload()
+        receipt = ProviderExecutionReceipt.model_validate(payload["provider_execution_receipt"])
+        raw = payload["provider_output"].get("response_record")
+        if raw is None:
+            raise InvalidTransitionError("final assistant provider response is not recoverable")
+        response = ProviderResponse.model_validate(raw)
+        if (
+            receipt.source_event_id != source.event_id
+            or receipt.node_id != node_id
+            or receipt.task_id != task_id
+            or receipt.run_id != projected.ref.run_id
+            or receipt.provider_profile_digest != aggregate.configuration_snapshot.provider_profile_digest
+            or content_digest(response) != receipt.response_digest
+            or response.text != message.content
+            or response.tool_proposals
+        ):
+            raise InvalidTransitionError("final assistant provider response binding mismatch")
         message_index = projected.next_message_index
         return self._append_batch(
             aggregate,
@@ -1124,6 +1151,8 @@ class TaskService:
                 ),
             ),
             correlation_id=projected.ref.run_id,
+            correction_capability_id="provider",
+            correction_epochs=receipt.post_correction_epochs,
         )
 
     def project_session(self, task_id: str, session_id: str) -> ProjectedSession:
