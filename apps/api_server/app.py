@@ -3417,20 +3417,21 @@ class AgentOSApplication:
         )
         child_grants = self.derive_child_agent_grants(request)
         loop_config = self._child_agent_loop_config(command, request)
-        child_session, child_loop = self._open_session_and_loop(
-            statement=f"child agent task: {command.description}",
-            gateway=DeferredApprovalGateway(),
-            loop_config=loop_config,
-            grants=child_grants,
-            correction=ChildAgentHaltCascade(self.correction, index),
-            capability_ids=tuple(
-                cid for cid in self.chat_capability_ids if cid in child_grants
-            ),
-            permission_mode="ASK",
-            child_agent_builder=lambda session: _child_agent_block(
-                request, session, child_grants
-            ),
-        )
+        with self.tasks.execution_scope():
+            child_session, child_loop = self._open_session_and_loop(
+                statement=f"child agent task: {command.description}",
+                gateway=DeferredApprovalGateway(),
+                loop_config=loop_config,
+                grants=child_grants,
+                correction=ChildAgentHaltCascade(self.correction, index),
+                capability_ids=tuple(
+                    cid for cid in self.chat_capability_ids if cid in child_grants
+                ),
+                permission_mode="ASK",
+                child_agent_builder=lambda session: _child_agent_block(
+                    request, session, child_grants
+                ),
+            )
         self.tasks.record_child_agent_spawned(
             action.task_id,
             ChildAgentSpawned(
@@ -3448,9 +3449,10 @@ class AgentOSApplication:
         with self._live_child_lock:
             self._live_child_spawns.add(spawn_id)
         try:
-            outcome = self._drive_child_turn(
-                child_loop, child_session, command.prompt
-            )
+            with self.tasks.execution_scope():
+                outcome = self._drive_child_turn(
+                    child_loop, child_session, command.prompt
+                )
         finally:
             with self._live_child_lock:
                 self._live_child_spawns.discard(spawn_id)

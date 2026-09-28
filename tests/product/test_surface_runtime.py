@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -33,6 +33,7 @@ from agent_os_core import (
     AgentLoopConfig,
     AutoApproveGateway,
     ChatSession,
+    ConcurrentWriteError,
     DeferredApprovalGateway,
     DeterministicProvider,
     InvalidTransitionError,
@@ -1122,6 +1123,41 @@ def test_correction_between_approval_and_execution_fails_closed(
     ).pending_continuation is None
 
 
+
+def test_correction_pause_rejects_takeover_before_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app, session, pending = _pending_edit(tmp_path)
+    original_execute = ActionPipeline.execute
+
+    def correct_then_execute(pipeline: ActionPipeline, action: ActionContract, *args: Any, **kwargs: Any) -> Any:
+        app.correction_admin.correct("capability", action.capability_id, "operator correction")
+        return original_execute(pipeline, action, *args, **kwargs)
+
+    monkeypatch.setattr(ActionPipeline, "execute", correct_then_execute)
+    original_append = app.store.append_fenced
+    took_over = False
+
+    def takeover_before_pause(task_id: str, **kwargs: Any) -> Any:
+        nonlocal took_over
+        if not took_over and any(draft.event_type is TaskEventType.RUN_PAUSED for draft in kwargs["drafts"]):
+            took_over = True
+            run_id = kwargs["run_id"]
+            app.store.release_lease(run_id, kwargs["owner"])
+            app.store.acquire_lease(run_id, "worker:takeover", (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
+        return original_append(task_id, **kwargs)
+
+    monkeypatch.setattr(app.store, "append_fenced", takeover_before_pause)
+    with pytest.raises(ConcurrentWriteError):
+        _approve_pending(app, session, pending)
+    assert took_over
+    assert not any(
+        event.event_type is TaskEventType.RUN_PAUSED
+        and event.decoded_payload().get("approval_correction_blocked")
+        for event in app.store.read(session.task_id)
+    )
+    assert _receipt_count(app, session.task_id) == 0
+
 def test_correction_change_cannot_race_approval_claim_append(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1505,23 +1541,17 @@ def test_restart_after_second_receipt_before_tool_reuses_exact_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app1, session, pending, turn_id = _pending_edit_then_read(tmp_path)
-    original_append = app1.store.append
+    original_append = app1.store.append_fenced
 
     def crash_before_second_tool(
         task_id: str,
-        *,
-        expected_sequence: int,
-        drafts: tuple[TaskEventDraft, ...],
+        **kwargs: Any,
     ) -> object:
-        if _draft_has_message(drafts, role="TOOL", tool_call_id="call-read"):
+        if _draft_has_message(kwargs["drafts"], role="TOOL", tool_call_id="call-read"):
             raise _ProcessCrash("after second receipt before TOOL")
-        return original_append(
-            task_id,
-            expected_sequence=expected_sequence,
-            drafts=drafts,
-        )
+        return original_append(task_id, **kwargs)
 
-    monkeypatch.setattr(app1.store, "append", crash_before_second_tool)
+    monkeypatch.setattr(app1.store, "append_fenced", crash_before_second_tool)
     with pytest.raises(_ProcessCrash, match="second receipt"):
         _approve_pending(app1, session, pending)
 
@@ -1572,24 +1602,18 @@ def test_restart_after_second_tool_checkpoint_skips_exact_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app1, session, pending, turn_id = _pending_edit_then_read(tmp_path)
-    original_append = app1.store.append
+    original_append = app1.store.append_fenced
 
     def crash_after_second_tool(
         task_id: str,
-        *,
-        expected_sequence: int,
-        drafts: tuple[TaskEventDraft, ...],
+        **kwargs: Any,
     ) -> object:
-        appended = original_append(
-            task_id,
-            expected_sequence=expected_sequence,
-            drafts=drafts,
-        )
-        if _draft_has_message(drafts, role="TOOL", tool_call_id="call-read"):
+        appended = original_append(task_id, **kwargs)
+        if _draft_has_message(kwargs["drafts"], role="TOOL", tool_call_id="call-read"):
             raise _ProcessCrash("after second TOOL checkpoint")
         return appended
 
-    monkeypatch.setattr(app1.store, "append", crash_after_second_tool)
+    monkeypatch.setattr(app1.store, "append_fenced", crash_after_second_tool)
     with pytest.raises(_ProcessCrash, match="second TOOL"):
         _approve_pending(app1, session, pending)
     checkpoint = SessionProjector(app1.store).project(

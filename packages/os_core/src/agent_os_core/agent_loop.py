@@ -40,7 +40,7 @@ from agent_os_contracts import (
 )
 
 from .action_pipeline import ActionPipeline, EffectCustodyPort
-from ._action_outcome import ExecutionLeaseConflict
+from ._action_outcome import ExecutionLease, ExecutionLeaseConflict
 from .capability import (
     CapabilityBroker,
     CapabilityCorrectionBlocked,
@@ -1008,7 +1008,7 @@ class AgentLoop:
                     _truncate_json(result.output),
                 )
         if reconciled is not None and execution_lease is None:
-            execution_lease = self._sandbox.acquire_reconciliation_lease(
+            execution_lease = self._acquire_reconciliation_lease(
                 pending.action, self._execution_owner
             )
         if tool_message is None:
@@ -1268,7 +1268,7 @@ class AgentLoop:
                         commit_progress=commit_tool_progress,
                     )
                 except CapabilityEffectUnknown as unknown:
-                    unknown_claim = self._sandbox.acquire_reconciliation_lease(
+                    unknown_claim = self._acquire_reconciliation_lease(
                         unknown.action, self._execution_owner
                     )
                     try:
@@ -1992,7 +1992,7 @@ class AgentLoop:
         # through the durable outcome repository and never re-dispatched.
         reconciled, execution_lease = self._reconcile_or_claim(action)
         if reconciled is not None:
-            execution_lease = self._sandbox.acquire_reconciliation_lease(action, self._execution_owner)
+            execution_lease = self._acquire_reconciliation_lease(action, self._execution_owner)
         if execution_lease is None:
             raise InvalidTransitionError("tool execution requires current ownership")
 
@@ -2048,6 +2048,18 @@ class AgentLoop:
         truncated = _truncate_json(output)
         return self._tool_message(proposal, truncated)
 
+    def _acquire_reconciliation_lease(self, action: ActionContract, owner: str) -> ExecutionLease:
+        acquire = getattr(self._sandbox, "acquire_reconciliation_lease", None)
+        if not callable(acquire):
+            raise CapabilityEffectUnknown(
+                action, reason_code="RECONCILIATION_NOT_SUPPORTED",
+                detail="connector has no read-only effect proof path",
+            )
+        lease = acquire(action, owner)
+        if not isinstance(lease, ExecutionLease):
+            raise TypeError("connector returned an invalid reconciliation lease")
+        return lease
+
     def _reconcile_or_claim(self, action: ActionContract):
         """Read historical truth, or claim a fenced execution/reconciliation path."""
         try:
@@ -2060,7 +2072,7 @@ class AgentLoop:
                 raise
             if self._tasks._find_exact_action_receipt(action.task_id, action) is not None:
                 raise
-            return None, self._sandbox.acquire_reconciliation_lease(
+            return None, self._acquire_reconciliation_lease(
                 action, self._execution_owner
             )
         if result is not None:

@@ -107,10 +107,6 @@ class CapabilityPort(Protocol):
         self, action: ActionContract, owner: str
     ) -> ExecutionLease: ...
 
-    def acquire_reconciliation_lease(
-        self, action: ActionContract, owner: str
-    ) -> ExecutionLease: ...
-
     def release_execution_lease(self, lease: ExecutionLease) -> bool: ...
 
     def preflight_action(self, action: ActionContract) -> None:
