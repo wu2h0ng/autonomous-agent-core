@@ -822,7 +822,8 @@ def test_cli_chat_repl_smoke(tmp_path: Path, stub_provider: str) -> None:
         cwd=tmp_path,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "chat session started" in completed.stdout
+    assert "Agent OS" in completed.stdout
+    assert "chat session started" not in completed.stdout
     assert "CLI-DONE" in completed.stdout
 
 
@@ -853,7 +854,11 @@ def test_cli_interrupt_at_prompt_records_run_correction(
     )
     assert process.stdout is not None
     banner = process.stdout.readline()
-    assert "chat session started" in banner
+    assert banner == "Agent OS\n"
+    workspace_line = process.stdout.readline()
+    model_line = process.stdout.readline()
+    assert workspace_line.startswith("Workspace  ")
+    assert model_line == "Model      stub-model\n"
     instructions = process.stdout.readline()
     assert "type /exit" in instructions
     prompt = process.stdout.read(len("you> "))

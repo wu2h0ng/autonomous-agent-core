@@ -101,7 +101,7 @@ def test_symlink_agents_md_rejected_fail_closed(tmp_path: Path) -> None:
     assert "# Project AGENTS.md" not in system
 
 
-def test_status_includes_agent_context_digest(tmp_path: Path) -> None:
+def test_status_includes_agent_context_path(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text("project guidance\n", encoding="utf-8")
     app = _agent_app(tmp_path, scripted=(("ok", ()),))
     stdin = StringIO("/status\n/exit\n")
@@ -117,11 +117,9 @@ def test_status_includes_agent_context_digest(tmp_path: Path) -> None:
         output_stream=stdout,
     )
     output = stdout.getvalue()
-    start = output.index('{\n  "entry": "mandate-status"')
-    end = output.index("\nyou> ", start)
-    payload = json.loads(output[start:end])
-    assert payload["agent_context"]["path"] == "AGENTS.md"
-    assert len(payload["agent_context"]["sha256"]) == 64
+    assert "Instructions  AGENTS.md" in output
+    assert "sha256" not in output
+    assert "agent_context" not in output
 
 
 def test_trusted_profile_admits_git_status(tmp_path: Path) -> None:

@@ -727,8 +727,12 @@ def test_agent_repl_status_command(tmp_path: Path) -> None:
         input_stream=stdin,
         output_stream=stdout,
     )
-    assert "mandate:local-terminal" in stdout.getvalue()
-    assert "agent_session" in stdout.getvalue()
+    output = stdout.getvalue()
+    assert "Workspace  " in output
+    assert "Model      deterministic-v1" in output
+    assert "Session    active" in output
+    assert "mandate:local-terminal" not in output
+    assert "agent_session" not in output
 
 
 def test_default_help_exposes_one_agent_work_surface_without_internal_organs(
@@ -738,7 +742,9 @@ def test_default_help_exposes_one_agent_work_surface_without_internal_organs(
         cli_main(["agent-os", "--help"])
     assert exited.value.code == 0
     output = capsys.readouterr().out
-    assert "run/status/answer/correct/resume" in output
+    assert "start an interactive coding session" in output
+    assert "run/status/answer/correct/resume" not in output
+    assert "chat" not in output
     assert "selfdev" not in output
     assert "responsibility-controller" not in output
     assert "agent-run" not in output

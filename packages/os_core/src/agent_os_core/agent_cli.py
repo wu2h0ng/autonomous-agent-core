@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -12,7 +11,6 @@ from agent_os_contracts import RunStatus, SessionRef, TaskEventType
 
 from .agent_context import (
     AgentsMarkdownContext,
-    agent_context_status_payload,
     agents_markdown_system_section,
     discover_agents_markdown,
 )
@@ -27,7 +25,6 @@ from .agent_loop import (
 from .mandate_terminal import (
     MandateAttachSession,
     ensure_local_mandate_session,
-    mandate_status,
 )
 from .provider import DeterministicProvider
 from .terminal_session import (
@@ -50,7 +47,7 @@ _AGENT_SYSTEM_PROMPT = (
 _HELP_TEXT = """\
 Agent OS terminal commands:
   /exit, /quit   leave the session
-  /status        show Mandate + session state
+  /status        show workspace, model and session state
   /resume        reload saved transcript and continue
   /help          show this message
 """
@@ -241,26 +238,17 @@ def _persist_session(
 def _print_status(
     *,
     workspace: Path,
-    mandate: MandateAttachSession,
-    session: ChatSession,
     loop: AgentLoop,
-    goal: str,
+    model_id: str,
     agents_ctx: AgentsMarkdownContext | None,
     out: TextIO,
 ) -> None:
-    status = mandate_status(workspace=workspace, session=mandate)
-    payload = {
-        **status,
-        "agent_session": {
-            "goal": goal,
-            "task_id": session.task_id,
-            "run_id": session.run_id,
-            "session_id": session.session_id,
-            "history_messages": len(loop.history),
-        },
-        "agent_context": agent_context_status_payload(agents_ctx),
-    }
-    print(json.dumps(payload, indent=2), file=out)
+    instructions = agents_ctx.path if agents_ctx is not None else "none"
+    print(f"Workspace  {workspace}", file=out)
+    print(f"Model      {model_id}", file=out)
+    print("Session    active", file=out)
+    print(f"Context    {len(loop.history)} messages", file=out)
+    print(f"Instructions  {instructions}", file=out)
 
 
 def _emit_turn_output(
@@ -310,6 +298,8 @@ def run_agent_cli(
 
     if offline:
         _configure_offline_provider(app)
+
+    model_id = getattr(getattr(app, "provider_profile", None), "model_id", "unknown")
 
     mandate, _created = ensure_local_mandate_session(
         workspace=workspace,
@@ -377,13 +367,12 @@ def run_agent_cli(
             mandate_id=mandate.mandate_id,
             session_id=session.session_id,
         )
+        print(banner, file=out)
     else:
-        banner = (
-            f"agent session started under {mandate.mandate_id} "
-            f"(task {session.task_id})"
-        )
-    print(banner, file=out)
-    print("type /exit to quit, /status for Mandate + session state", file=out)
+        print("Agent OS", file=out)
+        print(f"Workspace  {workspace}", file=out)
+        print(f"Model      {model_id}", file=out)
+    print("type /exit to quit, /help for commands", file=out)
 
     while True:
         print("you> ", file=out, end="", flush=True)
@@ -407,10 +396,8 @@ def run_agent_cli(
         if text == "/status":
             _print_status(
                 workspace=workspace,
-                mandate=mandate,
-                session=session,
                 loop=loop,
-                goal=goal,
+                model_id=model_id,
                 agents_ctx=agents_ctx,
                 out=out,
             )
@@ -430,8 +417,7 @@ def run_agent_cli(
             )
             goal = record.goal
             print(
-                f"[resumed session {session.session_id}; "
-                f"{len(loop.history)} history messages]",
+                f"[resumed; {len(loop.history)} history messages]",
                 file=out,
             )
             continue

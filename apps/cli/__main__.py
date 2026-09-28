@@ -41,14 +41,39 @@ from apps.api_server.app import AgentOSApplication
 class TerminalConfirmationGateway:
     """Human-in-the-loop approval bridge for interactive chat sessions."""
 
+    _SESSION_APPROVABLE = frozenset({"workspace.edit"})
+
+    def __init__(self) -> None:
+        self._session_allowed: set[str] = set()
+
     def confirm(self, action: ActionContract, preview: str) -> bool:
-        print(f"\n[approval required] {action.capability_id}")
+        if action.capability_id in self._session_allowed:
+            return True
+
+        print("\nApproval requested")
         print(preview)
+        if action.capability_id in self._SESSION_APPROVABLE:
+            print("[1] Allow once")
+            print("[2] Allow edits for this session")
+            print("[3] Reject")
+            prompt = "Choose [1/2/3]: "
+        else:
+            print("[1] Allow once")
+            print("[2] Reject")
+            prompt = "Choose [1/2]: "
         try:
-            reply = input("Approve this action? [y/N] ")
+            reply = input(prompt)
         except EOFError:
             return False
-        return reply.strip().lower() in {"y", "yes"}
+        choice = reply.strip().lower()
+        if action.capability_id in self._SESSION_APPROVABLE:
+            if choice in {"1", "y", "yes"}:
+                return True
+            if choice == "2":
+                self._session_allowed.add(action.capability_id)
+                return True
+            return False
+        return choice in {"1", "y", "yes"}
 
 
 class ProductHelpFormatter(argparse.HelpFormatter):
@@ -102,6 +127,10 @@ def _normalize_argv(argv: list[str]) -> list[str]:
             index += 1
             continue
         break
+    if index >= len(argv):
+        return [*argv, "agent"]
+    if argv[index] in {"-h", "--help"}:
+        return argv
     if (
         index < len(argv)
         and argv[index] == "agent"
@@ -121,6 +150,8 @@ def _normalize_argv(argv: list[str]) -> list[str]:
         ]
     if len(argv) > 1 and not argv[1].startswith("-") and argv[1] not in _KNOWN_SUBCOMMANDS:
         return [argv[0], "agent", *argv[1:]]
+    if argv[index].startswith("-") and argv[index] not in _KNOWN_SUBCOMMANDS:
+        return [*argv[:index], "agent", *argv[index:]]
     return argv
 
 
@@ -167,9 +198,7 @@ def _chat(args: argparse.Namespace) -> int:
     return _run_agent_command(
         args,
         default_goal="interactive terminal chat session",
-        repl_banner_template=(
-            None if args.prompt is not None else "chat session started (task {task_id})"
-        ),
+        repl_banner_template=None,
     )
 
 
@@ -359,15 +388,12 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{agent,chat}",
+        metavar="{agent}",
     )
 
     agent = sub.add_parser(
         "agent",
-        help=(
-            "Mandate-top Agent Surface: Ask mode, plus "
-            "run/status/answer/correct/resume Work commands"
-        ),
+        help="start an interactive coding session",
     )
     agent.add_argument("prompt", nargs="?", default=None)
     agent.add_argument("--prompt", "-p", dest="prompt_flag", default=None)
@@ -380,7 +406,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     agent.set_defaults(_uses_prompt_flag=True)
 
-    chat = sub.add_parser("chat", help="deprecated alias for agent")
+    chat = sub.add_parser("chat", help=argparse.SUPPRESS)
     chat.add_argument("prompt", nargs="?", default=None)
     chat.add_argument("--prompt", "-p", dest="prompt_flag", default=None)
     chat.add_argument("--resume", action="store_true")
@@ -391,6 +417,9 @@ def main(argv: list[str] | None = None) -> None:
         help="disable provider SSE streaming (debug)",
     )
     chat.set_defaults(_uses_prompt_flag=True)
+    sub._choices_actions = [
+        action for action in sub._choices_actions if action.dest != "chat"
+    ]
 
     for command in ("agent-run", "agent-resume"):
         work = sub.add_parser(command, help=argparse.SUPPRESS)
