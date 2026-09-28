@@ -73,6 +73,12 @@ from .c7_receipt import (
     C7ReceiptScopeMismatch,
     C7ReceiptVerifier,
 )
+from .w1w2_consumer import (
+    W1State,
+    W1W2OutcomeConsumer,
+    W1W2UpdateDecision,
+    W1W2UpdateReason,
+)
 from .outcome_learning_gate import (
     OutcomeAdmissionDecision,
     OutcomeAdmissionReason,
@@ -458,6 +464,10 @@ __all__ = [
     "OutcomeAdmissionDecision",
     "OutcomeAdmissionReason",
     "OutcomeLearningGate",
+    "W1State",
+    "W1W2OutcomeConsumer",
+    "W1W2UpdateDecision",
+    "W1W2UpdateReason",
     "PlanRegistrationDenialReason",
     "RegisteredSrlExecutionPlan",
     "SQLiteSrlExecutionPlanStore",

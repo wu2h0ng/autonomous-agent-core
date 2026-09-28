@@ -47,6 +47,7 @@ from agent_os_contracts import (
     NodeKind,
     NodeSpec,
     ObservationBindingDescriptor,
+    ObservedOutcome,
     OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
@@ -91,6 +92,8 @@ from agent_os_contracts import (
 from agent_os_core import (
     C7ReceiptIssuer,
     C7ReceiptVerifier,
+    W1W2OutcomeConsumer,
+    W1W2UpdateDecision,
     PlanRegistrationDenialReason,
     SQLitePermissionRuleStore,
     SQLiteSrlExecutionPlanStore,
@@ -340,6 +343,7 @@ class AgentOSApplication:
         observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
         trusted_shell_profile: bool | None = None,
         execution_isolation: str | None = None,
+        w1w2_learning_enabled: bool = False,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -377,6 +381,12 @@ class AgentOSApplication:
             else None
         )
         self.tasks = TaskService(self.store, clock=self._clock)
+        # P0-3 Inc3: the W1/W2 outcome consumer (the closed-loop last hop) is
+        # DEFAULT-OFF. Enabled, it consumes an ADMITTED outcome into the typed
+        # in-envelope W1State; it never touches Mandate/envelope/grants/C7 (I-22).
+        self.w1w2_consumer = (
+            W1W2OutcomeConsumer(self.tasks) if w1w2_learning_enabled else None
+        )
         # S2: durable, operator-authored, DENY-only permission rules (fail-closed;
         # consulted after the frozen E2 gate, can only restrict).
         self.permission_rule_store = SQLitePermissionRuleStore(
@@ -3099,6 +3109,21 @@ class AgentOSApplication:
                 TaskEventType.OUTCOME_OBSERVED,
             }
         ]
+
+    def consume_outcome_for_learning(
+        self, task_id: str, outcome: ObservedOutcome
+    ) -> W1W2UpdateDecision:
+        """Composition-root entry: consume an ADMITTED outcome into W1 (default-off).
+
+        Raises when the W1/W2 consumer is disabled. When enabled, only an outcome
+        admitted by the OutcomeLearningGate mutates the in-envelope W1State; every
+        applied update is recorded durably as a W1W2_UPDATED event. No effect, no
+        capability dispatch, no Mandate/envelope/grant/C7 change.
+        """
+
+        if self.w1w2_consumer is None:
+            raise RuntimeError("w1w2 outcome consumer is disabled")
+        return self.w1w2_consumer.consume(task_id, outcome)
 
     def recovery_json(self, task_id: str) -> dict[str, Any]:
         return build_recovery_snapshot(self.store.read(task_id)).model_dump(mode="json")
