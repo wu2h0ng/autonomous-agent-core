@@ -1,0 +1,5 @@
+.activity-rail { grid-column: 1; }
+.explorer { grid-column: 2; }
+.workbench { grid-column: 3; }
+.agent-panel { grid-column: 4; }
+.history-actions { position: static; padding-left: 12px; }

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.agent-os.runtime",
   "build": {
-    "beforeDevCommand": "npm run dev --prefix ../renderer",
+    "beforeDevCommand": "npm run dev --prefix ./renderer",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build --prefix ./renderer",
     "frontendDist": "../renderer/dist"
@@ -12,9 +12,17 @@
   "app": {
     "windows": [
       {
-        "title": "Agent OS",
+        "label": "agent",
+        "title": "Agent OS · Agent",
         "width": 1200,
         "height": 800
+      },
+      {
+        "label": "ide",
+        "title": "Agent OS · IDE",
+        "width": 1440,
+        "height": 900,
+        "visible": false
       }
     ],
     "security": {

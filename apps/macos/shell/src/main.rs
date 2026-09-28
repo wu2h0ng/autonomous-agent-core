@@ -32,6 +32,20 @@ fn default_daemon_config() -> DaemonConfig {
             std::process::exit(2);
         }
     };
+    // The daemon imports the two local workspace packages. Resolve them from
+    // the monorepo checkout so the desktop shell starts the same runtime as
+    // the CLI, without requiring users to export PYTHONPATH manually.
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().and_then(|p| p.parent()).and_then(|p| p.parent())
+        .map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let workspace_pythonpath = [
+        repo_root.join("packages/contracts/src"),
+        repo_root.join("packages/os_core/src"),
+        repo_root.clone(),
+    ].iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(":");
+    let pythonpath = std::env::var("PYTHONPATH")
+        .map(|existing| format!("{workspace_pythonpath}:{existing}"))
+        .unwrap_or(workspace_pythonpath);
     DaemonConfig {
         python,
         database: PathBuf::from(env_or("AGENT_OS_DAEMON_DATABASE", "agent-os.sqlite3")),
@@ -42,7 +56,7 @@ fn default_daemon_config() -> DaemonConfig {
         )),
         provider_key_env_name: DAEMON_KEY_ENV.to_string(),
         provider_key_value: effective_provider_key(DAEMON_KEY_ENV, Some(&KeychainStore)),
-        pythonpath: std::env::var("PYTHONPATH").ok(),
+        pythonpath: Some(pythonpath),
     }
 }
 

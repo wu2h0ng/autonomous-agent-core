@@ -1,0 +1,35 @@
+classDiagram
+    class DurableStateStore {
+        +tx(fn) Result
+        +migrate(toVersion)
+    }
+    class EventLog {
+        +append(draft: TaskEventDraft) TaskEvent
+        +read(taskId, since, limit) EventBatch
+        +verifyChain(taskId) ChainStatus
+    }
+    class BlobStore {
+        +put(bytes) Sha256Digest
+        +get(digest) Stream
+        +gc(retention)
+    }
+    class SnapshotStore {
+        +save(manifest: SnapshotManifest)
+        +latest(taskId) SnapshotManifest
+        +invalidate(reducerVersion)
+    }
+    class SearchIndex {
+        +rebuild()
+        +query(q) Hits
+    }
+    class StreamBroker {
+        +attach(taskId, since) AttachAccepted
+        +publish(event: TaskEvent)
+        -bufferDuringCutover()
+    }
+    DurableStateStore --> EventLog : 同事务分配 sequence
+    EventLog --> BlobStore : 大 payload 外置
+    SnapshotStore --> EventLog : 由事件物化
+    SearchIndex --> EventLog : 可重建
+    StreamBroker --> SnapshotStore : A2 重基
+    StreamBroker --> EventLog : A3 原子 cutover

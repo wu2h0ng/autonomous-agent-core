@@ -1,0 +1,44 @@
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant AW as Agent Window
+    participant M as Electron main
+    participant R as Agent Core(Runtime)
+    participant EH as IDE extension host
+    participant IW as IDE Window
+
+    U->>AW: [新建任务] 输入目标
+    AW->>M: intent: task.create(typed, 无 token)
+    M->>R: rpc/hello → task.create{clientOperationId, goal, commitment}
+    R-->>M: TaskRef + TASK_CREATED(seq 分配, write-ahead)
+    M-->>AW: 事件投影; Sidebar 出现任务
+    U->>AW: 选择工作区(workspace.resolve)
+    AW->>M->>R: workspace.bind{taskId, workspaceBindingRef}
+    R-->>AW: WorkspaceBinding 生效(服务端绑定 principal/tenant/workspace)
+    AW->>R: stream.attach{taskId} → snapshot+tail(§6.5)
+    U->>AW: 发送指令 session.turn{clientOperationId, expected_event_sequence}
+    R->>R: RUN_STARTED; WorkflowGraph 绑定 TaskConfigurationSnapshot(seal digest)
+    R-->>AW: NODE_STARTED / PROVIDER_RESPONDED(流式 timeline)
+    R->>R: ActionContract(fs.edit) → PolicyDecision=ESCALATE
+    R-->>AW: APPROVAL_REQUESTED(digest, risk_tier, policy_version, expires)
+    U->>AW: 审批卡「批准」
+    AW->>R: approval.decide{actionDigest, expectedPolicyVersion, expectedEventSequence}
+    R->>R: ApprovalDecision(actor=PRINCIPAL 服务端绑定) → ActionPermit → 执行 → ActionReceipt
+    R-->>AW: APPROVAL_RECORDED / ACTION_RECEIPT_RECORDED / ARTIFACT_RECORDED
+    U->>AW: 点击产物(diff)
+    AW->>R: artifact.openIntent{ref, surfaceHint:"diff"}
+    R-->>M: handoff 建议(workspace+artifact)
+    M->>IW: CrossWindowHandoff{intent:"review_artifact"}(聚焦或创建 IDE)
+    IW->>EH: 打开 multi-diff;EH tool.contribute 注册 ide.* 工具(lease 绑定)
+    U->>IW: 继续编码;IDE 内 chat 发追问
+    EH->>R: session.turn(同一 taskId;Op 队列串行化)
+    R-->>AW: 事件广播(Agent Window 同步可见, 双窗口同 cursor 域)
+    U->>IW: 点 Agent ↗ → M 聚焦 AW 并投 handoff{continue_task}
+    U->>AW: 「停止」
+    AW->>R: run.stop{runId, attempt} → correction.request(halt)
+    R->>R: C7 面生效: epoch+1; 未执行 permit 全失配; in-flight 按 capability 取消/补偿
+    R-->>AW: CORRECTION_WRITTEN / RUN_CANCELLED(+compensation 事件)
+    Note over R: 故障注入:provider 失败 → NODE_FAILED → RUN_FAILED(失败原因+已完成步骤+可恢复动作)
+    U->>AW: 「恢复/重试」
+    AW->>R: run.retry → 新 attempt(attempt+1, RunRecoverySnapshot 复核)
+    Note over AW,R: 恢复路径杀 Runtime → supervisor 重启 → 重握手 → attach(since) → 视图无损续接
