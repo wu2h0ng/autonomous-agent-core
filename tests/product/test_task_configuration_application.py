@@ -26,7 +26,7 @@ from agent_os_core import (
 from apps.api_server.app import AgentOSApplication
 
 
-NOW = datetime(2026, 7, 15, 21, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 
 
 def _commit(app: AgentOSApplication, suffix: str = "1") -> str:
@@ -115,6 +115,28 @@ def test_application_seal_get_list_and_restart_exact_snapshot(tmp_path) -> None:
         == snapshot.model_dump_json()
     )
     assert restarted.list_task_configurations(task_id) == (snapshot,)
+
+
+def test_application_snapshot_bound_start_survives_restart_clock_drift(tmp_path) -> None:
+    database = tmp_path / "configuration-restart-run.sqlite3"
+    app = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        clock=lambda: NOW,
+    )
+    task_id = _commit(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    restarted = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+
+    started = restarted.start_run(task_id, snapshot.snapshot_id)
+
+    assert started.run is not None
+    assert started.run.configuration_snapshot_id == snapshot.snapshot_id
 
 
 def test_application_bound_start_and_drift_fail_before_run_event(tmp_path) -> None:

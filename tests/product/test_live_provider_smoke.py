@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -12,7 +13,9 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
 )
-from agent_os_core import EnvCredentialBroker, OpenAICompatibleProvider
+from agent_os_core import DeterministicProvider, EnvCredentialBroker, OpenAICompatibleProvider
+from apps.api_server.app import AgentOSApplication
+from scripts.live_provider_outcome_smoke import run_smoke
 
 
 @pytest.mark.skipif(
@@ -57,3 +60,30 @@ def test_live_openai_compatible_provider_smoke() -> None:
         )
     )
     assert getattr(response, "text", "").strip()
+
+
+def test_live_provider_outcome_smoke_runner_produces_verified_summary(
+    tmp_path: Path,
+) -> None:
+    def app_factory(*, database: Path, workspace: Path) -> AgentOSApplication:
+        app = AgentOSApplication(database=database, workspace=workspace)
+        app.provider = DeterministicProvider(
+            text='{"path":"fixture.txt","content":"after\\n"}',
+            invocation_binding=app.provider.invocation_binding,
+        )
+        app.provider_configured = True
+        return app
+
+    summary = run_smoke(
+        app_factory=app_factory,
+        workspace_root=tmp_path / "workspace",
+        model_id="deterministic-v1",
+    )
+
+    assert summary["task_status"] == "COMPLETED"
+    assert summary["run_status"] == "SUCCEEDED"
+    assert summary["outcome_status"] == "VERIFIED"
+    assert summary["validated_report"] is True
+    assert summary["file_after"] == "after\n"
+    assert summary["event_counts"]["TASK_CONFIGURATION_SNAPSHOT_SEALED"] == 1
+    assert summary["event_counts"]["OUTCOME_OBSERVED"] == 1

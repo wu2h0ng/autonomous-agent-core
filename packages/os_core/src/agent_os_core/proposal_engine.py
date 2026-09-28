@@ -120,8 +120,17 @@ class ProposalEngine:
             "Current file content follows:\n"
             f"---BEGIN FILE---\n{current_content[:20000]}\n---END FILE---\n"
             "Propose the complete replacement content by calling only the "
-            "workspace.apply_patch tool. Include path and content. Do not call any "
-            "other capability and do not claim that the patch was applied."
+            "workspace.apply_patch tool. Include path and content. "
+            "Do not call any other capability and do not claim that the "
+            "patch was applied. If the endpoint cannot emit a tool call, "
+            "return only this JSON shape with no markdown and no prose: "
+            '{"path":"<target path>","content":"<complete replacement content>"}.\n'
+            "\n"
+            "Governance: your patch will be executed through a policy kernel "
+            "that checks permissions, budgets, and correction state. If denied, "
+            "the error includes reason_codes and a retryable flag. "
+            "If retryable is true, adjust and retry. "
+            "If retryable is false, stop and report the blockage."
         )
         request = ProviderRequest(
             request_id=f"request-{uuid4()}",
@@ -188,9 +197,12 @@ class ProposalEngine:
             raise RunExecutionError(
                 "provider patch arguments must be an object"
             )
-        if set(raw_arguments) != {"path", "content"}:
+        allowed_fields = {"path", "content", "expected_sha256"}
+        if not {"path", "content"}.issubset(raw_arguments) or not set(
+            raw_arguments
+        ).issubset(allowed_fields):
             raise RunExecutionError(
-                "provider patch arguments must contain only path and content"
+                "provider patch arguments must contain path/content and only supported binding fields"
             )
         proposed_path = str(raw_arguments.get("path", ""))
         proposed_content = raw_arguments.get("content")

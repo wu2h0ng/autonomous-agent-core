@@ -106,7 +106,11 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
                 proposal_id="proposal:fixture",
                 capability_id="workspace.apply_patch",
                 arguments_json=json.dumps(
-                    {"path": "fixture.txt", "content": "after\n"}
+                    {
+                        "path": "fixture.txt",
+                        "content": "after\n",
+                        "expected_sha256": "0" * 64,
+                    }
                 ),
             ),
         ),

@@ -1,7 +1,7 @@
 schema_version: 2
 
 live_pins:
-  origin_main: "e2564ecb"
+  origin_main: "a0c7a604"
   merged_this_turn:
     - "P-WORKFLOWGRAPH-DAG-V1 (fail-closed WorkflowGraph/dag_v1; loop/parallel/subworkflow reject at validate)"
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
@@ -10,13 +10,13 @@ live_pins:
     - "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1 (typed SrlHelpResponse + settle auto-cancel)"
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
-  local_main: "83ba0eb3 (== origin/main == 83ba0eb3; the founder-authorized 2026-09-14 refresh-merge merged the SRL TaskActivationGate + trusted-producer I-23 and the contract-inference slice + evaluator registry; supersedes the stale 0045aeea/3861802d pins)"
+  local_main: "a0c7a604 (== origin/main == a0c7a604, 0/0, measured 2026-09-15T02:22+08:00; origin/main has carried the reconciled ADR-0059/SPINE-1 head f4266cfd since 2026-08-13, so the earlier 'local-only/unpushed' pins 83ba0eb3/0045aeea/1e479093 no longer hold)"
   primary_checkout_head: "77b1a597 (feature/terminal-coding-agent-m1; measured 2026-09-14)"
-updated: "2026-09-14T11:04:00+08:00"
+updated: "2026-09-15T02:22:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "main checkout is on feature/terminal-coding-agent-m1 @ 77b1a597 (17 ahead / 575 behind origin/main e2564ecb, NOT merged); local main is 0045aeea (108 ahead / 0 behind origin/main, UNPUSHED). Measured 2026-09-13."
+branch: "main checkout is on feature/terminal-coding-agent-m1 @ 77b1a597 (NOT merged); local main == origin/main == a0c7a604 (0/0). Measured 2026-09-15T02:22+08:00 (origin/main is still moving). The former 'local main ahead / unpushed' pins are stale."
 status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
@@ -33,7 +33,7 @@ identity:
   topology: "dual-track monorepo"
   product_track: "Agent Surface, Task Workspace, Agent Core runtime, providers, capabilities, evidence/outcomes, governance, SDK, adaptive materialization and optional domain priors"
   research_track: "falsifiable mechanisms, CWM/world-model candidates, belief/action research, formal models, preregistration, results and negative maps"
-  first_vertical: "Data Agent, ADR-0054/SPINE-1 seam merged into LOCAL main (UNPUSHED); donor remains the standing physical implementation"
+  first_vertical: "Data Agent; the ADR-0054/SPINE-1 seam is reachable on origin/main since 2026-08-13 (measured 2026-09-15 at a0c7a604). Reachability is not authorization: donor remains the standing physical implementation and the push/merged-capability/donor-retirement gates remain unopened."
   evidence_boundary: "Research and Product Track share a repo but not claim authority."
 
 current_phase:
@@ -45,7 +45,7 @@ current_phase:
     status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / B4_BOUNDARY_PROOF_REQUIRED_OR_PARK_ROUTE / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
-    status: "SEAM_MERGED_INTO_LOCAL_MAIN_2026_08_14_AT_1E479093 / UNPUSHED / DONOR_STANDING / NO_PUSH_MERGE_RELEASE_OR_MERGED_CAPABILITY_AUTHORIZATION"
+    status: "SEAM_REACHABLE_ON_ORIGIN_MAIN_SINCE_2026-08-13 / LOCAL_MAIN_EQ_ORIGIN_MAIN_A0C7A604 / DONOR_STANDING / NO_PUSH_MERGE_RELEASE_OR_MERGED_CAPABILITY_AUTHORIZATION_INFERRED"
 
 verified_capabilities:
   mandate_workspace_input:

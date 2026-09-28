@@ -1,6 +1,7 @@
 version: 2
 date: "2026-07-10"
-status: "DESIGN_ONLY_NOT_EXECUTED"
+status: "PARTIALLY_EXECUTED_BOUNDED__G4_HISTORY_IMPORT_G5_G6_EXTRACTION_G7_STAGING_REMOVAL_REACHABLE_ON_ORIGIN_MAIN__FULL_G0_G7_COMPLETION_AND_DONOR_RETIREMENT_NOT_AUTHORIZED"
+status_updated: "2026-09-15"
 task_id: "T-P-OS-SPINE-1"
 depends_on: "T-P-OS-SPINE-0_ACCEPTED"
 authority:
@@ -16,6 +17,7 @@ decision:
   scope: "SPINE-1 successor; not a SPINE-0 acceptance requirement"
   implementation_authorized: false
   migration_authorized: false
+  live_reality_2026_09_15: "Dated reachability measurement, not an authorization record: the donor subtree import (78f4f613, source donor commit 94e2b5918), bounded G5/G6 extraction commits (7ba65659..dca62052, closed by fde801a6) and staging removal (43ccbec5) are reachable from agent-os origin/main (a0c7a604, measured 2026-09-15T02:22+08:00); domain_packs/data_agent exists on origin/main (10 files). Because no founder artifact records that the G0-G7 / push / donor-retirement gates were opened, implementation_authorized and migration_authorized remain false and no merged-capability, donor-retirement or release claim is made."
 
 donor:
   repository: "ai-native-business-data-agent-os"

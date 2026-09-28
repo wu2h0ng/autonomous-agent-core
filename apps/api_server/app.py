@@ -131,6 +131,10 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_BUILT_IN_GRANT_ISSUED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_BUILT_IN_GRANT_EXPIRES_AT = datetime(9999, 12, 31, tzinfo=timezone.utc)
+
+
 class AgentOSApplication:
     """Composition root used unchanged by the CLI, HTTP API and tests."""
 
@@ -446,7 +450,7 @@ class AgentOSApplication:
         self.domain_manifest = developer_agent_manifest(now)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
-        issued = now or self._clock()
+        issued = _BUILT_IN_GRANT_ISSUED_AT
         specs = self.sandbox.specs(issued)
         grants = {
             capability_id: CapabilityGrant(
@@ -469,7 +473,7 @@ class AgentOSApplication:
                 status=CapabilityGrantStatus.ACTIVE,
                 granted_by="system",
                 granted_at=issued,
-                expires_at=issued + timedelta(days=30),
+                expires_at=_BUILT_IN_GRANT_EXPIRES_AT,
             )
             for capability_id, spec in specs.items()
         }
@@ -506,7 +510,7 @@ class AgentOSApplication:
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or self._clock()
+        issued = _BUILT_IN_GRANT_ISSUED_AT
         return CapabilityGrant(
             grant_id="grant:internal:task.configuration.snapshot",
             principal_id=self.principal.principal_id,
@@ -524,14 +528,14 @@ class AgentOSApplication:
             status=CapabilityGrantStatus.ACTIVE,
             granted_by="system:composition-root",
             granted_at=issued,
-            expires_at=issued + timedelta(days=30),
+            expires_at=_BUILT_IN_GRANT_EXPIRES_AT,
         )
 
     def _build_evaluation_grant(
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or self._clock()
+        issued = _BUILT_IN_GRANT_ISSUED_AT
         return CapabilityGrant(
             grant_id="grant:internal:domain.candidate.evaluate",
             principal_id=self.principal.principal_id,
@@ -549,14 +553,14 @@ class AgentOSApplication:
             status=CapabilityGrantStatus.ACTIVE,
             granted_by="system:composition-root",
             granted_at=issued,
-            expires_at=issued + timedelta(days=30),
+            expires_at=_BUILT_IN_GRANT_EXPIRES_AT,
         )
 
     def _build_compensation_grant(
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or self._clock()
+        issued = _BUILT_IN_GRANT_ISSUED_AT
         return CapabilityGrant(
             grant_id="grant:internal:workspace.compensate_patch",
             principal_id=self.principal.principal_id,
@@ -574,14 +578,14 @@ class AgentOSApplication:
             status=CapabilityGrantStatus.ACTIVE,
             granted_by="system:coordinator",
             granted_at=issued,
-            expires_at=issued + timedelta(days=30),
+            expires_at=_BUILT_IN_GRANT_EXPIRES_AT,
         )
 
     def _build_promotion_grant(
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or self._clock()
+        issued = _BUILT_IN_GRANT_ISSUED_AT
         return CapabilityGrant(
             grant_id="grant:internal:domain.candidate.promote",
             principal_id=self.principal.principal_id,
@@ -599,7 +603,7 @@ class AgentOSApplication:
             status=CapabilityGrantStatus.ACTIVE,
             granted_by="system:composition-root",
             granted_at=issued,
-            expires_at=issued + timedelta(days=30),
+            expires_at=_BUILT_IN_GRANT_EXPIRES_AT,
         )
 
     def list_tasks(self) -> list[dict[str, Any]]:

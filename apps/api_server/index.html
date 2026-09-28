@@ -49,6 +49,8 @@
     .topbar { height: 58px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; }
     .task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
     .top-status { display: flex; gap: 8px; align-items: center; }
+    .surface-link { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; color: var(--muted); font-size: 11px; text-decoration: none; }
+    .surface-link:hover { background: var(--soft); color: var(--ink); }
     .signal { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 7px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #9aa2a9; }
     .dot.ok { background: var(--accent); }
@@ -166,6 +168,7 @@
       <div class="topbar">
         <div class="task-name" id="task-name">Task Workspace</div>
         <div class="top-status">
+          <a class="surface-link" href="/preview-zh" aria-label="Open Chinese Agent Surface preview">中文 Surface</a>
           <span class="signal" id="workspace-signal"><span class="dot"></span>No workspace</span>
           <span class="signal" id="provider-signal"><span class="dot"></span>No provider</span>
         </div>

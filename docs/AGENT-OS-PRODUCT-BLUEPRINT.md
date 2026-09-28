@@ -1,8 +1,9 @@
 # Agent OS Product Blueprint
 
 > Status: **FINAL / FOUNDER-RATIFIED PRODUCT AUTHORITY**
-> Version: 2.1
-> Updated: 2026-07-15
+> Version: 2.2
+> Updated: 2026-09-10
+> Amendment: v2.2 adds the industry-terminology column to §6 per ADR-0060 (external-terminology-first naming). Internal identifiers remain the code authority; the industry term governs docs and external communication.
 > Product: **Agent OS**
 > Repository: `autonomous-agent-core`
 > Scope: 产品定义、用户体验、规范架构与产品完成门
@@ -88,27 +89,29 @@ The user can inspect what the system believes, what it plans to do, what authori
 
 ## 6. Canonical kernel objects
 
-| Object | Responsibility | Must not become |
-|---|---|---|
-| `Task` / `Commitment` | goal, scope, constraints and accepted work contract | free-form prompt as authority |
-| `WorkflowGraph` | typed acyclic DAG (`WorkflowGraph/dag_v1`); advanced control-flow reserved | product identity or untyped prompt chain |
-| `AgentRun` / event log | durable execution, leases, retry, replay and terminal state | mutable chat transcript as state source |
-| `CapabilitySpec` | typed operation, input/output, risk and policy requirements | skill name that grants authority |
-| `CapabilityBroker` | resolve and invoke authorized capabilities | plugin-controlled dispatcher |
-| `ModelProvider` / `CredentialRef` | provider-neutral model access without secret exposure | model-specific product identity |
-| `WorldModelPort` | task-appropriate state/model interface | universal CWM requirement |
-| `ActionContract` | exact proposed effect, digest, authority and rollback/compensation | raw model command |
-| `Evidence` / artifact refs | provenance, validation and outcome support | Data Agent SQL-specific schema in OS core |
-| `ExpectedOutcome` | frozen acceptance/evaluator contract | post-hoc success story |
-| `ObservedOutcome` | measured terminal result and failure attribution | self-reported success alone |
-| `BeliefRecord` | revisable claim, uncertainty, conflicts and provenance | uncorrectable hidden chain of thought |
-| `KnowledgeAsset` | governed reusable information | unscoped vector-store memory |
-| `LearnedProcedure` | versioned candidate derived from repeated verified work | auto-published behavior |
-| `DomainCandidate` | immutable B/R/T/P proposal for grounded domain adaptation | active capability, policy or same-run self-update |
-| `TaskConfigurationSnapshot` | immutable graph, grant, policy/evidence and prior binding for one Run | hot-reloaded mutable configuration |
-| `DomainPriorArtifact` | optional validated accelerator/cache/publication artifact | mandatory intelligence module or authority grant |
-| `AuthorityPolicy` / disposer | deterministic decision over proposed action | model-held final authority |
-| `CorrectionChannel` (C7) | external pause/correct/tighten/halt authority | writable or bypassable product setting |
+Industry terms below follow ADR-0060 / `docs/TERMINOLOGY-ALIGNMENT.md`; internal identifiers remain the code authority during staged migration.
+
+| Object | Industry term (docs/external) | Responsibility | Must not become |
+|---|---|---|---|
+| `Task` / `Commitment` | task / commitment | goal, scope, constraints and accepted work contract | free-form prompt as authority |
+| `WorkflowGraph` | typed workflow DAG | typed acyclic DAG (`WorkflowGraph/dag_v1`); advanced control-flow reserved | product identity or untyped prompt chain |
+| `AgentRun` / event log | run + event log | durable execution, leases, retry, replay and terminal state | mutable chat transcript as state source |
+| `CapabilitySpec` | tool spec (MCP-style schema) | typed operation, input/output, risk and policy requirements | skill name that grants authority |
+| `CapabilityBroker` | tool router | resolve and invoke authorized capabilities | plugin-controlled dispatcher |
+| `ModelProvider` / `CredentialRef` | model provider / SecretRef | provider-neutral model access without secret exposure | model-specific product identity |
+| `WorldModelPort` | world-model interface (no stable industry term) | task-appropriate state/model interface | universal CWM requirement |
+| `ActionContract` | action proposal (approval-gated) | exact proposed effect, digest, authority and rollback/compensation | raw model command |
+| `Evidence` / artifact refs | evidence / provenance record | provenance, validation and outcome support | Data Agent SQL-specific schema in OS core |
+| `ExpectedOutcome` | frozen acceptance spec | frozen acceptance/evaluator contract | post-hoc success story |
+| `ObservedOutcome` | measured outcome | measured terminal result and failure attribution | self-reported success alone |
+| `BeliefRecord` | fact (memory record, with provenance) | revisable claim, uncertainty, conflicts and provenance | uncorrectable hidden chain of thought |
+| `KnowledgeAsset` | governed knowledge asset | governed reusable information | unscoped vector-store memory |
+| `LearnedProcedure` | learned skill (versioned) | versioned candidate derived from repeated verified work | auto-published behavior |
+| `DomainCandidate` | domain candidate (no industry equivalent) | immutable B/R/T/P proposal for grounded domain adaptation | active capability, policy or same-run self-update |
+| `TaskConfigurationSnapshot` | immutable run config snapshot | immutable graph, grant, policy/evidence and prior binding for one Run | hot-reloaded mutable configuration |
+| `DomainPriorArtifact` | domain prior artifact (no industry equivalent) | optional validated accelerator/cache/publication artifact | mandatory intelligence module or authority grant |
+| `AuthorityPolicy` / disposer | policy engine / policy decision point (PDP) | deterministic decision over proposed action | model-held final authority |
+| `CorrectionChannel` (C7) | non-bypassable correction channel | external pause/correct/tighten/halt authority | writable or bypassable product setting |
 
 `Skill` is not a kernel object. External skills are compatibility inputs that compile into capabilities, procedure/workflow candidates, knowledge requirements, credentials and policy requirements.
 

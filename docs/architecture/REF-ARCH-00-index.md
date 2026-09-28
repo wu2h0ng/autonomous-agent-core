@@ -20,6 +20,15 @@
 4. **[REF-ARCH-04 Runtime Governance Contract](REF-ARCH-04-runtime-governance-contract.md)** — how every call passes the gate: run context, risk ceiling, budget, checkpoint, trace, approval, C7 override, failure sanitization; the adaptive verify-or-escalate decision gate.
 5. **[REF-ARCH-05 First R0–R3 OS use-case](REF-ARCH-05-first-os-usecase.md)** — the concrete low-stakes use-case ("which lever causally moves the metric?") the OS injection seam (RR-0032) is first wired to; seam mapping + acceptance criteria. PREPARE deliverable (a); WIRE still gated.
 
+## Current implementation bridge documents
+
+These newer documents do not replace `docs/AGENT-OS-PRODUCT-BLUEPRINT.md` or `docs/CURRENT_STATE.yaml`. They map the current product thesis to implementation status and next packages:
+
+1. **[Agent OS Capability Implementation Map](AGENT-OS-CAPABILITY-IMPLEMENTATION-MAP.md)** — maps autonomy, domain adaptation, evidence, knowledge, runtime, multimodal and training pain points to current code status, gaps and next packages.
+2. **[P-SRL Runtime Implementation Roadmap](P-SRL-RUNTIME-IMPLEMENTATION-ROADMAP.md)** — revised staged plan for M1-plus: event contract, security boundary, held-out/baseline/HCW protocol, non-executing TaskDraft, TaskActivation gate, Dispatch, pilot, knowledge bootstrap and bounded adaptation.
+3. **[P-SRL Runtime Verification Matrix](P-SRL-RUNTIME-VERIFICATION-MATRIX.md)** — converts pain points and roadmap packages into first failing tests, implementation entries, evidence artifacts, baselines/falsifiers, cost/SLO/security gates and pass gates.
+4. **[Project Production Interrogation](PROJECT-PRODUCTION-INTERROGATION-2026-07-16.md)** — standing technical/business pressure-test questions for forcing architecture claims toward generic production deployment.
+
 ## The one sentence
 **LLM is an organ, the (causal) world model is the map of action→consequence, the agent self model is the map of own capability/risk/boundary, the Agent is the governed closed loop that perceives–models–decides–verifies–acts–is-corrected–learns, and the Runtime is the envelope that proves none of that bypassed a safety boundary.** Multiple models and multiple roles live *inside one governed loop* — never as sovereign agents.
 
