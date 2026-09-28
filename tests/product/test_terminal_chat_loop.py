@@ -18,18 +18,22 @@ from agent_os_contracts import (
     ProviderErrorCode,
     ProviderFailure,
     ProviderMessageRole,
+    ProviderMessage,
     ProviderToolProposal,
     PolicyVerdict,
     RunStatus,
     TaskEventType,
     TaskEventDraft,
+    TurnId,
 )
 from agent_os_core import (
     AgentLoopConfig,
     AutoApproveGateway,
     CapabilityBroker,
     CapabilityDenied,
+    ConcurrentWriteError,
     DeterministicProvider,
+    DurableActionOutcomeRepository,
     ExecutionLease,
     PolicyInput,
     InvalidTransitionError,
@@ -315,6 +319,230 @@ def test_outcome_only_recovery_appends_original_receipt_without_second_dispatch(
         )
         == 1
     )
+
+
+@pytest.mark.parametrize("scenario", ["valid", "loop", "loop_budget_edge", "loop_progress_takeover", "loop_unknown_takeover", "tampered", "corrected_at_seal", "takeover_at_seal", "takeover_at_receipt"])
+def test_applied_patch_reservation_without_outcome_is_proven_and_sealed_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scenario: str,
+) -> None:
+    target = tmp_path / "fixture.txt"
+    replacement = "stable\n# patched\n"
+    app = _chat_app(
+        tmp_path,
+        scripted=(
+            (
+                "",
+                (
+                    _proposal(
+                        "call-1",
+                        "workspace.apply_patch",
+                        {"path": "fixture.txt", "content": replacement},
+                    ),
+                ),
+            ),
+        ),
+    )
+    sandbox = _DispatchCountingSandbox(tmp_path, idempotency_store=app.store)
+    app.sandbox = sandbox
+    session, loop = app.open_chat_session(
+        "apply patch then die before outcome seal",
+        AutoApproveGateway(),
+    )
+    if scenario == "loop_budget_edge":
+        loop._config = AgentLoopConfig(max_steps_per_turn=1)
+    original_seal = DurableActionOutcomeRepository.seal
+
+    class _ProcessDeath(BaseException):
+        pass
+
+    def die_before_outcome_seal(self: object, *args: object, **kwargs: object) -> object:
+        raise _ProcessDeath("process died before outcomes.seal")
+
+    monkeypatch.setattr(DurableActionOutcomeRepository, "seal", die_before_outcome_seal)
+    with pytest.raises(_ProcessDeath, match="before outcomes.seal"):
+        loop.run_turn(session, "patch")
+    monkeypatch.setattr(DurableActionOutcomeRepository, "seal", original_seal)
+
+    events = app.store.read(session.task_id)
+    action = ActionContract.model_validate(
+        next(
+            event.decoded_payload()["action"]
+            for event in events
+            if event.event_type is TaskEventType.ACTION_PROPOSED
+        )
+    )
+    assert target.read_text(encoding="utf-8") == replacement
+    assert sandbox.dispatch_count == 1
+    assert not any(
+        event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for event in events
+    )
+    outcomes = sandbox.outcomes()
+    assert outcomes is not None
+    with pytest.raises(CapabilityDenied, match="RESERVATION_WITHOUT_OUTCOME"):
+        outcomes.replay(action)
+
+    pipeline = ActionPipeline(
+        app.tasks,
+        CapabilityBroker(sandbox, app.correction),
+        app.policy,
+        app.correction,
+        app._chat_grants(),
+    )
+    app.store._db.execute(  # noqa: SLF001 - simulate the dead worker's expiry.
+        "UPDATE run_leases SET expires_at = ? WHERE run_id = ?",
+        ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(), action.run_id),
+    )
+    app.store._db.commit()  # noqa: SLF001
+    if scenario in {"loop", "loop_budget_edge", "loop_progress_takeover", "loop_unknown_takeover"}:
+        restored_session, restored_loop = app.restore_chat_session(
+            session.session_id, AutoApproveGateway()
+        )
+        if scenario == "loop_budget_edge":
+            restored_loop._config = AgentLoopConfig(max_steps_per_turn=1)
+        started = next(event.decoded_payload() for event in events
+                       if event.event_type is TaskEventType.SESSION_TURN_STARTED)
+        cursor = app.tasks.project_session(session.task_id, session.session_id).ordinary_cursor
+        assert cursor is not None and cursor.steps == 1 and cursor.total_tokens > 0
+        projected = app.tasks.project_session(session.task_id, session.session_id)
+        progress = next(event.decoded_payload()["progress"] for event in reversed(events)
+                        if "progress" in event.decoded_payload())
+        bad_progress = {**progress, "next_proposal_index": 1, "total_tokens": 0}
+        before = len(app.store.read(session.task_id))
+        with pytest.raises(InvalidTransitionError, match="budget cannot regress"):
+            app.tasks.record_session_message(
+                session.task_id, session.session_id, projected.next_message_index,
+                ProviderMessage(role=ProviderMessageRole.TOOL, content="{}", tool_call_id="call-1"),
+                turn_id=started["turn_id"], progress=bad_progress,
+            )
+        assert len(app.store.read(session.task_id)) == before
+        if scenario in {"loop_progress_takeover", "loop_unknown_takeover"}:
+            if scenario == "loop_unknown_takeover":
+                target.write_text("external drift\n", encoding="utf-8")
+            original_fenced = app.store.append_fenced
+            took_over = False
+
+            def takeover_before_progress(*args: Any, **kwargs: Any) -> Any:
+                nonlocal took_over
+                if not took_over and any(
+                    draft.event_type is TaskEventType.SESSION_MESSAGE_RECORDED
+                    and draft.decoded_payload().get("message", {}).get("role") == "TOOL"
+                    for draft in kwargs["drafts"]
+                ):
+                    took_over = True
+                    row = app.store._db.execute("SELECT owner FROM run_leases WHERE run_id=?", (action.run_id,)).fetchone()
+                    app.store.release_lease(action.run_id, row[0])
+                    app.store.acquire_lease(action.run_id, "worker:takeover", (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
+                return original_fenced(*args, **kwargs)
+
+            monkeypatch.setattr(app.store, "append_fenced", takeover_before_progress)
+            with pytest.raises(ConcurrentWriteError):
+                restored_loop.resume_turn(restored_session, TurnId(turn_id=started["turn_id"], session_id=session.session_id))
+            assert took_over
+            unchanged = app.tasks.project_session(session.task_id, session.session_id)
+            assert unchanged.ordinary_cursor.next_proposal_index == 0
+            assert sandbox.dispatch_count == 1
+            monkeypatch.setattr(app.store, "append_fenced", original_fenced)
+            app.store.release_lease(action.run_id, "worker:takeover")
+            if scenario == "loop_unknown_takeover":
+                assert app.store.get_idempotency(outcomes.OUTCOME_SCOPE, action.idempotency_key) is None
+                return
+            restored_session, restored_loop = app.restore_chat_session(session.session_id, AutoApproveGateway())
+        resumed = restored_loop.resume_turn(restored_session, TurnId(
+            turn_id=started["turn_id"], session_id=session.session_id,
+        ))
+        assert resumed.steps >= cursor.steps and resumed.total_tokens >= cursor.total_tokens
+        assert sandbox.dispatch_count == 1
+        after = app.store.read(session.task_id)
+        assert sum(event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+                   for event in after) == 1
+        assert any(event.event_type is TaskEventType.NODE_COMPLETED for event in after)
+        assert outcomes.replay(action).receipt.status.value == "SUCCEEDED"
+        return
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    fence = app.store.acquire_lease(action.run_id, "worker:successor", expiry.isoformat())
+    successor = ExecutionLease(
+        run_id=action.run_id, owner="worker:successor", fence=fence, expires_at=expiry
+    )
+    if scenario == "tampered":
+        target.write_text("external drift\n", encoding="utf-8")
+    original_insert = app.store.put_reconciled_outcome
+
+    def insert_with_drift(**kwargs: Any) -> bool:
+        if scenario == "corrected_at_seal":
+            app.store.write_correction(
+                "task", action.task_id, action.tenant_id, action.workspace_id,
+                1, True, "halt before seal", "operator", expiry.isoformat(),
+            )
+        elif scenario == "takeover_at_seal":
+            app.store.release_lease(action.run_id, successor.owner)
+            app.store.acquire_lease(action.run_id, "worker:third", expiry.isoformat())
+        return original_insert(**kwargs)
+
+    monkeypatch.setattr(app.store, "put_reconciled_outcome", insert_with_drift)
+    original_append = app.store.append_fenced
+    receipt_takeover = False
+
+    def append_with_takeover(*args: Any, **kwargs: Any) -> Any:
+        nonlocal receipt_takeover
+        if scenario == "takeover_at_receipt" and not receipt_takeover and any(
+            draft.event_type is TaskEventType.ACTION_RECEIPT_RECORDED for draft in kwargs["drafts"]
+        ):
+            receipt_takeover = True
+            app.store.release_lease(action.run_id, successor.owner)
+            app.store.acquire_lease(action.run_id, "worker:third", expiry.isoformat())
+        return original_append(*args, **kwargs)
+
+    monkeypatch.setattr(app.store, "append_fenced", append_with_takeover)
+    if scenario != "valid":
+        with pytest.raises((CapabilityDenied, ConcurrentWriteError)):
+            pipeline.execute(
+                action, app.principal, capability_spec=sandbox.specs()[action.capability_id],
+                record_artifacts=False, execution_claim=successor,
+            )
+        assert sandbox.dispatch_count == 1
+        sealed = app.store.get_idempotency(outcomes.OUTCOME_SCOPE, action.idempotency_key)
+        assert (sealed is not None) == (scenario == "takeover_at_receipt")
+        assert not any(
+            event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+            and event.decoded_payload()["receipt"]["status"] == "SUCCEEDED"
+            for event in app.store.read(session.task_id)
+        )
+        if scenario == "tampered":
+            target.write_text(replacement, encoding="utf-8")
+            with pytest.raises(CapabilityDenied, match="RESERVATION_WITHOUT_OUTCOME"):
+                pipeline.execute(action, app.principal, record_artifacts=False, execution_claim=successor)
+            assert app.store.get_idempotency(outcomes.OUTCOME_SCOPE, action.idempotency_key) is None
+        if scenario == "takeover_at_receipt":
+            third_fence = app.store.acquire_lease(action.run_id, "worker:third", expiry.isoformat())
+            third = ExecutionLease(action.run_id, "worker:third", third_fence, expiry)
+            recovered = pipeline.execute(action, app.principal, record_artifacts=False, execution_claim=third)
+            assert recovered.receipt.status.value == "SUCCEEDED"
+            assert sandbox.dispatch_count == 1
+        return
+    result = pipeline.execute(
+        action,
+        app.principal,
+        capability_spec=sandbox.specs()[action.capability_id],
+        record_artifacts=False,
+        execution_claim=successor,
+    )
+
+    assert result.receipt.status.value == "SUCCEEDED"
+    assert result.receipt.detail_ref == result.output["compensation_ref"]
+    assert target.read_text(encoding="utf-8") == replacement
+    assert sandbox.dispatch_count == 1
+    after = app.store.read(session.task_id)
+    receipts = [
+        event.decoded_payload()
+        for event in after
+        if event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
+    ]
+    assert len(receipts) == 1
+    assert receipts[0]["receipt"]["status"] == "SUCCEEDED"
+    app.store.release_lease(action.run_id, successor.owner)
+    assert outcomes.replay(action).receipt == result.receipt
 
 
 def test_task_receipt_store_read_failure_is_typed_unknown_before_policy(
@@ -1794,3 +2022,52 @@ def test_agent_loop_multi_file_effects_compensate_in_reverse_order(
         edit_actions[1].node_id,
         edit_actions[0].node_id,
     ]
+
+
+@pytest.mark.parametrize("correction_before_projection", [False, True])
+def test_provider_response_committed_before_assistant_message_recovers_exactly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, correction_before_projection: bool) -> None:
+    app = _chat_app(tmp_path, scripted=(("", (_proposal("window-call", "workspace.apply_patch", {"path": "fixture.txt", "content": "recovered\n"}),)),))
+    sandbox = _DispatchCountingSandbox(tmp_path, idempotency_store=app.store)
+    app.sandbox = sandbox
+    session, loop = app.open_chat_session("recover provider receipt", AutoApproveGateway())
+    original = app.tasks.record_session_message
+
+    class ProcessDeath(BaseException):
+        pass
+
+    def die_before_assistant(*args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("progress") is not None:
+            raise ProcessDeath()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(app.tasks, "record_session_message", die_before_assistant)
+    with pytest.raises(ProcessDeath):
+        loop.run_turn(session, "patch once")
+    assert sandbox.dispatch_count == 0
+    events = app.store.read(session.task_id)
+    responses = [event for event in events if event.event_type is TaskEventType.PROVIDER_RESPONDED]
+    assert len(responses) == 1
+    node_id = responses[0].decoded_payload()["node_id"]
+    started = next(event.decoded_payload() for event in events if event.event_type is TaskEventType.SESSION_TURN_STARTED)
+    monkeypatch.setattr(app.tasks, "record_session_message", original)
+    restored, recovered_loop = app.restore_chat_session(session.session_id, AutoApproveGateway())
+    if correction_before_projection:
+        original_guarded = app.store.append_guarded
+
+        def correct_before_projection(*args: Any, **kwargs: Any) -> Any:
+            app.store.write_correction("capability", "provider", app.principal.tenant_id,
+                                       app.principal.workspace_id, 1, True, "halt recovered proposal",
+                                       "operator", datetime.now(timezone.utc).isoformat())
+            return original_guarded(*args, **kwargs)
+
+        monkeypatch.setattr(app.store, "append_guarded", correct_before_projection)
+        with pytest.raises(ConcurrentWriteError):
+            recovered_loop.resume_turn(restored, TurnId(turn_id=started["turn_id"], session_id=session.session_id))
+        assert sandbox.dispatch_count == 0
+        assert app.tasks.project_session(session.task_id, session.session_id).ordinary_cursor is None
+        return
+    result = recovered_loop.resume_turn(restored, TurnId(turn_id=started["turn_id"], session_id=session.session_id))
+    assert result.steps >= 1 and result.total_tokens > 0
+    assert sandbox.dispatch_count == 1
+    assert (tmp_path / "fixture.txt").read_text() == "recovered\n"
+    assert sum(event.event_type is TaskEventType.PROVIDER_RESPONDED and event.decoded_payload()["node_id"] == node_id for event in app.store.read(session.task_id)) == 1

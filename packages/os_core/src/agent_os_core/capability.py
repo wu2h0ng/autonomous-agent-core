@@ -23,6 +23,7 @@ from ._action_outcome import (
     DurableActionOutcomeRepository,
     ExecutionLease,
     ExecutionLeaseConflict,
+    ReservedEffectProof,
 )
 from .governance import CorrectionGuardConflict, CorrectionReadPort
 
@@ -103,6 +104,10 @@ class CapabilityPort(Protocol):
     ) -> None: ...
 
     def acquire_execution_lease(
+        self, action: ActionContract, owner: str
+    ) -> ExecutionLease: ...
+
+    def acquire_reconciliation_lease(
         self, action: ActionContract, owner: str
     ) -> ExecutionLease: ...
 
@@ -255,6 +260,38 @@ class CapabilityBroker:
                 detail="stored capability outcome permit/action mismatch",
             )
         return result
+
+    def reconcile_reserved_effect(
+        self, action: ActionContract, permit: ActionPermit, *, execution_claim: ExecutionLease
+    ) -> CapabilityResult:
+        if not permit.matches(action) or execution_claim.run_id != action.run_id or execution_claim.fence != permit.lease_fence:
+            raise ExecutionLeaseConflict("reconciliation claim does not bind action permit")
+        if permit.expires_at <= datetime.now(timezone.utc):
+            raise CapabilityDenied("reconciliation permit expired")
+        outcomes = self.connector.outcomes()
+        if outcomes is None:
+            raise CapabilityDenied("reconciliation requires durable outcomes")
+        reservation = outcomes._get_record(outcomes.RESERVATION_SCOPE, action.idempotency_key)
+        if reservation is None:
+            raise CapabilityDenied("reconciliation requires original reservation")
+        outcomes._validate_reservation(action, reservation)
+        if outcomes._get_record(outcomes.OUTCOME_SCOPE, action.idempotency_key) is not None:
+            replayed = outcomes.replay(action)
+            if replayed is None:
+                raise CapabilityDenied("sealed outcome cannot be replayed")
+            return replayed
+        prove = getattr(self.connector, "prove_reserved_effect", None)
+        if not callable(prove):
+            raise CapabilityDenied("connector cannot prove reserved effect")
+        with self.correction.guard_unchanged(action.task_id, action.run_id, action.capability_id, permit.correction_epochs) as unchanged:
+            if not unchanged or permit.correction_epochs != action.observed_correction_epochs:
+                raise CapabilityCorrectionBlocked("correction authority changed before reconciliation")
+            proof = prove(action)
+            if not isinstance(proof, ReservedEffectProof):
+                raise CapabilityDenied("connector returned untyped reconciliation evidence")
+            output = outcomes.canonical_output(proof.output)
+            receipt = _build_receipt(action, permit, reservation, output, status=ReceiptStatus.SUCCEEDED, error_code="error:none", attempt=1)
+            return outcomes.seal(action, reservation, permit, receipt, output, reconciliation_lease=execution_claim, proof=proof)
 
     def _enforce_collaboration(
         self, action: ActionContract, execution_claim: ExecutionLease

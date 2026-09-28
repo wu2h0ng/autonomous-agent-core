@@ -397,6 +397,60 @@ def test_fenced_append_rejects_takeover_in_the_append_transaction(
     assert appended[0].event_id == "event:new"
 
 
+@pytest.mark.parametrize("drift", ["lease", "correction", "reservation", "content"])
+def test_reconciled_outcome_insert_rejects_authority_drift(
+    tmp_path: Path, drift: str
+) -> None:
+    old = SQLiteTaskEventStore(tmp_path / "reconcile.sqlite3")
+    successor = SQLiteTaskEventStore(tmp_path / "reconcile.sqlite3")
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    fence = old.acquire_lease("run:reconcile", "worker:old", expiry)
+    digest = hashlib.sha256(b'{}').hexdigest()
+    assert old.put_idempotency("reservation", "key", {"record_digest": digest}, expiry)
+    if drift == "lease":
+        old.release_lease("run:reconcile", "worker:old")
+        successor.acquire_lease("run:reconcile", "worker:new", expiry)
+    elif drift == "correction":
+        successor.write_correction(
+            "task", "task:reconcile", "tenant", "workspace", 1, True,
+            "operator halt", "operator", expiry,
+        )
+    if drift == "content":
+        successor._db.execute(  # noqa: SLF001 - tamper bytes while keeping claimed digest.
+            "UPDATE idempotency_keys SET response_json = ? WHERE scope = ? AND key = ?",
+            (json.dumps({"record_digest": digest, "tampered": True}), "reservation", "key"),
+        )
+        successor._db.commit()  # noqa: SLF001
+    with pytest.raises(ConcurrentWriteError):
+        old.put_reconciled_outcome(
+            task_id="task:reconcile", run_id="run:reconcile", owner="worker:old",
+            fence=fence, capability_id="workspace.apply_patch",
+            correction_epochs=CorrectionEpochVector(task_epoch=0, run_epoch=0, capability_epoch=0), reservation_scope="reservation",
+            key="key", reservation_digest="wrong" if drift == "reservation" else digest,
+            outcome_scope="outcome", response={"result": "success"}, created_at=expiry,
+        )
+    assert old.get_idempotency("outcome", "key") is None
+
+
+def test_reconciled_outcome_insert_is_immutable_under_successor_lease(tmp_path: Path) -> None:
+    store = SQLiteTaskEventStore(tmp_path / "reconcile.sqlite3")
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    store.acquire_lease("run:reconcile", "worker:old", expiry)
+    digest = hashlib.sha256(b'{}').hexdigest()
+    store.put_idempotency("reservation", "key", {"record_digest": digest}, expiry)
+    store.release_lease("run:reconcile", "worker:old")
+    fence = store.acquire_lease("run:reconcile", "worker:new", expiry)
+    params = dict(
+        task_id="task:reconcile", run_id="run:reconcile", owner="worker:new",
+        fence=fence, capability_id="workspace.apply_patch",
+        correction_epochs=CorrectionEpochVector(task_epoch=0, run_epoch=0, capability_epoch=0), reservation_scope="reservation",
+        key="key", reservation_digest=digest, outcome_scope="outcome", created_at=expiry,
+    )
+    assert store.put_reconciled_outcome(**params, response={"result": "original"})
+    assert not store.put_reconciled_outcome(**params, response={"result": "different"})
+    assert store.get_idempotency("outcome", "key") == {"result": "original"}
+
+
 def test_stale_execution_lease_fence_cannot_insert_reservation(
     tmp_path: Path,
 ) -> None:
@@ -1152,3 +1206,22 @@ def test_policy_denies_budget_and_scope_mismatch() -> None:
     )
     assert decision.verdict.value == "DENY"
     assert "BUDGET_EXCEEDED" in decision.reason_codes
+
+
+@pytest.mark.parametrize("drift", ["active_same_owner", "active_other_owner", "content", "missing", "none"])
+def test_reconciliation_claim_requires_exact_reservation_and_expired_lease(tmp_path: Path, drift: str) -> None:
+    store = SQLiteTaskEventStore(tmp_path / "claim.sqlite3")
+    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    digest = hashlib.sha256(b'{}').hexdigest()
+    if drift != "missing":
+        record = {"record_digest": digest}
+        if drift == "content":
+            record["changed"] = "true"
+        store.put_idempotency("reservation", "key", record, expiry)
+    if drift.startswith("active"):
+        store.acquire_lease("run", "worker" if drift == "active_same_owner" else "other", expiry)
+    if drift != "none":
+        with pytest.raises(ConcurrentWriteError):
+            store.acquire_reconciliation_lease("run", "worker", expiry, "reservation", "key", digest)
+    else:
+        assert store.acquire_reconciliation_lease("run", "worker", expiry, "reservation", "key", digest) == 1

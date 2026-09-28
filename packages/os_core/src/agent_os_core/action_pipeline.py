@@ -157,6 +157,11 @@ class ActionPipeline:
                 record_artifacts=record_artifacts,
             )
         if replayed is not None:
+            if self._tasks._execution_claim.get() is None:
+                raise CapabilityEffectUnknown(
+                    action, reason_code="SEALED_OUTCOME_REQUIRES_EXECUTION_CLAIM",
+                    detail="Task receipt recovery requires current fenced ownership",
+                )
             try:
                 self._tasks._recover_action_receipt(
                     action.task_id,
@@ -243,15 +248,48 @@ class ActionPipeline:
         effect_custody: EffectCustodyPort | None = None,
         execution_claim: ExecutionLease,
     ) -> CapabilityResult:
+        with self._tasks.execution_scope():
+            self._tasks.bind_execution_claim(
+                action.task_id, execution_claim.run_id, execution_claim.owner, execution_claim.fence
+            )
+            return self._execute_claimed(
+                action, principal, capability_spec, approval,
+                lease_fence_fn=lease_fence_fn, capability_id=capability_id,
+                record_artifacts=record_artifacts, execution_fence=execution_fence,
+                effect_custody=effect_custody, execution_claim=execution_claim,
+            )
+
+    def _execute_claimed(
+        self,
+        action: ActionContract,
+        principal: PrincipalIdentity,
+        capability_spec: Any | None = None,
+        approval: Any = None,
+        *,
+        lease_fence_fn: Callable[[str], int] | None = None,
+        capability_id: str | None = None,
+        record_artifacts: bool = True,
+        execution_fence: Callable[[str], None] | None = None,
+        effect_custody: EffectCustodyPort | None = None,
+        execution_claim: ExecutionLease,
+    ) -> CapabilityResult:
         cid = capability_id or action.capability_id
         if cid == "workspace.compensate_patch":
             raise RunExecutionError(
                 "workspace.compensate_patch is coordinator-only"
             )
-        replayed = self.reconcile_before_policy(
-            action,
-            record_artifacts=record_artifacts,
-        )
+        pending_unknown: CapabilityEffectUnknown | None = None
+        try:
+            replayed = self.reconcile_before_policy(action, record_artifacts=record_artifacts)
+        except CapabilityEffectUnknown as unknown:
+            if unknown.reason_code != "RESERVATION_WITHOUT_OUTCOME":
+                raise
+            if self._tasks._find_exact_action_receipt(action.task_id, action) is not None:
+                # UNKNOWN is historical Task truth. It requires an explicit
+                # resolution event; automatic proof must not contradict it.
+                raise
+            pending_unknown = unknown
+            replayed = None
         if replayed is not None:
             return replayed
         self._tasks.assert_external_exact_approval(action, approval)
@@ -305,6 +343,8 @@ class ActionPipeline:
             raise PermissionError(
                 f"policy denied {cid}: {decision.reason_codes}"
             )
+        if grant is None:
+            raise PermissionError("execution requires a capability grant")
         lease_fence = execution_claim.fence
         try:
             permit = self._policy.permit(
@@ -346,6 +386,13 @@ class ActionPipeline:
             raise ExecutionLeaseConflict("stale worker execution claim")
 
         def invoke() -> CapabilityResult:
+            if pending_unknown is not None:
+                try:
+                    return self._broker.reconcile_reserved_effect(action, permit, execution_claim=execution_claim)
+                except ExecutionLeaseConflict:
+                    raise
+                except Exception as exc:
+                    raise pending_unknown from exc
             return self._broker.invoke(
                 action,
                 permit,
@@ -355,7 +402,7 @@ class ActionPipeline:
         try:
             result = (
                 effect_custody(action.node_id, action.action_digest(), invoke)
-                if effect_custody is not None
+                if effect_custody is not None and pending_unknown is None
                 else invoke()
             )
         except CapabilityEffectUnknown as unknown:
@@ -370,7 +417,7 @@ class ActionPipeline:
             # it. Behavior is preserved (the unknown is re-raised) on both the
             # chat seam and the reconciliation seam.
             self._record_unknown_action_receipt_if_current(
-                action, decision, permit, unknown
+                action, decision, permit, unknown, execution_claim
             )
             raise
         if execution_fence is not None:
@@ -384,7 +431,8 @@ class ActionPipeline:
             raise ExecutionLeaseConflict(
                 "worker lost its run lease after dispatch before receipt"
             )
-        self._tasks._record_action_receipt(
+        self._record_fenced_action_receipt(
+            execution_claim,
             action.task_id,
             action=action,
             decision=decision,
@@ -428,12 +476,22 @@ class ActionPipeline:
             )
         return result
 
+    def _record_fenced_action_receipt(
+        self, execution_claim: ExecutionLease, task_id: str, **kwargs: Any
+    ) -> None:
+        with self._tasks.execution_scope():
+            self._tasks.bind_execution_claim(
+                task_id, execution_claim.run_id, execution_claim.owner, execution_claim.fence
+            )
+            self._tasks._record_action_receipt(task_id, **kwargs)
+
     def _record_unknown_action_receipt(
         self,
         action: ActionContract,
         decision: Any,
         permit: Any,
         unknown: CapabilityEffectUnknown,
+        execution_claim: ExecutionLease,
     ) -> None:
         """Record a typed UNKNOWN receipt for a post-dispatch uncertain effect.
 
@@ -470,7 +528,8 @@ class ActionPipeline:
             detail_ref="detail:none",
             occurred_at=datetime.now(timezone.utc),
         )
-        self._tasks._record_action_receipt(
+        self._record_fenced_action_receipt(
+            execution_claim,
             action.task_id,
             action=action,
             decision=decision,
@@ -485,6 +544,7 @@ class ActionPipeline:
         decision: Any,
         permit: Any,
         unknown: CapabilityEffectUnknown,
+        execution_claim: ExecutionLease,
     ) -> None:
         current_fence = getattr(
             self._tasks._event_store,
@@ -495,7 +555,7 @@ class ActionPipeline:
             raise ExecutionLeaseConflict(
                 "worker lost its run lease before UNKNOWN receipt recording"
             ) from unknown
-        self._record_unknown_action_receipt(action, decision, permit, unknown)
+        self._record_unknown_action_receipt(action, decision, permit, unknown, execution_claim)
 
     def execute_observed(
         self,
@@ -557,6 +617,8 @@ class ActionPipeline:
             raise PermissionError(
                 f"policy denied {cid}: {decision.reason_codes}"
             )
+        if grant is None:
+            raise PermissionError("execution requires a capability grant")
         lease_fence = execution_claim.fence
         try:
             permit = self._policy.permit(
@@ -604,7 +666,7 @@ class ActionPipeline:
             # it. Behavior is preserved (the unknown is re-raised) on both the
             # chat seam and the reconciliation seam.
             self._record_unknown_action_receipt_if_current(
-                action, decision, permit, unknown
+                action, decision, permit, unknown, execution_claim
             )
             raise
         if execution_fence is not None:
@@ -618,7 +680,8 @@ class ActionPipeline:
             raise ExecutionLeaseConflict(
                 "worker lost its run lease after dispatch before receipt"
             )
-        self._tasks._record_action_receipt(
+        self._record_fenced_action_receipt(
+            execution_claim,
             action.task_id,
             action=action,
             decision=decision,

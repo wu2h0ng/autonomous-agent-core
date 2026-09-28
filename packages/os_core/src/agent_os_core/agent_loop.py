@@ -11,6 +11,7 @@ from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
 from agent_os_contracts import (
+    content_digest,
     ActionContract,
     AgentRun,
     ApprovalDecision,
@@ -28,6 +29,7 @@ from agent_os_contracts import (
     ProviderProfile,
     ProviderRequest,
     ProviderResponse,
+    ProviderExecutionReceipt,
     ProviderToolCall,
     ProviderToolProposal,
     RunStatus,
@@ -590,7 +592,20 @@ class AgentLoop:
                     "resume requires a runnable Run; "
                     "a PAUSED or terminal Run must be resumed first"
                 )
-            result = self._drive(session, turn_id)
+            cursor = projected.ordinary_cursor
+            if cursor is None:
+                result = self._drive(session, turn_id)
+            else:
+                assistant = self._history[cursor.assistant_message_index]
+                proposals = tuple(ProviderToolProposal(
+                    proposal_id=call.tool_call_id, capability_id=call.capability_id,
+                    arguments_json=call.arguments_json,
+                ) for call in assistant.tool_calls)
+                result = self._drive(
+                    session, turn_id, steps=cursor.steps, total_tokens=cursor.total_tokens,
+                    seen_action_digests=dict(cursor.seen_action_digests),
+                    continuation=(proposals, cursor.next_proposal_index, cursor.assistant_message_index),
+                )
         else:
             run = self._tasks.get_task(session.task_id).run
             if (
@@ -840,24 +855,11 @@ class AgentLoop:
         reconciled = None
         if approval.disposition is ApprovalDisposition.APPROVE:
             try:
-                reconciled = self._actions.reconcile_before_policy(
-                    pending.action,
-                    record_artifacts=False,
-                )
-            except CapabilityEffectUnknown as unknown:
+                reconciled, execution_lease = self._reconcile_or_claim(pending.action)
+            except (CapabilityEffectUnknown, ConcurrentWriteError, ExecutionLeaseConflict) as conflict:
                 raise InvalidTransitionError(
                     "APPROVE execution claim is in progress or requires review"
-                ) from unknown
-            if reconciled is None:
-                try:
-                    execution_lease = self._sandbox.acquire_execution_lease(
-                        pending.action,
-                        self._execution_owner,
-                    )
-                except (ConcurrentWriteError, ExecutionLeaseConflict) as conflict:
-                    raise InvalidTransitionError(
-                        "APPROVE execution claim is still in progress"
-                    ) from conflict
+                ) from conflict
         try:
             authority = self._durable_write(
                 lambda: self._tasks.record_or_reuse_session_approval(
@@ -890,6 +892,8 @@ class AgentLoop:
                 raise InvalidTransitionError(
                     "APPROVE execution claim is still in progress"
                 )
+        execution_failure = None
+        tool_message = None
         if bound_approval.disposition is ApprovalDisposition.REJECT:
             tool_message = self._tool_message(
                 pending.proposal,
@@ -910,6 +914,8 @@ class AgentLoop:
                     "APPROVE execution requires current execution ownership"
                 )
 
+            claimed_lease = execution_lease
+
             def resume_dispatch() -> CapabilityResult:
                 return self._actions.execute(
                     pending.action,
@@ -919,7 +925,7 @@ class AgentLoop:
                     ),
                     approval=bound_approval,
                     record_artifacts=False,
-                    execution_claim=execution_lease,
+                    execution_claim=claimed_lease,
                     execution_fence=self._assert_execution_fence,
                 )
 
@@ -934,71 +940,100 @@ class AgentLoop:
                     else resume_dispatch()
                 )
             except ResponsibilityLoopStaleFence:
+                self._sandbox.release_execution_lease(execution_lease)
                 raise
             except CapabilityCorrectionBlocked as blocked:
-                self._sandbox.release_execution_lease(execution_lease)
-                self._tasks.pause_session_for_claim_correction(
-                    session.task_id,
-                    session.session_id,
-                    pending=pending,
-                    approval=bound_approval,
-                )
-                return TurnResult(
-                    turn_id=TurnId(
-                        turn_id=pending.turn_id,
-                        session_id=session.session_id,
-                    ),
-                    text=str(blocked),
-                    steps=pending.steps,
-                    stop_reason="correction_blocked",
-                    total_tokens=pending.total_tokens,
-                )
+                try:
+                    with self._tasks.execution_scope():
+                        self._tasks.bind_execution_claim(session.task_id, execution_lease.run_id,
+                                                         execution_lease.owner, execution_lease.fence)
+                        self._tasks.pause_session_for_claim_correction(
+
+                            session.task_id,
+                            session.session_id,
+                            pending=pending,
+                            approval=bound_approval,
+                        )
+                        return TurnResult(
+                            turn_id=TurnId(
+                                turn_id=pending.turn_id,
+                                session_id=session.session_id,
+                            ),
+                            text=str(blocked),
+                            steps=pending.steps,
+                            stop_reason="correction_blocked",
+                            total_tokens=pending.total_tokens,
+                        )
+                finally:
+                    self._sandbox.release_execution_lease(execution_lease)
             except ExecutionLeaseConflict as conflict:
                 self._sandbox.release_execution_lease(execution_lease)
                 raise InvalidTransitionError(
                     "APPROVE execution ownership changed before reservation"
                 ) from conflict
             except CapabilityEffectUnknown as unknown:
+                try:
+                    with self._tasks.execution_scope():
+                        self._tasks.bind_execution_claim(session.task_id, execution_lease.run_id,
+                                                         execution_lease.owner, execution_lease.fence)
+                        return self._pause_for_unknown(
+                            session,
+                            TurnId(
+                                turn_id=pending.turn_id,
+                                session_id=session.session_id,
+                            ),
+                            pending.proposal.proposal_id,
+                            unknown,
+                            steps=pending.steps,
+                            total_tokens=pending.total_tokens,
+                        )
+                finally:
+                    self._sandbox.release_execution_lease(execution_lease)
+            except ConcurrentWriteError:
                 self._sandbox.release_execution_lease(execution_lease)
-                return self._pause_for_unknown(
-                    session,
-                    TurnId(
-                        turn_id=pending.turn_id,
-                        session_id=session.session_id,
-                    ),
-                    pending.proposal.proposal_id,
-                    unknown,
-                    steps=pending.steps,
-                    total_tokens=pending.total_tokens,
-                )
+                raise
             except Exception as exc:
-                self._sandbox.release_execution_lease(execution_lease)
+                execution_failure = exc
                 # Same durable signal as the unapproved path: an approved call
                 # that the capability layer still refuses (the file turned
                 # read-only, the digest changed between approval and dispatch)
                 # sealed nothing, so the card it created must not stay pending.
-                self._record_tool_failure(
-                    pending.action, pending.proposal.proposal_id, exc
-                )
                 tool_message = self._tool_message(
                     pending.proposal,
                     {"error": f"{type(exc).__name__}: {exc}"},
                 )
             else:
-                self._sandbox.release_execution_lease(execution_lease)
                 tool_message = self._tool_message(
                     pending.proposal,
                     _truncate_json(result.output),
                 )
-        self._durable_write(
-            lambda: self._tasks.resolve_session_approval(
-                session.task_id,
-                session.session_id,
-                pending=pending,
-                approval=bound_approval,
-                tool_message=tool_message,
+        if reconciled is not None and execution_lease is None:
+            execution_lease = self._sandbox.acquire_reconciliation_lease(
+                pending.action, self._execution_owner
             )
-        )
+        if tool_message is None:
+            raise InvalidTransitionError("approval resolution lacks a tool response")
+        try:
+            with self._tasks.execution_scope():
+                if execution_lease is not None:
+                    self._tasks.bind_execution_claim(
+                        session.task_id, execution_lease.run_id,
+                        execution_lease.owner, execution_lease.fence,
+                    )
+                if execution_failure is not None:
+                    self._record_tool_failure(pending.action, pending.proposal.proposal_id, execution_failure)
+                self._durable_write(
+                    lambda: self._tasks.resolve_session_approval(
+                        session.task_id,
+                        session.session_id,
+                        pending=pending,
+                        approval=bound_approval,
+                        tool_message=tool_message,
+                    )
+                )
+        finally:
+            if execution_lease is not None:
+                self._sandbox.release_execution_lease(execution_lease)
         self._history.append(tool_message)
         turn_id = TurnId(
             turn_id=pending.turn_id,
@@ -1088,7 +1123,7 @@ class AgentLoop:
         final_text = ""
         seen_action_digests = dict(seen_action_digests or {})
         stop_reason = "max_steps"
-        while steps < self._config.max_steps_per_turn:
+        while continuation is not None or steps < self._config.max_steps_per_turn:
             if (
                 self._wall_clock_deadline is not None
                 and time.monotonic() > self._wall_clock_deadline
@@ -1209,6 +1244,19 @@ class AgentLoop:
                         f"provider proposed unauthorized capability {capability_id}"
                     )
                     break
+                progress_committed = False
+
+                def commit_tool_progress(message: ProviderMessage) -> None:
+                    nonlocal continuation_checkpoint, progress_committed
+                    continuation_checkpoint = self._append_turn_progress(
+                        session, turn_id=turn_id.turn_id, message=message,
+                        continuation=continuation_checkpoint,
+                        assistant_message_index=assistant_message_index,
+                        next_proposal_index=index + 1, steps=steps,
+                        total_tokens=total_tokens, seen_action_digests=seen_action_digests,
+                    )
+                    progress_committed = True
+
                 try:
                     tool_message = self._execute_proposal(
                         session,
@@ -1217,55 +1265,68 @@ class AgentLoop:
                         index,
                         proposal,
                         seen_action_digests,
+                        commit_progress=commit_tool_progress,
                     )
                 except CapabilityEffectUnknown as unknown:
-                    # S2 fail-closed, but honest and terminal: a post-dispatch
-                    # unknown is never a success and is never auto-retried, yet
-                    # the turn must still conclude visibly. Answer the
-                    # outstanding tool call with the reason, answer the
-                    # proposals of this message that will not run (a provider
-                    # rejects unanswered tool_calls), then stop on the durable
-                    # unknown pause.
-                    continuation_checkpoint = self._append_turn_progress(
-                        session,
-                        turn_id=turn_id.turn_id,
-                        message=self._unknown_tool_message(proposal, unknown),
-                        continuation=continuation_checkpoint,
-                        assistant_message_index=assistant_message_index,
-                        next_proposal_index=index + 1,
-                        steps=steps,
-                        total_tokens=total_tokens,
-                        seen_action_digests=seen_action_digests,
+                    unknown_claim = self._sandbox.acquire_reconciliation_lease(
+                        unknown.action, self._execution_owner
                     )
-                    replied_proposal_ids.add(proposal.proposal_id)
-                    for remaining_index in range(index + 1, len(proposals)):
-                        remaining = proposals[remaining_index]
-                        continuation_checkpoint = self._append_turn_progress(
-                            session,
-                            turn_id=turn_id.turn_id,
-                            message=self._tool_message(
-                                remaining,
-                                {
-                                    "error": _NOT_EXECUTED_AFTER_UNKNOWN,
-                                    "not_executed": True,
-                                },
-                            ),
-                            continuation=continuation_checkpoint,
-                            assistant_message_index=assistant_message_index,
-                            next_proposal_index=remaining_index + 1,
-                            steps=steps,
-                            total_tokens=total_tokens,
-                            seen_action_digests=seen_action_digests,
-                        )
-                        replied_proposal_ids.add(remaining.proposal_id)
-                    return self._pause_for_unknown(
-                        session,
-                        turn_id,
-                        proposal.proposal_id,
-                        unknown,
-                        steps=steps,
-                        total_tokens=total_tokens,
-                    )
+                    try:
+                        with self._tasks.execution_scope():
+                            self._tasks.bind_execution_claim(
+                                session.task_id, unknown_claim.run_id,
+                                unknown_claim.owner, unknown_claim.fence,
+                            )
+                            # S2 fail-closed, but honest and terminal: a post-dispatch
+                            # unknown is never a success and is never auto-retried, yet
+                            # the turn must still conclude visibly. Answer the
+                            # outstanding tool call with the reason, answer the
+                            # proposals of this message that will not run (a provider
+                            # rejects unanswered tool_calls), then stop on the durable
+                            # unknown pause.
+                            continuation_checkpoint = self._append_turn_progress(
+                                session,
+                                turn_id=turn_id.turn_id,
+                                message=self._unknown_tool_message(proposal, unknown),
+                                continuation=continuation_checkpoint,
+                                assistant_message_index=assistant_message_index,
+                                next_proposal_index=index + 1,
+                                steps=steps,
+                                total_tokens=total_tokens,
+                                seen_action_digests=seen_action_digests,
+                            )
+                            replied_proposal_ids.add(proposal.proposal_id)
+                            for remaining_index in range(index + 1, len(proposals)):
+                                remaining = proposals[remaining_index]
+                                continuation_checkpoint = self._append_turn_progress(
+                                    session,
+                                    turn_id=turn_id.turn_id,
+                                    message=self._tool_message(
+                                        remaining,
+                                        {
+                                            "error": _NOT_EXECUTED_AFTER_UNKNOWN,
+                                            "not_executed": True,
+                                        },
+                                    ),
+                                    continuation=continuation_checkpoint,
+                                    assistant_message_index=assistant_message_index,
+                                    next_proposal_index=remaining_index + 1,
+                                    steps=steps,
+                                    total_tokens=total_tokens,
+                                    seen_action_digests=seen_action_digests,
+                                )
+                                replied_proposal_ids.add(remaining.proposal_id)
+                            return self._pause_for_unknown(
+                                session,
+                                turn_id,
+                                proposal.proposal_id,
+                                unknown,
+                                steps=steps,
+                                total_tokens=total_tokens,
+                            )
+                    finally:
+                        self._sandbox.release_execution_lease(unknown_claim)
+                    raise InvalidTransitionError("unknown reconciliation did not return a pause")
                 except ApprovalRequired as required:
                     approval_action = required.action
                     approval_preview = required.preview
@@ -1291,17 +1352,8 @@ class AgentLoop:
                         stop_reason="approval_required",
                         total_tokens=total_tokens,
                     )
-                continuation_checkpoint = self._append_turn_progress(
-                    session,
-                    turn_id=turn_id.turn_id,
-                    message=tool_message,
-                    continuation=continuation_checkpoint,
-                    assistant_message_index=assistant_message_index,
-                    next_proposal_index=index + 1,
-                    steps=steps,
-                    total_tokens=total_tokens,
-                    seen_action_digests=seen_action_digests,
-                )
+                if not progress_committed:
+                    commit_tool_progress(tool_message)
                 replied_proposal_ids.add(proposal.proposal_id)
                 if seen_action_digests and max(seen_action_digests.values()) >= (
                     self._config.loop_detection_threshold
@@ -1468,7 +1520,20 @@ class AgentLoop:
         seen_action_digests: dict[str, int],
     ) -> ProjectedResolvedContinuation | None:
         if continuation is None:
-            self._append_message(session, message, turn_id=turn_id)
+            assistant = (message if message.role is ProviderMessageRole.ASSISTANT
+                         else self._history[assistant_message_index])
+            progress = {
+                "assistant_message_index": assistant_message_index,
+                "assistant_message_digest": content_digest(assistant.model_dump(mode="json")),
+                "next_proposal_index": next_proposal_index,
+                "steps": steps, "total_tokens": total_tokens,
+                "seen_action_digests": dict(seen_action_digests),
+            }
+            self._durable_write(lambda: self._tasks.record_session_message(
+                session.task_id, session.session_id, len(self._history), message,
+                turn_id=turn_id, progress=progress,
+            ))
+            self._history.append(message)
             return None
         return self._append_continuation_message(
             session,
@@ -1529,6 +1594,28 @@ class AgentLoop:
                 raise RunExecutionError(
                     "chat provider invocation requires an exact configuration snapshot"
                 )
+            persisted = [event for event in self._tasks._event_store.read(session.task_id)
+                         if event.event_type is TaskEventType.PROVIDER_RESPONDED
+                         and event.decoded_payload().get("node_id") == node_id]
+            if len(persisted) > 1:
+                raise RunExecutionError("provider step has conflicting durable responses")
+            if persisted:
+                event = persisted[0]
+                payload = event.decoded_payload()
+                receipt = ProviderExecutionReceipt.model_validate(payload["provider_execution_receipt"])
+                raw = payload["provider_output"].get("response_record")
+                if raw is None:
+                    raise RunExecutionError("historical provider response lacks exact recovery record")
+                recovered = ProviderResponse.model_validate(raw)
+                epochs = self._correction.snapshot(session.task_id, session.run_id, "provider")
+                if (receipt.source_event_id != event.event_id or receipt.node_id != node_id
+                    or receipt.task_id != session.task_id or receipt.run_id != session.run_id
+                    or receipt.provider_profile_digest != snapshot.provider_profile_digest
+                    or content_digest(recovered) != receipt.response_digest
+                    or receipt.post_correction_epochs != epochs
+                    or self._correction.halted(session.task_id, session.run_id, "provider")):
+                    raise RunExecutionError("durable provider response recovery binding mismatch")
+                return recovered
             try:
                 invocation_binding = self._provider.invocation_binding
             except RuntimeError as exc:
@@ -1771,6 +1858,7 @@ class AgentLoop:
         index: int,
         proposal: Any,
         seen_action_digests: dict[str, int],
+        *, commit_progress: Callable[[ProviderMessage], None] | None = None,
     ) -> ProviderMessage:
         capability_id = proposal.capability_id
         try:
@@ -1856,25 +1944,36 @@ class AgentLoop:
                 },
             )
         if gate.outcome is PermissionGateOutcome.REQUIRE_CONFIRM:
-            confirmed = self._gateway.confirm(
-                action,
-                _action_preview(action, arguments),
-            )
-            self._actions.record_action_proposed(action)
-            if not confirmed:
-                self._record_denial(session, action)
-                return self._tool_message(
-                    proposal,
-                    {"error": "user rejected the proposed action", "rejected": True},
+            prior = None
+            for event in self._tasks._event_store.read(action.task_id):
+                if event.event_type is TaskEventType.APPROVAL_RECORDED:
+                    decision = ApprovalDecision.model_validate(event.decoded_payload()["approval"])
+                    if decision.action_digest == action.action_digest():
+                        prior = decision
+            if prior is not None:
+                if prior.disposition is not ApprovalDisposition.APPROVE:
+                    raise InvalidTransitionError("prior action approval was rejected")
+                approval = prior if gate.risk_tier >= 3 else None
+            else:
+                confirmed = self._gateway.confirm(
+                    action,
+                    _action_preview(action, arguments),
                 )
-            # Recorded before the dispatch it authorizes, mirroring the denial
-            # above. Tier<3 is admitted by the kernel without an
-            # ApprovalDecision, so for it this record is authority evidence,
-            # never a new admission path.
-            confirmation = self._build_approval(action)
-            self._record_confirmation(session, action, confirmation)
-            if gate.risk_tier >= 3:
-                approval = confirmation
+                self._actions.record_action_proposed(action)
+                if not confirmed:
+                    self._record_denial(session, action)
+                    return self._tool_message(
+                        proposal,
+                        {"error": "user rejected the proposed action", "rejected": True},
+                    )
+                # Recorded before the dispatch it authorizes, mirroring the denial
+                # above. Tier<3 is admitted by the kernel without an
+                # ApprovalDecision, so for it this record is authority evidence,
+                # never a new admission path.
+                confirmation = self._build_approval(action)
+                self._record_confirmation(session, action, confirmation)
+                if gate.risk_tier >= 3:
+                    approval = confirmation
         else:
             self._actions.record_action_proposed(action)
             if gate.outcome is PermissionGateOutcome.MODE_AUTO_ALLOW:
@@ -1891,25 +1990,11 @@ class AgentLoop:
                 )
         # Replay-before-dispatch: a sealed or reserved action is resolved
         # through the durable outcome repository and never re-dispatched.
-        reconciled = self._actions.reconcile_before_policy(
-            action,
-            record_artifacts=False,
-        )
+        reconciled, execution_lease = self._reconcile_or_claim(action)
         if reconciled is not None:
-            self._record_tool_completion(
-                action,
-                proposal.proposal_id,
-                reconciled.output,
-            )
-            return self._tool_message(
-                proposal,
-                _truncate_json(reconciled.output),
-            )
-        # ADR-0059: every production dispatch carries an execution claim
-        # bound to the durable run lease (founder P1).
-        execution_lease = self._sandbox.acquire_execution_lease(
-            action, self._execution_owner
-        )
+            execution_lease = self._sandbox.acquire_reconciliation_lease(action, self._execution_owner)
+        if execution_lease is None:
+            raise InvalidTransitionError("tool execution requires current ownership")
 
         def dispatch() -> CapabilityResult:
             return self._actions.execute(
@@ -1924,7 +2009,7 @@ class AgentLoop:
 
         try:
             self._assert_execution_fence("before_tool_effect")
-            result = (
+            result = reconciled if reconciled is not None else (
                 self._effect_custody(
                     action.node_id,
                     action.action_digest(),
@@ -1934,26 +2019,53 @@ class AgentLoop:
                 else dispatch()
             )
             self._assert_execution_fence("before_tool_effect_commit")
+            with self._tasks.execution_scope():
+                self._tasks.bind_execution_claim(
+                    action.task_id, execution_lease.run_id,
+                    execution_lease.owner, execution_lease.fence,
+                )
+                self._record_tool_completion(action, proposal.proposal_id, result.output)
+                if commit_progress is not None:
+                    commit_progress(self._tool_message(proposal, _truncate_json(result.output)))
+        except (ConcurrentWriteError, ExecutionLeaseConflict):
+            raise
         except CapabilityEffectUnknown:
             raise
         except ResponsibilityLoopStaleFence:
             raise
         except Exception as exc:
-            self._record_tool_failure(action, proposal.proposal_id, exc)
-            return self._tool_message(
-                proposal,
-                {"error": f"{type(exc).__name__}: {exc}"},
-            )
+            with self._tasks.execution_scope():
+                self._tasks.bind_execution_claim(action.task_id, execution_lease.run_id,
+                                                 execution_lease.owner, execution_lease.fence)
+                self._record_tool_failure(action, proposal.proposal_id, exc)
+                message = self._tool_message(proposal, {"error": f"{type(exc).__name__}: {exc}"})
+                if commit_progress is not None:
+                    commit_progress(message)
+                return message
         finally:
             self._sandbox.release_execution_lease(execution_lease)
         output = result.output
-        self._record_tool_completion(
-            action,
-            proposal.proposal_id,
-            output,
-        )
         truncated = _truncate_json(output)
         return self._tool_message(proposal, truncated)
+
+    def _reconcile_or_claim(self, action: ActionContract):
+        """Read historical truth, or claim a fenced execution/reconciliation path."""
+        try:
+            result = self._actions.reconcile_before_policy(action, record_artifacts=False)
+        except CapabilityEffectUnknown as unknown:
+            if unknown.reason_code not in {
+                "RESERVATION_WITHOUT_OUTCOME",
+                "SEALED_OUTCOME_REQUIRES_EXECUTION_CLAIM",
+            }:
+                raise
+            if self._tasks._find_exact_action_receipt(action.task_id, action) is not None:
+                raise
+            return None, self._sandbox.acquire_reconciliation_lease(
+                action, self._execution_owner
+            )
+        if result is not None:
+            return result, None
+        return None, self._sandbox.acquire_execution_lease(action, self._execution_owner)
 
     def _record_out_of_allowlist_denial(
         self, session: ChatSession, proposal: Any
@@ -2339,6 +2451,7 @@ def _provider_output(response: ProviderResponse) -> dict[str, object]:
         ],
         "usage": response.usage.model_dump(mode="json"),
         "finish_reason": response.finish_reason,
+        "response_record": response.model_dump(mode="json"),
     }
 
 

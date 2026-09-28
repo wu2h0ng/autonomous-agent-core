@@ -174,6 +174,48 @@ class ProjectedResolvedContinuation:
 
 
 @dataclass(frozen=True)
+class ProjectedTurnCursor:
+    turn_id: str
+    assistant_message_index: int
+    next_proposal_index: int
+    steps: int
+    total_tokens: int
+    seen_action_digests: tuple[tuple[str, int], ...]
+
+    @classmethod
+    def from_progress(cls, raw: Any, turn_id: str, history: list[ProviderMessage]):
+        keys = {"assistant_message_index", "assistant_message_digest", "next_proposal_index",
+                "steps", "total_tokens", "seen_action_digests"}
+        if not isinstance(raw, dict) or set(raw) != keys:
+            raise SessionProjectionError("invalid ordinary progress fields")
+        for key in ("assistant_message_index", "next_proposal_index", "steps", "total_tokens"):
+            if isinstance(raw[key], bool) or not isinstance(raw[key], int) or raw[key] < 0:
+                raise SessionProjectionError("invalid ordinary progress counter")
+        index = raw["assistant_message_index"]
+        if index >= len(history):
+            raise SessionProjectionError("progress assistant missing")
+        assistant = history[index]
+        if (assistant.role is not ProviderMessageRole.ASSISTANT
+            or content_digest(assistant.model_dump(mode="json")) != raw["assistant_message_digest"]
+            or raw["next_proposal_index"] > len(assistant.tool_calls)):
+            raise SessionProjectionError("progress assistant binding mismatch")
+        replies = history[index + 1:]
+        if len(replies) != raw["next_proposal_index"] or any(
+            reply.role is not ProviderMessageRole.TOOL or reply.tool_call_id != call.tool_call_id
+            for reply, call in zip(replies, assistant.tool_calls)
+        ):
+            raise SessionProjectionError("progress reply prefix mismatch")
+        seen = raw["seen_action_digests"]
+        if not isinstance(seen, dict) or any(
+            not isinstance(k, str) or isinstance(v, bool) or not isinstance(v, int) or v < 0
+            for k, v in seen.items()
+        ):
+            raise SessionProjectionError("invalid progress action counts")
+        return cls(turn_id, index, raw["next_proposal_index"], raw["steps"],
+                   raw["total_tokens"], tuple(sorted(seen.items())))
+
+
+@dataclass(frozen=True)
 class ProjectedSession:
     ref: SessionRef
     envelope_id: str
@@ -189,6 +231,7 @@ class ProjectedSession:
     approval_execution_claim: ProjectedApprovalExecutionClaim | None
     resolved_continuation: ProjectedResolvedContinuation | None
     resumable_turn_id: str | None
+    ordinary_cursor: ProjectedTurnCursor | None = None
     permission_mode: PermissionMode = "ASK"
     permission_mode_event_id: str | None = None
 
@@ -265,6 +308,7 @@ def _strict_project(
     run_cancelled = False
     permission_mode: PermissionMode = "ASK"
     permission_mode_event_id: str | None = None
+    ordinary_cursor: ProjectedTurnCursor | None = None
     history: list[ProviderMessage] = []
     pending_continuation: ProjectedApprovalContinuation | None = None
     approval_execution_claim: ProjectedApprovalExecutionClaim | None = None
@@ -390,6 +434,10 @@ def _strict_project(
                     if turn_id != open_turn_id:
                         raise SessionProjectionError("session message turn mismatch")
                 history.append(message)
+                if "progress" in payload:
+                    if turn_id != open_turn_id or turn_id is None:
+                        raise SessionProjectionError("progress turn mismatch")
+                    ordinary_cursor = ProjectedTurnCursor.from_progress(payload["progress"], turn_id, history)
                 continue
 
             if event.event_type is TaskEventType.SESSION_APPROVAL_PENDING:
@@ -640,6 +688,7 @@ def _strict_project(
         approval_execution_claim=approval_execution_claim,
         resolved_continuation=resolved_continuation,
         resumable_turn_id=open_turn_id,
+        ordinary_cursor=(ordinary_cursor if ordinary_cursor and ordinary_cursor.turn_id == open_turn_id else None),
         permission_mode=permission_mode,
         permission_mode_event_id=permission_mode_event_id,
     )

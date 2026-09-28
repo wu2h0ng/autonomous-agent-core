@@ -379,6 +379,41 @@ class SQLiteTaskEventStore:
             self._held_leases[(run_id, owner)] = fence
             return fence
 
+    def acquire_reconciliation_lease(
+        self, run_id: str, owner: str, expires_at: str,
+        scope: str, key: str, expected_digest: str,
+    ) -> int:
+        import hashlib
+        import json
+
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                row = self._db.execute(
+                    "SELECT response_json FROM idempotency_keys WHERE scope=? AND key=?",
+                    (scope, key),
+                ).fetchone()
+                record = json.loads(row[0]) if row else None
+                digest = hashlib.sha256(json.dumps(
+                    {k: v for k, v in record.items() if k != "record_digest"},
+                    sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                ).encode()).hexdigest() if isinstance(record, dict) else None
+                if not isinstance(record, dict) or digest != expected_digest or record.get("record_digest") != expected_digest:
+                    raise ConcurrentWriteError("reconciliation reservation changed")
+                lease = self._db.execute(
+                    "SELECT expires_at FROM run_leases WHERE run_id=?", (run_id,),
+                ).fetchone()
+                if lease and self._lease_active(str(lease[0])):
+                    raise ConcurrentWriteError("reconciliation requires an expired lease")
+                fence = self._acquire_lease_in_transaction(run_id, owner, expires_at)
+                self._db.commit()
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
+            self._held_leases[(run_id, owner)] = fence
+            return fence
+
     def put_idempotency_guarded_by_lease(
         self,
         run_id: str,
@@ -416,6 +451,64 @@ class SQLiteTaskEventStore:
                     "INSERT OR IGNORE INTO idempotency_keys"
                     "(scope, key, response_json, created_at) VALUES (?, ?, ?, ?)",
                     (scope, key, json.dumps(response, sort_keys=True), created_at),
+                )
+                self._db.commit()
+                return cursor.rowcount == 1
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
+
+    def put_reconciled_outcome(
+        self, *, task_id: str, run_id: str, owner: str, fence: int,
+        capability_id: str, correction_epochs: CorrectionEpochVector,
+        reservation_scope: str, key: str, reservation_digest: str,
+        outcome_scope: str, response: dict[str, Any], created_at: str,
+    ) -> bool:
+        """Insert an immutable recovery outcome under lease and C7 authority."""
+        import hashlib
+        import json
+
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                lease = self._db.execute(
+                    "SELECT owner, fence, expires_at FROM run_leases WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if (
+                    lease is None or str(lease["owner"]) != owner
+                    or int(lease["fence"]) != fence
+                    or not self._lease_active(str(lease["expires_at"]))
+                ):
+                    raise ConcurrentWriteError("stale execution lease cannot reconcile outcome")
+                for scope, scope_id, expected in (
+                    ("task", task_id, correction_epochs.task_epoch),
+                    ("run", run_id, correction_epochs.run_epoch),
+                    ("capability", capability_id, correction_epochs.capability_epoch),
+                ):
+                    row = self._db.execute(
+                        "SELECT epoch, halted FROM correction_epochs WHERE scope = ? AND scope_id = ?",
+                        (scope, scope_id),
+                    ).fetchone()
+                    if (row is not None and bool(row["halted"])) or (
+                        (int(row["epoch"]) if row is not None else 0) != expected
+                    ):
+                        raise ConcurrentWriteError("correction authority changed before outcome reconciliation")
+                row = self._db.execute(
+                    "SELECT response_json FROM idempotency_keys WHERE scope = ? AND key = ?",
+                    (reservation_scope, key),
+                ).fetchone()
+                reservation = json.loads(row["response_json"]) if row is not None else None
+                actual_digest = hashlib.sha256(json.dumps(
+                    {k: v for k, v in reservation.items() if k != "record_digest"},
+                    sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                ).encode("utf-8")).hexdigest() if isinstance(reservation, dict) else None
+                if not isinstance(reservation, dict) or reservation.get("record_digest") != reservation_digest or actual_digest != reservation_digest:
+                    raise ConcurrentWriteError("reservation changed before outcome reconciliation")
+                cursor = self._db.execute(
+                    "INSERT OR IGNORE INTO idempotency_keys(scope,key,response_json,created_at) VALUES (?,?,?,?)",
+                    (outcome_scope, key, json.dumps(response, sort_keys=True), created_at),
                 )
                 self._db.commit()
                 return cursor.rowcount == 1

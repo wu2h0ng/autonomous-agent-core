@@ -23,6 +23,7 @@ from agent_os_contracts import (
     SideEffectGuarantee,
     content_digest,
 )
+from agent_os_core._action_outcome import ReservedEffectProof
 from agent_os_core import (
     CapabilityDenied,
     CapabilityEffect,
@@ -442,6 +443,14 @@ class DeveloperWorkspaceAdapter:
             )
         return outcomes.acquire_execution_lease(action, owner)
 
+    def acquire_reconciliation_lease(
+        self, action: ActionContract, owner: str
+    ) -> ExecutionLease:
+        outcomes = self.outcomes()
+        if outcomes is None:
+            raise CapabilityDenied("durable store is required for reconciliation")
+        return outcomes.acquire_reconciliation_lease(action, owner)
+
     def release_execution_lease(self, lease: ExecutionLease) -> bool:
         outcomes = self.outcomes()
         if outcomes is None:
@@ -473,6 +482,39 @@ class DeveloperWorkspaceAdapter:
                 self._validate_cached_compensation_effect(args, result.output)
         except Exception as exc:
             raise _redacted_error(exc, self.root) from None
+
+    def prove_reserved_effect(self, action: ActionContract) -> ReservedEffectProof:
+        """Read-only evidence for an already-applied patch, never redispatch."""
+        if action.capability_id != "workspace.apply_patch":
+            raise CapabilityDenied("reserved effect is not provable by this connector")
+        args = json.loads(action.arguments_json)
+        if not isinstance(args, dict):
+            raise CapabilityDenied("patch arguments must be an object")
+        path = self._safe_path(str(args.get("path", "")))
+        relative_path = str(path.relative_to(self.root))
+        applied_sha256 = _sha256(str(args.get("content", "")).encode("utf-8"))
+        key_digest = _sha256(action.idempotency_key.encode("utf-8"))
+        compensation_ref = f"compensation:{key_digest}"
+        manifest, manifest_sha256, state, _ = self._load_snapshot(compensation_ref)
+        if (
+            state != "APPLIED"
+            or manifest["action_key_sha256"] != key_digest
+            or manifest["relative_path"] != relative_path
+            or manifest["applied_sha256"] != applied_sha256
+            or not path.exists()
+            or _sha256(path.read_bytes()) != applied_sha256
+        ):
+            raise CapabilityDenied("snapshot does not prove the reserved patch effect")
+        output: dict[str, object] = {
+            "path": relative_path, "sha256": applied_sha256,
+            "before_sha256": manifest["before_sha256"], "applied_sha256": applied_sha256,
+            "compensation_ref": compensation_ref, "manifest_sha256": manifest_sha256,
+            "replayed": True, "overwrite_guard": _OVERWRITE_GUARD_REPLAYED,
+        }
+        return ReservedEffectProof(
+            action.action_digest(), action.idempotency_key, "APPLIED_PATCH_SNAPSHOT",
+            compensation_ref, manifest_sha256, output,
+        )
 
     def _preflight(
         self,

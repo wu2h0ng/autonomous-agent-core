@@ -73,6 +73,7 @@ from .outcome_evaluators import (
 from .session_projection import (
     ProjectedApprovalContinuation,
     ProjectedResolvedContinuation,
+    ProjectedTurnCursor,
     ProjectedSession,
     SessionLoopConfig,
     SessionProjectionError,
@@ -291,7 +292,14 @@ class TaskService:
             )
             return
         if correction_epochs is not None:
-            raise ConcurrentWriteError("correction guarded append requires explicit path")
+            aggregate = self.get_task(task_id)
+            guarded = getattr(self._event_store, "append_guarded", None)
+            if aggregate.run is None or not callable(guarded):
+                raise ConcurrentWriteError("store lacks correction guarded append")
+            guarded(task_id, run_id=aggregate.run.run_id, capability_id=capability_id,
+                    expected_correction_epochs=correction_epochs,
+                    expected_sequence=expected_sequence, drafts=drafts)
+            return
         self._event_store.append(
             task_id, expected_sequence=expected_sequence, drafts=drafts
         )
@@ -699,6 +707,8 @@ class TaskService:
         *,
         correlation_id: str | None = None,
         writer_token: object | None = None,
+        correction_capability_id: str | None = None,
+        correction_epochs: CorrectionEpochVector | None = None,
     ) -> TaskAggregate:
         if (
             event_type in PROTECTED_TRUTH_EVENTS
@@ -718,7 +728,8 @@ class TaskService:
             causation_id=aggregate.last_event_id,
         )
         self._append_drafts(
-            task_id, expected_sequence=aggregate.sequence, drafts=(draft,)
+            task_id, expected_sequence=aggregate.sequence, drafts=(draft,),
+            capability_id=correction_capability_id, correction_epochs=correction_epochs
         )
         return self.get_task(task_id)
 
@@ -910,6 +921,7 @@ class TaskService:
         message: ProviderMessage,
         *,
         turn_id: str | None,
+        progress: dict[str, Any] | None = None,
     ) -> TaskAggregate:
         if message_index < 0:
             raise ValueError("message_index must be non-negative")
@@ -928,6 +940,33 @@ class TaskService:
             )
         if message_index != projected.next_message_index:
             raise InvalidTransitionError("message_index must be the next contiguous index")
+        provider_epochs = None
+        if progress is not None:
+            if turn_id is None or turn_id != projected.resumable_turn_id:
+                raise InvalidTransitionError("ordinary progress requires the current open turn")
+            cursor = ProjectedTurnCursor.from_progress(
+                progress, turn_id, [*projected.history, message]
+            )
+            sources = [event for event in self._event_store.read(task_id)
+                       if event.event_type is TaskEventType.PROVIDER_RESPONDED
+                       and event.decoded_payload().get("node_id") == f"{turn_id}-step-{cursor.steps}"]
+            if len(sources) != 1:
+                raise InvalidTransitionError("ordinary progress requires one exact provider receipt")
+            source = sources[0]
+            receipt = ProviderExecutionReceipt.model_validate(source.decoded_payload()["provider_execution_receipt"])
+            if receipt.source_event_id != source.event_id or receipt.run_id != projected.ref.run_id:
+                raise InvalidTransitionError("ordinary progress provider source mismatch")
+            provider_epochs = receipt.post_correction_epochs
+            prior = projected.ordinary_cursor
+            if prior is not None:
+                if cursor.steps < prior.steps or cursor.total_tokens < prior.total_tokens:
+                    raise InvalidTransitionError("ordinary progress budget cannot regress")
+                if cursor.assistant_message_index == prior.assistant_message_index:
+                    if (cursor.next_proposal_index != prior.next_proposal_index + 1
+                        or cursor.steps != prior.steps or cursor.total_tokens != prior.total_tokens):
+                        raise InvalidTransitionError("ordinary progress must advance one exact tool reply")
+                elif cursor.steps != prior.steps + 1 or cursor.next_proposal_index != 0:
+                    raise InvalidTransitionError("ordinary progress must advance one provider step")
         return self._append_event(
             task_id,
             TaskEventType.SESSION_MESSAGE_RECORDED,
@@ -936,8 +975,11 @@ class TaskService:
                 "message_index": message_index,
                 "message": message.model_dump(mode="json"),
                 "turn_id": turn_id,
+                **({"progress": progress} if progress is not None else {}),
             },
             correlation_id=session_id,
+            correction_capability_id="provider" if provider_epochs is not None else None,
+            correction_epochs=provider_epochs,
         )
 
     def record_session_continuation_message(

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from agent_os_contracts import ActionContract, ActionPermit, ActionReceipt
+from agent_os_contracts import ActionContract, ActionPermit, ActionReceipt, ReceiptStatus
 
 from .errors import ConcurrentWriteError
 
@@ -55,6 +55,18 @@ class CapabilityResult:
     receipt: ActionReceipt
     output: dict[str, object]
     permit: ActionPermit
+
+
+@dataclass(frozen=True)
+class ReservedEffectProof:
+    """Connector evidence about an existing effect; carries no execution authority."""
+
+    action_digest: str
+    idempotency_key: str
+    evidence_kind: str
+    evidence_ref: str
+    evidence_digest: str
+    output: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -121,6 +133,29 @@ class DurableActionOutcomeRepository:
             fence=int(fence),
             expires_at=expires_at,
         )
+
+    def acquire_reconciliation_lease(
+        self, action: ActionContract, owner: str,
+        *, ttl: timedelta = timedelta(minutes=5),
+    ) -> ExecutionLease:
+        """Claim read-only effect reconciliation; never authorizes dispatch."""
+        if not owner.strip() or ttl <= timedelta(0):
+            raise ValueError("execution lease owner and ttl must be valid")
+        reservation = self._get_record(self.RESERVATION_SCOPE, action.idempotency_key)
+        if reservation is None:
+            raise ValueError("reconciliation requires an existing reservation")
+        self._validate_reservation(action, reservation)
+        expires_at = datetime.now(timezone.utc) + ttl
+        acquire = getattr(self._store, "acquire_reconciliation_lease", None)
+        if not callable(acquire):
+            raise TypeError("durable store lacks reconciliation lease acquisition")
+        fence = acquire(action.run_id, owner, expires_at.isoformat(),
+                        self.RESERVATION_SCOPE, action.idempotency_key,
+                        reservation["record_digest"])
+        if not isinstance(fence, int) or isinstance(fence, bool):
+            raise TypeError("store returned an invalid lease fence")
+        return ExecutionLease(run_id=action.run_id, owner=owner,
+                              fence=fence, expires_at=expires_at)
 
     def release_execution_lease(self, lease: ExecutionLease) -> bool:
         release = getattr(self._store, "release_lease", None)
@@ -254,11 +289,15 @@ class DurableActionOutcomeRepository:
         permit: ActionPermit,
         receipt: ActionReceipt,
         output: dict[str, object],
+        *,
+        reconciliation_lease: ExecutionLease | None = None,
+        proof: ReservedEffectProof | None = None,
     ) -> CapabilityResult:
         self._validate_reservation(action, reservation)
+        if (reconciliation_lease is None) != (proof is None):
+            raise ValueError("reconciliation lease and proof must be supplied together")
         now = datetime.now(timezone.utc)
-        outcome = self._with_record_digest(
-            {
+        body: dict[str, object] = {
                 "schema_version": self.OUTCOME_SCOPE,
                 "state": receipt.status.value,
                 "reservation_id": reservation["reservation_id"],
@@ -272,14 +311,57 @@ class DurableActionOutcomeRepository:
                 "output": output,
                 "sealed_at": now.isoformat(),
             }
-        )
+        if proof is not None and reconciliation_lease is not None:
+            if (
+                proof.action_digest != action.action_digest()
+                or proof.idempotency_key != action.idempotency_key
+                or proof.output != output
+                or not proof.evidence_kind or not proof.evidence_ref
+                or len(proof.evidence_digest) != 64
+                or any(c not in "0123456789abcdef" for c in proof.evidence_digest)
+                or receipt.status is not ReceiptStatus.SUCCEEDED
+                or reconciliation_lease.run_id != action.run_id
+                or reconciliation_lease.fence != permit.lease_fence
+                or not isinstance(reservation.get("execution_lease"), dict)
+            ):
+                raise ValueError("invalid reserved effect reconciliation bindings")
+            body["reconciliation"] = self._with_record_digest({
+                "schema_version": "reserved-effect-reconciliation.v1",
+                "reservation_digest": reservation["record_digest"],
+                "original_execution_lease": reservation["execution_lease"],
+                "execution_lease": reconciliation_lease.payload(),
+                "action_digest": action.action_digest(),
+                "idempotency_key": action.idempotency_key,
+                "permit_digest": _sha256(_canonical_json_bytes(permit.model_dump(mode="json"))),
+                "correction_epochs": permit.correction_epochs.model_dump(mode="json"),
+                "evidence_kind": proof.evidence_kind,
+                "evidence_ref": proof.evidence_ref,
+                "evidence_digest": proof.evidence_digest,
+                "output_digest": _sha256(_canonical_json_bytes(output)),
+            })
+        outcome = self._with_record_digest(body)
+        # Validate the whole record before it can acquire durable truth.
+        self._load_outcome(action, reservation, outcome)
         try:
-            inserted = self._put_record(
+            if reconciliation_lease is not None:
+                setter = getattr(self._store, "put_reconciled_outcome", None)
+                if not callable(setter):
+                    raise TypeError("durable store lacks atomic reconciled outcome insert")
+                inserted = bool(setter(
+                    task_id=action.task_id, run_id=action.run_id,
+                    owner=reconciliation_lease.owner, fence=reconciliation_lease.fence,
+                    capability_id=action.capability_id, correction_epochs=permit.correction_epochs,
+                    reservation_scope=self.RESERVATION_SCOPE, key=action.idempotency_key,
+                    reservation_digest=reservation["record_digest"], outcome_scope=self.OUTCOME_SCOPE,
+                    response=outcome, created_at=now.isoformat(),
+                ))
+            else:
+                inserted = self._put_record(
                 self.OUTCOME_SCOPE,
                 action.idempotency_key,
                 outcome,
                 now,
-            )
+                )
             if inserted:
                 return CapabilityResult(
                     receipt=receipt,
@@ -359,6 +441,8 @@ class DurableActionOutcomeRepository:
             "sealed_at",
             "record_digest",
         }
+        if "reconciliation" in outcome:
+            required.add("reconciliation")
         self._validate_record(outcome, required, self.OUTCOME_SCOPE)
         bindings = {
             "reservation_id": reservation["reservation_id"],
@@ -382,9 +466,38 @@ class DurableActionOutcomeRepository:
         permit = ActionPermit.model_validate(permit_value)
         receipt = ActionReceipt.model_validate(receipt_value)
         lease_value = reservation.get("execution_lease")
+        reconciliation = outcome.get("reconciliation")
+        if reconciliation is not None:
+            if not isinstance(reconciliation, dict):
+                raise ValueError("invalid reserved effect reconciliation record")
+            self._validate_record(reconciliation, {
+                "schema_version", "reservation_digest", "original_execution_lease",
+                "execution_lease", "action_digest", "idempotency_key", "permit_digest",
+                "correction_epochs", "evidence_kind", "evidence_ref", "evidence_digest",
+                "output_digest", "record_digest",
+            }, "reserved-effect-reconciliation.v1")
+            new_lease = reconciliation["execution_lease"]
+            if not isinstance(new_lease, dict) or set(new_lease) != {"run_id", "owner", "fence", "expires_at"}:
+                raise ValueError("invalid reconciliation execution lease")
+            if (
+                reconciliation["reservation_digest"] != reservation["record_digest"]
+                or reconciliation["original_execution_lease"] != lease_value
+                or reconciliation["action_digest"] != action.action_digest()
+                or reconciliation["idempotency_key"] != action.idempotency_key
+                or reconciliation["permit_digest"] != _sha256(_canonical_json_bytes(permit.model_dump(mode="json")))
+                or reconciliation["correction_epochs"] != permit.correction_epochs.model_dump(mode="json")
+                or reconciliation["output_digest"] != _sha256(_canonical_json_bytes(output_value))
+                or new_lease["run_id"] != action.run_id
+                or new_lease["fence"] != permit.lease_fence
+                or not new_lease["owner"]
+                or receipt.status is not ReceiptStatus.SUCCEEDED
+                or not isinstance(lease_value, dict)
+            ):
+                raise ValueError("reserved effect reconciliation binding mismatch")
         if (
             isinstance(lease_value, dict)
             and lease_value.get("fence") != permit.lease_fence
+            and reconciliation is None
         ):
             raise ValueError("stored permit/execution lease fence mismatch")
         if not permit.matches(action):
