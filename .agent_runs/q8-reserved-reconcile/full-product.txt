@@ -1,0 +1,295 @@
+...................................................F.FFFFF..FFFFFF.FFFFF [  2%]
+F..FFF.FFFFF............................................................ [  4%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 23%]
+........................................................................ [ 25%]
+.............................s.......................................... [ 27%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 50%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 67%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+........................................................................ [ 81%]
+........................................................................ [ 83%]
+........................................................................ [ 85%]
+...............................................FF....................... [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+........................................................................ [ 94%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+________ test_daemon_spawns_a_child_session_and_exposes_the_attribution ________
+tests/product/test_agent_spawn_daemon_e2e.py:436: in test_daemon_spawns_a_child_session_and_exposes_the_attribution
+    assert turn.stop_reason == "completed", turn.text
+E   AssertionError: UNKNOWN_REQUIRES_REVIEW [POST_DISPATCH_UNCERTAIN]: TaskNotFoundError: task not found: task-9e2a5926-87c7-4c78-98ba-cd415a2739f0 - the effect may already have happened, so this action is not a success and was not retried; a human must review and reconcile it before the Run can continue
+E   assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+______ test_daemon_parent_correction_stops_the_children_pending_dispatch _______
+tests/product/test_agent_spawn_daemon_e2e.py:595: in test_daemon_parent_correction_stops_the_children_pending_dispatch
+    assert turn.stop_reason == "completed", turn.text
+E   AssertionError: UNKNOWN_REQUIRES_REVIEW [POST_DISPATCH_UNCERTAIN]: TaskNotFoundError: task not found: task-83bb7688-5a54-4de6-aec0-5be1fe1662fb - the effect may already have happened, so this action is not a success and was not retried; a human must review and reconcile it before the Run can continue
+E   assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+_________ test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome __________
+tests/product/test_agent_spawn_daemon_e2e.py:689: in test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome
+    assert wait_for(child_started, timeout=30.0), "the child turn never started"
+E   AssertionError: the child turn never started
+E   assert False
+E    +  where False = wait_for(<function test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome.<locals>.child_started at 0x10a2ef600>, timeout=30.0)
+________ test_daemon_operator_can_stop_one_in_flight_child_over_surface ________
+tests/product/test_agent_spawn_daemon_e2e.py:843: in test_daemon_operator_can_stop_one_in_flight_child_over_surface
+    assert wait_for(child_started, timeout=30.0), "the child turn never started"
+E   AssertionError: the child turn never started
+E   assert False
+E    +  where False = wait_for(<function test_daemon_operator_can_stop_one_in_flight_child_over_surface.<locals>.child_started at 0x10a2ef920>, timeout=30.0)
+____________ test_daemon_operator_close_cascades_to_in_flight_child ____________
+tests/product/test_agent_spawn_daemon_e2e.py:1015: in test_daemon_operator_close_cascades_to_in_flight_child
+    assert turn.stop_reason == "completed", turn.text
+E   AssertionError: UNKNOWN_REQUIRES_REVIEW [POST_DISPATCH_UNCERTAIN]: TaskNotFoundError: task not found: task-5c08eadd-e439-4e5d-8e41-e9b4b71f077d - the effect may already have happened, so this action is not a success and was not retried; a human must review and reconcile it before the Run can continue
+E   assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+______ test_list_sessions_and_children_do_not_block_during_inflight_child ______
+tests/product/test_agent_spawn_daemon_e2e.py:1169: in test_list_sessions_and_children_do_not_block_during_inflight_child
+    assert wait_for(child_spawned, timeout=10.0), (
+E   AssertionError: the child was never spawned
+E   assert False
+E    +  where False = wait_for(<function test_list_sessions_and_children_do_not_block_during_inflight_child.<locals>.child_spawned at 0x10a2eff60>, timeout=10.0)
+_____ test_turning_the_switch_off_does_not_corrupt_a_session_with_children _____
+tests/product/test_agent_spawn_kernel.py:217: in test_turning_the_switch_off_does_not_corrupt_a_session_with_children
+    child = child_record(enabled, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+______________ test_explore_child_grants_are_derived_and_narrowed ______________
+tests/product/test_agent_spawn_kernel.py:251: in test_explore_child_grants_are_derived_and_narrowed
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+_________________ test_narrowed_child_grants_survive_a_restart _________________
+tests/product/test_agent_spawn_kernel.py:274: in test_narrowed_child_grants_survive_a_restart
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+________________ test_a_tampered_child_grant_block_fails_closed ________________
+tests/product/test_agent_spawn_kernel.py:322: in test_a_tampered_child_grant_block_fails_closed
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+______ test_pre_fix_child_keeps_dispatching_after_the_parent_is_corrected ______
+tests/product/test_agent_spawn_kernel.py:374: in test_pre_fix_child_keeps_dispatching_after_the_parent_is_corrected
+    app, session, child = parked_child_run(
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+____________ test_parent_correction_halts_the_child_before_dispatch ____________
+tests/product/test_agent_spawn_kernel.py:396: in test_parent_correction_halts_the_child_before_dispatch
+    app, session, child = parked_child_run(tmp_path)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+________ test_child_is_individually_stoppable_through_the_existing_path ________
+tests/product/test_agent_spawn_kernel.py:448: in test_child_is_individually_stoppable_through_the_existing_path
+    app, session, child = parked_child_run(tmp_path)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+_________________ test_parent_closure_stops_in_flight_children _________________
+tests/product/test_agent_spawn_kernel.py:464: in test_parent_closure_stops_in_flight_children
+    app, session, child = parked_child_run(tmp_path)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+___________ test_g10_single_child_stop_leaves_its_sibling_in_flight ____________
+tests/product/test_agent_spawn_kernel.py:525: in test_g10_single_child_stop_leaves_its_sibling_in_flight
+    app, session, children = _two_parked_children(tmp_path)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:498: in _two_parked_children
+    assert len(children) == 2, f"expected two in-flight children, got {len(children)}"
+E   AssertionError: expected two in-flight children, got 0
+E   assert 0 == 2
+E    +  where 0 = len(())
+_________ test_g10_operator_close_stops_every_in_flight_child_durably __________
+tests/product/test_agent_spawn_kernel.py:566: in test_g10_operator_close_stops_every_in_flight_child_durably
+    app, session, children = _two_parked_children(tmp_path)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:498: in _two_parked_children
+    assert len(children) == 2, f"expected two in-flight children, got {len(children)}"
+E   AssertionError: expected two in-flight children, got 0
+E   assert 0 == 2
+E    +  where 0 = len(())
+_______ test_child_parking_on_an_approval_is_surfaced_not_auto_approved ________
+tests/product/test_agent_spawn_kernel.py:592: in test_child_parking_on_an_approval_is_surfaced_not_auto_approved
+    app, session, child = parked_child_run(tmp_path)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+___________ test_child_wall_clock_bound_is_a_bound_not_a_preemption ____________
+tests/product/test_agent_spawn_kernel.py:641: in test_child_wall_clock_bound_is_a_bound_not_a_preemption
+    assert finishes[-1]["status"] == "timeout"
+           ^^^^^^^^^^^^
+E   IndexError: list index out of range
+____________ test_burial_refuses_a_child_parked_on_a_human_decision ____________
+tests/product/test_agent_spawn_kernel.py:810: in test_burial_refuses_a_child_parked_on_a_human_decision
+    app, session, child = parked_child_run(tmp_path)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+____________ test_fan_out_bound_is_enforced_before_any_child_exists ____________
+tests/product/test_agent_spawn_kernel.py:842: in test_fan_out_bound_is_enforced_before_any_child_exists
+    assert len(spawned) == 1
+E   assert 0 == 1
+E    +  where 0 = len([])
+________ test_attribution_includes_children_without_copying_their_text _________
+tests/product/test_agent_spawn_kernel.py:862: in test_attribution_includes_children_without_copying_their_text
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+_______ test_child_grant_is_derived_by_the_contract_function_not_by_hand _______
+tests/product/test_agent_spawn_kernel.py:915: in test_child_grant_is_derived_by_the_contract_function_not_by_hand
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+___________ test_nested_spawn_is_refused_without_the_explicit_opt_in ___________
+tests/product/test_agent_spawn_kernel.py:958: in test_nested_spawn_is_refused_without_the_explicit_opt_in
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+____________ test_one_in_flight_turn_per_child_session_is_preserved ____________
+tests/product/test_agent_spawn_kernel.py:974: in test_one_in_flight_turn_per_child_session_is_preserved
+    app, session, child = parked_child_run(tmp_path)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:363: in parked_child_run
+    assert result.stop_reason == "completed"
+E   AssertionError: assert 'unknown_requires_review' == 'completed'
+E     
+E     - completed
+E     + unknown_requires_review
+____________ test_child_actions_take_the_same_single_dispatch_path _____________
+tests/product/test_agent_spawn_kernel.py:1014: in test_child_actions_take_the_same_single_dispatch_path
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+_____________ test_child_parking_writes_the_operator_visible_card ______________
+tests/product/test_agent_spawn_kernel.py:1045: in test_child_parking_writes_the_operator_visible_card
+    child = child_record(app, session.task_id)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/product/test_agent_spawn_kernel.py:151: in child_record
+    assert children, "the parent stream has no child-agent record"
+E   AssertionError: the parent stream has no child-agent record
+E   assert ()
+______ test_restart_after_second_receipt_before_tool_reuses_exact_action _______
+tests/product/test_surface_runtime.py:1525: in test_restart_after_second_receipt_before_tool_reuses_exact_action
+    with pytest.raises(_ProcessCrash, match="second receipt"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE _ProcessCrash
+_________ test_restart_after_second_tool_checkpoint_skips_exact_action _________
+tests/product/test_surface_runtime.py:1593: in test_restart_after_second_tool_checkpoint_skips_exact_action
+    with pytest.raises(_ProcessCrash, match="second TOOL"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE _ProcessCrash
+=========================== short test summary info ============================
+FAILED tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_spawns_a_child_session_and_exposes_the_attribution
+FAILED tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_parent_correction_stops_the_children_pending_dispatch
+FAILED tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_crash_mid_child_is_buried_as_an_unknown_outcome
+FAILED tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_operator_can_stop_one_in_flight_child_over_surface
+FAILED tests/product/test_agent_spawn_daemon_e2e.py::test_daemon_operator_close_cascades_to_in_flight_child
+FAILED tests/product/test_agent_spawn_daemon_e2e.py::test_list_sessions_and_children_do_not_block_during_inflight_child
+FAILED tests/product/test_agent_spawn_kernel.py::test_turning_the_switch_off_does_not_corrupt_a_session_with_children
+FAILED tests/product/test_agent_spawn_kernel.py::test_explore_child_grants_are_derived_and_narrowed
+FAILED tests/product/test_agent_spawn_kernel.py::test_narrowed_child_grants_survive_a_restart
+FAILED tests/product/test_agent_spawn_kernel.py::test_a_tampered_child_grant_block_fails_closed
+FAILED tests/product/test_agent_spawn_kernel.py::test_pre_fix_child_keeps_dispatching_after_the_parent_is_corrected
+FAILED tests/product/test_agent_spawn_kernel.py::test_parent_correction_halts_the_child_before_dispatch
+FAILED tests/product/test_agent_spawn_kernel.py::test_child_is_individually_stoppable_through_the_existing_path
+FAILED tests/product/test_agent_spawn_kernel.py::test_parent_closure_stops_in_flight_children
+FAILED tests/product/test_agent_spawn_kernel.py::test_g10_single_child_stop_leaves_its_sibling_in_flight
+FAILED tests/product/test_agent_spawn_kernel.py::test_g10_operator_close_stops_every_in_flight_child_durably
+FAILED tests/product/test_agent_spawn_kernel.py::test_child_parking_on_an_approval_is_surfaced_not_auto_approved
+FAILED tests/product/test_agent_spawn_kernel.py::test_child_wall_clock_bound_is_a_bound_not_a_preemption
+FAILED tests/product/test_agent_spawn_kernel.py::test_burial_refuses_a_child_parked_on_a_human_decision
+FAILED tests/product/test_agent_spawn_kernel.py::test_fan_out_bound_is_enforced_before_any_child_exists
+FAILED tests/product/test_agent_spawn_kernel.py::test_attribution_includes_children_without_copying_their_text
+FAILED tests/product/test_agent_spawn_kernel.py::test_child_grant_is_derived_by_the_contract_function_not_by_hand
+FAILED tests/product/test_agent_spawn_kernel.py::test_nested_spawn_is_refused_without_the_explicit_opt_in
+FAILED tests/product/test_agent_spawn_kernel.py::test_one_in_flight_turn_per_child_session_is_preserved
+FAILED tests/product/test_agent_spawn_kernel.py::test_child_actions_take_the_same_single_dispatch_path
+FAILED tests/product/test_agent_spawn_kernel.py::test_child_parking_writes_the_operator_visible_card
+FAILED tests/product/test_surface_runtime.py::test_restart_after_second_receipt_before_tool_reuses_exact_action
+FAILED tests/product/test_surface_runtime.py::test_restart_after_second_tool_checkpoint_skips_exact_action
+28 failed, 3082 passed, 1 skipped in 346.50s (0:05:46)
