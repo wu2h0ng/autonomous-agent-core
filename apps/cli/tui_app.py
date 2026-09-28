@@ -7,6 +7,8 @@ incremental stream polls. textual is a UI-only extra (frozen D2 boundary).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -22,6 +24,7 @@ from apps.cli.tui_controller import (
 )
 
 POLL_INTERVAL_SECONDS = 0.1
+APP_VERSION = "local"
 
 COMMANDS: tuple[tuple[str, str], ...] = (
     ("/model", "choose model and reasoning effort"),
@@ -63,6 +66,13 @@ class AgentTuiApp(App[None]):
         padding: 0 1;
     }
 
+    #home {
+        height: auto;
+        border: round $primary;
+        padding: 1 2;
+        margin: 1;
+    }
+
     #prompt {
         margin: 0 1 1 1;
         border: tall $accent;
@@ -75,6 +85,12 @@ class AgentTuiApp(App[None]):
     }
 
     #hints {
+        height: 1;
+        margin: 0 1;
+        color: $text-muted;
+    }
+
+    #status {
         height: 1;
         margin: 0 1;
         color: $text-muted;
@@ -97,12 +113,16 @@ class AgentTuiApp(App[None]):
         yield Header()
         with Horizontal(id="main"):
             with Vertical(id="conversation"):
+                yield Static("", id="home")
                 yield RichLog(id="chat", wrap=True, markup=True)
                 yield Static("", id="command-palette")
                 yield Input(placeholder="Tell the agent what to do…", id="prompt")
                 yield Static("/ commands · @ files · ! shell", id="hints")
+                yield Static("", id="status")
 
     def on_mount(self) -> None:
+        self._refresh_home()
+        self._refresh_status_bar()
         self._refresh_chat()
         self.set_interval(POLL_INTERVAL_SECONDS, self._poll)
 
@@ -112,7 +132,19 @@ class AgentTuiApp(App[None]):
         if self._controller.status not in {STATUS_STREAMING, STATUS_STALLED}:
             self._controller.refresh_events()
         self._controller.tick()
+        self._refresh_home()
+        self._refresh_status_bar()
         self._refresh_chat()
+
+    def _refresh_home(self) -> None:
+        try:
+            home = self.query_one("#home", Static)
+        except NoMatches:
+            return
+        if self._controller.messages or self._controller.activity or self._controller.todos:
+            home.update("")
+            return
+        home.update(_home_content(self._controller))
 
     def _refresh_chat(self) -> None:
         try:
@@ -213,6 +245,7 @@ class AgentTuiApp(App[None]):
             self.query_one("#chat", RichLog).write(f"[red]error: {exc}[/red]")
             self._refresh_chat()
             return
+        self._refresh_home()
         self._poll()
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -292,6 +325,13 @@ class AgentTuiApp(App[None]):
             rows.append(f"{pointer} {command:<14} {description}")
         palette.update("\n".join(rows))
 
+    def _refresh_status_bar(self) -> None:
+        try:
+            status = self.query_one("#status", Static)
+        except NoMatches:
+            return
+        status.update(_status_bar_content(self._controller))
+
 
 def _compact_preview(preview: str, *, limit: int = 96) -> str:
     lines = [line.strip() for line in preview.splitlines() if line.strip()]
@@ -303,6 +343,30 @@ def _compact_preview(preview: str, *, limit: int = 96) -> str:
     if len(lines) > 1:
         return f"{head} ↵ {len(lines) - 1} lines"
     return head
+
+
+def _home_content(controller: TuiController) -> str:
+    directory = str(Path.cwd())
+    mode = controller.status_line().replace("Approvals: ", "")
+    return "\n".join(
+        [
+            "▰▰▰  [bold cyan]Welcome to Agent OS[/bold cyan]",
+            "     Send /help for help information.",
+            "",
+            f"Directory: {directory}",
+            f"Session:   {controller.session_id}",
+            f"Mode:      {mode}",
+            f"Version:   {APP_VERSION}",
+            "",
+            "No session yet — one will be created on your first message.",
+        ]
+    )
+
+
+def _status_bar_content(controller: TuiController) -> str:
+    mode = controller.status_line().replace("Approvals: ", "")
+    cwd = Path.cwd()
+    return f"Agent OS · {mode} · {cwd} · context: {controller.tokens_total}/256k"
 
 
 def _matching_commands(query: str) -> tuple[tuple[str, str], ...]:

@@ -55,6 +55,51 @@ def test_tui_app_streams_and_shows_unknown_cost() -> None:
     asyncio.run(_drive())
 
 
+def test_tui_app_shows_home_screen_on_empty_startup() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test():
+            home = app.query_one("#home", Static)
+            text = str(home.content)
+            assert "Welcome to Agent OS" in text
+            assert "Directory:" in text
+            assert "Session:" in text
+            assert "Mode:" in text
+            assert "Version:" in text
+            assert "No session yet" in text
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_hides_home_screen_after_first_message() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test() as pilot:
+            app.query_one("#prompt", Input).value = "say hi"
+            await pilot.click("#prompt")
+            await pilot.press("enter")
+            for _ in range(5):
+                await pilot.pause(0.15)
+            home = app.query_one("#home", Static)
+            assert str(home.content) == ""
+
+    asyncio.run(_drive())
+
+
 def test_tui_app_f2_cycles_permission_mode() -> None:
     client = _app_client()
     controller = TuiController(
@@ -283,6 +328,27 @@ def test_tui_app_shows_mainstream_command_hints_without_footer() -> None:
             assert "@ files" in text
             assert "! shell" in text
             assert list(app.query(Footer)) == []
+
+    asyncio.run(_drive())
+
+
+def test_tui_app_shows_mainstream_status_bar() -> None:
+    client = _app_client()
+    controller = TuiController(
+        client=client,  # type: ignore[arg-type]
+        session_id="session:1",
+        task_id="task:1",
+    )
+    app = AgentTuiApp(controller)
+
+    async def _drive() -> None:
+        async with app.run_test():
+            status = app.query_one("#status", Static)
+            text = str(status.content)
+            assert "manual" in text
+            assert "context:" in text
+            assert "0/" in text
+            assert "Agent OS" in text
 
     asyncio.run(_drive())
 
